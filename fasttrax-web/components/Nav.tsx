@@ -46,6 +46,7 @@ export default function Nav() {
   }, []);
 
   return (
+    <>
     <header className="fixed top-0 left-0 right-0 z-50">
       {/* Top bar */}
       <div className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#010A20]" : "bg-transparent"}`}>
@@ -174,7 +175,9 @@ export default function Nav() {
           </div>
         </div>
       </nav>
-      {/* Waiver Modal */}
+    </header>
+
+      {/* Waiver Modal — outside header to avoid stacking context issues with MobileBookBar */}
       {showWaiver && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
@@ -213,6 +216,6 @@ export default function Nav() {
           </div>
         </div>
       )}
-    </header>
+    </>
   );
 }
