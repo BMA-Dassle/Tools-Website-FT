@@ -237,7 +237,7 @@ export default function MenuPage() {
             className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
             style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
-            Join us in the FastTrax VIP every Friday night at 8pm for Karaoke!
+            Check out what&apos;s happening at Nemo&apos;s Brickyard Bistro.
           </p>
 
           {/* Event Cards - Vertical Full-Width Layout */}
@@ -261,8 +261,8 @@ export default function MenuPage() {
               },
               {
                 num: "3",
-                title: "Featured Date",
-                desc: "Check our socials for upcoming events and specials!",
+                title: "Karaoke Fridays",
+                desc: "Join us in the FastTrax VIP every Friday night at 8pm for Karaoke!",
                 borderColor: "rgb(134,82,255)",
                 titleColor: "rgb(134,82,255)",
                 badgeBg: "rgb(134,82,255)",
