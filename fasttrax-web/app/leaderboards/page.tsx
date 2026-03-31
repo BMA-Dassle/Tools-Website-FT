@@ -260,75 +260,125 @@ function msToCountdown(ms: number): string {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+type WsStatus = "connecting" | "connected" | "reconnecting";
+
 function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: string }) {
   const [drivers, setDrivers] = useState<LiveDriver[]>([]);
   const [heatName, setHeatName] = useState("");
   const [heatState, setHeatState] = useState<HeatState>("idle");
   const [timeLeft, setTimeLeft] = useState(0);
   const [noRaces, setNoRaces] = useState(true);
+  const [wsStatus, setWsStatus] = useState<WsStatus>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const prevPositions = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>;
+    let staleTimer: ReturnType<typeof setTimeout>;
     let closed = false;
+    let hasConnectedBefore = false;
+
+    function resetStaleTimer() {
+      clearTimeout(staleTimer);
+      // If no message received in 15s, assume connection is dead
+      staleTimer = setTimeout(() => {
+        if (!closed && wsRef.current) {
+          wsRef.current.close();
+        }
+      }, 15000);
+    }
 
     function connect() {
       if (closed) return;
-      const ws = new WebSocket(`wss://${WS_HOST}:${WS_PORT}/`);
-      wsRef.current = ws;
+      setWsStatus(hasConnectedBefore ? "reconnecting" : "connecting");
 
-      ws.onopen = () => ws.send(`START ${serverKey}`);
+      try {
+        const ws = new WebSocket(`wss://${WS_HOST}:${WS_PORT}/`);
+        wsRef.current = ws;
 
-      ws.onmessage = (evt) => {
-        if (evt.data === "{}") {
-          setNoRaces(true);
-          setDrivers([]);
-          return;
+        ws.onopen = () => {
+          ws.send(`START ${serverKey}`);
+          setWsStatus("connected");
+          hasConnectedBefore = true;
+          resetStaleTimer();
+        };
+
+        ws.onmessage = (evt) => {
+          resetStaleTimer();
+          if (evt.data === "{}") {
+            setNoRaces(true);
+            setDrivers([]);
+            return;
+          }
+          try {
+            const data = JSON.parse(evt.data);
+            setNoRaces(false);
+            setHeatName((data.N || "").replace("[HEAT]", "Heat"));
+
+            const state = data.S as number;
+            setHeatState(state === 1 ? "running" : state === 2 ? "paused" : state >= 3 ? "finished" : "idle");
+            setTimeLeft(data.C || 0);
+
+            const dArr = (data.D || []) as Array<Record<string, unknown>>;
+            const prev = prevPositions.current;
+            const updated = dArr.map((d) => {
+              const name = (d.N as string) || "";
+              const kart = String(d.K ?? "");
+              const pos = (d.P as number) || 0;
+              const id = `${name}-${kart}`;
+              const oldPos = prev.get(id);
+              const delta = oldPos != null ? oldPos - pos : 0;
+              prev.set(id, pos);
+              return {
+                name, kart, position: pos,
+                laps: (d.L as number) || 0,
+                bestLap: (d.B as number) || 0,
+                avgLap: (d.A as number) || 0,
+                lastLap: (d.T as number) || 0,
+                gap: (d.G as string) || "",
+                delta,
+              };
+            });
+            setDrivers(updated);
+          } catch { /* ignore parse errors */ }
+        };
+
+        ws.onclose = () => {
+          clearTimeout(staleTimer);
+          if (!closed) {
+            setWsStatus("reconnecting");
+            reconnectTimer = setTimeout(connect, 3000);
+          }
+        };
+        ws.onerror = () => ws.close();
+      } catch {
+        // WebSocket constructor can throw on bad URL etc.
+        if (!closed) {
+          setWsStatus("reconnecting");
+          reconnectTimer = setTimeout(connect, 3000);
         }
-        try {
-          const data = JSON.parse(evt.data);
-          setNoRaces(false);
-          setHeatName((data.N || "").replace("[HEAT]", "Heat"));
-
-          const state = data.S as number;
-          setHeatState(state === 1 ? "running" : state === 2 ? "paused" : state >= 3 ? "finished" : "idle");
-          setTimeLeft(data.C || 0);
-
-          const dArr = (data.D || []) as Array<Record<string, unknown>>;
-          const prev = prevPositions.current;
-          const updated = dArr.map((d) => {
-            const name = (d.N as string) || "";
-            const kart = String(d.K ?? "");
-            const pos = (d.P as number) || 0;
-            const id = `${name}-${kart}`;
-            const oldPos = prev.get(id);
-            const delta = oldPos != null ? oldPos - pos : 0; // positive = gained
-            prev.set(id, pos);
-            return {
-              name, kart, position: pos,
-              laps: (d.L as number) || 0,
-              bestLap: (d.B as number) || 0,
-              avgLap: (d.A as number) || 0,
-              lastLap: (d.T as number) || 0,
-              gap: (d.G as string) || "",
-              delta,
-            };
-          });
-          setDrivers(updated);
-        } catch { /* ignore parse errors */ }
-      };
-
-      ws.onclose = () => {
-        if (!closed) reconnectTimer = setTimeout(connect, 5000);
-      };
-      ws.onerror = () => ws.close();
+      }
     }
 
     connect();
+
+    // Reconnect when tab becomes visible again (mobile screen unlock, tab switch)
+    function onVisibility() {
+      if (document.visibilityState === "visible" && !closed) {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          clearTimeout(reconnectTimer);
+          connect();
+        }
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       closed = true;
       clearTimeout(reconnectTimer);
+      clearTimeout(staleTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
       wsRef.current?.close();
     };
   }, [serverKey]);
@@ -348,7 +398,9 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
           <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
           <path d="M12 6v6l4 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-        <p className="font-[var(--font-poppins)] text-white/40 text-sm">No races running</p>
+        <p className="font-[var(--font-poppins)] text-white/40 text-sm">
+          {wsStatus === "connecting" ? "Connecting..." : wsStatus === "reconnecting" ? "Reconnecting..." : "No races running"}
+        </p>
       </div>
     );
   }
@@ -385,13 +437,17 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
             }}
           />
         )}
-        <span className="font-[var(--font-anton)] uppercase tracking-wider text-base relative z-10">
+        <span className="font-[var(--font-anton)] uppercase tracking-wider text-base relative z-10 flex items-center gap-2">
           {heatName}
+          {wsStatus === "reconnecting" && (
+            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" title="Reconnecting..." />
+          )}
         </span>
         <span className="font-[var(--font-poppins)] font-semibold text-sm relative z-10">
-          {heatState === "running" && timeLeft > 0 && msToCountdown(timeLeft)}
-          {heatState === "paused" && "PAUSED"}
-          {heatState === "finished" && "CHECKERED FLAG"}
+          {wsStatus === "reconnecting" && "RECONNECTING..."}
+          {wsStatus !== "reconnecting" && heatState === "running" && timeLeft > 0 && msToCountdown(timeLeft)}
+          {wsStatus !== "reconnecting" && heatState === "paused" && "PAUSED"}
+          {wsStatus !== "reconnecting" && heatState === "finished" && "CHECKERED FLAG"}
         </span>
       </div>
 
