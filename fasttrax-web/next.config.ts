@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self' https://www.cognitoforms.com",
-            "frame-ancestors 'self'",
+            "frame-ancestors 'self' https://booking.bmileisure.com",
           ].join("; "),
         },
       ],
