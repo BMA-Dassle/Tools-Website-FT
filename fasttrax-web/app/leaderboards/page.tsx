@@ -395,9 +395,9 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
         </span>
       </div>
 
-      {/* Table header — mobile hides Laps + Avg to give Driver name room */}
+      {/* Table header — mobile: Pos/Driver/Kart/Laps/Best/Last  desktop: + Avg + Gap */}
       <div
-        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 grid-cols-[30px_1fr_36px_68px_68px_48px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 grid-cols-[28px_1fr_34px_32px_62px_62px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
         style={{
           color: "rgba(255,255,255,0.5)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -406,18 +406,18 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
         <span>Pos</span>
         <span>Driver</span>
         <span className="text-center">Kart</span>
-        <span className="hidden sm:block text-center">Laps</span>
+        <span className="text-center">Laps</span>
         <span className="text-right">Best</span>
         <span className="text-right">Last</span>
         <span className="hidden sm:block text-right">Avg</span>
-        <span className="text-right">Gap</span>
+        <span className="hidden sm:block text-right">Gap</span>
       </div>
 
       {/* Driver rows */}
       {drivers.map((d, i) => (
         <div
           key={`${d.name}-${d.kart}`}
-          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 grid-cols-[30px_1fr_36px_68px_68px_48px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 grid-cols-[28px_1fr_34px_32px_62px_62px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
           style={{
             fontSize: "13px",
             borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
@@ -443,11 +443,11 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
             {d.name}
           </span>
           <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.kart}</span>
-          <span className="hidden sm:block text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
+          <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
           <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
           <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
           <span className="hidden sm:block text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
-          <span className="text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+          <span className="hidden sm:block text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
             {i === 0 ? "" : d.gap}
           </span>
         </div>
@@ -464,12 +464,24 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
   return (
     <div>
       {isMega && (
-        <h3
-          className="font-[var(--font-anton)] uppercase text-center mb-6"
-          style={{ color: "rgb(134,82,255)", fontSize: "24px", letterSpacing: "1.2px" }}
-        >
-          Mega Track Live
-        </h3>
+        <div className="flex items-center justify-center gap-3 mb-6">
+          <h3
+            className="font-[var(--font-anton)] uppercase"
+            style={{ color: "rgb(134,82,255)", fontSize: "24px", letterSpacing: "1.2px" }}
+          >
+            Mega Track Live
+          </h3>
+          <a
+            href={`https://modules.bmileisure.com/Livetiming/?key=${BMI_LIVE_KEY}&resourceId=-1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-[var(--font-poppins)] text-xs transition-opacity hover:opacity-100"
+            style={{ color: "rgba(255,255,255,0.5)", opacity: 0.7 }}
+            title="Open full live timing in a new window"
+          >
+            ↗ Full View
+          </a>
+        </div>
       )}
 
       <div className={`grid grid-cols-1 ${!isMega ? "md:grid-cols-2" : ""} gap-5`}>
@@ -477,24 +489,26 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
           const fullscreenUrl = `https://modules.bmileisure.com/Livetiming/?key=${BMI_LIVE_KEY}&resourceId=${t.resourceId}`;
           return (
             <div key={t.key}>
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <h4
-                  className="font-[var(--font-anton)] uppercase"
-                  style={{ color: isMega ? "rgb(134,82,255)" : t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
-                >
-                  {isMega ? "Mega Track" : `${t.label} Live`}
-                </h4>
-                <a
-                  href={fullscreenUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-[var(--font-poppins)] text-xs transition-opacity hover:opacity-100"
-                  style={{ color: "rgba(255,255,255,0.5)", opacity: 0.7 }}
-                  title="Open full live timing in a new window"
-                >
-                  ↗ Full View
-                </a>
-              </div>
+              {!isMega && (
+                <div className="flex items-center justify-center gap-3 mb-4">
+                  <h4
+                    className="font-[var(--font-anton)] uppercase"
+                    style={{ color: t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
+                  >
+                    {`${t.label} Live`}
+                  </h4>
+                  <a
+                    href={fullscreenUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-[var(--font-poppins)] text-xs transition-opacity hover:opacity-100"
+                    style={{ color: "rgba(255,255,255,0.5)", opacity: 0.7 }}
+                    title="Open full live timing in a new window"
+                  >
+                    ↗ Full View
+                  </a>
+                </div>
+              )}
               <LiveTimingPanel serverKey={t.serverKey} accent={isMega ? "rgb(134,82,255)" : t.accent} />
             </div>
           );
@@ -648,41 +662,43 @@ export default function LeaderboardsPage() {
             ))}
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap justify-center gap-3 mb-10">
-            {/* Time Range */}
-            {(["month", "year", "alltime"] as TimeRange[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setTimeRange(r)}
-                className="font-[var(--font-poppins)] font-semibold uppercase text-sm px-5 py-2.5 rounded-full transition-all cursor-pointer"
-                style={{
-                  backgroundColor: timeRange === r ? "rgb(228,28,29)" : "rgba(7,16,39,0.5)",
-                  color: timeRange === r ? "white" : "rgba(255,255,255,0.6)",
-                  border: timeRange === r ? "1px solid rgb(228,28,29)" : "1px solid rgba(255,255,255,0.15)",
-                }}
-              >
-                {r === "month" ? "This Month" : r === "year" ? "This Year" : "All Time"}
-              </button>
-            ))}
+          {/* Filters — two rows on mobile, single row on desktop */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-10">
+            <div className="flex gap-2">
+              {(["month", "year", "alltime"] as TimeRange[]).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setTimeRange(r)}
+                  className="font-[var(--font-poppins)] font-semibold uppercase text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-full transition-all cursor-pointer"
+                  style={{
+                    backgroundColor: timeRange === r ? "rgb(228,28,29)" : "rgba(7,16,39,0.5)",
+                    color: timeRange === r ? "white" : "rgba(255,255,255,0.6)",
+                    border: timeRange === r ? "1px solid rgb(228,28,29)" : "1px solid rgba(255,255,255,0.15)",
+                  }}
+                >
+                  {r === "month" ? "This Month" : r === "year" ? "This Year" : "All Time"}
+                </button>
+              ))}
+            </div>
 
-            <div style={{ width: "1px", backgroundColor: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
+            <div className="hidden sm:block" style={{ width: "1px", height: "28px", backgroundColor: "rgba(255,255,255,0.15)" }} />
 
-            {/* Class Filter */}
-            {(["adult", "junior"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setClassFilter(f)}
-                className="font-[var(--font-poppins)] font-semibold uppercase text-sm px-5 py-2.5 rounded-full transition-all cursor-pointer"
-                style={{
-                  backgroundColor: classFilter === f ? "rgb(134,82,255)" : "rgba(7,16,39,0.5)",
-                  color: classFilter === f ? "white" : "rgba(255,255,255,0.6)",
-                  border: classFilter === f ? "1px solid rgb(134,82,255)" : "1px solid rgba(255,255,255,0.15)",
-                }}
-              >
-                {f === "adult" ? "Adult" : "Junior"}
-              </button>
-            ))}
+            <div className="flex gap-2">
+              {(["adult", "junior"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setClassFilter(f)}
+                  className="font-[var(--font-poppins)] font-semibold uppercase text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-full transition-all cursor-pointer"
+                  style={{
+                    backgroundColor: classFilter === f ? "rgb(134,82,255)" : "rgba(7,16,39,0.5)",
+                    color: classFilter === f ? "white" : "rgba(255,255,255,0.6)",
+                    border: classFilter === f ? "1px solid rgb(134,82,255)" : "1px solid rgba(255,255,255,0.15)",
+                  }}
+                >
+                  {f === "adult" ? "Adult" : "Junior"}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Leaderboard Grid */}
