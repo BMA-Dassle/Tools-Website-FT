@@ -1,5 +1,9 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import Script from "next/script";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
@@ -65,6 +69,14 @@ const vipAmenities = [
 ];
 
 export default function GroupEventsPage() {
+  const [showForm, setShowForm] = useState(false);
+  const [cognitoLoaded, setCognitoLoaded] = useState(false);
+
+  useEffect(() => {
+    if (showForm && cognitoLoaded && typeof window !== "undefined" && (window as any).Cognito) {
+      (window as any).Cognito.load("forms", { id: "21" });
+    }
+  }, [showForm, cognitoLoaded]);
   return (
     <>
       <SubpageHero
@@ -373,11 +385,9 @@ export default function GroupEventsPage() {
           >
             Tell us about your event and our team will craft a custom package.
           </p>
-          <a
-            href="https://fasttraxent.com/eventform/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
             style={{
               backgroundColor: "rgb(228,28,29)",
               borderRadius: "555px",
@@ -386,9 +396,56 @@ export default function GroupEventsPage() {
             }}
           >
             REQUEST AN EVENT QUOTE
-          </a>
+          </button>
         </div>
       </section>
+
+      {/* Cognito Form Modal */}
+      {showForm && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ backgroundColor: "rgba(0,4,24,0.85)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
+        >
+          <div
+            className="relative w-full max-w-2xl mx-4 rounded-xl overflow-hidden"
+            style={{
+              backgroundColor: "#0a1128",
+              border: "1.78px solid rgba(228,28,29,0.4)",
+              maxHeight: "90vh",
+            }}
+          >
+            <button
+              onClick={() => setShowForm(false)}
+              className="absolute top-4 right-4 z-10 text-white hover:text-red-400 transition-colors"
+              style={{ fontSize: "28px", lineHeight: 1 }}
+            >
+              &times;
+            </button>
+            <div className="p-6 overflow-y-auto" style={{ maxHeight: "90vh" }}>
+              <h3
+                className="font-[var(--font-anton)] italic uppercase text-white text-center mb-6"
+                style={{
+                  fontSize: "36px",
+                  letterSpacing: "2px",
+                  textShadow: "rgba(28,0,255,0.4) 0px 0px 30px",
+                }}
+              >
+                Event Quote Request
+              </h3>
+              <div className="cognito">
+                <Script
+                  src="https://www.cognitoforms.com/f/seamless.js"
+                  data-key="u3qiZTtd8UeGo_mV4yHewA"
+                  data-form="21"
+                  strategy="lazyOnload"
+                  onLoad={() => setCognitoLoaded(true)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

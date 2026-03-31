@@ -104,34 +104,66 @@ export default function LeaderboardsPage() {
           </h2>
 
           <div className="flex flex-col gap-8">
-            {/* Card 1: Wednesday – Monday (Blue Track, Red Track, Mega Track Live) */}
-            <div
-              style={{
-                backgroundColor: "rgba(7,16,39,0.5)",
-                border: "1.78px dashed rgba(228,28,29,0.59)",
-                borderRadius: "8px",
-                padding: "20px",
-              }}
-            >
-              <p
-                className="font-[var(--font-anton)] text-white mb-2"
-                style={{ fontSize: "24px" }}
-              >
-                1
-              </p>
-              <h3
-                className="font-[var(--font-anton)] uppercase mb-6"
+            {/* Live Timing — dynamic based on day */}
+            {isTuesday ? (
+              /* Tuesday: Mega Track only */
+              <div
                 style={{
-                  color: "rgb(228,28,29)",
-                  fontSize: "24px",
-                  letterSpacing: "1.2px",
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(134,82,255,0.63)",
+                  borderRadius: "8px",
+                  padding: "20px",
                 }}
               >
-                Wednesday – Monday
-              </h3>
-
-              {/* Standard mode: shown on non-Tuesdays */}
-              <div style={{ display: isTuesday ? "none" : "block" }}>
+                <h3
+                  className="font-[var(--font-anton)] uppercase mb-6"
+                  style={{
+                    color: "rgb(134,82,255)",
+                    fontSize: "24px",
+                    letterSpacing: "1.2px",
+                  }}
+                >
+                  Mega Track Tuesday
+                </h3>
+                <div className="text-center">
+                  <h4
+                    className="font-[var(--font-anton)] uppercase mb-4"
+                    style={{
+                      color: "rgb(255,42,42)",
+                      fontSize: "24px",
+                      letterSpacing: "1.2px",
+                    }}
+                  >
+                    MEGA TRACK LIVE
+                  </h4>
+                  <iframe
+                    src={liveSrc("-1")}
+                    className="w-full rounded-lg"
+                    style={{ height: "500px", border: "none" }}
+                    title="Mega Track Live Timing"
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Wed–Mon: Blue Track + Red Track */
+              <div
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(228,28,29,0.59)",
+                  borderRadius: "8px",
+                  padding: "20px",
+                }}
+              >
+                <h3
+                  className="font-[var(--font-anton)] uppercase mb-6"
+                  style={{
+                    color: "rgb(228,28,29)",
+                    fontSize: "24px",
+                    letterSpacing: "1.2px",
+                  }}
+                >
+                  Live Race Timing
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="text-center">
                     <h4
@@ -170,95 +202,10 @@ export default function LeaderboardsPage() {
                     />
                   </div>
                 </div>
-                <div className="mt-5 text-center">
-                  <h4
-                    className="font-[var(--font-anton)] uppercase mb-4"
-                    style={{
-                      color: "rgb(255,42,42)",
-                      fontSize: "24px",
-                      letterSpacing: "1.2px",
-                    }}
-                  >
-                    MEGA TRACK LIVE
-                  </h4>
-                  <iframe
-                    src={liveSrc("-1")}
-                    className="w-full rounded-lg"
-                    style={{ height: "500px", border: "none" }}
-                    title="Mega Track Live Timing"
-                  />
-                </div>
               </div>
+            )}
 
-              {/* Mega mode: shown on Tuesdays */}
-              <div style={{ display: isTuesday ? "block" : "none" }}>
-                <div className="text-center">
-                  <h4
-                    className="font-[var(--font-anton)] uppercase mb-4"
-                    style={{
-                      color: "rgb(255,42,42)",
-                      fontSize: "24px",
-                      letterSpacing: "1.2px",
-                    }}
-                  >
-                    MEGA TRACK LIVE
-                  </h4>
-                  <iframe
-                    src={liveSrc("-1")}
-                    className="w-full rounded-lg"
-                    style={{ height: "500px", border: "none" }}
-                    title="Mega Track Live Timing (Tuesday)"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2: Tuesday ONLY */}
-            <div
-              style={{
-                backgroundColor: "rgba(7,16,39,0.5)",
-                border: "1.78px dashed rgba(0,74,173,0.59)",
-                borderRadius: "8px",
-                padding: "20px",
-              }}
-            >
-              <p
-                className="font-[var(--font-anton)] text-white mb-2"
-                style={{ fontSize: "24px" }}
-              >
-                2
-              </p>
-              <h3
-                className="font-[var(--font-anton)] uppercase mb-6"
-                style={{
-                  color: "rgb(0,74,173)",
-                  fontSize: "24px",
-                  letterSpacing: "1.2px",
-                }}
-              >
-                Tuesday ONLY
-              </h3>
-              <div className="text-center">
-                <h4
-                  className="font-[var(--font-anton)] uppercase mb-4"
-                  style={{
-                    color: "rgb(255,42,42)",
-                    fontSize: "24px",
-                    letterSpacing: "1.2px",
-                  }}
-                >
-                  MEGA TRACK
-                </h4>
-                <iframe
-                  src={liveSrc("-1")}
-                  className="w-full rounded-lg"
-                  style={{ height: "500px", border: "none" }}
-                  title="Mega Track Tuesday Timing"
-                />
-              </div>
-            </div>
-
-            {/* Card 3: Persistent (All Days) */}
+            {/* Hall of Fame — always visible */}
             <div
               style={{
                 backgroundColor: "rgba(7,16,39,0.5)",
