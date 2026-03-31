@@ -805,19 +805,19 @@ export default function RacingPage() {
               {
                 num: "1",
                 title: "Arrive 30 Minutes Early",
-                desc: "Clear lines and verify waivers.",
+                desc: "Give yourself the \"Pre-Race Window.\" Arriving early gives you time for any unexpected lines at check-in so you\u2019re cleared for the pits without losing a second of track time.",
                 borderColor: "rgb(228,28,29)",
               },
               {
                 num: "2",
                 title: "The Pit Gate",
-                desc: "Guest Services \u2014 STOP HERE FIRST. Get your credentials and height check.",
+                desc: "Guest Services (2nd Floor) \u2014 STOP HERE FIRST. This is where we verify waivers, check heights/ages, and issue your racing credentials. On weekends, additional team members are at our event check-in desk on the 1st floor.",
                 borderColor: "rgb(0,74,173)",
               },
               {
                 num: "3",
                 title: "Trackside Check-In",
-                desc: "1st Floor \u2014 Rent your POV camera and enter the safety briefing.",
+                desc: "Your race time is the close of karting check-in \u2014 not the start. Be at the 1st floor karting counter at least 5 minutes early to rent your POV camera and enter the safety briefing.",
                 borderColor: "rgb(134,82,255)",
               },
             ].map((step) => (

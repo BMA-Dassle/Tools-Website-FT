@@ -10,23 +10,26 @@ const steps = [
   {
     num: "1",
     title: "ARRIVE 30 MINUTES EARLY",
-    desc: 'Give yourself the "Pre-Race Window." This ensures you clear the lines and get cleared for the pits without losing track time.',
+    subtitle: "",
+    desc: "Give yourself the \"Pre-Race Window.\" Arriving early gives you time for any unexpected lines at check-in so you're cleared for the pits without losing a second of track time.",
     titleColor: "rgb(228,28,29)",
     badgeBg: "rgb(228,28,29)",
     borderColor: "rgb(228,28,29)",
   },
   {
     num: "2",
-    title: "THE PIT GATE (GUEST SERVICES) - MAIN ENTRY",
-    desc: "STOP HERE FIRST. This is where we verify waivers, check heights/ages, and issue your racing credentials.",
+    title: "THE PIT GATE",
+    subtitle: "Guest Services \u2014 2nd Floor",
+    desc: "STOP HERE FIRST. This is where we verify waivers, check heights/ages, and issue your racing credentials. On weekends, additional team members are at our event check-in desk on the 1st floor.",
     titleColor: "rgb(0,74,173)",
     badgeBg: "rgb(0,74,173)",
     borderColor: "rgb(0,74,173)",
   },
   {
     num: "3",
-    title: "TRACKSIDE CHECK-IN (1ST FLOOR)",
-    desc: "Rent your POV camera and enter the safety briefing.",
+    title: "TRACKSIDE CHECK-IN",
+    subtitle: "1st Floor Karting Counter",
+    desc: "Your race time is the close of karting check-in for your heat \u2014 not the start. Be at the 1st floor karting counter at least 5 minutes before your scheduled time to rent your POV camera and enter the safety briefing.",
     titleColor: "rgb(134,82,255)",
     badgeBg: "rgb(134,82,255)",
     borderColor: "rgb(134,82,255)",
@@ -151,11 +154,16 @@ export default function RacerJourney() {
               {/* Text */}
               <div>
                 <h3
-                  className="font-[var(--font-anton)] uppercase mb-2"
-                  style={{ color: s.titleColor, fontSize: "24px" }}
+                  className="font-[var(--font-anton)] uppercase"
+                  style={{ color: s.titleColor, fontSize: "24px", marginBottom: s.subtitle ? "4px" : "8px" }}
                 >
                   {s.title}
                 </h3>
+                {s.subtitle && (
+                  <p style={{ color: "rgba(245,236,238,0.5)", fontSize: "13px", fontFamily: "var(--font-poppins)", marginBottom: "8px" }}>
+                    {s.subtitle}
+                  </p>
+                )}
                 <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-poppins)", lineHeight: "1.5" }}>
                   {s.desc}
                 </p>
