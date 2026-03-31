@@ -266,11 +266,14 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
   const [drivers, setDrivers] = useState<LiveDriver[]>([]);
   const [heatName, setHeatName] = useState("");
   const [heatState, setHeatState] = useState<HeatState>("idle");
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [displayTime, setDisplayTime] = useState(0);
   const [noRaces, setNoRaces] = useState(true);
   const [wsStatus, setWsStatus] = useState<WsStatus>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const prevPositions = useRef<Map<string, number>>(new Map());
+  // Local countdown: sync from WS, tick locally every second
+  const serverTimeRef = useRef(0);
+  const serverReceivedAt = useRef(0);
 
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -317,7 +320,9 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
             const state = data.S as number;
             setHeatState(state === 1 ? "running" : state === 2 ? "paused" : state >= 3 ? "finished" : "idle");
-            setTimeLeft(data.C || 0);
+            // Sync server time — local ticker interpolates between updates
+          serverTimeRef.current = data.C || 0;
+          serverReceivedAt.current = Date.now();
 
             const dArr = (data.D || []) as Array<Record<string, unknown>>;
             const prev = prevPositions.current;
@@ -382,6 +387,17 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
       wsRef.current?.close();
     };
   }, [serverKey]);
+
+  // Local countdown ticker — smooth 1-second updates between WS messages
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (serverTimeRef.current <= 0) return;
+      const elapsed = Date.now() - serverReceivedAt.current;
+      const remaining = Math.max(0, serverTimeRef.current - elapsed);
+      setDisplayTime(remaining);
+    }, 200);
+    return () => clearInterval(id);
+  }, []);
 
   if (noRaces) {
     return (
@@ -448,7 +464,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
         </span>
         <span className="font-[var(--font-poppins)] font-semibold text-sm relative z-10">
           {wsStatus === "reconnecting" && "RECONNECTING..."}
-          {wsStatus !== "reconnecting" && heatState === "running" && timeLeft > 0 && msToCountdown(timeLeft)}
+          {wsStatus !== "reconnecting" && heatState === "running" && displayTime > 0 && msToCountdown(displayTime)}
           {wsStatus !== "reconnecting" && heatState === "paused" && "PAUSED"}
           {wsStatus !== "reconnecting" && heatState === "finished" && "CHECKERED FLAG"}
         </span>
