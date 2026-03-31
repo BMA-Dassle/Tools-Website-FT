@@ -6,11 +6,11 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Attractions – FastTrax & HeadPinz",
   description:
-    "Indoor karting, laser tag, gel blaster arena, duckpin bowling, arcade gaming, axe throwing & more. 113,000 sq. ft. of entertainment in Fort Myers, FL.",
+    "Indoor karting, laser tag, gel blaster arena, duckpin bowling, arcade gaming & more. 113,000 sq. ft. of entertainment in Fort Myers, FL.",
   openGraph: {
     title: "Attractions – FastTrax & HeadPinz",
     description:
-      "Indoor karting, laser tag, gel blaster arena, duckpin bowling, arcade gaming, axe throwing & more. 113,000 sq. ft. of entertainment in Fort Myers, FL.",
+      "Indoor karting, laser tag, gel blaster arena, duckpin bowling, arcade gaming & more. 113,000 sq. ft. of entertainment in Fort Myers, FL.",
   },
 };
 
@@ -107,18 +107,6 @@ const headpinzCards = [
     cta: { label: "BOOK GEL BLASTER", href: "https://booking.bmileisure.com/headpinzftmyers/book/", color: "rgb(134,82,255)" },
   },
   {
-    title: "HeadPinz Aerial Ropes Course",
-    color: "rgb(0,74,173)",
-    borderColor: "rgba(0,74,173,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-3.webp",
-    desc: (
-      <>
-        <strong>The Vibe:</strong> A gravity-defying challenge high above the game floor.
-      </>
-    ),
-    cta: { label: "VIEW HEIGHT REQUIREMENTS", href: "/pricing", color: "rgb(0,74,173)" },
-  },
-  {
     title: "HeadPinz Premier Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
@@ -129,18 +117,6 @@ const headpinzCards = [
       </>
     ),
     cta: { label: "BOOK A LANE", href: "https://booking.bmileisure.com/headpinzftmyers/book/product-list", color: "rgb(0,74,173)" },
-  },
-  {
-    title: "HeadPinz Axe Throwing & Social Games",
-    color: "rgb(228,28,29)",
-    borderColor: "rgba(228,28,29,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-5.webp",
-    desc: (
-      <>
-        <strong>The Vibe:</strong> Modern social competition at its best. Settle the score with the bullseye.
-      </>
-    ),
-    cta: { label: "VIEW SOCIAL GAMES", href: "/pricing", color: "rgb(228,28,29)" },
   },
 ];
 

@@ -8,7 +8,7 @@ const photos = [
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-3.webp",
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-2.webp",
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-4.webp",
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-5.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-4.webp",
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-5.webp",
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/racing-5.webp",
 ];
