@@ -626,7 +626,7 @@ export default function RacingPage() {
             {[
               {
                 num: "1",
-                title: "The 45-Minute Window",
+                title: "The 30-Minute Window",
                 desc: "Arrival time for Guest Services (Ground Floor).",
                 bg: "rgba(228,28,29,0.25)",
                 borderColor: "rgba(228,28,29,0.6)",
@@ -737,7 +737,7 @@ export default function RacingPage() {
             {[
               {
                 num: "1",
-                title: "Arrive 45 Minutes Early",
+                title: "Arrive 30 Minutes Early",
                 desc: "Clear lines and verify waivers.",
                 borderColor: "rgb(228,28,29)",
               },

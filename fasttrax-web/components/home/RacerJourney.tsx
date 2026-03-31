@@ -5,7 +5,7 @@ import Image from "next/image";
 const steps = [
   {
     num: "1",
-    title: "ARRIVE 45 MINUTES EARLY",
+    title: "ARRIVE 30 MINUTES EARLY",
     desc: 'Give yourself the "Pre-Race Window." This ensures you clear the lines and get cleared for the pits without losing track time.',
     titleColor: "rgb(228,28,29)",
     badgeBg: "rgb(228,28,29)",
