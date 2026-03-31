@@ -1,6 +1,7 @@
 "use client";
 
 import SubpageHero from "@/components/SubpageHero";
+import TrackStatus from "@/components/home/TrackStatus";
 import Image from "next/image";
 import { useState } from "react";
 
@@ -18,7 +19,9 @@ export default function RacingPage() {
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/qualifications-hero.webp"
       />
 
-      {/* ── Section: Speed Tiers ── */}
+      <TrackStatus />
+
+      {/* ── Section: Race Types & Qualifications ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
@@ -31,164 +34,207 @@ export default function RacingPage() {
               textShadow: glowShadow,
             }}
           >
-            Speed Tiers: The Ladder to Pro 3
+            Race Types &amp; Qualifications
           </h2>
           <p
-            className="text-center mx-auto"
-            style={{
-              color: "rgba(255,255,255,0.898)",
-              fontSize: "18px",
-              fontFamily: "var(--font-poppins)",
-              lineHeight: "1.6",
-              maxWidth: "700px",
-              marginBottom: "48px",
-            }}
+            className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
+            style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
-            Every racer begins in our Starter heat. Once you prove your skill by
-            hitting specific lap times, your racer profile is permanently
-            upgraded.
+            Every racer starts in Starter. Prove your speed to unlock faster tiers.
           </p>
 
-          {/* Table */}
-          <div className="overflow-x-auto rounded-lg">
-            <table
-              className="w-full max-w-4xl mx-auto"
-              style={{ borderCollapse: "collapse" }}
-            >
-              <thead>
-                <tr>
-                  {[
-                    "Kart Class",
-                    "Starter Speed",
-                    "Intermediate Goal",
-                    "Pro Goal",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left font-[var(--font-poppins)]"
-                      style={{
-                        fontSize: "18px",
-                        fontWeight: 400,
-                        color: "rgba(255,255,255,0.96)",
-                        backgroundColor: "rgba(228,28,29,0.51)",
-                        padding: "16px",
-                        borderBottom:
-                          "0.89px dashed rgba(187,187,187,0.31)",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  style={{
-                    borderBottom: "0.89px dashed rgba(187,187,187,0.31)",
-                  }}
-                >
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Adult Karts (13+ / 59&quot;+)
-                  </td>
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Default Entry
-                  </td>
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Blue: 41.5s
-                    <br />
-                    Red: 47s
-                  </td>
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Blue: 32.5s
-                    <br />
-                    Red: 37.25s
-                  </td>
-                </tr>
-                <tr
-                  style={{
-                    borderBottom: "0.89px dashed rgba(187,187,187,0.31)",
-                  }}
-                >
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Junior Karts (7-12 / 49&quot;+)
-                  </td>
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Default Entry
-                  </td>
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Hit 1m 15s in Starter
-                  </td>
-                  <td
-                    className="font-[var(--font-poppins)]"
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 300,
-                      color: "rgb(255,255,255)",
-                      padding: "16px",
-                    }}
-                  >
-                    Hit 45s in Intermediate
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {[
+              {
+                title: "Adult Starter",
+                color: "rgb(228,28,29)",
+                border: "rgba(228,28,29,0.59)",
+                age: "13+ / 59\u201d+",
+                qual: "None \u2014 all racers start here",
+                desc: "Fun meets friendly competition. Perfect for families, casual drivers, and first-timers.",
+              },
+              {
+                title: "Adult Intermediate",
+                color: "rgb(0,74,173)",
+                border: "rgba(0,74,173,0.59)",
+                age: "16+ / 59\u201d+",
+                qual: "Lap time of 41.5s (Blue) or 47s (Red) in Starter",
+                desc: "For serious drivers. High-speed karts, competitive lap tracking, challenging layout.",
+              },
+              {
+                title: "Adult Pro",
+                color: "rgb(134,82,255)",
+                border: "rgba(134,82,255,0.59)",
+                age: "16+ / 59\u201d+",
+                qual: "Lap time of 32.25s (Blue) or 37.25s (Red) in Intermediate",
+                desc: "Ultimate test of skill and speed. Fastest karts, precision timing, most demanding config.",
+              },
+              {
+                title: "Junior Starter",
+                color: "rgb(228,28,29)",
+                border: "rgba(228,28,29,0.59)",
+                age: "7\u201313 / 49\u201d\u201370\u201d",
+                qual: "None \u2014 all juniors start here",
+                desc: "Speed-controlled karts, easy track layout, team supervision.",
+              },
+              {
+                title: "Junior Intermediate",
+                color: "rgb(0,74,173)",
+                border: "rgba(0,74,173,0.59)",
+                age: "7\u201313 / 49\u201d\u201370\u201d",
+                qual: "Lap time of 1:15 in Junior Starter",
+                desc: "Faster karts, more challenging layout, real competition.",
+              },
+              {
+                title: "Junior Pro",
+                color: "rgb(134,82,255)",
+                border: "rgba(134,82,255,0.59)",
+                age: "7\u201313 / 49\u201d\u201370\u201d",
+                qual: "Lap time of 45s in Junior Intermediate",
+                desc: "Fastest junior karts, precision timing, most demanding config.",
+              },
+            ].map((rt) => (
+              <div
+                key={rt.title}
+                className="flex flex-col h-full"
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${rt.border}`,
+                  borderRadius: "8px",
+                  padding: "24px 20px",
+                }}
+              >
+                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: rt.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                  {rt.title}
+                </h3>
+                <div className="font-[var(--font-poppins)] mb-3 flex flex-col gap-1" style={{ fontSize: "14px" }}>
+                  <p style={{ color: "rgba(245,236,238,0.6)" }}>
+                    <strong style={{ color: "rgba(245,236,238,0.9)" }}>Age/Height:</strong> {rt.age}
+                  </p>
+                  <p style={{ color: "rgba(245,236,238,0.6)" }}>
+                    <strong style={{ color: "rgba(245,236,238,0.9)" }}>Qualification:</strong> {rt.qual}
+                  </p>
+                </div>
+                <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+                  {rt.desc}
+                </p>
+              </div>
+            ))}
           </div>
+
+          <p
+            className="font-[var(--font-poppins)] text-center mt-10 mx-auto"
+            style={{
+              color: "rgb(255,193,7)",
+              fontSize: "15px",
+              lineHeight: "1.5",
+              maxWidth: "700px",
+              padding: "16px 20px",
+              backgroundColor: "rgba(255,193,7,0.08)",
+              borderRadius: "8px",
+              border: "1px solid rgba(255,193,7,0.25)",
+            }}
+          >
+            All racers must start in Starter — you cannot skip levels. To unlock Intermediate, you must hit the qualifying lap time in Starter. To unlock Pro, you must qualify in Intermediate first.
+          </p>
+        </div>
+      </section>
+
+      {/* ── Section: Racer Requirements ── */}
+      <section className="bg-[#000418]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
+        <div className="max-w-7xl mx-auto">
+          <h2
+            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "16px",
+              textShadow: glowShadow,
+            }}
+          >
+            Racer Requirements
+          </h2>
+          <p
+            className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
+            style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+          >
+            All racers must meet the age and height requirements for their kart class. A $4.99 Racing License (valid for one year) is required.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            {[
+              {
+                title: "Adult Karts",
+                color: "rgb(228,28,29)",
+                border: "rgba(228,28,29,0.59)",
+                items: [
+                  { label: "Ages", value: "13+" },
+                  { label: "Min Height", value: "59\u201d (4\u20199\u201d)" },
+                ],
+              },
+              {
+                title: "Junior Karts",
+                color: "rgb(0,74,173)",
+                border: "rgba(0,74,173,0.59)",
+                items: [
+                  { label: "Ages", value: "7\u201313" },
+                  { label: "Height", value: "49\u201d to 70\u201d" },
+                  { label: "Track", value: "Blue Track only" },
+                  { label: "Note", value: "First-time Junior races not available on Mega Track Tuesdays" },
+                ],
+              },
+              {
+                title: "Mini Karts",
+                color: "rgb(134,82,255)",
+                border: "rgba(134,82,255,0.59)",
+                items: [
+                  { label: "Ages", value: "3\u20136" },
+                  { label: "Height", value: "No minimum" },
+                  { label: "Hours", value: "Close at 10:00 PM daily" },
+                ],
+              },
+            ].map((kart) => (
+              <div
+                key={kart.title}
+                className="flex flex-col h-full"
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${kart.border}`,
+                  borderRadius: "8px",
+                  padding: "24px 20px",
+                }}
+              >
+                <h3 className="font-[var(--font-anton)] uppercase mb-4" style={{ color: kart.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                  {kart.title}
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {kart.items.map((item) => (
+                    <div key={item.label} className="font-[var(--font-poppins)] flex justify-between gap-3" style={{ fontSize: "15px", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "8px" }}>
+                      <span style={{ color: "rgba(245,236,238,0.6)" }}>{item.label}</span>
+                      <span style={{ color: "rgba(245,236,238,0.95)", fontWeight: 500, textAlign: "right" }}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p
+            className="font-[var(--font-poppins)] text-center mt-10 mx-auto"
+            style={{
+              color: "rgb(255,193,7)",
+              fontSize: "15px",
+              lineHeight: "1.5",
+              maxWidth: "700px",
+              padding: "16px 20px",
+              backgroundColor: "rgba(255,193,7,0.08)",
+              borderRadius: "8px",
+              border: "1px solid rgba(255,193,7,0.25)",
+            }}
+          >
+            FastTrax has strict age guidelines for your safety. Misrepresenting age may result in removal from the facility.
+          </p>
         </div>
       </section>
 
@@ -330,22 +376,26 @@ export default function RacingPage() {
             {[
               {
                 title: "The Engineering (360Karting)",
-                desc: "Multi-level modular steel track.",
+                desc: "360Karting is a world leader in indoor karting track design and manufacturing. Their multi-level modular steel structures are engineered for maximum racing excitement with banked turns, elevation changes, and a layout built for competitive racing at every speed tier.",
                 borderColor: "rgb(228,28,29)",
+                logo: "https://360karting.com/wp-content/uploads/2023/07/360-KARTING_PRIMARY-01.png",
               },
               {
                 title: "The Machine (Biz-Karts EcoVolt GT)",
-                desc: "100% instant torque, zero emissions.",
+                desc: "Biz-Karts is a premier electric kart manufacturer delivering high-performance, zero-emission racing machines. The EcoVolt GT features 10.5 kW brushless motors with instant torque, an F1-style digital steering display, smart LED halo lighting, and adjustable pedals and seats for racers ages 3+.",
                 borderColor: "rgb(0,74,173)",
+                logo: "https://bizkarts.com/wp-content/uploads/2023/02/logo-dark.svg",
               },
               {
-                title: "The Intelligence (BMI Leisure): Smart Crash Detection.",
-                desc: "Only karts within 75 feet of a wreck are automatically slowed. If you\u2019re on the other side of the track, you stay at full speed.",
+                title: "The Intelligence (BMI Leisure)",
+                desc: "BMI Leisure powers our precision lap timing, live leaderboards, and race management systems. Their technology also delivers Smart Crash Detection \u2014 only karts within 75 feet of a wreck are automatically slowed. If you\u2019re on the other side of the track, you stay at full speed.",
                 borderColor: "rgb(134,82,255)",
+                logo: "https://bmileisure.com/wp-content/uploads/2025/10/BMI-logo-black-1.jpg",
               },
             ].map((card) => (
               <div
                 key={card.title}
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: `1.78px dashed ${card.borderColor}`,
@@ -354,6 +404,15 @@ export default function RacingPage() {
                   textAlign: "center",
                 }}
               >
+                {/* Vendor Logo */}
+                <div className="mb-4 flex justify-center" style={{ height: "48px" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={card.logo}
+                    alt={card.title}
+                    style={{ maxHeight: "48px", maxWidth: "160px", objectFit: "contain", borderRadius: "555px", backgroundColor: "rgba(255,255,255,0.92)", padding: "6px 16px" }}
+                  />
+                </div>
                 <h3
                   className="font-[var(--font-anton)] uppercase"
                   style={{
@@ -617,7 +676,7 @@ export default function RacingPage() {
                 textShadow: glowShadow,
               }}
             >
-              The Grid Rules (The &ldquo;Must-Knows&rdquo;)
+              The Grid Rules
             </h2>
           </div>
 
@@ -729,7 +788,7 @@ export default function RacingPage() {
               textShadow: glowShadow,
             }}
           >
-            The Racer&apos;s Journey: Arriving to Drive
+            The Racer&apos;s Journey
           </h2>
 
           {/* Journey step cards */}
@@ -743,20 +802,20 @@ export default function RacingPage() {
               },
               {
                 num: "2",
-                title: "The Pit Gate (Guest Services)",
-                desc: "STOP HERE FIRST. Get your credentials and height check.",
+                title: "The Pit Gate",
+                desc: "Guest Services \u2014 STOP HERE FIRST. Get your credentials and height check.",
                 borderColor: "rgb(0,74,173)",
               },
               {
                 num: "3",
-                title: "Trackside Check-In (1st Floor)",
-                desc: "Rent your POV camera and enter the safety briefing.",
+                title: "Trackside Check-In",
+                desc: "1st Floor \u2014 Rent your POV camera and enter the safety briefing.",
                 borderColor: "rgb(134,82,255)",
               },
             ].map((step) => (
               <div
                 key={step.num}
-                className="flex-1"
+                className="flex-1 flex flex-col"
                 style={{
                   border: `1.78px dashed ${step.borderColor}`,
                   borderRadius: "44px",
@@ -827,24 +886,12 @@ export default function RacingPage() {
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
               letterSpacing: "3px",
-              marginBottom: "24px",
+              marginBottom: "32px",
               textShadow: glowShadow,
             }}
           >
-            THE RACER&apos;S JOURNEY ARRIVE TO DRIVE
+            Ready to Race?
           </h2>
-          <p
-            className="font-[var(--font-poppins)] mb-6"
-            style={{
-              color: "rgb(255,255,255)",
-              fontSize: "18px",
-              fontWeight: 700,
-              letterSpacing: "0.9px",
-              textTransform: "uppercase" as const,
-            }}
-          >
-            [Check/Sign My Waiver]
-          </p>
           <a
             href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
             target="_blank"
@@ -853,11 +900,11 @@ export default function RacingPage() {
             style={{
               backgroundColor: "rgb(228,28,29)",
               borderRadius: "555px",
-              padding: "16px 24px",
-              fontSize: "14px",
+              padding: "20px 48px",
+              fontSize: "16px",
             }}
           >
-            SECURE YOUR HEAT
+            BOOK NOW
           </a>
         </div>
       </section>

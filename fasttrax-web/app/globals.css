@@ -41,3 +41,10 @@ body {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--color-bg-deep); }
 ::-webkit-scrollbar-thumb { background: var(--color-cyan); border-radius: 2px; }
+
+/* Push 3CX chat widget above mobile book bar */
+@media (max-width: 767px) {
+  call-us-selector {
+    bottom: 80px !important;
+  }
+}

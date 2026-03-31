@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /api/
 
-Sitemap: https://fasttrax-web.vercel.app/sitemap.xml
+Sitemap: https://fasttraxent.com/sitemap.xml

@@ -6,7 +6,7 @@ const row1 = [
   {
     title: "HIGH-POWERED RACING",
     desc: "Experience our high-performance electric karts on our dual Blue and Red tracks.",
-    cta: "SECURE YOUR SEAT",
+    cta: "CHECK OUT RACING",
     ctaBg: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
@@ -49,7 +49,7 @@ const row2 = [
     ctaBg: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
-    href: "/attractions",
+    href: "https://booking.bmileisure.com/headpinzftmyers?pageId=24909243",
   },
 ];
 
@@ -64,7 +64,7 @@ const hours = [
 function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: boolean }) {
   return (
     <div
-      className="flex flex-col rounded-lg overflow-hidden"
+      className="flex flex-col rounded-lg overflow-hidden h-full"
       style={{
         backgroundColor: "rgba(7,16,39,0.5)",
         border: `1.78px dashed ${card.border}`,
@@ -96,9 +96,9 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
         </p>
         <div className="mt-auto">
           <a
-            href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-            target="_blank"
-            rel="noopener noreferrer"
+            href={card.href}
+            target={card.href.startsWith("http") ? "_blank" : undefined}
+            rel={card.href.startsWith("http") ? "noopener noreferrer" : undefined}
             className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white transition-all hover:scale-105"
             style={{
               backgroundColor: card.ctaBg,
@@ -144,18 +144,18 @@ export default function Attractions() {
         </div>
 
         {/* Row 1: 3 cards */}
-        <div className="flex flex-col sm:flex-row gap-8 mb-8">
+        <div className="flex flex-col sm:flex-row gap-8 mb-8 items-stretch">
           {row1.map((card) => (
-            <div key={card.title} className="flex-1">
+            <div key={card.title} className="flex-1 flex flex-col">
               <AttractionCard card={card} />
             </div>
           ))}
         </div>
 
         {/* Row 2: 2 cards */}
-        <div className="flex flex-col sm:flex-row gap-8">
+        <div className="flex flex-col sm:flex-row gap-8 items-stretch">
           {row2.map((card) => (
-            <div key={card.title} className="flex-1">
+            <div key={card.title} className="flex-1 flex flex-col">
               <AttractionCard card={card} wide />
             </div>
           ))}

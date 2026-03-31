@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
 
 // Exact data from live site: 3 step cards with precise colors
 const steps = [
@@ -29,7 +32,13 @@ const steps = [
   },
 ];
 
+function dotColor(status: string) {
+  return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
+}
+
 export default function RacerJourney() {
+  const trackData = useTrackStatus();
+
   return (
     <section className="relative overflow-hidden" style={{ backgroundColor: "#000418" }}>
       {/* Background image */}
@@ -67,26 +76,38 @@ export default function RacerJourney() {
               LIVE TRACK STATUS
             </p>
             <div className="flex flex-col gap-2">
-              <div
-                className="flex items-center justify-between px-4 py-3 rounded-xl"
-                style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(228,28,29,0.5)" }}
-              >
-                <span style={{ color: "rgb(228,28,29)", fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>Red Track</span>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                  <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>On Time</span>
+              {trackData?.megaTrackEnabled && (
+                <div
+                  className="flex items-center justify-between px-4 py-3 rounded-xl"
+                  style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(134,82,255,0.5)" }}
+                >
+                  <span style={{ color: "rgb(134,82,255)", fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>Mega Track</span>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>Active</span>
+                  </div>
                 </div>
-              </div>
-              <div
-                className="flex items-center justify-between px-4 py-3 rounded-xl"
-                style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(0,74,173,0.5)" }}
-              >
-                <span style={{ color: "rgb(0,74,173)", fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>Blue Track</span>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                  <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>+15m</span>
+              )}
+              {trackData?.tracks.map((t) => (
+                <div
+                  key={t.trackName}
+                  className="flex items-center justify-between px-4 py-3 rounded-xl"
+                  style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}80` }}
+                >
+                  <span style={{ color: t.colors.trackIdentity, fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>{t.trackName}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                    <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>{t.delayFormatted}</span>
+                  </div>
                 </div>
-              </div>
+              ))}
+              {!trackData && (
+                <>
+                  <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                    <span className="font-[var(--font-poppins)] text-white/30 text-sm">Loading status...</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

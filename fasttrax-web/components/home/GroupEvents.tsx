@@ -59,6 +59,7 @@ export default function GroupEvents() {
               style={{ maxWidth: "445px" }}
             >
               <div
+                className="h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.6)",
                   border: `1.78px dashed ${e.border}`,

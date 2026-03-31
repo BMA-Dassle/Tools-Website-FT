@@ -1,15 +1,39 @@
 import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import { RestaurantJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
-  title: "Nemo's Brickyard Bistro – FastTrax Dining",
+  title: "Nemo's Brickyard Bistro – Brick Oven Pizza & Trackside Dining | FastTrax Fort Myers",
   description:
-    "Authentic brick-oven pizza, craft drinks & trackside dining at Nemo's Brickyard Bistro inside FastTrax Fort Myers.",
+    "Authentic wood-fired brick oven pizza, craft cocktails, beer & trackside dining at Nemo's Brickyard Bistro inside FastTrax Fort Myers. Watch live racing while you eat. Live entertainment Fri & Sat. The best restaurant and sports bar near Gulf Coast Town Center.",
+  keywords: [
+    "restaurant Fort Myers",
+    "pizza Fort Myers",
+    "brick oven pizza Fort Myers",
+    "sports bar Fort Myers",
+    "restaurants near Gulf Coast Town Center",
+    "dining Fort Myers",
+    "Nemos Brickyard Bistro",
+    "trackside dining",
+    "live entertainment Fort Myers",
+    "best pizza Fort Myers",
+    "family restaurant Fort Myers",
+    "bar and grill Fort Myers",
+    "watch parties Fort Myers",
+    "restaurant near me Fort Myers",
+    "date night dinner Fort Myers",
+    "craft cocktails Fort Myers",
+  ],
   openGraph: {
-    title: "Nemo's Brickyard Bistro – FastTrax Dining",
+    title: "Nemo's Brickyard Bistro – Pizza & Trackside Dining | FastTrax Fort Myers",
     description:
-      "Authentic brick-oven pizza, craft drinks & trackside dining at Nemo's Brickyard Bistro inside FastTrax Fort Myers.",
+      "Wood-fired brick oven pizza, craft drinks & trackside dining. Watch live go-kart racing while you eat. Live entertainment Fri & Sat nights.",
+    type: "website",
+    url: "https://fasttraxent.com/menu",
+  },
+  alternates: {
+    canonical: "https://fasttraxent.com/menu",
   },
 };
 
@@ -18,6 +42,7 @@ const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 export default function MenuPage() {
   return (
     <>
+      <RestaurantJsonLd />
       <SubpageHero
         title="Nemo's Brickyard Bistro"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-hero.webp"
@@ -203,7 +228,7 @@ export default function MenuPage() {
             ].map((step) => (
               <div
                 key={step.num}
-                className="flex-1"
+                className="flex-1 flex flex-col"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: `1.78px dashed ${step.borderColor}`,

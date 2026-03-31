@@ -4,6 +4,23 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 
+const schedule: Record<number, { day: string; open: string; close: string }> = {
+  0: { day: "SUNDAY", open: "11:00 AM", close: "11:00 PM" },
+  1: { day: "MONDAY", open: "3:00 PM", close: "11:00 PM" },
+  2: { day: "TUESDAY", open: "3:00 PM", close: "11:00 PM" },
+  3: { day: "WEDNESDAY", open: "3:00 PM", close: "11:00 PM" },
+  4: { day: "THURSDAY", open: "3:00 PM", close: "11:00 PM" },
+  5: { day: "FRIDAY", open: "3:00 PM", close: "12:00 AM" },
+  6: { day: "SATURDAY", open: "11:00 AM", close: "12:00 AM" },
+};
+
+function getTodayHours() {
+  const estDay = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "America/New_York" }).format(new Date());
+  const dayIndex = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].indexOf(estDay);
+  const entry = schedule[dayIndex];
+  return `${entry.day} ${entry.open} – ${entry.close}`;
+}
+
 const links = [
   { label: "Racing", href: "/racing" },
   { label: "Attractions", href: "/attractions" },
@@ -16,9 +33,11 @@ const links = [
 export default function Nav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [todayHours, setTodayHours] = useState("");
   const pathname = usePathname();
 
   useEffect(() => {
+    setTodayHours(getTodayHours());
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
@@ -35,7 +54,7 @@ export default function Nav() {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-          <span className="font-[var(--font-poppins)] font-semibold text-white tracking-wider text-xs">TUESDAY 09:00 – 19:00</span>
+          <span className="font-[var(--font-poppins)] font-semibold text-white tracking-wider text-xs">{todayHours}</span>
         </div>
       </div>
 

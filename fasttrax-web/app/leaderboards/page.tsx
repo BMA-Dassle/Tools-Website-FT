@@ -1,26 +1,499 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
-const BMI_KEY =
-  "aGVhZHBpbnpmdG15ZXJzOjAxYzg3YzM1LTY0YzEtNGRlMC1hYjM3LTI5NDI5Yjk3NTJhZQ==";
+const ACCESS_TOKEN = "63inwlpilbjlobwppml";
+const API_BASE = "https://modules-api22.sms-timing.com/api/besttimes";
 
-function liveSrc(resourceId: string) {
-  return `https://modules.bmileisure.com/Livetiming/?key=${encodeURIComponent(BMI_KEY)}&resourceId=${resourceId}`;
+type BestTimeRecord = {
+  position: number;
+  participant: string;
+  score: string;
+  date: string;
+};
+
+type Category = {
+  label: string;
+  color: string;
+  border: string;
+  rscId: string;
+  scgId: string;
+};
+
+type Track = "blue" | "red" | "mega";
+
+type TrackConfig = {
+  key: Track;
+  label: string;
+  accent: string;
+  adult: Category[];
+  junior: Category[];
+};
+
+const tracks: TrackConfig[] = [
+  {
+    key: "blue",
+    label: "Blue Track",
+    accent: "rgb(0,74,173)",
+    adult: [
+      { label: "Starter", color: "rgb(228,28,29)", border: "rgba(228,28,29,0.59)", rscId: "11208654", scgId: "11207805" },
+      { label: "Intermediate", color: "rgb(0,74,173)", border: "rgba(0,74,173,0.59)", rscId: "11208654", scgId: "11207803" },
+      { label: "Pro", color: "rgb(134,82,255)", border: "rgba(134,82,255,0.59)", rscId: "11208654", scgId: "11207807" },
+    ],
+    junior: [
+      { label: "Junior Starter", color: "rgb(228,28,29)", border: "rgba(228,28,29,0.59)", rscId: "11208654", scgId: "11936433" },
+      { label: "Junior Intermediate", color: "rgb(0,74,173)", border: "rgba(0,74,173,0.59)", rscId: "11208654", scgId: "12755221" },
+      { label: "Junior Pro", color: "rgb(134,82,255)", border: "rgba(134,82,255,0.59)", rscId: "11208654", scgId: "15175252" },
+    ],
+  },
+  {
+    key: "red",
+    label: "Red Track",
+    accent: "rgb(228,28,29)",
+    adult: [
+      { label: "Starter", color: "rgb(228,28,29)", border: "rgba(228,28,29,0.59)", rscId: "11208660", scgId: "12113911" },
+      { label: "Intermediate", color: "rgb(0,74,173)", border: "rgba(0,74,173,0.59)", rscId: "11208660", scgId: "11207809" },
+      { label: "Pro", color: "rgb(134,82,255)", border: "rgba(134,82,255,0.59)", rscId: "11208660", scgId: "11207813" },
+    ],
+    junior: [
+      { label: "Junior", color: "rgb(228,28,29)", border: "rgba(228,28,29,0.59)", rscId: "11208660", scgId: "11207811" },
+    ],
+  },
+  {
+    key: "mega",
+    label: "Mega Track",
+    accent: "rgb(134,82,255)",
+    adult: [
+      { label: "Starter", color: "rgb(228,28,29)", border: "rgba(228,28,29,0.59)", rscId: "-1", scgId: "11207799" },
+      { label: "Intermediate", color: "rgb(0,74,173)", border: "rgba(0,74,173,0.59)", rscId: "-1", scgId: "11207797" },
+      { label: "Pro", color: "rgb(134,82,255)", border: "rgba(134,82,255,0.59)", rscId: "-1", scgId: "11207801" },
+    ],
+    junior: [
+      { label: "Junior Intermediate", color: "rgb(0,74,173)", border: "rgba(0,74,173,0.59)", rscId: "-1", scgId: "16924035" },
+      { label: "Junior Pro", color: "rgb(134,82,255)", border: "rgba(134,82,255,0.59)", rscId: "-1", scgId: "16924037" },
+    ],
+  },
+];
+
+type TimeRange = "month" | "year" | "alltime";
+
+function estNow() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    weekday: "long",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+  return { year: get("year"), month: get("month"), weekday: get("weekday") };
 }
 
-const bestTimesSrc = `https://modules.bmileisure.com/BestTimes/?key=${encodeURIComponent(BMI_KEY)}`;
+function getStartDate(range: TimeRange): string {
+  const { year, month } = estNow();
+  if (range === "month") return `${year}-${month}-1 06:00:00`;
+  if (range === "year") return `${year}-1-1 06:00:00`;
+  return "2024-1-1 06:00:00";
+}
 
-export default function LeaderboardsPage() {
-  const [isTuesday, setIsTuesday] = useState(false);
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatTime(score: string): string {
+  // Handle "1:02.212" format from Mega Track
+  if (score.includes(":")) return score;
+  const secs = parseFloat(score);
+  if (secs >= 60) {
+    const mins = Math.floor(secs / 60);
+    const rem = (secs % 60).toFixed(3);
+    return `${mins}:${rem.padStart(6, "0")}`;
+  }
+  return `${secs.toFixed(3)}s`;
+}
+
+function LeaderboardCard({ category, timeRange }: { category: Category; timeRange: TimeRange }) {
+  const [records, setRecords] = useState<BestTimeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchRecords = useCallback(async () => {
+    setLoading(true);
+    try {
+      const startDate = encodeURIComponent(getStartDate(timeRange));
+      const url = `${API_BASE}/records/headpinzftmyers?locale=en-US&rscId=${category.rscId}&scgId=${category.scgId}&startDate=${startDate}&endDate=&maxResult=10&accessToken=${ACCESS_TOKEN}&_t=${Date.now()}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json();
+      setRecords(data.records || []);
+    } catch {
+      setRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [category.rscId, category.scgId, timeRange]);
 
   useEffect(() => {
-    setIsTuesday(new Date().getDay() === 2);
-  }, []);
+    fetchRecords();
+  }, [fetchRecords]);
+
+  return (
+    <div
+      className="flex flex-col"
+      style={{
+        backgroundColor: "rgba(7,16,39,0.5)",
+        border: `1.78px dashed ${category.border}`,
+        borderRadius: "8px",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${category.border}` }}>
+        <h3
+          className="font-[var(--font-anton)] uppercase"
+          style={{ color: category.color, fontSize: "20px", letterSpacing: "1.2px" }}
+        >
+          {category.label}
+        </h3>
+      </div>
+
+      {loading ? (
+        <div className="p-6 text-center">
+          <p className="font-[var(--font-poppins)] text-white/50 text-sm">Loading...</p>
+        </div>
+      ) : records.length === 0 ? (
+        <div className="p-6 text-center">
+          <p className="font-[var(--font-poppins)] text-white/40 text-sm">No records for this period</p>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {records.map((r, i) => (
+            <div
+              key={`${r.participant}-${r.score}`}
+              className="flex items-center gap-3 px-4 py-2.5"
+              style={{
+                borderBottom: i < records.length - 1 ? "1px solid rgba(255,255,255,0.06)" : undefined,
+                backgroundColor: i === 0 ? "rgba(255,215,0,0.06)" : undefined,
+              }}
+            >
+              <span
+                className="font-[var(--font-anton)] shrink-0 text-center"
+                style={{
+                  width: "28px",
+                  fontSize: "16px",
+                  color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
+                }}
+              >
+                {r.position}
+              </span>
+              <span
+                className="font-[var(--font-poppins)] flex-1 truncate"
+                style={{ fontSize: "14px", color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}
+              >
+                {r.participant}
+              </span>
+              <span
+                className="font-[var(--font-poppins)] font-semibold shrink-0"
+                style={{ fontSize: "14px", color: category.color }}
+              >
+                {formatTime(r.score)}
+              </span>
+              <span
+                className="font-[var(--font-poppins)] shrink-0 hidden sm:inline"
+                style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)", width: "50px", textAlign: "right" }}
+              >
+                {formatDate(r.date)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── WebSocket Live Timing ── */
+
+const WS_HOST = "webserver22.sms-timing.com";
+const WS_PORT = 10015;
+const LIVE_TRACKS = [
+  { key: "blue" as const, label: "Blue Track", accent: "rgb(0,74,173)", serverKey: "11208654@headpinzftmyers" },
+  { key: "red" as const, label: "Red Track", accent: "rgb(228,28,29)", serverKey: "11208660@headpinzftmyers" },
+  { key: "mega" as const, label: "Mega Track", accent: "rgb(134,82,255)", serverKey: "-1@headpinzftmyers" },
+];
+
+type LiveDriver = {
+  name: string;
+  kart: string;
+  position: number;
+  laps: number;
+  bestLap: number;
+  avgLap: number;
+  lastLap: number;
+  gap: string;
+};
+
+type HeatState = "idle" | "running" | "paused" | "finished";
+
+function msToLap(ms: number): string {
+  if (!ms) return "";
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  const millis = ms % 1000;
+  const ss = secs.toString().padStart(2, "0");
+  const mmm = millis.toString().padStart(3, "0");
+  return mins > 0 ? `${mins}:${ss}.${mmm}` : `${ss}.${mmm}`;
+}
+
+function msToCountdown(ms: number): string {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: string }) {
+  const [drivers, setDrivers] = useState<LiveDriver[]>([]);
+  const [heatName, setHeatName] = useState("");
+  const [heatState, setHeatState] = useState<HeatState>("idle");
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [noRaces, setNoRaces] = useState(true);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let closed = false;
+
+    function connect() {
+      if (closed) return;
+      const ws = new WebSocket(`wss://${WS_HOST}:${WS_PORT}/`);
+      wsRef.current = ws;
+
+      ws.onopen = () => ws.send(`START ${serverKey}`);
+
+      ws.onmessage = (evt) => {
+        if (evt.data === "{}") {
+          setNoRaces(true);
+          setDrivers([]);
+          return;
+        }
+        try {
+          const data = JSON.parse(evt.data);
+          setNoRaces(false);
+          setHeatName((data.N || "").replace("[HEAT]", "Heat"));
+
+          const state = data.S as number;
+          setHeatState(state === 1 ? "running" : state === 2 ? "paused" : state >= 3 ? "finished" : "idle");
+          setTimeLeft(data.C || 0);
+
+          const dArr = (data.D || []) as Array<Record<string, unknown>>;
+          setDrivers(
+            dArr.map((d) => ({
+              name: (d.N as string) || "",
+              kart: String(d.K ?? ""),
+              position: (d.P as number) || 0,
+              laps: (d.L as number) || 0,
+              bestLap: (d.B as number) || 0,
+              avgLap: (d.A as number) || 0,
+              lastLap: (d.T as number) || 0,
+              gap: (d.G as string) || "",
+            }))
+          );
+        } catch { /* ignore parse errors */ }
+      };
+
+      ws.onclose = () => {
+        if (!closed) reconnectTimer = setTimeout(connect, 5000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
+    return () => {
+      closed = true;
+      clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+    };
+  }, [serverKey]);
+
+  if (noRaces) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center"
+        style={{
+          minHeight: "200px",
+          backgroundColor: "rgba(7,16,39,0.5)",
+          border: `1.78px dashed ${accent}40`,
+          borderRadius: "8px",
+        }}
+      >
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.3, marginBottom: "12px" }}>
+          <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
+          <path d="M12 6v6l4 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+        <p className="font-[var(--font-poppins)] text-white/40 text-sm">No races running</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        backgroundColor: "rgba(7,16,39,0.5)",
+        border: `1.78px dashed ${accent}59`,
+        borderRadius: "8px",
+        overflow: "hidden",
+      }}
+    >
+      {/* Heat header */}
+      <div
+        className="flex items-center justify-between px-5 py-3"
+        style={{ backgroundColor: accent, color: "white" }}
+      >
+        <span className="font-[var(--font-anton)] uppercase tracking-wider text-base">
+          {heatName}
+        </span>
+        <span className="font-[var(--font-poppins)] font-semibold text-sm">
+          {heatState === "running" && timeLeft > 0 && msToCountdown(timeLeft)}
+          {heatState === "paused" && "PAUSED"}
+          {heatState === "finished" && "FINISHED"}
+        </span>
+      </div>
+
+      {/* Table header */}
+      <div
+        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-4 py-2.5"
+        style={{
+          gridTemplateColumns: "40px 1fr 50px 50px 85px 85px 85px 60px",
+          color: "rgba(255,255,255,0.5)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <span>Pos</span>
+        <span>Driver</span>
+        <span className="text-center">Kart</span>
+        <span className="text-center">Laps</span>
+        <span className="text-right">Best</span>
+        <span className="text-right">Last</span>
+        <span className="text-right">Avg</span>
+        <span className="text-right">Gap</span>
+      </div>
+
+      {/* Driver rows */}
+      {drivers.map((d, i) => (
+        <div
+          key={`${d.name}-${d.kart}`}
+          className="grid font-[var(--font-poppins)] px-4 py-2"
+          style={{
+            gridTemplateColumns: "40px 1fr 50px 50px 85px 85px 85px 60px",
+            fontSize: "13px",
+            borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
+            backgroundColor: i === 0 ? "rgba(255,215,0,0.05)" : undefined,
+          }}
+        >
+          <span
+            className="font-[var(--font-anton)]"
+            style={{
+              color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
+              fontSize: "15px",
+            }}
+          >
+            {d.position}
+          </span>
+          <span className="truncate" style={{ color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}>
+            {d.name}
+          </span>
+          <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.kart}</span>
+          <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
+          <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
+          <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
+          <span className="text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
+          <span className="text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+            {i === 0 ? "" : d.gap}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LiveTimingTabs({ isTuesday }: { isTuesday: boolean }) {
+  const [liveTab, setLiveTab] = useState<"blue" | "red" | "mega">(isTuesday ? "mega" : "blue");
+
+  useEffect(() => {
+    setLiveTab(isTuesday ? "mega" : "blue");
+  }, [isTuesday]);
+
+  const visibleTracks = isTuesday
+    ? LIVE_TRACKS.filter((t) => t.key === "mega")
+    : LIVE_TRACKS.filter((t) => t.key !== "mega");
+
+  const active = LIVE_TRACKS.find((t) => t.key === liveTab)!;
+
+  return (
+    <div>
+      {visibleTracks.length > 1 && (
+        <div className="flex justify-center gap-1 mb-6">
+          {visibleTracks.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setLiveTab(t.key)}
+              className="font-[var(--font-anton)] uppercase tracking-wider text-base px-6 py-3 transition-all cursor-pointer"
+              style={{
+                backgroundColor: liveTab === t.key ? "rgba(7,16,39,0.7)" : "transparent",
+                color: liveTab === t.key ? t.accent : "rgba(255,255,255,0.4)",
+                borderBottom: liveTab === t.key ? `3px solid ${t.accent}` : "3px solid transparent",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isTuesday && (
+        <h3
+          className="font-[var(--font-anton)] uppercase text-center mb-6"
+          style={{ color: "rgb(134,82,255)", fontSize: "24px", letterSpacing: "1.2px" }}
+        >
+          Mega Track Tuesday
+        </h3>
+      )}
+
+      {isTuesday ? (
+        <LiveTimingPanel serverKey={active.serverKey} accent={active.accent} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {visibleTracks.map((t) => (
+            <div key={t.key}>
+              <h4
+                className="font-[var(--font-anton)] uppercase text-center mb-4"
+                style={{ color: t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
+              >
+                {t.label} Live
+              </h4>
+              <LiveTimingPanel serverKey={t.serverKey} accent={t.accent} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function LeaderboardsPage() {
+  const trackStatus = useTrackStatus();
+  const isMega = trackStatus?.megaTrackEnabled ?? estNow().weekday === "Tuesday";
+  const [timeRange, setTimeRange] = useState<TimeRange>("month");
+  const [activeTrack, setActiveTrack] = useState<Track>("blue");
+  const [classFilter, setClassFilter] = useState<"adult" | "junior">("adult");
+
+  const track = tracks.find((t) => t.key === activeTrack)!;
+  const filtered = classFilter === "adult" ? track.adult : track.junior;
 
   return (
     <>
@@ -58,7 +531,7 @@ export default function LeaderboardsPage() {
               every apex and every overtake as it happens.
             </p>
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/"
+              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
@@ -103,136 +576,92 @@ export default function LeaderboardsPage() {
             The Live Timing
           </h2>
 
-          <div className="flex flex-col gap-8">
-            {/* Live Timing — dynamic based on day */}
-            {isTuesday ? (
-              /* Tuesday: Mega Track only */
-              <div
-                style={{
-                  backgroundColor: "rgba(7,16,39,0.5)",
-                  border: "1.78px dashed rgba(134,82,255,0.63)",
-                  borderRadius: "8px",
-                  padding: "20px",
-                }}
-              >
-                <h3
-                  className="font-[var(--font-anton)] uppercase mb-6"
-                  style={{
-                    color: "rgb(134,82,255)",
-                    fontSize: "24px",
-                    letterSpacing: "1.2px",
-                  }}
-                >
-                  Mega Track Tuesday
-                </h3>
-                <div className="text-center">
-                  <h4
-                    className="font-[var(--font-anton)] uppercase mb-4"
-                    style={{
-                      color: "rgb(255,42,42)",
-                      fontSize: "24px",
-                      letterSpacing: "1.2px",
-                    }}
-                  >
-                    MEGA TRACK LIVE
-                  </h4>
-                  <iframe
-                    src={liveSrc("-1")}
-                    className="w-full rounded-lg"
-                    style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
-                    title="Mega Track Live Timing"
-                  />
-                </div>
-              </div>
-            ) : (
-              /* Wed–Mon: Blue Track + Red Track */
-              <div
-                style={{
-                  backgroundColor: "rgba(7,16,39,0.5)",
-                  border: "1.78px dashed rgba(228,28,29,0.59)",
-                  borderRadius: "8px",
-                  padding: "20px",
-                }}
-              >
-                <h3
-                  className="font-[var(--font-anton)] uppercase mb-6"
-                  style={{
-                    color: "rgb(228,28,29)",
-                    fontSize: "24px",
-                    letterSpacing: "1.2px",
-                  }}
-                >
-                  Live Race Timing
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div className="text-center">
-                    <h4
-                      className="font-[var(--font-anton)] uppercase mb-4"
-                      style={{
-                        color: "rgb(255,42,42)",
-                        fontSize: "24px",
-                        letterSpacing: "1.2px",
-                      }}
-                    >
-                      BLUE TRACK LIVE
-                    </h4>
-                    <iframe
-                      src={liveSrc("11208654")}
-                      className="w-full rounded-lg"
-                      style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
-                      title="Blue Track Live Timing"
-                    />
-                  </div>
-                  <div className="text-center">
-                    <h4
-                      className="font-[var(--font-anton)] uppercase mb-4"
-                      style={{
-                        color: "rgb(255,42,42)",
-                        fontSize: "24px",
-                        letterSpacing: "1.2px",
-                      }}
-                    >
-                      RED TRACK LIVE
-                    </h4>
-                    <iframe
-                      src={liveSrc("11208660")}
-                      className="w-full rounded-lg"
-                      style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
-                      title="Red Track Live Timing"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+          <LiveTimingTabs isTuesday={isMega} />
+        </div>
+      </section>
 
-            {/* Hall of Fame — always visible */}
-            <div
-              style={{
-                backgroundColor: "rgba(7,16,39,0.5)",
-                border: "1.78px dashed rgba(134,82,255,0.63)",
-                borderRadius: "8px",
-                padding: "20px",
-              }}
-            >
-              <div className="text-center">
-                <h4
-                  className="font-[var(--font-anton)] uppercase mb-4"
-                  style={{
-                    color: "rgb(134,82,255)",
-                    fontSize: "24px",
-                    letterSpacing: "1.2px",
-                  }}
-                >
-                  HALL OF FAME
-                </h4>
-                <iframe
-                  src={bestTimesSrc}
-                  className="w-full rounded-lg"
-                  style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
-                  title="Hall of Fame Best Times"
-                />
-              </div>
-            </div>
+      {/* ── Section: Best Times by Race Type ── */}
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
+        <div className="max-w-7xl mx-auto px-8">
+          <h2
+            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "16px",
+              textShadow: glowShadow,
+            }}
+          >
+            Hall of Fame
+          </h2>
+          <p
+            className="text-center mx-auto mb-8 font-[var(--font-poppins)]"
+            style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+          >
+            Top 10 fastest lap times by race type. Think you can crack the list?
+          </p>
+
+          {/* Track Tabs */}
+          <div className="flex justify-center gap-1 mb-6">
+            {tracks.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setActiveTrack(t.key)}
+                className="font-[var(--font-anton)] uppercase tracking-wider text-base px-6 py-3 transition-all cursor-pointer"
+                style={{
+                  backgroundColor: activeTrack === t.key ? "rgba(7,16,39,0.7)" : "transparent",
+                  color: activeTrack === t.key ? t.accent : "rgba(255,255,255,0.4)",
+                  borderBottom: activeTrack === t.key ? `3px solid ${t.accent}` : "3px solid transparent",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap justify-center gap-3 mb-10">
+            {/* Time Range */}
+            {(["month", "year", "alltime"] as TimeRange[]).map((r) => (
+              <button
+                key={r}
+                onClick={() => setTimeRange(r)}
+                className="font-[var(--font-poppins)] font-semibold uppercase text-sm px-5 py-2.5 rounded-full transition-all cursor-pointer"
+                style={{
+                  backgroundColor: timeRange === r ? "rgb(228,28,29)" : "rgba(7,16,39,0.5)",
+                  color: timeRange === r ? "white" : "rgba(255,255,255,0.6)",
+                  border: timeRange === r ? "1px solid rgb(228,28,29)" : "1px solid rgba(255,255,255,0.15)",
+                }}
+              >
+                {r === "month" ? "This Month" : r === "year" ? "This Year" : "All Time"}
+              </button>
+            ))}
+
+            <div style={{ width: "1px", backgroundColor: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
+
+            {/* Class Filter */}
+            {(["adult", "junior"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setClassFilter(f)}
+                className="font-[var(--font-poppins)] font-semibold uppercase text-sm px-5 py-2.5 rounded-full transition-all cursor-pointer"
+                style={{
+                  backgroundColor: classFilter === f ? "rgb(134,82,255)" : "rgba(7,16,39,0.5)",
+                  color: classFilter === f ? "white" : "rgba(255,255,255,0.6)",
+                  border: classFilter === f ? "1px solid rgb(134,82,255)" : "1px solid rgba(255,255,255,0.15)",
+                }}
+              >
+                {f === "adult" ? "Adult" : "Junior"}
+              </button>
+            ))}
+          </div>
+
+          {/* Leaderboard Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((cat) => (
+              <LeaderboardCard key={cat.label} category={cat} timeRange={timeRange} />
+            ))}
           </div>
         </div>
       </section>
@@ -289,7 +718,7 @@ export default function LeaderboardsPage() {
             ].map((step) => (
               <div
                 key={step.num}
-                className="flex-1"
+                className="flex-1 flex flex-col"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: `1.78px dashed ${step.borderColor}`,
@@ -393,7 +822,7 @@ export default function LeaderboardsPage() {
         </div>
       </section>
 
-      {/* ── Section: Think you can beat the best? (Bottom CTA) ── */}
+      {/* ── Section: Bottom CTA ── */}
       <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 788px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-cta.webp"

@@ -20,7 +20,7 @@ export default function Hero() {
       <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/95 via-[#000418]/75 to-[#000418]/40" />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col lg:flex-row items-center gap-6 max-w-7xl mx-auto px-8 py-16 min-h-[813px]">
+      <div className="relative z-10 flex flex-col lg:flex-row items-center gap-6 max-w-7xl mx-auto px-8 pt-36 pb-16 min-h-[813px]">
 
         {/* LEFT COL — label + headline + description + hours */}
         <div className="flex-1 flex flex-col gap-5">

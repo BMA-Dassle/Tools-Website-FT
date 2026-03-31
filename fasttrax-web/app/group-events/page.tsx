@@ -150,6 +150,7 @@ export default function GroupEventsPage() {
             {eventFormats.map((e) => (
               <div
                 key={e.title}
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: `1.78px dashed ${e.borderColor}`,
@@ -202,6 +203,7 @@ export default function GroupEventsPage() {
             {vipAmenities.map((a) => (
               <div
                 key={a.title}
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: `1.78px dashed ${a.borderColor}`,

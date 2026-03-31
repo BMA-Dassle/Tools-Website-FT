@@ -3,13 +3,34 @@ import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 
 export const metadata: Metadata = {
-  title: "Pricing & Packages – FastTrax Racing",
+  title: "Go-Kart Racing Prices, Combos & Packages – FastTrax Fort Myers",
   description:
-    "FastTrax karting rates, combo packages, and add-ons. Adult races from $20.99, Junior from $15.99. Book online and save.",
+    "FastTrax go-kart racing rates: Adults from $20.99, Juniors from $15.99, Mini Karts from $9.99. Combo deals with gel blaster, bowling & arcade. Cheaper than Topgolf, more thrilling than Dave & Buster's. Book online at Fort Myers' best entertainment value.",
+  keywords: [
+    "go kart prices Fort Myers",
+    "indoor go kart cost",
+    "FastTrax pricing",
+    "go kart racing deals Fort Myers",
+    "cheap go karts Fort Myers",
+    "family entertainment deals Fort Myers",
+    "birthday party packages Fort Myers",
+    "combo deals Fort Myers entertainment",
+    "karting rates",
+    "bowling prices Fort Myers",
+    "arcade prices Fort Myers",
+    "group rates Fort Myers",
+    "things to do Fort Myers cheap",
+    "affordable family fun Fort Myers",
+  ],
   openGraph: {
-    title: "Pricing & Packages – FastTrax Racing",
+    title: "Racing Prices & Combo Packages – FastTrax Fort Myers",
     description:
-      "FastTrax karting rates, combo packages, and add-ons. Adult races from $20.99, Junior from $15.99. Book online and save.",
+      "Go-kart racing from $20.99/heat. Combo deals with gel blaster, bowling & arcade. Book online and save at Fort Myers' top entertainment venue.",
+    type: "website",
+    url: "https://fasttraxent.com/pricing",
+  },
+  alternates: {
+    canonical: "https://fasttraxent.com/pricing",
   },
 };
 
@@ -38,6 +59,7 @@ export default function PricingPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
               {/* Racing License Card */}
               <div
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: "1.78px dashed rgb(228,28,29)",
@@ -51,7 +73,7 @@ export default function PricingPage() {
                 <p className="font-[var(--font-anton)] text-white uppercase" style={{ fontSize: "30px", letterSpacing: "1.5px", marginBottom: "12px" }}>
                   $4.99
                 </p>
-                <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5", marginBottom: "16px" }}>
+                <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5", marginBottom: "16px" }}>
                   Required for all racers. Valid for one year. Includes your head/neck protector, a free race during your birthday month, and access to your stats in the FastTrax Racing App.
                 </p>
                 <a
@@ -67,6 +89,7 @@ export default function PricingPage() {
 
               {/* $10 Add-On Deal Card */}
               <div
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: "1.78px dashed rgb(134,82,255)",
@@ -80,7 +103,7 @@ export default function PricingPage() {
                 <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}>
                   Add more fun when you book a race — just $10 more!
                 </p>
-                <ul className="font-[var(--font-poppins)] list-disc list-inside mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.8" }}>
+                <ul className="font-[var(--font-poppins)] list-disc list-inside mb-4 flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.8" }}>
                   <li><strong style={{ color: "rgb(134,82,255)" }}>Nexus Gel Blaster Arena</strong> — $10 per person (at HeadPinz)</li>
                   <li><strong style={{ color: "rgb(0,74,173)" }}>Shuffly</strong> — $10 per group (at FastTrax)</li>
                 </ul>
@@ -88,7 +111,7 @@ export default function PricingPage() {
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
+                  className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Book Race + Add-On
@@ -135,7 +158,7 @@ export default function PricingPage() {
             <table className="w-full max-w-4xl mx-auto" style={{ borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Kart Class", "Mon - Thu", "Frid-Sun", "Tuesday(Mega Track)"].map((h) => (
+                  {["Kart Class", "Mon–Thu", "Fri–Sun", "Tuesday (Mega Track)"].map((h) => (
                     <th
                       key={h}
                       className="text-left px-5 py-3 font-[var(--font-poppins)]"
@@ -177,6 +200,39 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* ── Section: Race Requirements Callout ── */}
+      <section className="bg-[#000418]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
+        <div
+          className="max-w-3xl mx-auto text-center"
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: "1.78px dashed rgba(255,193,7,0.5)",
+            borderRadius: "12px",
+            padding: "32px 24px",
+          }}
+        >
+          <p
+            className="font-[var(--font-poppins)]"
+            style={{ color: "rgb(255,193,7)", fontSize: "18px", fontWeight: 600, marginBottom: "8px" }}
+          >
+            Age, Height &amp; Qualification Requirements
+          </p>
+          <p
+            className="font-[var(--font-poppins)] mb-6"
+            style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.6" }}
+          >
+            All racers must meet specific age and height requirements. Check race types, qualification lap times, and kart classes before you book.
+          </p>
+          <a
+            href="/racing"
+            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+            style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+          >
+            View Race Requirements
+          </a>
+        </div>
+      </section>
+
       {/* ── Section: FastTrax 63K Racing Hub (Activities) ── */}
       <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <Image
@@ -198,6 +254,7 @@ export default function PricingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Game Zone Card */}
             <div
+              className="flex flex-col"
               style={{
                 backgroundColor: "rgba(7,16,39,0.5)",
                 border: "1.78px dashed rgba(228,28,29,0.59)",
@@ -205,10 +262,10 @@ export default function PricingPage() {
                 overflow: "hidden",
               }}
             >
-              <div className="relative" style={{ height: "clamp(160px, 30vw, 240px)" }}>
+              <div className="relative flex-shrink-0" style={{ height: "clamp(160px, 30vw, 240px)" }}>
                 <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp" alt="The Game Zone" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
-              <div style={{ padding: "24px 20px" }}>
+              <div className="flex-1" style={{ padding: "24px 20px" }}>
                 <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
                   The Game Zone (Arcade)
                 </h3>
@@ -221,6 +278,7 @@ export default function PricingPage() {
 
             {/* Duckpin Bowling Card */}
             <div
+              className="flex flex-col"
               style={{
                 backgroundColor: "rgba(7,16,39,0.5)",
                 border: "1.78px dashed rgba(0,74,173,0.59)",
@@ -228,10 +286,10 @@ export default function PricingPage() {
                 overflow: "hidden",
               }}
             >
-              <div className="relative" style={{ height: "clamp(160px, 30vw, 240px)" }}>
+              <div className="relative flex-shrink-0" style={{ height: "clamp(160px, 30vw, 240px)" }}>
                 <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp" alt="Duckpin Bowling" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
-              <div style={{ padding: "24px 20px" }}>
+              <div className="flex-1" style={{ padding: "24px 20px" }}>
                 <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(0,74,173)", fontSize: "24px", letterSpacing: "1.2px" }}>
                   Duckpin Bowling
                 </h3>
@@ -244,6 +302,7 @@ export default function PricingPage() {
 
             {/* Shuffly Card */}
             <div
+              className="flex flex-col"
               style={{
                 backgroundColor: "rgba(7,16,39,0.5)",
                 border: "1.78px dashed rgba(228,28,29,0.59)",
@@ -251,10 +310,10 @@ export default function PricingPage() {
                 overflow: "hidden",
               }}
             >
-              <div className="relative" style={{ height: "clamp(160px, 30vw, 240px)" }}>
+              <div className="relative flex-shrink-0" style={{ height: "clamp(160px, 30vw, 240px)" }}>
                 <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly.webp" alt="Shuffly" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
-              <div style={{ padding: "24px 20px" }}>
+              <div className="flex-1" style={{ padding: "24px 20px" }}>
                 <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
                   Shuffly (Shuffleboard)
                 </h3>
@@ -300,6 +359,7 @@ export default function PricingPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Gel Blaster Add-On */}
               <div
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: "1.78px dashed rgb(228,28,29)",
@@ -313,7 +373,7 @@ export default function PricingPage() {
                 <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.6" }}>
                   Add HeadPinz Nexus Gel Blaster Arena to any race for just <strong className="text-white">$10 more per person</strong>. Select it as an add-on during checkout.
                 </p>
-                <ul className="font-[var(--font-anton)] uppercase mb-6" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
+                <ul className="font-[var(--font-anton)] uppercase mb-6 flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
                   <li>Any Racing Heat</li>
                   <li>+ Gel Blaster Entry ($10/person)</li>
                 </ul>
@@ -321,7 +381,7 @@ export default function PricingPage() {
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
+                  className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Book Race + Gel Blaster
@@ -330,6 +390,7 @@ export default function PricingPage() {
 
               {/* Intermediate Upgrade Tip */}
               <div
+                className="flex flex-col h-full"
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
                   border: "1.78px dashed rgb(0,74,173)",
@@ -343,7 +404,7 @@ export default function PricingPage() {
                 <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.6" }}>
                   Already qualified for Intermediate speeds? Book your next Intermediate heat while you&apos;re still booking a Starter race and <strong className="text-white">save on the upgrade</strong>. Stack your heats during checkout for the best deal.
                 </p>
-                <ul className="font-[var(--font-anton)] uppercase mb-6" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
+                <ul className="font-[var(--font-anton)] uppercase mb-6 flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
                   <li>Book Starter + Intermediate Together</li>
                   <li>Save on Intermediate Pricing</li>
                 </ul>
@@ -351,7 +412,7 @@ export default function PricingPage() {
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
+                  className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Book Your Heats
@@ -363,7 +424,10 @@ export default function PricingPage() {
       </section>
 
       {/* ── Section: Bottom CTA ── */}
-      <section className="relative overflow-hidden" style={{ minHeight: "clamp(400px, 70vh, 580px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ minHeight: "656px" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/bottom-cta-bg.webp"
           alt="Racing"
@@ -375,18 +439,29 @@ export default function PricingPage() {
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "32px",
+              textShadow: glowShadow,
+            }}
           >
-            THE RACER&apos;S JOURNEY ARRIVE TO DRIVE
+            Ready to Race?
           </h2>
           <a
             href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
-            style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+            style={{
+              backgroundColor: "rgb(228,28,29)",
+              borderRadius: "555px",
+              padding: "20px 48px",
+              fontSize: "16px",
+            }}
           >
-            SECURE YOUR HEAT
+            BOOK NOW
           </a>
         </div>
       </section>
