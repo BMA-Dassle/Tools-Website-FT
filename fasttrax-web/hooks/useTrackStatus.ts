@@ -34,7 +34,6 @@ export function useTrackStatus() {
       try {
         const res = await fetch(`${TRACK_STATUS_URL}?_t=${Date.now()}`, {
           cache: "no-store",
-          headers: { "Cache-Control": "no-cache" },
         });
         const json = await res.json();
         if (active) setData({ megaTrackEnabled: json.megaTrackEnabled, tracks: json.tracks });
