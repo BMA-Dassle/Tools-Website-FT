@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import MobileBookBar from "@/components/MobileBookBar";
 import ChatWidgetManager from "@/components/ChatWidgetManager";
 import { LocalBusinessJsonLd } from "@/components/seo/JsonLd";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const anton = Anton({
   weight: "400",
@@ -112,6 +113,7 @@ export default function RootLayout({
         <Footer />
         <MobileBookBar />
         <ChatWidgetManager />
+        <SpeedInsights />
         {/* 3CX Live Chat Widget */}
         <div
           dangerouslySetInnerHTML={{
