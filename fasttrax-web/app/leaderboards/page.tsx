@@ -397,7 +397,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
       {/* Table header — mobile: Pos/Driver/Kart/Laps/Best/Last  desktop: + Avg + Gap */}
       <div
-        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 grid-cols-[28px_1fr_34px_32px_62px_62px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 grid-cols-[24px_1fr_28px_28px_56px_56px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
         style={{
           color: "rgba(255,255,255,0.5)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -417,7 +417,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
       {drivers.map((d, i) => (
         <div
           key={`${d.name}-${d.kart}`}
-          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 grid-cols-[28px_1fr_34px_32px_62px_62px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 grid-cols-[24px_1fr_28px_28px_56px_56px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
           style={{
             fontSize: "13px",
             borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
@@ -604,7 +604,7 @@ export default function LeaderboardsPage() {
 
       {/* ── Section: The Live Timing ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
-        <div className="max-w-7xl mx-auto px-8">
+        <div className="max-w-7xl mx-auto px-2 sm:px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
