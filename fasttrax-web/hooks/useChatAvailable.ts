@@ -14,9 +14,12 @@ export function useChatAvailable() {
       const el = document.querySelector("call-us-selector") as HTMLElement | null;
       if (!el) return;
 
-      // 3CX sets data attributes and shadow DOM state for online/offline
-      const shadow = el.shadowRoot;
-      if (!shadow) return;
+      // 3CX nests: call-us-selector > shadow > call-us > shadow
+      const outerShadow = el.shadowRoot;
+      if (!outerShadow) return;
+
+      const innerEl = outerShadow.querySelector("call-us") as HTMLElement | null;
+      const shadow = innerEl?.shadowRoot ?? outerShadow;
 
       // Check for offline indicators in the shadow DOM
       const offlineEl = shadow.querySelector("[class*='offline']");
@@ -52,9 +55,21 @@ export function useChatAvailable() {
 export function openChat() {
   const el = document.querySelector("call-us-selector") as HTMLElement | null;
   if (!el) return;
-  el.style.display = "block";
-  const shadow = el.shadowRoot;
-  const btn = shadow?.querySelector("a, button, [class*='call']") as HTMLElement | null;
+  el.style.setProperty("display", "block", "important");
+
+  // 3CX nests: call-us-selector > shadow > call-us > shadow > #wplc-chat-button
+  const outerShadow = el.shadowRoot;
+  if (!outerShadow) return;
+
+  const innerEl = outerShadow.querySelector("call-us") as HTMLElement | null;
+  const innerShadow = innerEl?.shadowRoot;
+  if (innerShadow) {
+    const btn = innerShadow.querySelector("#wplc-chat-button, button, a") as HTMLElement | null;
+    if (btn) { btn.click(); return; }
+  }
+
+  // Fallback: try the outer shadow
+  const btn = outerShadow.querySelector("a, button") as HTMLElement | null;
   if (btn) btn.click();
   else el.click();
 }
