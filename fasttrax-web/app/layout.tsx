@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Anton, Poppins, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
@@ -123,6 +124,7 @@ export default function RootLayout({
           id="tcx-callus-js"
           strategy="lazyOnload"
         />
+        <SpeedInsights />
       </body>
     </html>
   );
