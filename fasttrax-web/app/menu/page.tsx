@@ -237,7 +237,7 @@ export default function MenuPage() {
             className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
             style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
-            A dynamic, scannable event calendar card.
+            Join us in the FastTrax VIP every Friday night at 8pm for Karaoke!
           </p>
 
           {/* Event Cards - Vertical Full-Width Layout */}
@@ -338,13 +338,11 @@ export default function MenuPage() {
             Ensure your artisan pizzas hit the table the moment your group finishes their race. Contact us to arrange pre-orders for your trackside table or VIP viewing area.
           </p>
           <a
-            href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/group-events"
             className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
           >
-            SECURE YOUR HEAT
+            REQUEST AN EVENT QUOTE
           </a>
         </div>
       </section>
