@@ -67,6 +67,17 @@ export async function GET(req: NextRequest) {
     </div>
 
   </div>
+  <script>
+    // Auto-resize: tell parent iframe our height
+    function postHeight(){
+      var h = document.body.scrollHeight;
+      window.parent.postMessage({type:'fasttrax-embed-height',height:h},'*');
+    }
+    postHeight();
+    window.addEventListener('resize',postHeight);
+    // Re-measure after fonts load
+    if(document.fonts){document.fonts.ready.then(postHeight);}
+  </script>
 </body>
 </html>`;
 
