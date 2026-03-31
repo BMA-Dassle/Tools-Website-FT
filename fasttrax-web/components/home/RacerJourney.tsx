@@ -77,18 +77,6 @@ export default function RacerJourney() {
               LIVE TRACK STATUS
             </p>
             <div className="flex flex-col gap-2">
-              {trackData?.megaTrackEnabled && (
-                <div
-                  className="flex items-center justify-between px-4 py-3 rounded-xl"
-                  style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(134,82,255,0.5)" }}
-                >
-                  <span style={{ color: "rgb(134,82,255)", fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>Mega Track</span>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>Active</span>
-                  </div>
-                </div>
-              )}
               {trackData?.tracks.map((t) => (
                 <div
                   key={t.trackName}
