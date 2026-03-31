@@ -220,10 +220,11 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
 
 const WS_HOST = "webserver22.sms-timing.com";
 const WS_PORT = 10015;
+const BMI_LIVE_KEY = "aGVhZHBpbnpmdG15ZXJzOjAxYzg3YzM1LTY0YzEtNGRlMC1hYjM3LTI5NDI5Yjk3NTJhZQ%3d%3d";
 const LIVE_TRACKS = [
-  { key: "blue" as const, label: "Blue Track", accent: "rgb(0,74,173)", serverKey: "11208654@headpinzftmyers" },
-  { key: "red" as const, label: "Red Track", accent: "rgb(228,28,29)", serverKey: "11208660@headpinzftmyers" },
-  { key: "mega" as const, label: "Mega Track", accent: "rgb(134,82,255)", serverKey: "-1@headpinzftmyers" },
+  { key: "blue" as const, label: "Blue Track", accent: "rgb(0,74,173)", serverKey: "11208654@headpinzftmyers", resourceId: "11208654" },
+  { key: "red" as const, label: "Red Track", accent: "rgb(228,28,29)", serverKey: "11208660@headpinzftmyers", resourceId: "11208660" },
+  { key: "mega" as const, label: "Mega Track", accent: "rgb(134,82,255)", serverKey: "-1@headpinzftmyers", resourceId: "-1" },
 ];
 
 type LiveDriver = {
@@ -235,6 +236,8 @@ type LiveDriver = {
   avgLap: number;
   lastLap: number;
   gap: string;
+  /** positive = gained positions, negative = lost positions */
+  delta: number;
 };
 
 type HeatState = "idle" | "running" | "paused" | "finished";
@@ -264,6 +267,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
   const [timeLeft, setTimeLeft] = useState(0);
   const [noRaces, setNoRaces] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
+  const prevPositions = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -292,18 +296,26 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
           setTimeLeft(data.C || 0);
 
           const dArr = (data.D || []) as Array<Record<string, unknown>>;
-          setDrivers(
-            dArr.map((d) => ({
-              name: (d.N as string) || "",
-              kart: String(d.K ?? ""),
-              position: (d.P as number) || 0,
+          const prev = prevPositions.current;
+          const updated = dArr.map((d) => {
+            const name = (d.N as string) || "";
+            const kart = String(d.K ?? "");
+            const pos = (d.P as number) || 0;
+            const id = `${name}-${kart}`;
+            const oldPos = prev.get(id);
+            const delta = oldPos != null ? oldPos - pos : 0; // positive = gained
+            prev.set(id, pos);
+            return {
+              name, kart, position: pos,
               laps: (d.L as number) || 0,
               bestLap: (d.B as number) || 0,
               avgLap: (d.A as number) || 0,
               lastLap: (d.T as number) || 0,
               gap: (d.G as string) || "",
-            }))
-          );
+              delta,
+            };
+          });
+          setDrivers(updated);
         } catch { /* ignore parse errors */ }
       };
 
@@ -350,83 +362,110 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
         overflow: "hidden",
       }}
     >
-      {/* Heat header */}
+      {/* Heat header — color reflects race state */}
       <div
-        className="flex items-center justify-between px-5 py-3"
-        style={{ backgroundColor: accent, color: "white" }}
-      >
-        <span className="font-[var(--font-anton)] uppercase tracking-wider text-base">
-          {heatName}
-        </span>
-        <span className="font-[var(--font-poppins)] font-semibold text-sm">
-          {heatState === "running" && timeLeft > 0 && msToCountdown(timeLeft)}
-          {heatState === "paused" && "PAUSED"}
-          {heatState === "finished" && "FINISHED"}
-        </span>
-      </div>
-
-      {/* Table header */}
-      <div
-        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-4 py-2.5"
+        className="flex items-center justify-between px-5 py-3 relative overflow-hidden"
         style={{
-          gridTemplateColumns: "40px 1fr 50px 50px 85px 85px 85px 60px",
-          color: "rgba(255,255,255,0.5)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          backgroundColor:
+            heatState === "running" ? "rgb(22,163,74)" :
+            heatState === "paused" ? "rgb(202,138,4)" :
+            heatState === "finished" ? "#111" :
+            accent,
+          color: "white",
         }}
       >
-        <span>Pos</span>
-        <span>Driver</span>
-        <span className="text-center">Kart</span>
-        <span className="text-center">Laps</span>
-        <span className="text-right">Best</span>
-        <span className="text-right">Last</span>
-        <span className="text-right">Avg</span>
-        <span className="text-right">Gap</span>
+        {/* Checkered flag overlay for finished state */}
+        {heatState === "finished" && (
+          <div
+            className="absolute inset-0 opacity-20"
+            style={{
+              backgroundImage:
+                "repeating-conic-gradient(#fff 0% 25%, transparent 0% 50%)",
+              backgroundSize: "20px 20px",
+            }}
+          />
+        )}
+        <span className="font-[var(--font-anton)] uppercase tracking-wider text-base relative z-10">
+          {heatName}
+        </span>
+        <span className="font-[var(--font-poppins)] font-semibold text-sm relative z-10">
+          {heatState === "running" && timeLeft > 0 && msToCountdown(timeLeft)}
+          {heatState === "paused" && "PAUSED"}
+          {heatState === "finished" && "CHECKERED FLAG"}
+        </span>
       </div>
 
-      {/* Driver rows */}
-      {drivers.map((d, i) => (
+      {/* Table — scrollable on mobile */}
+      <div className="overflow-x-auto">
+        {/* Table header */}
         <div
-          key={`${d.name}-${d.kart}`}
-          className="grid font-[var(--font-poppins)] px-4 py-2"
+          className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-4 py-2.5"
           style={{
-            gridTemplateColumns: "40px 1fr 50px 50px 85px 85px 85px 60px",
-            fontSize: "13px",
-            borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
-            backgroundColor: i === 0 ? "rgba(255,215,0,0.05)" : undefined,
+            gridTemplateColumns: "36px 1fr 44px 44px 80px 80px 80px 56px",
+            minWidth: "460px",
+            color: "rgba(255,255,255,0.5)",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
           }}
         >
-          <span
-            className="font-[var(--font-anton)]"
+          <span>Pos</span>
+          <span>Driver</span>
+          <span className="text-center">Kart</span>
+          <span className="text-center">Laps</span>
+          <span className="text-right">Best</span>
+          <span className="text-right">Last</span>
+          <span className="text-right">Avg</span>
+          <span className="text-right">Gap</span>
+        </div>
+
+        {/* Driver rows */}
+        {drivers.map((d, i) => (
+          <div
+            key={`${d.name}-${d.kart}`}
+            className="grid font-[var(--font-poppins)] px-4 py-2 transition-colors duration-700"
             style={{
-              color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
-              fontSize: "15px",
+              gridTemplateColumns: "36px 1fr 44px 44px 80px 80px 80px 56px",
+              minWidth: "460px",
+              fontSize: "13px",
+              borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
+              backgroundColor:
+                d.delta > 0 ? "rgba(34,197,94,0.15)" :
+                d.delta < 0 ? "rgba(239,68,68,0.12)" :
+                i === 0 ? "rgba(255,215,0,0.05)" : undefined,
             }}
           >
-            {d.position}
-          </span>
-          <span className="truncate" style={{ color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}>
-            {d.name}
-          </span>
-          <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.kart}</span>
-          <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
-          <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
-          <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
-          <span className="text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
-          <span className="text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
-            {i === 0 ? "" : d.gap}
-          </span>
-        </div>
-      ))}
+            <span className="font-[var(--font-anton)] flex items-center gap-0.5">
+              <span
+                style={{
+                  color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
+                  fontSize: "15px",
+                }}
+              >
+                {d.position}
+              </span>
+              {d.delta > 0 && <span style={{ color: "rgb(34,197,94)", fontSize: "11px" }}>▲</span>}
+              {d.delta < 0 && <span style={{ color: "rgb(239,68,68)", fontSize: "11px" }}>▼</span>}
+            </span>
+            <span className="truncate" style={{ color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}>
+              {d.name}
+            </span>
+            <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.kart}</span>
+            <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
+            <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
+            <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
+            <span className="text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
+            <span className="text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+              {i === 0 ? "" : d.gap}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 function LiveTimingTabs({ isMega }: { isMega: boolean }) {
-  /* When Mega Track is active, show Blue + Red feeds (Mega uses the combined physical tracks).
-     The -1 serverKey doesn't return live data — real data flows through the Blue/Red feeds. */
   const visibleTracks = isMega
-    ? LIVE_TRACKS.filter((t) => t.key !== "mega")
+    ? LIVE_TRACKS.filter((t) => t.key === "mega")
     : LIVE_TRACKS.filter((t) => t.key !== "mega");
 
   return (
@@ -440,19 +479,42 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
         </h3>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {visibleTracks.map((t) => (
-          <div key={t.key}>
-            <h4
-              className="font-[var(--font-anton)] uppercase text-center mb-4"
-              style={{ color: isMega ? "rgb(134,82,255)" : t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
-            >
-              {isMega ? `${t.label} Feed` : `${t.label} Live`}
-            </h4>
-            <LiveTimingPanel serverKey={t.serverKey} accent={isMega ? "rgb(134,82,255)" : t.accent} />
-          </div>
-        ))}
+      <div className={`grid grid-cols-1 ${!isMega ? "md:grid-cols-2" : ""} gap-5`}>
+        {visibleTracks.map((t) => {
+          const fullscreenUrl = `https://modules.bmileisure.com/Livetiming/?key=${BMI_LIVE_KEY}&resourceId=${t.resourceId}`;
+          return (
+            <div key={t.key}>
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <h4
+                  className="font-[var(--font-anton)] uppercase"
+                  style={{ color: isMega ? "rgb(134,82,255)" : t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
+                >
+                  {isMega ? "Mega Track" : `${t.label} Live`}
+                </h4>
+                <a
+                  href={fullscreenUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-[var(--font-poppins)] text-xs transition-opacity hover:opacity-100"
+                  style={{ color: "rgba(255,255,255,0.5)", opacity: 0.7 }}
+                  title="Open full live timing in a new window"
+                >
+                  ↗ Full View
+                </a>
+              </div>
+              <LiveTimingPanel serverKey={t.serverKey} accent={isMega ? "rgb(134,82,255)" : t.accent} />
+            </div>
+          );
+        })}
       </div>
+
+      {/* Attribution */}
+      <p
+        className="font-[var(--font-poppins)] text-center mt-6"
+        style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px" }}
+      >
+        Powered by BMI Leisure &middot; Live timing data overlay
+      </p>
     </div>
   );
 }

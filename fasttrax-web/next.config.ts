@@ -36,7 +36,7 @@ const nextConfig: NextConfig = {
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com https://*.3cx.com https://*.3cx.us",
-            "connect-src 'self' https://modules-api22.sms-timing.com https://tools-track-status.vercel.app https://*.3cx.us https://*.3cx.com https://va.vercel-scripts.com https://vitals.vercel-insights.com",
+            "connect-src 'self' https://modules-api22.sms-timing.com wss://webserver22.sms-timing.com:10015 https://tools-track-status.vercel.app https://*.3cx.us https://*.3cx.com https://va.vercel-scripts.com https://vitals.vercel-insights.com",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us",
             "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
             "object-src 'none'",
