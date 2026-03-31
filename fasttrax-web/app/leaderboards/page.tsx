@@ -588,7 +588,7 @@ export default function LeaderboardsPage() {
             </a>
           </div>
           <div
-            className="flex-1 relative rounded-2xl overflow-hidden"
+            className="flex-1 relative rounded-2xl overflow-hidden hidden lg:block"
             style={{ minHeight: "clamp(250px, 50vw, 400px)" }}
           >
             <Image
@@ -596,7 +596,7 @@ export default function LeaderboardsPage() {
               alt="Racing at FastTrax"
               fill
               className="object-cover"
-              sizes="(max-width: 1024px) 100vw, 50vw"
+              sizes="50vw"
             />
           </div>
         </div>
