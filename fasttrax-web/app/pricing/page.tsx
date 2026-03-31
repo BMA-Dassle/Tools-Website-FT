@@ -286,7 +286,7 @@ export default function PricingPage() {
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* The Apex Combo */}
+              {/* Gel Blaster Add-On */}
               <div
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
@@ -296,11 +296,14 @@ export default function PricingPage() {
                 }}
               >
                 <h3 className="font-[var(--font-anton)] uppercase mb-4" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
-                  The Apex Combo
+                  Race + Gel Blaster
                 </h3>
+                <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.6" }}>
+                  Add HeadPinz Nexus Gel Blaster Arena to any race for just <strong className="text-white">$10 more per person</strong>. Select it as an add-on during checkout.
+                </p>
                 <ul className="font-[var(--font-anton)] uppercase mb-6" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
-                  <li>2 Adult Racing Heats</li>
-                  <li>$10 Game Card</li>
+                  <li>Any Racing Heat</li>
+                  <li>+ Gel Blaster Entry ($10/person)</li>
                 </ul>
                 <a
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
@@ -309,11 +312,11 @@ export default function PricingPage() {
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
                   style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
-                  Get your combo
+                  Book Race + Gel Blaster
                 </a>
               </div>
 
-              {/* The Speed & Social Combo */}
+              {/* Intermediate Upgrade Tip */}
               <div
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
@@ -323,12 +326,14 @@ export default function PricingPage() {
                 }}
               >
                 <h3 className="font-[var(--font-anton)] uppercase mb-4" style={{ color: "rgb(0,74,173)", fontSize: "24px", letterSpacing: "1.2px" }}>
-                  The Speed &amp; Social Combo
+                  Pro Tip: Save on Intermediate
                 </h3>
+                <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.6" }}>
+                  Already qualified for Intermediate speeds? Book your next Intermediate heat while you&apos;re still booking a Starter race and <strong className="text-white">save on the upgrade</strong>. Stack your heats during checkout for the best deal.
+                </p>
                 <ul className="font-[var(--font-anton)] uppercase mb-6" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
-                  <li>1 Adult Racing Heat</li>
-                  <li>1 Hour of Duckpin Bowling</li>
-                  <li>$20 Game Card</li>
+                  <li>Book Starter + Intermediate Together</li>
+                  <li>Save on Intermediate Pricing</li>
                 </ul>
                 <a
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
@@ -337,7 +342,7 @@ export default function PricingPage() {
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
                   style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
-                  Get your combo
+                  Book Your Heats
                 </a>
               </div>
             </div>
