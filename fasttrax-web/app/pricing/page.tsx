@@ -123,13 +123,13 @@ export default function PricingPage() {
           </div>
 
           {/* Right column: image */}
-          <div className="flex-1 relative hidden lg:block" style={{ minHeight: "clamp(300px, 60vw, 600px)", borderRadius: "16px", overflow: "hidden" }}>
+          <div className="flex-1 relative w-full lg:w-auto" style={{ minHeight: "clamp(180px, 30vw, 600px)", borderRadius: "16px", overflow: "hidden" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-karts.webp"
               alt="FastTrax karts"
               fill
               className="object-cover"
-              sizes="50vw"
+              sizes="(max-width: 1024px) 100vw, 50vw"
             />
           </div>
         </div>
@@ -328,13 +328,13 @@ export default function PricingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-16 items-center">
           {/* Left column: image */}
-          <div className="flex-1 relative hidden lg:block" style={{ minHeight: "clamp(300px, 60vw, 600px)", borderRadius: "16px", overflow: "hidden" }}>
+          <div className="flex-1 relative w-full lg:w-auto" style={{ minHeight: "clamp(180px, 30vw, 600px)", borderRadius: "16px", overflow: "hidden" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp"
               alt="FastTrax racing"
               fill
               className="object-cover"
-              sizes="50vw"
+              sizes="(max-width: 1024px) 100vw, 50vw"
             />
           </div>
 
