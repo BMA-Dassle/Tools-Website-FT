@@ -271,6 +271,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
   const [wsStatus, setWsStatus] = useState<WsStatus>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const prevPositions = useRef<Map<string, number>>(new Map());
+  const deltaClearTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Local countdown: sync from WS, tick locally every second
   const serverTimeRef = useRef(0);
   const serverReceivedAt = useRef(0);
@@ -283,12 +284,12 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
     function resetStaleTimer() {
       clearTimeout(staleTimer);
-      // If no message received in 15s, assume connection is dead
+      // If no message received in 45s, assume connection is dead
       staleTimer = setTimeout(() => {
         if (!closed && wsRef.current) {
           wsRef.current.close();
         }
-      }, 15000);
+      }, 45000);
     }
 
     function connect() {
@@ -326,6 +327,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
             const dArr = (data.D || []) as Array<Record<string, unknown>>;
             const prev = prevPositions.current;
+            let anyDelta = false;
             const updated = dArr.map((d) => {
               const name = (d.N as string) || "";
               const kart = String(d.K ?? "");
@@ -333,6 +335,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
               const id = `${name}-${kart}`;
               const oldPos = prev.get(id);
               const delta = oldPos != null ? oldPos - pos : 0;
+              if (delta !== 0) anyDelta = true;
               prev.set(id, pos);
               return {
                 name, kart, position: pos,
@@ -345,6 +348,13 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
               };
             });
             setDrivers(updated);
+            // Hold position change highlights for 5s then clear
+            if (anyDelta) {
+              clearTimeout(deltaClearTimer.current);
+              deltaClearTimer.current = setTimeout(() => {
+                setDrivers((prev) => prev.map((d) => ({ ...d, delta: 0 })));
+              }, 5000);
+            }
           } catch { /* ignore parse errors */ }
         };
 
@@ -492,14 +502,15 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
       {drivers.map((d, i) => (
         <div
           key={`${d.name}-${d.kart}`}
-          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+          className={`grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px] ${d.delta !== 0 ? "animate-pulse" : ""}`}
           style={{
             fontSize: "13px",
             borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
             backgroundColor:
-              d.delta > 0 ? "rgba(34,197,94,0.15)" :
-              d.delta < 0 ? "rgba(239,68,68,0.12)" :
+              d.delta > 0 ? "rgba(34,197,94,0.25)" :
+              d.delta < 0 ? "rgba(239,68,68,0.2)" :
               i === 0 ? "rgba(255,215,0,0.05)" : undefined,
+            borderLeft: d.delta > 0 ? "3px solid rgb(34,197,94)" : d.delta < 0 ? "3px solid rgb(239,68,68)" : undefined,
           }}
         >
           <span className="font-[var(--font-anton)] flex items-center gap-0.5">
