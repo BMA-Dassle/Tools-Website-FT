@@ -395,70 +395,63 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
         </span>
       </div>
 
-      {/* Table — scrollable on mobile */}
-      <div className="overflow-x-auto">
-        {/* Table header */}
+      {/* Table header — mobile hides Laps + Avg to give Driver name room */}
+      <div
+        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 grid-cols-[30px_1fr_36px_68px_68px_48px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+        style={{
+          color: "rgba(255,255,255,0.5)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <span>Pos</span>
+        <span>Driver</span>
+        <span className="text-center">Kart</span>
+        <span className="hidden sm:block text-center">Laps</span>
+        <span className="text-right">Best</span>
+        <span className="text-right">Last</span>
+        <span className="hidden sm:block text-right">Avg</span>
+        <span className="text-right">Gap</span>
+      </div>
+
+      {/* Driver rows */}
+      {drivers.map((d, i) => (
         <div
-          className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-4 py-2.5"
+          key={`${d.name}-${d.kart}`}
+          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 grid-cols-[30px_1fr_36px_68px_68px_48px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
           style={{
-            gridTemplateColumns: "36px 1fr 44px 44px 80px 80px 80px 56px",
-            minWidth: "460px",
-            color: "rgba(255,255,255,0.5)",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            fontSize: "13px",
+            borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
+            backgroundColor:
+              d.delta > 0 ? "rgba(34,197,94,0.15)" :
+              d.delta < 0 ? "rgba(239,68,68,0.12)" :
+              i === 0 ? "rgba(255,215,0,0.05)" : undefined,
           }}
         >
-          <span>Pos</span>
-          <span>Driver</span>
-          <span className="text-center">Kart</span>
-          <span className="text-center">Laps</span>
-          <span className="text-right">Best</span>
-          <span className="text-right">Last</span>
-          <span className="text-right">Avg</span>
-          <span className="text-right">Gap</span>
+          <span className="font-[var(--font-anton)] flex items-center gap-0.5">
+            <span
+              style={{
+                color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
+                fontSize: "15px",
+              }}
+            >
+              {d.position}
+            </span>
+            {d.delta > 0 && <span style={{ color: "rgb(34,197,94)", fontSize: "11px" }}>▲</span>}
+            {d.delta < 0 && <span style={{ color: "rgb(239,68,68)", fontSize: "11px" }}>▼</span>}
+          </span>
+          <span className="truncate" style={{ color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}>
+            {d.name}
+          </span>
+          <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.kart}</span>
+          <span className="hidden sm:block text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
+          <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
+          <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
+          <span className="hidden sm:block text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
+          <span className="text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+            {i === 0 ? "" : d.gap}
+          </span>
         </div>
-
-        {/* Driver rows */}
-        {drivers.map((d, i) => (
-          <div
-            key={`${d.name}-${d.kart}`}
-            className="grid font-[var(--font-poppins)] px-4 py-2 transition-colors duration-700"
-            style={{
-              gridTemplateColumns: "36px 1fr 44px 44px 80px 80px 80px 56px",
-              minWidth: "460px",
-              fontSize: "13px",
-              borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
-              backgroundColor:
-                d.delta > 0 ? "rgba(34,197,94,0.15)" :
-                d.delta < 0 ? "rgba(239,68,68,0.12)" :
-                i === 0 ? "rgba(255,215,0,0.05)" : undefined,
-            }}
-          >
-            <span className="font-[var(--font-anton)] flex items-center gap-0.5">
-              <span
-                style={{
-                  color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
-                  fontSize: "15px",
-                }}
-              >
-                {d.position}
-              </span>
-              {d.delta > 0 && <span style={{ color: "rgb(34,197,94)", fontSize: "11px" }}>▲</span>}
-              {d.delta < 0 && <span style={{ color: "rgb(239,68,68)", fontSize: "11px" }}>▼</span>}
-            </span>
-            <span className="truncate" style={{ color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}>
-              {d.name}
-            </span>
-            <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.kart}</span>
-            <span className="text-center" style={{ color: "rgba(255,255,255,0.5)" }}>{d.laps}</span>
-            <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
-            <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
-            <span className="text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
-            <span className="text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
-              {i === 0 ? "" : d.gap}
-            </span>
-          </div>
-        ))}
-      </div>
+      ))}
     </div>
   );
 }
