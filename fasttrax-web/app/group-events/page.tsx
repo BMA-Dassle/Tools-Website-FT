@@ -43,7 +43,7 @@ const eventSpaces = [
     desc: "Private party room with full A/V, dedicated host, and VIP trackside viewing. Set up for meetings, presentations, or celebrations.",
   },
   {
-    title: "Group Function Room",
+    title: "Event Spaces",
     capacity: "Flexible Capacity",
     color: "rgb(0,74,173)",
     border: "rgb(0,74,173)",
@@ -63,7 +63,7 @@ const eventSpaces = [
     capacity: "Up to 8 per Table",
     color: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
-    img: `${BLOB}/images/attractions/shuffly.webp`,
+    img: `${BLOB}/images/events/shuffly.jpg`,
     desc: "High-tech shuffleboard tables in a social lounge setting. Perfect for networking and casual competition.",
   },
   {
@@ -82,7 +82,7 @@ const activities = [
     color: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
     img: `${BLOB}/images/events/kart-grid.jpg`,
-    desc: "Adult, Junior, and Mini karts on Florida\u2019s longest indoor multi-level circuit. Exclusive heats for your group.",
+    desc: "Adult karts on Florida\u2019s longest indoor multi-level circuit. Exclusive heats for your group.",
   },
   {
     title: "Duckpin Bowling",
@@ -102,7 +102,7 @@ const activities = [
     title: "Shuffly Shuffleboard",
     color: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
-    img: `${BLOB}/images/attractions/shuffly.webp`,
+    img: `${BLOB}/images/events/shuffly.jpg`,
     desc: "Up to 8 players per table. High-tech social gaming reinvented.",
   },
   {
@@ -168,7 +168,7 @@ const faqs = [
   },
   {
     q: "What is the minimum group size?",
-    a: "Exclusive racing heats accommodate up to 14 adult/junior racers or 7 mini racers per heat. Event spaces and activity bookings vary by venue \u2014 your event coordinator will tailor the package to your group.",
+    a: "Exclusive racing heats accommodate up to 14 adult racers per heat. Event spaces and activity bookings vary by venue \u2014 your event coordinator will tailor the package to your group.",
   },
   {
     q: "Can we bring outside food or decorations?",
@@ -188,11 +188,15 @@ const faqs = [
   },
   {
     q: "What are the age and height requirements for racing?",
-    a: "Adult karts require 59\"+ tall (typically 13+). Junior karts are for 49\"\u201370\" tall (typically 7\u201313). Mini karts are for 36\"\u201355\" tall (ages 4\u20138 only).",
+    a: "Group event racing uses Adult karts, which require a minimum height of 59\" (typically ages 13+).",
   },
   {
     q: "Can we do a hybrid event across both buildings?",
     a: "Absolutely. Our event coordinators can create packages spanning FastTrax and HeadPinz for the full 113,000 sq ft campus experience \u2014 racing, bowling, laser tag, and more.",
+  },
+  {
+    q: "Do you host birthday parties?",
+    a: 'We host birthday parties for adults only at this time. For kids\u2019 birthday parties, we encourage you to check out <a href="https://headpinz.com" target="_blank" rel="noopener noreferrer" class="text-[#00E2E5] underline hover:text-white transition-colors">HeadPinz</a>!',
   },
 ];
 
@@ -408,7 +412,7 @@ export default function GroupEventsPage() {
               Kart Requirements
             </h3>
             <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px" }}>
-              Racers must be at least 59&quot; tall (typically 13+). Junior and Mini kart options available for younger groups &mdash; ask your event coordinator for details.
+              Group event racing uses Adult karts only. Racers must be at least 59&quot; tall (typically ages 13+). Younger guests can enjoy bowling, arcade, shuffleboard, and other activities.
             </p>
           </div>
 
@@ -604,9 +608,7 @@ export default function GroupEventsPage() {
                 </button>
                 {openFaq === i && (
                   <div className="px-5 pb-4">
-                    <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.7)", fontSize: "14px", lineHeight: "1.6" }}>
-                      {f.a}
-                    </p>
+                    <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.7)", fontSize: "14px", lineHeight: "1.6" }} dangerouslySetInnerHTML={{ __html: f.a }} />
                   </div>
                 )}
               </div>
