@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
-import Script from "next/script";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
@@ -70,13 +69,6 @@ const vipAmenities = [
 
 export default function GroupEventsPage() {
   const [showForm, setShowForm] = useState(false);
-  const [cognitoLoaded, setCognitoLoaded] = useState(false);
-
-  useEffect(() => {
-    if (showForm && cognitoLoaded && typeof window !== "undefined" && (window as any).Cognito) {
-      (window as any).Cognito.load("forms", { id: "21" });
-    }
-  }, [showForm, cognitoLoaded]);
   return (
     <>
       <SubpageHero
@@ -113,9 +105,9 @@ export default function GroupEventsPage() {
             adrenaline, elite catering, and VIP amenities for groups of 14 to
             1,000+
           </p>
-          <a
-            href="#quote-form"
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
             style={{
               backgroundColor: "rgb(0,74,173)",
               borderRadius: "555px",
@@ -124,7 +116,7 @@ export default function GroupEventsPage() {
             }}
           >
             REQUEST AN EVENT QUOTE
-          </a>
+          </button>
         </div>
       </section>
 
@@ -403,46 +395,31 @@ export default function GroupEventsPage() {
       {/* Cognito Form Modal */}
       {showForm && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(0,4,24,0.85)" }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
         >
           <div
-            className="relative w-full max-w-2xl mx-4 rounded-xl overflow-hidden"
+            className="relative w-full max-w-3xl rounded-xl overflow-hidden"
             style={{
               backgroundColor: "#0a1128",
               border: "1.78px solid rgba(228,28,29,0.4)",
-              maxHeight: "90vh",
+              height: "90vh",
             }}
           >
             <button
               onClick={() => setShowForm(false)}
-              className="absolute top-4 right-4 z-10 text-white hover:text-red-400 transition-colors"
-              style={{ fontSize: "28px", lineHeight: 1 }}
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              style={{ fontSize: "20px", lineHeight: 1 }}
             >
               &times;
             </button>
-            <div className="p-6 overflow-y-auto" style={{ maxHeight: "90vh" }}>
-              <h3
-                className="font-[var(--font-anton)] italic uppercase text-white text-center mb-6"
-                style={{
-                  fontSize: "36px",
-                  letterSpacing: "2px",
-                  textShadow: "rgba(28,0,255,0.4) 0px 0px 30px",
-                }}
-              >
-                Event Quote Request
-              </h3>
-              <div className="cognito">
-                <Script
-                  src="https://www.cognitoforms.com/f/seamless.js"
-                  data-key="u3qiZTtd8UeGo_mV4yHewA"
-                  data-form="21"
-                  strategy="lazyOnload"
-                  onLoad={() => setCognitoLoaded(true)}
-                />
-              </div>
-            </div>
+            <iframe
+              src="https://www.cognitoforms.com/f/u3qiZTtd8UeGo_mV4yHewA/21"
+              className="w-full h-full"
+              style={{ border: "none" }}
+              title="Event Quote Request Form"
+            />
           </div>
         </div>
       )}
