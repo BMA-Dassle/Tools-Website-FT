@@ -3,6 +3,7 @@
 import { useState } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import { trackGroupRequestClick } from "@/lib/analytics";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const EVENT_GUIDE_URL = `${BLOB}/documents/FastTrax-Event-Guide.pdf`;
@@ -229,7 +230,7 @@ export default function GroupEventsPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => setShowForm(true)}
+                onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
                 className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
                 style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
@@ -418,7 +419,7 @@ export default function GroupEventsPage() {
 
           <div className="text-center mt-10">
             <button
-              onClick={() => setShowForm(true)}
+              onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
@@ -619,7 +620,7 @@ export default function GroupEventsPage() {
               Still have questions?
             </p>
             <button
-              onClick={() => setShowForm(true)}
+              onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
@@ -670,7 +671,7 @@ export default function GroupEventsPage() {
             Tell us about your event and our team will craft a custom package.
           </p>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
             className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
             style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
           >

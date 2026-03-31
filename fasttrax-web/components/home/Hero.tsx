@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BookingLink from "@/components/BookingLink";
 
 export default function Hero() {
 
@@ -53,15 +54,13 @@ export default function Hero() {
 
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
-            <a
+            <BookingLink
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-              target="_blank"
-              rel="noopener noreferrer"
               className="font-[var(--font-poppins)] font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)", boxShadow: "0 0 20px rgba(228,28,29,0.4)" }}
             >
               Book Your Race Now
-            </a>
+            </BookingLink>
             <Link
               href="/attractions"
               className="font-[var(--font-poppins)] font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm border transition-all hover:bg-white/10"

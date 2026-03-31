@@ -4,6 +4,7 @@ import SubpageHero from "@/components/SubpageHero";
 import TrackStatus from "@/components/home/TrackStatus";
 import Image from "next/image";
 import { useState } from "react";
+import { trackBookingClick } from "@/lib/analytics";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 const blueGlow = "rgba(0,12,255,0.4) 0px 0px 30px";
@@ -637,6 +638,7 @@ export default function RacingPage() {
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackBookingClick}
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",
@@ -896,6 +898,7 @@ export default function RacingPage() {
             href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={trackBookingClick}
             className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{
               backgroundColor: "rgb(228,28,29)",

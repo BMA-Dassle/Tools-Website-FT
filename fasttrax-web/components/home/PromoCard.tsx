@@ -1,6 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
+import { trackBookingClick } from "@/lib/analytics";
 
 export default function PromoCard() {
   return (
@@ -64,6 +65,7 @@ export default function PromoCard() {
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={trackBookingClick}
                   className="bg-[#E53935] hover:bg-[#c62828] text-white font-[var(--font-jakarta)] font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors"
                 >
                   Book Your Race + Add-On

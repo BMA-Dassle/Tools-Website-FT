@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { trackBookingClick } from "@/lib/analytics";
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {
   0: { day: "SUNDAY", open: "11:00 AM", close: "11:00 PM" },
@@ -122,6 +123,7 @@ export default function Nav() {
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackBookingClick}
               className="hidden sm:inline-flex items-center gap-2 bg-[#E41C1D] hover:bg-[#c62828] text-white font-[var(--font-poppins)] font-bold uppercase tracking-wider transition-colors"
               style={{ fontSize: "14px", padding: "16px 24px", borderRadius: "166px" }}
             >
@@ -171,6 +173,7 @@ export default function Nav() {
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackBookingClick}
               className="mt-2 bg-[#E41C1D] text-white font-[var(--font-poppins)] font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
             >
               Book Now

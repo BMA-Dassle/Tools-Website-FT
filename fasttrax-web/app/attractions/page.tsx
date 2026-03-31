@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import Link from "next/link";
+import BookingLink from "@/components/BookingLink";
 
 export const metadata: Metadata = {
   title: "All Attractions – Go-Karts, Arcade, Bowling, Laser Tag & More | FastTrax & HeadPinz Fort Myers",
@@ -233,15 +234,23 @@ export default function AttractionsPage() {
                     {card.desc}
                   </p>
                   {card.cta && (
-                    <a
-                      href={card.cta.href}
-                      target={card.cta.href.startsWith("http") ? "_blank" : undefined}
-                      rel={card.cta.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                      className="inline-block mt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-                      style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
-                    >
-                      {card.cta.label}
-                    </a>
+                    card.cta.href.startsWith("http") ? (
+                      <BookingLink
+                        href={card.cta.href}
+                        className="inline-block mt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                      >
+                        {card.cta.label}
+                      </BookingLink>
+                    ) : (
+                      <a
+                        href={card.cta.href}
+                        className="inline-block mt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                      >
+                        {card.cta.label}
+                      </a>
+                    )
                   )}
                 </div>
               </div>
@@ -294,15 +303,23 @@ export default function AttractionsPage() {
                     {card.desc}
                   </p>
                   {card.cta && (
-                    <a
-                      href={card.cta.href}
-                      target={card.cta.href.startsWith("http") ? "_blank" : undefined}
-                      rel={card.cta.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                      className="inline-block mt-auto pt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-                      style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
-                    >
-                      {card.cta.label}
-                    </a>
+                    card.cta.href.startsWith("http") ? (
+                      <BookingLink
+                        href={card.cta.href}
+                        className="inline-block mt-auto pt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                      >
+                        {card.cta.label}
+                      </BookingLink>
+                    ) : (
+                      <a
+                        href={card.cta.href}
+                        className="inline-block mt-auto pt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                      >
+                        {card.cta.label}
+                      </a>
+                    )
                   )}
                 </div>
               </div>

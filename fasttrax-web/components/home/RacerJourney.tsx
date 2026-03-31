@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { trackBookingClick } from "@/lib/analytics";
 
 // Exact data from live site: 3 step cards with precise colors
 const steps = [
@@ -117,6 +118,7 @@ export default function RacerJourney() {
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackBookingClick}
               className="font-[var(--font-poppins)] font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)" }}
             >

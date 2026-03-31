@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import BookingLink from "@/components/BookingLink";
 
 export const metadata: Metadata = {
   title: "Go-Kart Racing Prices, Combos & Packages – FastTrax Fort Myers",
@@ -76,15 +77,13 @@ export default function PricingPage() {
                 <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5", marginBottom: "16px" }}>
                   Required for all racers. Valid for one year. Includes your head/neck protector, a free race during your birthday month, and access to your stats in the FastTrax Racing App.
                 </p>
-                <a
+                <BookingLink
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
                   style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Get your licence
-                </a>
+                </BookingLink>
               </div>
 
               {/* $10 Add-On Deal Card */}
@@ -107,15 +106,13 @@ export default function PricingPage() {
                   <li><strong style={{ color: "rgb(134,82,255)" }}>Nexus Gel Blaster Arena</strong> — $10 per person (at HeadPinz)</li>
                   <li><strong style={{ color: "rgb(0,74,173)" }}>Shuffly</strong> — $10 per group (at FastTrax)</li>
                 </ul>
-                <a
+                <BookingLink
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Book Race + Add-On
-                </a>
+                </BookingLink>
               </div>
             </div>
 
@@ -377,15 +374,13 @@ export default function PricingPage() {
                   <li>Any Racing Heat</li>
                   <li>+ Gel Blaster Entry ($10/person)</li>
                 </ul>
-                <a
+                <BookingLink
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Book Race + Gel Blaster
-                </a>
+                </BookingLink>
               </div>
 
               {/* Intermediate Upgrade Tip */}
@@ -408,15 +403,13 @@ export default function PricingPage() {
                   <li>Book Starter + Intermediate Together</li>
                   <li>Save on Intermediate Pricing</li>
                 </ul>
-                <a
+                <BookingLink
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
                   Book Your Heats
-                </a>
+                </BookingLink>
               </div>
             </div>
           </div>
@@ -449,10 +442,8 @@ export default function PricingPage() {
           >
             Ready to Race?
           </h2>
-          <a
+          <BookingLink
             href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
-            target="_blank"
-            rel="noopener noreferrer"
             className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{
               backgroundColor: "rgb(228,28,29)",
@@ -462,7 +453,7 @@ export default function PricingPage() {
             }}
           >
             BOOK NOW
-          </a>
+          </BookingLink>
         </div>
       </section>
     </>

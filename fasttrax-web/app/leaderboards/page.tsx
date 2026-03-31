@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { trackBookingClick } from "@/lib/analytics";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
@@ -534,6 +535,7 @@ export default function LeaderboardsPage() {
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackBookingClick}
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",
@@ -850,6 +852,7 @@ export default function LeaderboardsPage() {
               href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={trackBookingClick}
               className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",

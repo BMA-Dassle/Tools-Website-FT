@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useChatAvailable } from "@/hooks/useChatAvailable";
+import { trackBookingClick } from "@/lib/analytics";
 
 export default function MobileBookBar() {
   const [showContact, setShowContact] = useState(false);
@@ -45,6 +46,7 @@ export default function MobileBookBar() {
             href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={trackBookingClick}
             className="flex-1 block bg-[#E53935] hover:bg-[#c62828] text-white font-[var(--font-poppins)] font-bold text-sm py-3.5 rounded-full text-center uppercase tracking-widest transition-colors"
           >
             Book Now

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import BookingLink from "@/components/BookingLink";
 
 // Exact data from live site inspection
 const row1 = [
@@ -95,21 +96,35 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
           {card.desc}
         </p>
         <div className="mt-auto">
-          <a
-            href={card.href}
-            target={card.href.startsWith("http") ? "_blank" : undefined}
-            rel={card.href.startsWith("http") ? "noopener noreferrer" : undefined}
-            className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white transition-all hover:scale-105"
-            style={{
-              backgroundColor: card.ctaBg,
-              borderRadius: "555px",
-              padding: "16px 24px",
-              fontSize: "14px",
-              letterSpacing: "0.05em",
-            }}
-          >
-            {card.cta}
-          </a>
+          {card.href.startsWith("http") ? (
+            <BookingLink
+              href={card.href}
+              className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white transition-all hover:scale-105"
+              style={{
+                backgroundColor: card.ctaBg,
+                borderRadius: "555px",
+                padding: "16px 24px",
+                fontSize: "14px",
+                letterSpacing: "0.05em",
+              }}
+            >
+              {card.cta}
+            </BookingLink>
+          ) : (
+            <a
+              href={card.href}
+              className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white transition-all hover:scale-105"
+              style={{
+                backgroundColor: card.ctaBg,
+                borderRadius: "555px",
+                padding: "16px 24px",
+                fontSize: "14px",
+                letterSpacing: "0.05em",
+              }}
+            >
+              {card.cta}
+            </a>
+          )}
         </div>
       </div>
     </div>
