@@ -20,28 +20,38 @@ export function useChatAvailable() {
       // Check for offline indicators in the shadow DOM
       const offlineEl = shadow.querySelector("[class*='offline']");
       const onlineEl = shadow.querySelector("[class*='online']");
-      const noAgents = shadow.textContent?.toLowerCase().includes("no agent") ||
-                       shadow.textContent?.toLowerCase().includes("offline");
+
+      // Only check visible text, not CSS content from <style> tags
+      const visibleText = Array.from(shadow.querySelectorAll("*"))
+        .filter((n) => n.tagName !== "STYLE")
+        .map((n) => n.textContent)
+        .join(" ")
+        .toLowerCase();
+      const noAgents = visibleText.includes("no agent") || visibleText.includes("offline");
 
       if (noAgents || offlineEl) {
         setAvailable(false);
       } else if (onlineEl) {
         setAvailable(true);
       } else {
-        // Fallback: check if the widget rendered at all with active state
-        const hasContent = shadow.querySelector("a, button");
+        // Fallback: widget rendered with a clickable button = agents available
+        const hasContent = shadow.querySelector("button, a");
         setAvailable(!!hasContent);
       }
     }
 
     // Poll since 3CX loads asynchronously and state can change
-    const id = setInterval(check, 5000);
-    // Initial delayed check to let 3CX load
-    const timeout = setTimeout(check, 3000);
+    const id = setInterval(check, 3000);
+    // Multiple early checks to catch 3CX loading on slow connections
+    const t1 = setTimeout(check, 2000);
+    const t2 = setTimeout(check, 4000);
+    const t3 = setTimeout(check, 6000);
 
     return () => {
       clearInterval(id);
-      clearTimeout(timeout);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, []);
 
