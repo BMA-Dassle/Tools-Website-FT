@@ -44,7 +44,7 @@ export default function RacerJourney() {
   const trackData = useTrackStatus();
 
   return (
-    <section className="relative overflow-hidden" style={{ backgroundColor: "#000418" }}>
+    <section id="racers-journey" className="relative overflow-hidden" style={{ backgroundColor: "#000418" }}>
       {/* Background image */}
       <Image
         src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/racer-journey-bg.webp"
