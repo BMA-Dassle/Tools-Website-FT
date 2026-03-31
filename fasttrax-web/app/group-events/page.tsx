@@ -47,7 +47,7 @@ const eventSpaces = [
     capacity: "Flexible Capacity",
     color: "rgb(0,74,173)",
     border: "rgb(0,74,173)",
-    img: `${BLOB}/images/events/DSC08358.jpg`,
+    img: `${BLOB}/images/events/DSC06481.jpg`,
     desc: "Flexible private space with tables, chairs, and A/V integration. Ideal for corporate meetings and presentations before the green flag drops.",
   },
   {
@@ -55,7 +55,7 @@ const eventSpaces = [
     capacity: "Up to 60 Guests",
     color: "rgb(134,82,255)",
     border: "rgba(134,82,255,0.59)",
-    img: `${BLOB}/images/attractions/DSC00273.webp`,
+    img: `${BLOB}/images/events/duckpin.jpg`,
     desc: "Full buyout of all 8 duckpin bowling lanes. No rental shoes needed \u2014 just step up and roll.",
   },
   {
@@ -88,7 +88,7 @@ const activities = [
     title: "Duckpin Bowling",
     color: "rgb(0,74,173)",
     border: "rgb(0,74,173)",
-    img: `${BLOB}/images/attractions/DSC00273.webp`,
+    img: `${BLOB}/images/events/duckpin.jpg`,
     desc: "Fast-paced social bowling. Up to 12 per pair of lanes. No rental shoes needed.",
   },
   {
