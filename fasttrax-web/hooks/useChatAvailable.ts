@@ -3,13 +3,9 @@
 import { useEffect, useState } from "react";
 
 export function useChatAvailable() {
-  // TODO: revert — forced true for testing
-  const [available, setAvailable] = useState(true);
+  const [available, setAvailable] = useState(false);
 
   useEffect(() => {
-    // TESTING: skip availability check
-    return;
-
     function check() {
       const el = document.querySelector("call-us-selector") as HTMLElement | null;
       if (!el) return;

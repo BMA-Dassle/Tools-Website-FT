@@ -42,9 +42,7 @@ body {
 ::-webkit-scrollbar-track { background: var(--color-bg-deep); }
 ::-webkit-scrollbar-thumb { background: var(--color-cyan); border-radius: 2px; }
 
-/* Hide 3CX default floating button on mobile — desktop keeps the original widget */
-@media (max-width: 767px) {
-  call-us-selector {
-    display: none !important;
-  }
+/* Hide 3CX default floating button — shown via JS when agents are online */
+call-us-selector {
+  display: none !important;
 }
