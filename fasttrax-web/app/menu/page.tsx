@@ -262,7 +262,7 @@ export default function MenuPage() {
               {
                 num: "3",
                 title: "Featured Date",
-                desc: "March 13th \u2014 Spring Break Kickoff Party!",
+                desc: "Check our socials for upcoming events and specials!",
                 borderColor: "rgb(134,82,255)",
                 titleColor: "rgb(134,82,255)",
                 badgeBg: "rgb(134,82,255)",

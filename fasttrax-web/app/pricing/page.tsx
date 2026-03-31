@@ -53,44 +53,40 @@ export default function PricingPage() {
                 </a>
               </div>
 
-              {/* Spring Break Pass Card */}
+              {/* $10 Add-On Deal Card */}
               <div
                 style={{
                   backgroundColor: "rgba(7,16,39,0.5)",
-                  border: "1.78px dashed rgb(0,74,173)",
+                  border: "1.78px dashed rgb(134,82,255)",
                   borderRadius: "8px",
                   padding: "20px",
                 }}
               >
-                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(0,74,173)", fontSize: "24px", letterSpacing: "1.2px" }}>
-                  FastTrax Spring Break Pass
+                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(134,82,255)", fontSize: "24px", letterSpacing: "1.2px" }}>
+                  $10 Race Day Add-Ons
                 </h3>
-                <p className="font-[var(--font-anton)] text-white uppercase" style={{ fontSize: "30px", letterSpacing: "1.5px", marginBottom: "12px" }}>
-                  $124.95
-                </p>
-                <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5", marginBottom: "8px" }}>
-                  Valid: Monday–Friday (March 16th–20th) + Bonus Day: Friday, March 13th.
+                <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}>
+                  Add more fun when you book a race — just $10 more!
                 </p>
                 <ul className="font-[var(--font-poppins)] list-disc list-inside mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.8" }}>
-                  <li>1 Race Per Day</li>
-                  <li>1 Nexus Gel Blaster Entry Per Day</li>
-                  <li>25% OFF any additional races purchased.</li>
+                  <li><strong style={{ color: "rgb(134,82,255)" }}>Nexus Gel Blaster Arena</strong> — $10 per person (at HeadPinz)</li>
+                  <li><strong style={{ color: "rgb(0,74,173)" }}>Shuffly</strong> — $10 per group (at FastTrax)</li>
                 </ul>
                 <a
                   href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
-                  style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                  style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
-                  Get your pass
+                  Book Race + Add-On
                 </a>
               </div>
             </div>
 
             {/* Disclaimer */}
             <p className="font-[var(--font-poppins)] italic" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.6" }}>
-              Disclaimer: App booking required. Races must be booked the day before to guarantee your heat. Additional discounted races must be used by the pass holder only.
+              Disclaimer: App booking required. Races must be booked the day before to guarantee your heat. Add-on pricing applies when booked with a race.
             </p>
           </div>
 
