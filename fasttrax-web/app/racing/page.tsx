@@ -201,7 +201,7 @@ export default function RacingPage() {
           className="object-cover object-right-bottom"
           sizes="100vw"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/95 via-[#000418]/85 to-[#000418]/60" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/70 via-[#000418]/50 to-transparent" />
         <div
           className="relative z-10 max-w-7xl mx-auto"
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
@@ -593,96 +593,123 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: The Grid Rules ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-7xl mx-auto">
-          <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{
-              fontSize: "clamp(32px, 8vw, 72px)",
-              lineHeight: "1",
-              letterSpacing: "3px",
-              marginBottom: "48px",
-              textShadow: glowShadow,
-            }}
-          >
-            The Grid Rules (The &ldquo;Must-Knows&rdquo;)
-          </h2>
+      <section className="relative overflow-hidden">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
+          alt="Racing background"
+          fill
+          className="object-cover"
+          sizes="100vw"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/60 via-[#000418]/30 to-transparent" />
+        <div
+          className="relative z-10 max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 lg:gap-16 items-start lg:items-center"
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+        >
+          {/* Left: Title */}
+          <div className="lg:w-2/5 shrink-0">
+            <h2
+              className="font-[var(--font-anton)] italic uppercase text-white"
+              style={{
+                fontSize: "clamp(32px, 8vw, 72px)",
+                lineHeight: "1",
+                letterSpacing: "3px",
+                textShadow: glowShadow,
+              }}
+            >
+              The Grid Rules (The &ldquo;Must-Knows&rdquo;)
+            </h2>
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
+          {/* Right: Rule cards stacked */}
+          <div className="flex flex-col gap-4 flex-1 w-full">
             {[
               {
                 num: "1",
                 title: "The 45-Minute Window",
                 desc: "Arrival time for Guest Services (Ground Floor).",
-                borderColor: "rgb(228,28,29)",
+                bg: "rgba(228,28,29,0.25)",
+                borderColor: "rgba(228,28,29,0.6)",
+                badgeColor: "rgb(228,28,29)",
+                titleColor: "rgb(228,28,29)",
               },
               {
                 num: "2",
                 title: "Closed-Toe Shoes",
                 desc: "Required. No exceptions.",
-                borderColor: "rgb(0,74,173)",
+                bg: "rgba(0,74,173,0.25)",
+                borderColor: "rgba(0,74,173,0.6)",
+                badgeColor: "rgb(0,74,173)",
+                titleColor: "rgb(0,74,173)",
               },
               {
                 num: "3",
                 title: "No Pocket Litter",
                 desc: "Lockers provided for phones/keys.",
-                borderColor: "rgb(134,82,255)",
+                bg: "rgba(134,82,255,0.25)",
+                borderColor: "rgba(134,82,255,0.6)",
+                badgeColor: "rgb(134,82,255)",
+                titleColor: "rgb(134,82,255)",
               },
               {
                 num: "4",
                 title: "The Timer Guarantee",
                 desc: "Red flags stop the clock. You get every second you paid for.",
-                borderColor: "rgb(228,28,29)",
+                bg: "rgba(228,28,150,0.25)",
+                borderColor: "rgba(228,28,150,0.6)",
+                badgeColor: "rgb(228,28,150)",
+                titleColor: "rgb(228,28,150)",
               },
             ].map((rule) => (
               <div
                 key={rule.num}
+                className="flex items-center gap-5 backdrop-blur-sm"
                 style={{
-                  backgroundColor: "rgba(7,16,39,0.5)",
+                  backgroundColor: rule.bg,
                   border: `1.78px dashed ${rule.borderColor}`,
-                  borderRadius: "8px",
-                  padding: "32px 20px",
-                  textAlign: "center",
+                  borderRadius: "16px",
+                  padding: "clamp(16px, 3vw, 24px) clamp(16px, 3vw, 28px)",
                 }}
               >
                 <div
-                  className="font-[var(--font-anton)]"
+                  className="font-[var(--font-anton)] shrink-0"
                   style={{
                     width: "48px",
                     height: "48px",
-                    borderRadius: "50%",
-                    backgroundColor: rule.borderColor,
+                    borderRadius: "8px",
+                    backgroundColor: rule.badgeColor,
                     color: "white",
                     fontSize: "24px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    margin: "0 auto 16px",
                   }}
                 >
                   {rule.num}
                 </div>
-                <h3
-                  className="font-[var(--font-anton)] uppercase"
-                  style={{
-                    color: "rgb(255,255,255)",
-                    fontSize: "20px",
-                    letterSpacing: "1.2px",
-                    marginBottom: "8px",
-                  }}
-                >
-                  {rule.title}
-                </h3>
-                <p
-                  className="font-[var(--font-poppins)]"
-                  style={{
-                    color: "rgba(245,236,238,0.8)",
-                    fontSize: "15px",
-                    lineHeight: "1.5",
-                  }}
-                >
-                  {rule.desc}
-                </p>
+                <div>
+                  <h3
+                    className="font-[var(--font-anton)] uppercase"
+                    style={{
+                      color: rule.titleColor,
+                      fontSize: "clamp(16px, 3vw, 22px)",
+                      letterSpacing: "1.2px",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    {rule.title}
+                  </h3>
+                  <p
+                    className="font-[var(--font-poppins)]"
+                    style={{
+                      color: "rgba(255,255,255,0.9)",
+                      fontSize: "clamp(14px, 2.5vw, 16px)",
+                      lineHeight: "1.4",
+                    }}
+                  >
+                    {rule.desc}
+                  </p>
+                </div>
               </div>
             ))}
           </div>
