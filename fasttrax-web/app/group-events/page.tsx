@@ -81,7 +81,7 @@ const activities = [
     title: "Kart Racing",
     color: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
-    img: `${BLOB}/images/events/DSC07773.jpg`,
+    img: `${BLOB}/images/events/kart-grid.jpg`,
     desc: "Adult, Junior, and Mini karts on Florida\u2019s longest indoor multi-level circuit. Exclusive heats for your group.",
   },
   {
