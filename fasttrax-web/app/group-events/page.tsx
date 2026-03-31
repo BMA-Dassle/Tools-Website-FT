@@ -110,7 +110,7 @@ const activities = [
     title: "Racing Simulator",
     color: "rgb(0,74,173)",
     border: "rgb(0,74,173)",
-    img: `${BLOB}/images/events/event-3.webp`,
+    img: `${BLOB}/images/subpages/leaderboards-inline1.webp`,
     desc: "Professional-grade sim racing experience. Full motion rigs with immersive displays.",
   },
   {
