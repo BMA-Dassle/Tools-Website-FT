@@ -6,9 +6,9 @@ const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
 /* ── Gallery images (3-across row) ── */
 const galleryImages = [
-  { src: "/images/attractions/DSC00273.webp", alt: "FastTrax interior view" },
-  { src: "/images/attractions/DSC00281.webp", alt: "FastTrax racing action" },
-  { src: "/images/attractions/DSC00401.webp", alt: "FastTrax entertainment" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00273.webp", alt: "FastTrax interior view" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp", alt: "FastTrax racing action" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00401.webp", alt: "FastTrax entertainment" },
 ];
 
 /* ── FastTrax attraction cards ── */
@@ -17,7 +17,7 @@ const fasttraxCards = [
     title: "High-Powered Electric Racing",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "/images/attractions/DSC06577.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
     desc: (
       <>
         <strong>The Tech:</strong> <strong>Biz-Karts EcoVolt GT</strong> karts on a <strong>360Karting</strong> multi-level structure.<br />
@@ -30,7 +30,7 @@ const fasttraxCards = [
     title: "The Game Zone at FastTrax",
     color: "rgb(134,82,255)",
     borderColor: "rgba(134,82,255,0.59)",
-    image: "/images/attractions/DSC06445.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp",
     desc: (
       <>
         <strong>The Experience:</strong> 50+ of the latest arcade titles, VR simulators, and &ldquo;The Winner&apos;s Circle&rdquo; prize center.<br />
@@ -43,7 +43,7 @@ const fasttraxCards = [
     title: "FastTrax Duckpin Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "/images/attractions/DSC06561.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> Faster, social bowling with boutique lounge seating.<br />
@@ -56,7 +56,7 @@ const fasttraxCards = [
     title: "Shuffly at FastTrax",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "/images/attractions/DSC06538.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06538.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> A modern, high-energy take on a classic. Slide into some competitive fun with a chilled-out atmosphere. Perfect for groups between races.
@@ -72,7 +72,7 @@ const headpinzCards = [
     title: "HeadPinz Tactical Laser Tag",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "/images/attractions/attraction-1.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-1.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> Immersive, multi-level urban combat.<br />
@@ -85,7 +85,7 @@ const headpinzCards = [
     title: "HeadPinz Gel Blaster Arena",
     color: "rgb(134,82,255)",
     borderColor: "rgba(134,82,255,0.59)",
-    image: "/images/attractions/attraction-2.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-2.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> Combat sports with <strong>Zero Mess</strong>.<br />
@@ -98,7 +98,7 @@ const headpinzCards = [
     title: "HeadPinz Aerial Ropes Course",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "/images/attractions/attraction-3.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-3.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> A gravity-defying challenge high above the game floor.
@@ -110,7 +110,7 @@ const headpinzCards = [
     title: "HeadPinz Premier Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "/images/attractions/attraction-4.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-4.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> 24 state-of-the-art lanes including VIP lounge lanes with elite lighting and service.
@@ -122,7 +122,7 @@ const headpinzCards = [
     title: "HeadPinz Axe Throwing & Social Games",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "/images/attractions/attraction-5.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-5.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> Modern social competition at its best. Settle the score with the bullseye.
@@ -137,7 +137,7 @@ export default function AttractionsPage() {
     <>
       <SubpageHero
         title="Attractions"
-        backgroundImage="/images/subpages/attractions-hero.webp"
+        backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/attractions-hero.webp"
       />
 
       {/* ── Section: Two Buildings Intro ── */}
@@ -178,7 +178,7 @@ export default function AttractionsPage() {
       {/* ── Section: FastTrax 63K Racing Hub ── */}
       <section className="relative overflow-hidden" style={{ padding: "120px 32px" }}>
         <Image
-          src="/images/subpages/checkered-flag.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
           fill
           className="object-cover"
@@ -250,7 +250,7 @@ export default function AttractionsPage() {
       {/* ── Section: HeadPinz 50K Social Flagship ── */}
       <section className="relative overflow-hidden" style={{ padding: "120px 32px" }}>
         <Image
-          src="/images/subpages/headpinz-interior.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/headpinz-interior.webp"
           alt="HeadPinz interior"
           fill
           className="object-cover"
@@ -333,7 +333,7 @@ export default function AttractionsPage() {
           </div>
           <div className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "3/2" }}>
             <Image
-              src="/images/attractions/DSC00294.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00294.webp"
               alt="Nemo's Brickyard Bistro dining"
               fill
               className="object-cover"
@@ -346,7 +346,7 @@ export default function AttractionsPage() {
       {/* ── Section: Destination Combo Packages (bottom CTA) ── */}
       <section className="relative overflow-hidden" style={{ height: "788px" }}>
         <Image
-          src="/images/subpages/group-events-bg.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-bg.webp"
           alt="Destination Combos"
           fill
           className="object-cover"

@@ -8,7 +8,7 @@ export default function MenuPage() {
     <>
       <SubpageHero
         title="Nemo's Brickyard Bistro"
-        backgroundImage="/images/subpages/nemos-hero.webp"
+        backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-hero.webp"
       />
 
       {/* ── Section: Intro ── */}
@@ -46,7 +46,7 @@ export default function MenuPage() {
           </div>
           <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "400px" }}>
             <Image
-              src="/images/subpages/nemos-interior.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-interior.webp"
               alt="Nemo's Brickyard Bistro"
               fill
               className="object-cover"
@@ -59,7 +59,7 @@ export default function MenuPage() {
       {/* ── Section: Brick Oven ── */}
       <section className="relative overflow-hidden">
         <Image
-          src="/images/subpages/brick-oven.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/brick-oven.webp"
           alt="Brick oven"
           fill
           className="object-cover"
@@ -95,7 +95,7 @@ export default function MenuPage() {
             {/* Left side: Image */}
             <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "400px" }}>
               <Image
-                src="/images/subpages/nemos-entertainment.webp"
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-entertainment.webp"
                 alt="Friday & Saturday Night Entertainment"
                 fill
                 className="object-cover"
@@ -148,7 +148,7 @@ export default function MenuPage() {
       {/* ── Section: To-Go & Mobile Ordering ── */}
       <section className="relative overflow-hidden">
         <Image
-          src="/images/subpages/checkered-flag.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
           fill
           className="object-cover"
@@ -317,7 +317,7 @@ export default function MenuPage() {
       {/* ── Section: Planning a Visit with 10+ Guests? ── */}
       <section className="relative overflow-hidden">
         <Image
-          src="/images/subpages/nemos-group.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-group.webp"
           alt="Group dining"
           fill
           className="object-cover"

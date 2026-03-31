@@ -98,7 +98,7 @@ export default function PromoCard() {
             {/* Right: Spring Break Pass image */}
             <div className="relative min-h-[280px] md:min-h-0">
               <Image
-                src="/images/graphics/spring-break-pass.png"
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/graphics/spring-break-pass.png"
                 alt="Spring Break Pass"
                 fill
                 className="object-cover object-center"

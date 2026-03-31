@@ -1,16 +1,16 @@
 import Image from "next/image";
 
 const photos = [
-  "/images/gallery/gallery-1.webp",
-  "/images/attractions/racing-2.webp",
-  "/images/gallery/gallery-2.webp",
-  "/images/attractions/racing-3.webp",
-  "/images/gallery/gallery-3.webp",
-  "/images/attractions/attraction-2.webp",
-  "/images/gallery/gallery-4.webp",
-  "/images/attractions/attraction-5.webp",
-  "/images/gallery/gallery-5.webp",
-  "/images/attractions/racing-5.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-1.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/racing-2.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-2.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/racing-3.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-3.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-2.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-4.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-5.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/gallery/gallery-5.webp",
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/racing-5.webp",
 ];
 
 export default function GalleryStrip() {

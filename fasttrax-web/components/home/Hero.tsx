@@ -11,9 +11,9 @@ export default function Hero() {
         loop
         playsInline
         className="absolute inset-0 w-full h-full object-cover"
-        poster="/images/hero/hero-racing.webp"
+        poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp"
       >
-        <source src="/images/hero/hero-video.mp4" type="video/mp4" />
+        <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-video.mp4" type="video/mp4" />
       </video>
 
       {/* Dark overlay */}

@@ -57,7 +57,7 @@ export default function Nav() {
           {/* Logo */}
           <Link href="/" className="flex items-center shrink-0">
             <Image
-              src="/images/logo/FT_logo.png"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
               alt="FastTrax Entertainment"
               width={140}
               height={52}

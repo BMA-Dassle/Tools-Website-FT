@@ -26,7 +26,7 @@ export default function LeaderboardsPage() {
     <>
       <SubpageHero
         title="Live Leaderboards & Standings"
-        backgroundImage="/images/subpages/leaderboards-hero.webp"
+        backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-hero.webp"
       />
 
       {/* ── Section: Intro ── */}
@@ -77,7 +77,7 @@ export default function LeaderboardsPage() {
             style={{ minHeight: "400px" }}
           >
             <Image
-              src="/images/subpages/leaderboards-inline1.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-inline1.webp"
               alt="Racing at FastTrax"
               fill
               className="object-cover"
@@ -309,7 +309,7 @@ export default function LeaderboardsPage() {
       {/* ── Section: Performance Journey ── */}
       <section className="relative overflow-hidden">
         <Image
-          src="/images/subpages/checkered-flag.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
           fill
           className="object-cover"
@@ -407,7 +407,7 @@ export default function LeaderboardsPage() {
             style={{ minHeight: "300px" }}
           >
             <Image
-              src="/images/subpages/leaderboards-inline2.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-inline2.webp"
               alt="Track leaderboard display"
               fill
               className="object-cover"
@@ -465,7 +465,7 @@ export default function LeaderboardsPage() {
       {/* ── Section: Think you can beat the best? (Bottom CTA) ── */}
       <section className="relative overflow-hidden" style={{ height: "788px" }}>
         <Image
-          src="/images/subpages/leaderboards-cta.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-cta.webp"
           alt="Racing action"
           fill
           className="object-cover"

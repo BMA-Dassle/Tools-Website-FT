@@ -51,7 +51,11 @@
       "Bash(curl -sL -o \"C:/GIT/Tools-Website-FT/fasttrax-web/public/images/attractions/DSC00294.webp\" \"https://fasttrax.coreconcepts.digital/wp-content/uploads/2026/01/DSC00294-1-1024x683.webp\")",
       "Bash(ls -d /c/GIT/Tools-Website-FT/fasttrax-web/app/*/)",
       "Bash(curl -sL -o \"C:/GIT/Tools-Website-FT/fasttrax-web/public/images/tracks/track-layout-1.gif\" \"https://fasttrax.coreconcepts.digital/wp-content/uploads/2026/01/freepik__background__4674.gif\")",
-      "Bash(curl -sL -o \"C:/GIT/Tools-Website-FT/fasttrax-web/public/images/tracks/mega-track-layout.gif\" \"https://fasttrax.coreconcepts.digital/wp-content/uploads/2026/01/freepik__background__74912.gif\")"
+      "Bash(curl -sL -o \"C:/GIT/Tools-Website-FT/fasttrax-web/public/images/tracks/mega-track-layout.gif\" \"https://fasttrax.coreconcepts.digital/wp-content/uploads/2026/01/freepik__background__74912.gif\")",
+      "Bash(npm install:*)",
+      "Bash(node scripts/upload-to-blob.mjs)",
+      "Bash(BLOB_READ_WRITE_TOKEN=vercel_blob_rw_wUCE3At4k1aPpcmf_0RxX9xF0T5RvvryzJheOYkWjlEO2St node scripts/upload-to-blob.mjs)",
+      "Bash(node -e \":*)"
     ]
   }
 }

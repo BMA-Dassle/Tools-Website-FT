@@ -34,7 +34,7 @@ export default function RacerJourney() {
     <section className="relative overflow-hidden" style={{ backgroundColor: "#000418" }}>
       {/* Background image */}
       <Image
-        src="/images/hero/racer-journey-bg.webp"
+        src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/racer-journey-bg.webp"
         alt="Racer on track"
         fill
         className="object-cover object-center"

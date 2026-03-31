@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# images served from Vercel Blob
+/public/images/
+blob-mapping.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

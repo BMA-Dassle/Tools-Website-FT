@@ -19,7 +19,7 @@ export default function Footer() {
         {/* Brand */}
         <div>
           <Image
-            src="/images/logo/FT_logo.png"
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
             alt="FastTrax Entertainment"
             width={160}
             height={60}

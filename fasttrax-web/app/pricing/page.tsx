@@ -8,7 +8,7 @@ export default function PricingPage() {
     <>
       <SubpageHero
         title="FastTrax Pricing & Combos"
-        backgroundImage="/images/subpages/pricing-hero.webp"
+        backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-hero.webp"
       />
 
       {/* ── Section: FastTrax Pricing (2-col: cards left, image right) ── */}
@@ -97,7 +97,7 @@ export default function PricingPage() {
           {/* Right column: image */}
           <div className="flex-1 relative hidden lg:block" style={{ minHeight: "600px", borderRadius: "16px", overflow: "hidden" }}>
             <Image
-              src="/images/subpages/pricing-karts.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-karts.webp"
               alt="FastTrax karts"
               fill
               className="object-cover"
@@ -172,7 +172,7 @@ export default function PricingPage() {
       {/* ── Section: FastTrax 63K Racing Hub (Activities) ── */}
       <section className="relative overflow-hidden" style={{ padding: "120px 32px" }}>
         <Image
-          src="/images/subpages/checkered-flag.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
           fill
           className="object-cover"
@@ -198,7 +198,7 @@ export default function PricingPage() {
               }}
             >
               <div className="relative" style={{ height: "240px" }}>
-                <Image src="/images/attractions/DSC06445.webp" alt="The Game Zone" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
+                <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp" alt="The Game Zone" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
               <div style={{ padding: "24px 20px" }}>
                 <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
@@ -221,7 +221,7 @@ export default function PricingPage() {
               }}
             >
               <div className="relative" style={{ height: "240px" }}>
-                <Image src="/images/attractions/DSC00281.webp" alt="Duckpin Bowling" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
+                <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp" alt="Duckpin Bowling" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
               <div style={{ padding: "24px 20px" }}>
                 <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(0,74,173)", fontSize: "24px", letterSpacing: "1.2px" }}>
@@ -244,7 +244,7 @@ export default function PricingPage() {
               }}
             >
               <div className="relative" style={{ height: "240px" }}>
-                <Image src="/images/attractions/shuffly.webp" alt="Shuffly" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
+                <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly.webp" alt="Shuffly" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
               <div style={{ padding: "24px 20px" }}>
                 <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
@@ -266,7 +266,7 @@ export default function PricingPage() {
           {/* Left column: image */}
           <div className="flex-1 relative hidden lg:block" style={{ minHeight: "600px", borderRadius: "16px", overflow: "hidden" }}>
             <Image
-              src="/images/subpages/pricing-combos.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp"
               alt="FastTrax racing"
               fill
               className="object-cover"
@@ -352,7 +352,7 @@ export default function PricingPage() {
       {/* ── Section: Bottom CTA ── */}
       <section className="relative overflow-hidden" style={{ height: "580px" }}>
         <Image
-          src="/images/subpages/bottom-cta-bg.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/bottom-cta-bg.webp"
           alt="Racing"
           fill
           className="object-cover"

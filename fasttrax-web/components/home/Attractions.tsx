@@ -9,7 +9,7 @@ const row1 = [
     cta: "SECURE YOUR SEAT",
     ctaBg: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
-    img: "/images/attractions/DSC06577.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
     href: "/racing",
   },
   {
@@ -18,7 +18,7 @@ const row1 = [
     cta: "BOOK THE MEGA TRACK",
     ctaBg: "rgb(134,82,255)",
     border: "rgba(134,82,255,0.59)",
-    img: "/images/attractions/DSC06538.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06538.webp",
     href: "/racing",
   },
   {
@@ -27,7 +27,7 @@ const row1 = [
     cta: "LOAD A GAME CARD",
     ctaBg: "rgb(0,74,173)",
     border: "rgba(0,74,173,0.59)",
-    img: "/images/attractions/DSC06445.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp",
     href: "/attractions",
   },
 ];
@@ -39,7 +39,7 @@ const row2 = [
     cta: "VIEW THE MENU",
     ctaBg: "rgb(0,74,173)",
     border: "rgba(0,74,173,0.59)",
-    img: "/images/attractions/DSC06481.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06481.webp",
     href: "/menu",
   },
   {
@@ -48,7 +48,7 @@ const row2 = [
     cta: "RESERVE A LANE",
     ctaBg: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
-    img: "/images/attractions/DSC06561.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
     href: "/attractions",
   },
 ];

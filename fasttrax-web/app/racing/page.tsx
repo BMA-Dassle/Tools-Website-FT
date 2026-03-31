@@ -15,7 +15,7 @@ export default function RacingPage() {
     <>
       <SubpageHero
         title="Racing & Qualifications"
-        backgroundImage="/images/subpages/qualifications-hero.webp"
+        backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/qualifications-hero.webp"
       />
 
       {/* ── Section: Speed Tiers ── */}
@@ -195,7 +195,7 @@ export default function RacingPage() {
       {/* ── Section: Performance Hub & Racing App ── */}
       <section className="relative overflow-hidden">
         <Image
-          src="/images/subpages/racing-app-bg.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/racing-app-bg.webp"
           alt="Racing app"
           fill
           className="object-cover object-right-bottom"
@@ -498,7 +498,7 @@ export default function RacingPage() {
               <div className="mt-8 flex justify-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="/images/tracks/track-layout-1.gif"
+                  src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/track-layout-1.gif"
                   alt="Red and Blue track layout animation"
                   className="rounded-2xl max-w-full"
                   style={{ maxHeight: "400px" }}
@@ -563,7 +563,7 @@ export default function RacingPage() {
               <div className="mt-8 flex justify-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="/images/tracks/mega-track-layout.gif"
+                  src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/mega-track-layout.gif"
                   alt="Mega track layout animation"
                   className="rounded-2xl max-w-full"
                   style={{ maxHeight: "400px" }}
@@ -786,7 +786,7 @@ export default function RacingPage() {
         style={{ height: "656px" }}
       >
         <Image
-          src="/images/subpages/bottom-cta-bg.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/bottom-cta-bg.webp"
           alt="Racing"
           fill
           className="object-cover"

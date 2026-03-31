@@ -69,7 +69,7 @@ export default function GroupEventsPage() {
     <>
       <SubpageHero
         title="Group Events & Team Building"
-        backgroundImage="/images/subpages/group-events-hero.webp"
+        backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-hero.webp"
       />
 
       {/* ── Section: Host an Unforgettable Event ── */}
@@ -119,7 +119,7 @@ export default function GroupEventsPage() {
       {/* ── Section: Event Formats ── */}
       <section className="relative overflow-hidden">
         <Image
-          src="/images/subpages/checkered-flag.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
           fill
           className="object-cover"
@@ -339,7 +339,7 @@ export default function GroupEventsPage() {
         className="relative overflow-hidden"
       >
         <Image
-          src="/images/subpages/group-events-bg.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-bg.webp"
           alt="Background"
           fill
           className="object-cover"
