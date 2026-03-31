@@ -544,8 +544,8 @@ export default function LeaderboardsPage() {
       />
 
       {/* ── Section: Intro ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
-        <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-10 items-center">
+      <section className="bg-[#000418]" style={{ padding: "clamp(40px, 8vw, 120px) 0" }}>
+        <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
           <div className="flex-1">
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
@@ -588,15 +588,15 @@ export default function LeaderboardsPage() {
             </a>
           </div>
           <div
-            className="flex-1 relative rounded-2xl overflow-hidden hidden lg:block"
-            style={{ minHeight: "clamp(250px, 50vw, 400px)" }}
+            className="flex-1 relative rounded-2xl overflow-hidden w-full lg:w-auto"
+            style={{ minHeight: "clamp(180px, 30vw, 400px)" }}
           >
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-inline1.webp"
               alt="Racing at FastTrax"
               fill
               className="object-cover"
-              sizes="50vw"
+              sizes="(max-width: 1024px) 100vw, 50vw"
             />
           </div>
         </div>
