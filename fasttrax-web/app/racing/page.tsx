@@ -77,6 +77,7 @@ export default function RacingPage() {
                 age: "7\u201313 / 49\u201d\u201370\u201d",
                 qual: "None \u2014 all juniors start here",
                 desc: "Speed-controlled karts, easy track layout, team supervision.",
+                note: "Not available on Mega Track Tuesdays",
               },
               {
                 title: "Junior Intermediate",
@@ -119,6 +120,11 @@ export default function RacingPage() {
                 <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
                   {rt.desc}
                 </p>
+                {"note" in rt && (
+                  <p className="font-[var(--font-poppins)] font-semibold mt-3" style={{ color: "rgb(255,193,7)", fontSize: "12px" }}>
+                    ⚠ {(rt as { note: string }).note}
+                  </p>
+                )}
               </div>
             ))}
           </div>
