@@ -1,8 +1,9 @@
 "use client";
 
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
-import { useChatAvailable, openChat } from "@/hooks/useChatAvailable";
 
 const quickLinks = [
   { label: "Racing", href: "/racing" },
@@ -16,8 +17,6 @@ const quickLinks = [
 ];
 
 export default function Footer() {
-  const chatAvailable = useChatAvailable();
-
   return (
     <footer className="bg-[#010A20] border-t border-white/10 pt-12 pb-24 md:pb-8">
       <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-10">
@@ -74,13 +73,9 @@ export default function Footer() {
             <p>
               <a href="mailto:guestservices@headpinz.com" className="hover:text-[#00E2E5] transition-colors">guestservices@headpinz.com</a>
             </p>
-            {chatAvailable && (
-              <p>
-                <button onClick={openChat} className="hover:text-[#00E2E5] transition-colors cursor-pointer bg-transparent border-none text-white/60 text-sm p-0">
-                  Live Chat
-                </button>
-              </p>
-            )}
+            <p>
+              <a href="sms:+12394819666" className="hover:text-[#00E2E5] transition-colors">Text Us</a>
+            </p>
             <div className="pt-2 text-white/40 text-xs space-y-1">
               <p>Mon–Thu: 3:00 PM – 11:00 PM</p>
               <p>Fri: 3:00 PM – 12:00 AM</p>

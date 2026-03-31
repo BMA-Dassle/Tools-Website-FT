@@ -5,7 +5,6 @@ import "./globals.css";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import MobileBookBar from "@/components/MobileBookBar";
-import DesktopChatButton from "@/components/DesktopChatButton";
 import { LocalBusinessJsonLd } from "@/components/seo/JsonLd";
 
 const anton = Anton({
@@ -111,7 +110,6 @@ export default function RootLayout({
         <main>{children}</main>
         <Footer />
         <MobileBookBar />
-        <DesktopChatButton />
         {/* 3CX Live Chat Widget */}
         <div
           dangerouslySetInnerHTML={{
