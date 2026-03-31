@@ -214,27 +214,11 @@ export default function LeaderboardsPage() {
                 padding: "20px",
               }}
             >
-              <p
-                className="font-[var(--font-anton)] text-white mb-2"
-                style={{ fontSize: "24px" }}
-              >
-                3
-              </p>
-              <h3
-                className="font-[var(--font-anton)] uppercase mb-6"
-                style={{
-                  color: "rgb(134,82,255)",
-                  fontSize: "24px",
-                  letterSpacing: "1.2px",
-                }}
-              >
-                Persistent (All Days)
-              </h3>
               <div className="text-center">
                 <h4
                   className="font-[var(--font-anton)] uppercase mb-4"
                   style={{
-                    color: "rgb(255,42,42)",
+                    color: "rgb(134,82,255)",
                     fontSize: "24px",
                     letterSpacing: "1.2px",
                   }}
