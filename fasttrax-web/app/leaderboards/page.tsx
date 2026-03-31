@@ -272,6 +272,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
   const wsRef = useRef<WebSocket | null>(null);
   const prevPositions = useRef<Map<string, number>>(new Map());
   const deltaClearTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const activeDeltas = useRef<Map<string, number>>(new Map());
   // Local countdown: sync from WS, tick locally every second
   const serverTimeRef = useRef(0);
   const serverReceivedAt = useRef(0);
@@ -327,16 +328,23 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
             const dArr = (data.D || []) as Array<Record<string, unknown>>;
             const prev = prevPositions.current;
-            let anyDelta = false;
+            const deltas = activeDeltas.current;
+            let newChange = false;
             const updated = dArr.map((d) => {
               const name = (d.N as string) || "";
               const kart = String(d.K ?? "");
               const pos = (d.P as number) || 0;
               const id = `${name}-${kart}`;
               const oldPos = prev.get(id);
-              const delta = oldPos != null ? oldPos - pos : 0;
-              if (delta !== 0) anyDelta = true;
+              const freshDelta = oldPos != null ? oldPos - pos : 0;
               prev.set(id, pos);
+              // If there's a new position change, store it
+              if (freshDelta !== 0) {
+                deltas.set(id, freshDelta);
+                newChange = true;
+              }
+              // Use stored delta (persists until cleared by timer)
+              const delta = deltas.get(id) || 0;
               return {
                 name, kart, position: pos,
                 laps: (d.L as number) || 0,
@@ -348,10 +356,11 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
               };
             });
             setDrivers(updated);
-            // Hold position change highlights for 5s then clear
-            if (anyDelta) {
+            // Hold position change highlights for 5s then clear all
+            if (newChange) {
               clearTimeout(deltaClearTimer.current);
               deltaClearTimer.current = setTimeout(() => {
+                deltas.clear();
                 setDrivers((prev) => prev.map((d) => ({ ...d, delta: 0 })));
               }, 5000);
             }
