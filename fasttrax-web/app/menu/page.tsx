@@ -1,5 +1,17 @@
+import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+
+export const metadata: Metadata = {
+  title: "Nemo's Brickyard Bistro – FastTrax Dining",
+  description:
+    "Authentic brick-oven pizza, craft drinks & trackside dining at Nemo's Brickyard Bistro inside FastTrax Fort Myers.",
+  openGraph: {
+    title: "Nemo's Brickyard Bistro – FastTrax Dining",
+    description:
+      "Authentic brick-oven pizza, craft drinks & trackside dining at Nemo's Brickyard Bistro inside FastTrax Fort Myers.",
+  },
+};
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
@@ -29,11 +41,11 @@ export default function MenuPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
-                href="#"
+                href="tel:+12394819666"
                 className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
                 style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
               >
-                ORDER TO-GO NOW
+                CALL TO ORDER
               </a>
               <a
                 href="#events"
@@ -304,7 +316,9 @@ export default function MenuPage() {
 
           <div className="text-center">
             <a
-              href="#"
+              href="https://www.facebook.com/FastTraxFM"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >

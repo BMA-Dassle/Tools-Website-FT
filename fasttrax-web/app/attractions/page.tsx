@@ -1,6 +1,18 @@
+import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Attractions – FastTrax & HeadPinz",
+  description:
+    "Indoor karting, laser tag, gel blaster arena, duckpin bowling, arcade gaming, axe throwing & more. 113,000 sq. ft. of entertainment in Fort Myers, FL.",
+  openGraph: {
+    title: "Attractions – FastTrax & HeadPinz",
+    description:
+      "Indoor karting, laser tag, gel blaster arena, duckpin bowling, arcade gaming, axe throwing & more. 113,000 sq. ft. of entertainment in Fort Myers, FL.",
+  },
+};
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 

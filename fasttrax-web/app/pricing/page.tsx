@@ -1,5 +1,17 @@
+import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+
+export const metadata: Metadata = {
+  title: "Pricing & Packages – FastTrax Racing",
+  description:
+    "FastTrax karting rates, combo packages, and add-ons. Adult races from $20.99, Junior from $15.99. Book online and save.",
+  openGraph: {
+    title: "Pricing & Packages – FastTrax Racing",
+    description:
+      "FastTrax karting rates, combo packages, and add-ons. Adult races from $20.99, Junior from $15.99. Book online and save.",
+  },
+};
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
