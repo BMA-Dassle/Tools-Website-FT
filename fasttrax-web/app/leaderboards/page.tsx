@@ -439,9 +439,12 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
         )}
         <span className="font-[var(--font-anton)] uppercase tracking-wider text-base relative z-10 flex items-center gap-2">
           {heatName}
-          {wsStatus === "reconnecting" && (
-            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" title="Reconnecting..." />
-          )}
+          <span
+            className={`inline-block w-2 h-2 rounded-full ${
+              wsStatus === "connected" ? "bg-green-400" : "bg-yellow-400 animate-pulse"
+            }`}
+            title={wsStatus === "connected" ? "Live" : "Reconnecting..."}
+          />
         </span>
         <span className="font-[var(--font-poppins)] font-semibold text-sm relative z-10">
           {wsStatus === "reconnecting" && "RECONNECTING..."}
