@@ -422,66 +422,37 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
   );
 }
 
-function LiveTimingTabs({ isTuesday }: { isTuesday: boolean }) {
-  const [liveTab, setLiveTab] = useState<"blue" | "red" | "mega">(isTuesday ? "mega" : "blue");
-
-  useEffect(() => {
-    setLiveTab(isTuesday ? "mega" : "blue");
-  }, [isTuesday]);
-
-  const visibleTracks = isTuesday
-    ? LIVE_TRACKS.filter((t) => t.key === "mega")
+function LiveTimingTabs({ isMega }: { isMega: boolean }) {
+  /* When Mega Track is active, show Blue + Red feeds (Mega uses the combined physical tracks).
+     The -1 serverKey doesn't return live data — real data flows through the Blue/Red feeds. */
+  const visibleTracks = isMega
+    ? LIVE_TRACKS.filter((t) => t.key !== "mega")
     : LIVE_TRACKS.filter((t) => t.key !== "mega");
-
-  const active = LIVE_TRACKS.find((t) => t.key === liveTab)!;
 
   return (
     <div>
-      {visibleTracks.length > 1 && (
-        <div className="flex justify-center gap-1 mb-6">
-          {visibleTracks.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setLiveTab(t.key)}
-              className="font-[var(--font-anton)] uppercase tracking-wider text-base px-6 py-3 transition-all cursor-pointer"
-              style={{
-                backgroundColor: liveTab === t.key ? "rgba(7,16,39,0.7)" : "transparent",
-                color: liveTab === t.key ? t.accent : "rgba(255,255,255,0.4)",
-                borderBottom: liveTab === t.key ? `3px solid ${t.accent}` : "3px solid transparent",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {isTuesday && (
+      {isMega && (
         <h3
           className="font-[var(--font-anton)] uppercase text-center mb-6"
           style={{ color: "rgb(134,82,255)", fontSize: "24px", letterSpacing: "1.2px" }}
         >
-          Mega Track Tuesday
+          Mega Track Live
         </h3>
       )}
 
-      {isTuesday ? (
-        <LiveTimingPanel serverKey={active.serverKey} accent={active.accent} />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {visibleTracks.map((t) => (
-            <div key={t.key}>
-              <h4
-                className="font-[var(--font-anton)] uppercase text-center mb-4"
-                style={{ color: t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
-              >
-                {t.label} Live
-              </h4>
-              <LiveTimingPanel serverKey={t.serverKey} accent={t.accent} />
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {visibleTracks.map((t) => (
+          <div key={t.key}>
+            <h4
+              className="font-[var(--font-anton)] uppercase text-center mb-4"
+              style={{ color: isMega ? "rgb(134,82,255)" : t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
+            >
+              {isMega ? `${t.label} Feed` : `${t.label} Live`}
+            </h4>
+            <LiveTimingPanel serverKey={t.serverKey} accent={isMega ? "rgb(134,82,255)" : t.accent} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -578,7 +549,7 @@ export default function LeaderboardsPage() {
             The Live Timing
           </h2>
 
-          <LiveTimingTabs isTuesday={isMega} />
+          <LiveTimingTabs isMega={isMega} />
         </div>
       </section>
 
