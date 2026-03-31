@@ -397,7 +397,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
       {/* Table header — mobile: Pos/Driver/Kart/Laps/Best/Last  desktop: + Avg + Gap */}
       <div
-        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 grid-cols-[24px_1fr_28px_28px_56px_56px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+        className="grid font-[var(--font-poppins)] font-semibold uppercase text-xs tracking-wider px-3 sm:px-4 py-2.5 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
         style={{
           color: "rgba(255,255,255,0.5)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -417,7 +417,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
       {drivers.map((d, i) => (
         <div
           key={`${d.name}-${d.kart}`}
-          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 grid-cols-[24px_1fr_28px_28px_56px_56px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+          className="grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 transition-colors duration-700 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
           style={{
             fontSize: "13px",
             borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
