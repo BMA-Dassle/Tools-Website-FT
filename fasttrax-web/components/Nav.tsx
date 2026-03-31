@@ -35,7 +35,6 @@ export default function Nav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [todayHours, setTodayHours] = useState("");
-  const [showWaiver, setShowWaiver] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -46,7 +45,6 @@ export default function Nav() {
   }, []);
 
   return (
-    <>
     <header className="fixed top-0 left-0 right-0 z-50">
       {/* Top bar */}
       <div className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#010A20]" : "bg-transparent"}`}>
@@ -91,15 +89,17 @@ export default function Nav() {
           {/* Desktop links */}
           <div className="hidden lg:flex items-center gap-5">
             {links.map((l) =>
-              l.label === "Waiver" ? (
-                <button
-                  key={l.label}
-                  onClick={() => setShowWaiver(true)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white cursor-pointer bg-transparent border-none"
+              l.href.startsWith("http") ? (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white"
                   style={{ fontSize: "14px" }}
                 >
                   {l.label}
-                </button>
+                </a>
               ) : (
                 <Link
                   key={l.href}
@@ -143,15 +143,18 @@ export default function Nav() {
         <div className={`lg:hidden overflow-hidden transition-all duration-300 ${open ? "max-h-screen" : "max-h-0"}`}>
           <div className="bg-[#010A20] px-4 pb-6 pt-2 flex flex-col gap-4">
             {links.map((l) =>
-              l.label === "Waiver" ? (
-                <button
-                  key={l.label}
-                  onClick={() => { setOpen(false); setShowWaiver(true); }}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors text-left bg-transparent border-x-0 border-t-0 cursor-pointer"
+              l.href.startsWith("http") ? (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setOpen(false)}
+                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
                   style={{ color: "rgba(255,255,255,0.8)" }}
                 >
                   {l.label}
-                </button>
+                </a>
               ) : (
                 <Link
                   key={l.href}
@@ -176,46 +179,5 @@ export default function Nav() {
         </div>
       </nav>
     </header>
-
-      {/* Waiver Modal — outside header to avoid stacking context issues with MobileBookBar */}
-      {showWaiver && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={() => setShowWaiver(false)}
-        >
-          <div
-            className="relative w-full max-w-3xl mx-4"
-            style={{ height: "85vh" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowWaiver(false)}
-              className="absolute -top-10 right-0 text-white/70 hover:text-white transition-colors cursor-pointer bg-transparent border-none"
-              aria-label="Close waiver"
-            >
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <iframe
-              src="https://kiosk.bmileisure.com/headpinzftmyers"
-              className="w-full h-full rounded-xl border border-white/10"
-              title="FastTrax Waiver"
-            />
-            <p className="text-center mt-3 text-white/40 text-xs font-[var(--font-poppins)]">
-              Having trouble?{" "}
-              <a
-                href="https://kiosk.bmileisure.com/headpinzftmyers"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#00E2E5] hover:text-white transition-colors underline"
-              >
-                Open in new tab
-              </a>
-            </p>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
