@@ -26,13 +26,13 @@ export default function GalleryStrip() {
       <div className="relative flex gap-3 overflow-hidden">
         <div className="flex gap-3 animate-[scroll_40s_linear_infinite] shrink-0">
           {[...photos, ...photos].map((src, i) => (
-            <div key={i} className="relative w-64 h-44 shrink-0 rounded-xl overflow-hidden">
+            <div key={i} className="relative w-48 h-32 md:w-64 md:h-44 shrink-0 rounded-xl overflow-hidden">
               <Image
                 src={src}
                 alt="FastTrax gallery"
                 fill
                 className="object-cover hover:scale-105 transition-transform duration-500"
-                sizes="256px"
+                sizes="(max-width: 768px) 192px, 256px"
               />
             </div>
           ))}

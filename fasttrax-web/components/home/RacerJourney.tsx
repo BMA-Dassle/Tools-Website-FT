@@ -46,7 +46,7 @@ export default function RacerJourney() {
       {/* Inner layout — 2 equal columns, padding 0 32px, gap 24px */}
       <div
         className="relative z-10 flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto"
-        style={{ padding: "80px 32px" }}
+        style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}
       >
 
         {/* LEFT COL: Heading + Track Status + CTAs */}
@@ -62,7 +62,7 @@ export default function RacerJourney() {
           <div>
             <p
               className="font-[var(--font-anton)] italic uppercase mb-3"
-              style={{ color: "rgba(255,255,255,0.898)", fontSize: "32px" }}
+              style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(22px, 5vw, 32px)" }}
             >
               LIVE TRACK STATUS
             </p>
@@ -121,7 +121,7 @@ export default function RacerJourney() {
                 backgroundColor: "rgba(7,16,39,0.6)",
                 border: `1.78px dashed ${s.borderColor}`,
                 borderRadius: "44px",
-                padding: "28px 16px",
+                padding: "clamp(16px, 3vw, 28px) clamp(12px, 2vw, 16px)",
               }}
             >
               {/* Number badge */}

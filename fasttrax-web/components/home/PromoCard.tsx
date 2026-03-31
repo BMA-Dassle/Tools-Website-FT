@@ -69,7 +69,7 @@ export default function PromoCard() {
                 <p className="font-[var(--font-jakarta)] text-white/35 text-[10px] uppercase tracking-widest mb-3">
                   Offer Expires In
                 </p>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 md:gap-4">
                   <CountUnit value={days} label="Days" />
                   <span className="font-[var(--font-anton)] italic text-white/25 text-2xl pb-3">:</span>
                   <CountUnit value={hours} label="Hours" />

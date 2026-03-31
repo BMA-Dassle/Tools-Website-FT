@@ -12,12 +12,12 @@ export default function MenuPage() {
       />
 
       {/* ── Section: Intro ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-10 items-center">
           <div className="flex-1">
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
-              style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               Artisan Pizza. Italian Tradition. Front-Row Seats
             </h2>
@@ -44,7 +44,7 @@ export default function MenuPage() {
               </a>
             </div>
           </div>
-          <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "400px" }}>
+          <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "clamp(250px, 50vw, 400px)" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-interior.webp"
               alt="Nemo's Brickyard Bistro"
@@ -66,11 +66,11 @@ export default function MenuPage() {
           sizes="100vw"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/95 via-[#000418]/85 to-[#000418]/60" />
-        <div className="relative z-10 max-w-7xl mx-auto px-8 flex items-center" style={{ padding: "120px 32px" }}>
+        <div className="relative z-10 max-w-7xl mx-auto px-8 flex items-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <div style={{ maxWidth: "600px" }}>
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
-              style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
+              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
             >
               The Star of the Show: Brick Oven Mastery
             </h2>
@@ -82,18 +82,18 @@ export default function MenuPage() {
       </section>
 
       {/* ── Section: Friday & Saturday Night Entertainment ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             Friday &amp; Saturday Night Entertainment
           </h2>
 
           <div className="flex flex-col lg:flex-row gap-8 items-stretch">
             {/* Left side: Image */}
-            <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "400px" }}>
+            <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "clamp(250px, 50vw, 400px)" }}>
               <Image
                 src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-entertainment.webp"
                 alt="Friday & Saturday Night Entertainment"
@@ -155,10 +155,10 @@ export default function MenuPage() {
           sizes="100vw"
         />
         <div className="absolute inset-0 bg-[#000418]/85" />
-        <div className="relative z-10 max-w-7xl mx-auto" style={{ padding: "120px 32px" }}>
+        <div className="relative z-10 max-w-7xl mx-auto" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             To-Go &amp; Mobile Ordering
           </h2>
@@ -225,11 +225,11 @@ export default function MenuPage() {
       </section>
 
       {/* ── Section: Upcoming Events & Watch Parties ── */}
-      <section id="events" className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section id="events" className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Upcoming Events &amp; Watch Parties
           </h2>
@@ -324,10 +324,10 @@ export default function MenuPage() {
           sizes="100vw"
         />
         <div className="absolute inset-0 bg-[#000418]/80" />
-        <div className="relative z-10 max-w-3xl mx-auto text-center" style={{ padding: "120px 32px" }}>
+        <div className="relative z-10 max-w-3xl mx-auto text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
           >
             Planning a visit with 10+ guests?
           </h2>

@@ -141,11 +141,11 @@ export default function AttractionsPage() {
       />
 
       {/* ── Section: Two Buildings Intro ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Two Buildings. One Massive Destination
           </h2>
@@ -176,7 +176,7 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: FastTrax 63K Racing Hub ── */}
-      <section className="relative overflow-hidden" style={{ padding: "120px 32px" }}>
+      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
@@ -188,7 +188,7 @@ export default function AttractionsPage() {
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             FastTrax: The 63,000 Sq. Ft. Racing Hub
           </h2>
@@ -206,7 +206,7 @@ export default function AttractionsPage() {
                 }}
               >
                 {/* Card image */}
-                <div className="relative" style={{ height: "200px" }}>
+                <div className="relative" style={{ height: "clamp(150px, 25vw, 200px)" }}>
                   <Image src={card.image} alt={card.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw" />
                 </div>
                 {/* Card content */}
@@ -236,11 +236,11 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: Campus Transition: The HeadPinz Connection ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto text-center">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", textShadow: glowShadow }}
           >
             Campus Transition: The HeadPinz Connection
           </h2>
@@ -248,7 +248,7 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: HeadPinz 50K Social Flagship ── */}
-      <section className="relative overflow-hidden" style={{ padding: "120px 32px" }}>
+      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/headpinz-interior.webp"
           alt="HeadPinz interior"
@@ -260,7 +260,7 @@ export default function AttractionsPage() {
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             headPinz: The 50,000 Sq. Ft. Social Flagship
           </h2>
@@ -278,7 +278,7 @@ export default function AttractionsPage() {
                 }}
               >
                 {/* Card image */}
-                <div className="relative" style={{ height: "200px" }}>
+                <div className="relative" style={{ height: "clamp(150px, 25vw, 200px)" }}>
                   <Image src={card.image} alt={card.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
                 </div>
                 {/* Card content */}
@@ -308,12 +308,12 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: Dining - Nemo's Brickyard Bistro ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
-              style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               Dining: Nemo&apos;s Brickyard Bistro
             </h2>
@@ -344,7 +344,7 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: Destination Combo Packages (bottom CTA) ── */}
-      <section className="relative overflow-hidden" style={{ height: "788px" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 788px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-bg.webp"
           alt="Destination Combos"
@@ -356,7 +356,7 @@ export default function AttractionsPage() {
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(28,0,255,0.4) 0px 0px 30px" }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(28,0,255,0.4) 0px 0px 30px" }}
           >
             Destination Combo Packages (Best Value)
           </h2>

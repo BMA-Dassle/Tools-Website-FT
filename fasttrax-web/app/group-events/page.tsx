@@ -85,13 +85,13 @@ export default function GroupEventsPage() {
       />
 
       {/* ── Section: Host an Unforgettable Event ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "60px",
-              lineHeight: "60px",
+              fontSize: "clamp(28px, 7vw, 60px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "16px",
               textShadow: glowShadow,
@@ -140,13 +140,13 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div
           className="relative z-10 max-w-7xl mx-auto px-8"
-          style={{ padding: "120px 32px" }}
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "60px",
-              lineHeight: "60px",
+              fontSize: "clamp(28px, 7vw, 60px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "48px",
               textShadow: "rgba(255,30,0,0.4) 0px 0px 30px",
@@ -192,13 +192,13 @@ export default function GroupEventsPage() {
       </section>
 
       {/* ── Section: VIP Amenities ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "60px",
-              lineHeight: "60px",
+              fontSize: "clamp(28px, 7vw, 60px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "48px",
               textShadow: glowShadow,
@@ -244,13 +244,13 @@ export default function GroupEventsPage() {
       </section>
 
       {/* ── Section: Birthday Party Notice ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto text-center">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "60px",
-              lineHeight: "60px",
+              fontSize: "clamp(28px, 7vw, 60px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "16px",
               textShadow: glowShadow,
@@ -301,13 +301,13 @@ export default function GroupEventsPage() {
       </section>
 
       {/* ── Section: Junior Racing ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "60px",
-              lineHeight: "60px",
+              fontSize: "clamp(28px, 7vw, 60px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "16px",
               textShadow: glowShadow,
@@ -360,13 +360,13 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/80" />
         <div
           className="relative z-10 max-w-3xl mx-auto px-8 text-center"
-          style={{ padding: "120px 32px" }}
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "60px",
-              lineHeight: "60px",
+              fontSize: "clamp(28px, 7vw, 60px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "16px",
               textShadow: "rgba(28,0,255,0.4) 0px 0px 30px",

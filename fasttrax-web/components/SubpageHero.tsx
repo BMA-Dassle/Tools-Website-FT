@@ -7,7 +7,7 @@ interface SubpageHeroProps {
 
 export default function SubpageHero({ title, backgroundImage }: SubpageHeroProps) {
   return (
-    <section className="relative overflow-hidden" style={{ height: "575px" }}>
+    <section className="relative overflow-hidden" style={{ minHeight: "575px" }}>
       <Image
         src={backgroundImage}
         alt={title}
@@ -19,7 +19,7 @@ export default function SubpageHero({ title, backgroundImage }: SubpageHeroProps
         unoptimized
       />
       {/* No overlay - live site has none */}
-      <div className="relative z-10 flex items-center justify-center px-8" style={{ height: "575px" }}>
+      <div className="relative z-10 flex items-center justify-center px-8" style={{ minHeight: "575px" }}>
         <h1
           className="font-[var(--font-anton)] italic uppercase text-white text-center"
           style={{ fontSize: "clamp(3rem, 8vw, 100px)", fontWeight: 600, lineHeight: "1.25", letterSpacing: "3.4px" }}

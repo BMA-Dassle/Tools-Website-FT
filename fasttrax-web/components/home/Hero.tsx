@@ -3,7 +3,7 @@ import Link from "next/link";
 export default function Hero() {
 
   return (
-    <section className="relative overflow-hidden bg-[#000418]" style={{ minHeight: "813px" }}>
+    <section className="relative overflow-hidden bg-[#000418]" style={{ minHeight: "min(813px, 100vh)" }}>
       {/* Video background */}
       <video
         autoPlay
@@ -46,7 +46,7 @@ export default function Hero() {
           </div>
 
           {/* Description */}
-          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "20px", fontFamily: "var(--font-poppins)", maxWidth: "520px", lineHeight: "1.6" }}>
+          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(16px, 4vw, 20px)", fontFamily: "var(--font-poppins)", maxWidth: "520px", lineHeight: "1.6" }}>
             63,000 sq. ft. of high-powered electric karting, elite gaming, and
             trackside dining. Don&apos;t just watch the action—be the action.
           </p>

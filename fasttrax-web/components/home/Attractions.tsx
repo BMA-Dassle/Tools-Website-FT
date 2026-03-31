@@ -73,7 +73,7 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
       }}
     >
       {/* Photo */}
-      <div className="relative h-[246px] w-full">
+      <div className="relative h-[180px] md:h-[246px] w-full">
         <Image
           src={card.img}
           alt={card.title}
@@ -118,7 +118,7 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
 
 export default function Attractions() {
   return (
-    <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+    <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
       <div className="max-w-7xl mx-auto">
 
         {/* Title */}

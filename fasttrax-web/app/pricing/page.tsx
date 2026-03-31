@@ -12,13 +12,13 @@ export default function PricingPage() {
       />
 
       {/* ── Section: FastTrax Pricing (2-col: cards left, image right) ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-16 items-center">
           {/* Left column: heading + promo cards + disclaimer */}
           <div className="flex-1">
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
-              style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
+              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
             >
               FastTrax Pricing
             </h2>
@@ -95,7 +95,7 @@ export default function PricingPage() {
           </div>
 
           {/* Right column: image */}
-          <div className="flex-1 relative hidden lg:block" style={{ minHeight: "600px", borderRadius: "16px", overflow: "hidden" }}>
+          <div className="flex-1 relative hidden lg:block" style={{ minHeight: "clamp(300px, 60vw, 600px)", borderRadius: "16px", overflow: "hidden" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-karts.webp"
               alt="FastTrax karts"
@@ -108,11 +108,11 @@ export default function PricingPage() {
       </section>
 
       {/* ── Section: Racing Rates Table ── */}
-      <section className="bg-[#000418]" style={{ padding: "70px 32px 120px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(40px, 8vw, 70px) clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Racing Rates
           </h2>
@@ -170,7 +170,7 @@ export default function PricingPage() {
       </section>
 
       {/* ── Section: FastTrax 63K Racing Hub (Activities) ── */}
-      <section className="relative overflow-hidden" style={{ padding: "120px 32px" }}>
+      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
@@ -182,7 +182,7 @@ export default function PricingPage() {
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             FastTrax: The 63,000 Sq. Ft. Racing Hub
           </h2>
@@ -197,7 +197,7 @@ export default function PricingPage() {
                 overflow: "hidden",
               }}
             >
-              <div className="relative" style={{ height: "240px" }}>
+              <div className="relative" style={{ height: "clamp(160px, 30vw, 240px)" }}>
                 <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp" alt="The Game Zone" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
               <div style={{ padding: "24px 20px" }}>
@@ -220,7 +220,7 @@ export default function PricingPage() {
                 overflow: "hidden",
               }}
             >
-              <div className="relative" style={{ height: "240px" }}>
+              <div className="relative" style={{ height: "clamp(160px, 30vw, 240px)" }}>
                 <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp" alt="Duckpin Bowling" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
               <div style={{ padding: "24px 20px" }}>
@@ -243,7 +243,7 @@ export default function PricingPage() {
                 overflow: "hidden",
               }}
             >
-              <div className="relative" style={{ height: "240px" }}>
+              <div className="relative" style={{ height: "clamp(160px, 30vw, 240px)" }}>
                 <Image src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly.webp" alt="Shuffly" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
               </div>
               <div style={{ padding: "24px 20px" }}>
@@ -261,10 +261,10 @@ export default function PricingPage() {
       </section>
 
       {/* ── Section: FastTrax Combos (2-col: image left, text+cards right) ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-16 items-center">
           {/* Left column: image */}
-          <div className="flex-1 relative hidden lg:block" style={{ minHeight: "600px", borderRadius: "16px", overflow: "hidden" }}>
+          <div className="flex-1 relative hidden lg:block" style={{ minHeight: "clamp(300px, 60vw, 600px)", borderRadius: "16px", overflow: "hidden" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp"
               alt="FastTrax racing"
@@ -278,7 +278,7 @@ export default function PricingPage() {
           <div style={{ flex: "0 0 54%" }}>
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
-              style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               fastTrax Combos
             </h2>
@@ -350,7 +350,7 @@ export default function PricingPage() {
       </section>
 
       {/* ── Section: Bottom CTA ── */}
-      <section className="relative overflow-hidden" style={{ height: "580px" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "clamp(400px, 70vh, 580px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/bottom-cta-bg.webp"
           alt="Racing"
@@ -362,7 +362,7 @@ export default function PricingPage() {
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
-            style={{ fontSize: "72px", lineHeight: "72px", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
+            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
           >
             THE RACER&apos;S JOURNEY ARRIVE TO DRIVE
           </h2>

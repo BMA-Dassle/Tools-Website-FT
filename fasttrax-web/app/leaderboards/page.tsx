@@ -30,14 +30,14 @@ export default function LeaderboardsPage() {
       />
 
       {/* ── Section: Intro ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-10 items-center">
           <div className="flex-1">
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
               style={{
-                fontSize: "72px",
-                lineHeight: "72px",
+                fontSize: "clamp(32px, 8vw, 72px)",
+                lineHeight: "1",
                 letterSpacing: "3px",
                 marginBottom: "16px",
                 textShadow: glowShadow,
@@ -74,7 +74,7 @@ export default function LeaderboardsPage() {
           </div>
           <div
             className="flex-1 relative rounded-2xl overflow-hidden"
-            style={{ minHeight: "400px" }}
+            style={{ minHeight: "clamp(250px, 50vw, 400px)" }}
           >
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-inline1.webp"
@@ -88,13 +88,13 @@ export default function LeaderboardsPage() {
       </section>
 
       {/* ── Section: The Live Timing ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "48px",
               textShadow: "rgba(255,30,0,0.4) 0px 0px 30px",
@@ -139,7 +139,7 @@ export default function LeaderboardsPage() {
                   <iframe
                     src={liveSrc("-1")}
                     className="w-full rounded-lg"
-                    style={{ height: "500px", border: "none" }}
+                    style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
                     title="Mega Track Live Timing"
                   />
                 </div>
@@ -179,7 +179,7 @@ export default function LeaderboardsPage() {
                     <iframe
                       src={liveSrc("11208654")}
                       className="w-full rounded-lg"
-                      style={{ height: "500px", border: "none" }}
+                      style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
                       title="Blue Track Live Timing"
                     />
                   </div>
@@ -197,7 +197,7 @@ export default function LeaderboardsPage() {
                     <iframe
                       src={liveSrc("11208660")}
                       className="w-full rounded-lg"
-                      style={{ height: "500px", border: "none" }}
+                      style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
                       title="Red Track Live Timing"
                     />
                   </div>
@@ -244,7 +244,7 @@ export default function LeaderboardsPage() {
                 <iframe
                   src={bestTimesSrc}
                   className="w-full rounded-lg"
-                  style={{ height: "500px", border: "none" }}
+                  style={{ height: "clamp(300px, 60vw, 500px)", border: "none" }}
                   title="Hall of Fame Best Times"
                 />
               </div>
@@ -265,13 +265,13 @@ export default function LeaderboardsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div
           className="relative z-10 max-w-7xl mx-auto"
-          style={{ padding: "120px 32px" }}
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "48px",
               textShadow: "rgba(255,30,0,0.4) 0px 0px 30px",
@@ -347,11 +347,11 @@ export default function LeaderboardsPage() {
       </section>
 
       {/* ── Section: Track Information Alert ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-10 items-center">
           <div
             className="flex-1 relative rounded-2xl overflow-hidden"
-            style={{ minHeight: "300px" }}
+            style={{ minHeight: "clamp(200px, 40vw, 300px)" }}
           >
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-inline2.webp"
@@ -365,8 +365,8 @@ export default function LeaderboardsPage() {
             <h2
               className="font-[var(--font-anton)] italic uppercase text-white"
               style={{
-                fontSize: "72px",
-                lineHeight: "72px",
+                fontSize: "clamp(32px, 8vw, 72px)",
+                lineHeight: "1",
                 letterSpacing: "3px",
                 marginBottom: "32px",
                 textShadow: glowShadow,
@@ -410,7 +410,7 @@ export default function LeaderboardsPage() {
       </section>
 
       {/* ── Section: Think you can beat the best? (Bottom CTA) ── */}
-      <section className="relative overflow-hidden" style={{ height: "788px" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 788px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-cta.webp"
           alt="Racing action"
@@ -423,8 +423,8 @@ export default function LeaderboardsPage() {
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "32px",
               textShadow: glowShadow,

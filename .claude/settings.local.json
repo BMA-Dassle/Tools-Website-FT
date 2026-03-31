@@ -55,7 +55,8 @@
       "Bash(npm install:*)",
       "Bash(node scripts/upload-to-blob.mjs)",
       "Bash(BLOB_READ_WRITE_TOKEN=vercel_blob_rw_wUCE3At4k1aPpcmf_0RxX9xF0T5RvvryzJheOYkWjlEO2St node scripts/upload-to-blob.mjs)",
-      "Bash(node -e \":*)"
+      "Bash(node -e \":*)",
+      "WebFetch(domain:fasttraxent.com)"
     ]
   }
 }

@@ -19,13 +19,13 @@ export default function RacingPage() {
       />
 
       {/* ── Section: Speed Tiers ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "16px",
               textShadow: glowShadow,
@@ -204,13 +204,13 @@ export default function RacingPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/95 via-[#000418]/85 to-[#000418]/60" />
         <div
           className="relative z-10 max-w-7xl mx-auto"
-          style={{ padding: "120px 32px" }}
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "32px",
               textShadow: glowShadow,
@@ -310,13 +310,13 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: World-Class Partnerships ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "48px",
               textShadow: glowShadow,
@@ -383,13 +383,13 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: Track Layouts ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "32px",
               textShadow: glowShadow,
@@ -440,7 +440,7 @@ export default function RacingPage() {
                 backgroundColor: "rgba(7,16,39,0.6)",
                 border: "1.78px dashed rgba(221,221,221,0.18)",
                 borderRadius: "44px",
-                padding: "44px",
+                padding: "clamp(20px, 5vw, 44px)",
                 backdropFilter: "blur(6.6px)",
                 boxShadow: "rgba(0,0,0,0.1) 0px 4px 30px 0px",
               }}
@@ -515,7 +515,7 @@ export default function RacingPage() {
                 backgroundColor: "rgba(7,16,39,0.6)",
                 border: "1.78px dashed rgba(221,221,221,0.18)",
                 borderRadius: "44px",
-                padding: "44px",
+                padding: "clamp(20px, 5vw, 44px)",
                 backdropFilter: "blur(6.6px)",
                 boxShadow: "rgba(0,0,0,0.1) 0px 4px 30px 0px",
               }}
@@ -593,13 +593,13 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: The Grid Rules ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "48px",
               textShadow: glowShadow,
@@ -690,13 +690,13 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: The Racer's Journey ── */}
-      <section className="bg-[#000418]" style={{ padding: "120px 32px" }}>
+      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "40px",
               textShadow: glowShadow,
@@ -783,7 +783,7 @@ export default function RacingPage() {
       {/* ── Section: Bottom CTA with background image ── */}
       <section
         className="relative overflow-hidden"
-        style={{ height: "656px" }}
+        style={{ minHeight: "656px" }}
       >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/bottom-cta-bg.webp"
@@ -797,8 +797,8 @@ export default function RacingPage() {
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white"
             style={{
-              fontSize: "72px",
-              lineHeight: "72px",
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
               letterSpacing: "3px",
               marginBottom: "24px",
               textShadow: glowShadow,
