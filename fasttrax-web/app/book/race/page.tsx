@@ -14,7 +14,9 @@ interface Booking {
   blockPrice?: number;
 }
 import type { ContactInfo } from "./components/ContactForm";
+import type { PersonData } from "./components/ReturningRacerLookup";
 import ExperiencePicker from "./components/ExperiencePicker";
+import ReturningRacerLookup from "./components/ReturningRacerLookup";
 import PartySizePicker from "./components/PartySizePicker";
 import DatePicker from "./components/DatePicker";
 import ProductPicker from "./components/ProductPicker";
@@ -53,6 +55,8 @@ export default function BookRacePage() {
   const [selectedProposal, setSelectedProposal] = useState<BmiProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
+  // Returning racer person data from BMI lookup
+  const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
 
@@ -86,7 +90,25 @@ export default function BookRacePage() {
 
   function handleExperienceSelect(type: RacerType) {
     setRacerType(type);
-    // Auto-advance to party size
+    setVerifiedPerson(null);
+    if (type === "new") {
+      // New racers auto-advance to party size
+      setTimeout(() => setStep("party"), 300);
+    }
+    // Returning racers stay on experience step — ReturningRacerLookup will show
+  }
+
+  function handlePersonVerified(person: PersonData) {
+    setVerifiedPerson(person);
+    // Pre-fill contact from verified person
+    const nameParts = person.fullName.split(" ");
+    setContact({
+      firstName: nameParts[0] || "",
+      lastName: nameParts.slice(1).join(" ") || "",
+      email: person.email,
+      phone: "",
+    });
+    // Auto-advance to party
     setTimeout(() => setStep("party"), 300);
   }
 
@@ -155,8 +177,12 @@ export default function BookRacePage() {
       setSelectedBlock(null);
       setStep("product");
     } else {
-      // All categories booked — proceed to contact
-      setStep("contact");
+      // All categories booked — skip contact if verified returning racer
+      if (verifiedPerson && contact) {
+        setStep("summary");
+      } else {
+        setStep("contact");
+      }
     }
   }
 
@@ -233,9 +259,17 @@ export default function BookRacePage() {
       {/* Main content */}
       <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-[180px]">
 
-        {/* STEP 1: Experience level — auto-advances on selection */}
+        {/* STEP 1: Experience level */}
         {step === "experience" && (
-          <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
+          <div className="space-y-8">
+            <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
+            {racerType === "existing" && !verifiedPerson && (
+              <ReturningRacerLookup
+                onVerified={handlePersonVerified}
+                onSwitchToNew={() => handleExperienceSelect("new")}
+              />
+            )}
+          </div>
         )}
 
         {/* STEP 2: Party composition */}

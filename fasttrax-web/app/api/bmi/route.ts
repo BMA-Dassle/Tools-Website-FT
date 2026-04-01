@@ -57,6 +57,8 @@ const ALLOWED_GET = [
   "availability",
   "image/product",
   "order",
+  "person",
+  "subscription",
 ];
 
 const ALLOWED_POST = [
