@@ -41,7 +41,7 @@ interface OrderSummaryProps {
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number }[] }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -178,26 +178,45 @@ export default function OrderSummary({
         // Non-fatal
       }
 
-      // ── Get real total from BMI (credits auto-applied after person linked) ──
+      // ── Get real bill from BMI (credits auto-applied after person linked) ──
       let isCreditOrder = false;
       let cashOwed = total;
       let creditApplied = 0;
+      let bmiTotal = total;
+      let bmiSubtotal = subtotal;
+      let bmiTax = tax;
+      let bmiLines: { name: string; quantity: number; amount: number }[] = [];
+
       try {
         const overview = await bmiGet(`order/${orderId}/overview`);
-        console.log("[order/overview]", JSON.stringify(overview.total));
 
-        const cashEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const creditEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+        // Extract totals
+        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+        const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
 
-        if (cashEntry) cashOwed = cashEntry.amount;
-        if (creditEntry) creditApplied = Math.abs(creditEntry.amount);
+        if (cashTotal) { bmiTotal = cashTotal.amount; cashOwed = cashTotal.amount; }
+        if (cashSub) bmiSubtotal = cashSub.amount;
+        if (cashTax) bmiTax = cashTax.amount;
+        if (creditTotal) creditApplied = Math.abs(creditTotal.amount);
 
-        if (creditEntry && (!cashEntry || cashEntry.amount === 0)) {
+        if (creditTotal && (!cashTotal || cashTotal.amount === 0)) {
           isCreditOrder = true;
           cashOwed = 0;
+          // For credit orders, use the credit amount as the "total" for display
+          bmiTotal = 0;
+        }
+
+        // Extract line items
+        if (overview.lines) {
+          bmiLines = overview.lines.map((l: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }) => {
+            const cashPrice = l.totalPrice?.find(p => p.depositKind === 0);
+            return { name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0 };
+          });
         }
       } catch {
-        // Fallback: if personId present, assume credit for 1 racer
+        // Fallback to local calculation
         if (personId) {
           const totalRacers = bookings.reduce((s, b) => s + b.quantity, 0);
           creditApplied = 1;
@@ -206,9 +225,14 @@ export default function OrderSummary({
           isCreditOrder = cashOwed < 0.01;
           if (isCreditOrder) cashOwed = 0;
         }
+        bmiLines = bookings.map(b => ({
+          name: b.product.name,
+          quantity: b.quantity,
+          amount: (b.blockPrice ?? b.product.price) * b.quantity,
+        }));
       }
 
-      setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied });
+      setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied, bmiTotal, bmiSubtotal, bmiTax, bmiLines });
     } catch (err) {
       setState({
         status: "error",
@@ -480,56 +504,50 @@ export default function OrderSummary({
         ))
       )}
 
-      {/* Price breakdown */}
+      {/* Price breakdown — from BMI bill */}
       <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
-        {isPack && packProduct ? (
-          <div className="flex justify-between text-sm">
-            <span className="text-white/60">{packProduct.name}</span>
-            <span className="text-white">${packProduct.price.toFixed(2)}</span>
-          </div>
-        ) : (
-          bookings.map((b, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <span className="text-white/60">
-                {b.product.name} x {b.quantity}
-              </span>
-              <span className="text-white">
-                ${((b.blockPrice ?? b.product.price) * b.quantity).toFixed(2)}
-              </span>
-            </div>
-          ))
-        )}
+        {state.status === "booked" ? (
+          <>
+            {state.bmiLines.map((line, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-white/60">{line.name} x {line.quantity}</span>
+                <span className="text-white">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
+              </div>
+            ))}
 
-        <div className="border-t border-white/10 pt-2 space-y-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-white/60">Subtotal</span>
-            <span className="text-white">${subtotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-white/60">Tax (6.5%)</span>
-            <span className="text-white">${tax.toFixed(2)}</span>
-          </div>
-          <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
-            <span className="text-white">Total</span>
-            <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
-          </div>
-
-          {/* Credit/cash breakdown from BMI */}
-          {state.status === "booked" && state.creditApplied > 0 && (
-            <>
+            <div className="border-t border-white/10 pt-2 space-y-1">
               <div className="flex justify-between text-sm">
-                <span className="text-green-400">Credits Applied</span>
-                <span className="text-green-400">-{state.creditApplied} credit{state.creditApplied !== 1 ? "s" : ""}</span>
+                <span className="text-white/60">Subtotal</span>
+                <span className="text-white">${state.bmiSubtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-white/60">Tax</span>
+                <span className="text-white">${state.bmiTax.toFixed(2)}</span>
               </div>
               <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
-                <span className="text-white">{state.cashOwed > 0 ? "Due Now" : "Amount Due"}</span>
-                <span className={`text-lg ${state.cashOwed > 0 ? "text-[#00E2E5]" : "text-green-400"}`}>
-                  {state.cashOwed > 0 ? `$${state.cashOwed.toFixed(2)}` : "$0.00"}
-                </span>
+                <span className="text-white">Total</span>
+                <span className="text-[#00E2E5] text-lg">${state.bmiTotal.toFixed(2)}</span>
               </div>
-            </>
-          )}
-        </div>
+
+              {state.creditApplied > 0 && (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-green-400">Credits Applied</span>
+                    <span className="text-green-400">-{state.creditApplied} credit{state.creditApplied !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
+                    <span className="text-white">{state.cashOwed > 0 ? "Due Now" : "Amount Due"}</span>
+                    <span className={`text-lg ${state.cashOwed > 0 ? "text-[#00E2E5]" : "text-green-400"}`}>
+                      {state.cashOwed > 0 ? `$${state.cashOwed.toFixed(2)}` : "$0.00"}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="text-center text-white/30 text-sm py-2">Calculating...</div>
+        )}
       </div>
 
       {/* Info notes */}
