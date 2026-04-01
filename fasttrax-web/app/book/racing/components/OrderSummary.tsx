@@ -209,34 +209,43 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
 
     setState({ status: "paying" });
     try {
-      const amount = cashTotal(state.bill);
-      const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
+      // Our confirmation page is the final destination after Square payment
       const returnUrl = `${window.location.origin}/book/racing/confirmation?billId=${billId}`;
 
-      // Initialize SMS-Timing payment session
       await sms("payment/start", { billId });
 
-      // Create Square checkout via our own API
-      const res = await fetch("/api/square/checkout", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          billId,
-          amount,
-          raceName,
-          returnUrl,
-          cancelUrl: `${window.location.origin}/book/racing`,
-        }),
+      const payResult = await sms("genericpaymentprocessor", {
+        orderId: billId,
+        amount: cashTotal(state.bill),
+        currency: "USD",
+        paymentMode: 0,
+        paymentTotalMode: 0,
+        returnUrl,
+        successUrl: returnUrl,
+        cancelUrl: `${window.location.origin}/book/racing`,
       });
 
-      const data = await res.json();
-      console.log("[square/checkout]", data);
+      console.log("[genericpaymentprocessor]", payResult);
 
-      if (data.checkoutUrl) {
-        // Redirect to Square payment page
-        window.location.href = data.checkoutUrl;
+      // BMI returns a Square checkout URL — go through BMI's payment-redirect
+      // which handles Square callback → payment/process → redirects to our returnUrl
+      if (payResult.data) {
+        const qs = new URLSearchParams({
+          providerKind: String(payResult.providerKind ?? -11042),
+          data: payResult.data,
+          transactionId: payResult.transactionId ?? billId,
+          orderId: billId,
+          returnUrl,
+        });
+        window.location.href = `https://booking.bmileisure.com/headpinzftmyers/book/payment-redirect?${qs.toString()}`;
       } else {
-        throw new Error(data.error || "Failed to create payment link");
+        // Fallback: direct Square URL (won't have payment/process callback)
+        const squareUrl = payResult.onlinePaymentData?.RedirectUrl;
+        if (squareUrl) {
+          window.location.href = squareUrl;
+        } else {
+          throw new Error("No payment URL returned");
+        }
       }
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed to start" });
