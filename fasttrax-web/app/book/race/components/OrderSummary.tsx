@@ -36,6 +36,8 @@ interface OrderSummaryProps {
   personId?: string;
   /** Callback when BMI order is created — for cleanup on back navigation */
   onOrderCreated?: (orderId: string) => void;
+  /** Callback to remove a booking item — goes back to heat selection */
+  onRemoveBooking?: (index: number) => void;
 }
 
 type BookingState =
@@ -75,6 +77,7 @@ export default function OrderSummary({
   packProduct,
   personId,
   onOrderCreated,
+  onRemoveBooking,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const effectRan = useRef(false);
@@ -479,13 +482,26 @@ export default function OrderSummary({
             key={i}
             className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.08]"
           >
-            <div className="p-4">
-              <p className="text-white/40 text-xs mb-1">
-                {bookings.length > 1
-                  ? `Race ${i + 1} -- ${b.product.category === "adult" ? "Adult" : "Junior"}`
-                  : "Race"}
-              </p>
-              <p className="text-white font-bold">{b.product.name}</p>
+            <div className="p-4 flex justify-between items-start">
+              <div>
+                <p className="text-white/40 text-xs mb-1">
+                  {bookings.length > 1
+                    ? `Race ${i + 1} -- ${b.product.category === "adult" ? "Adult" : "Junior"}`
+                    : "Race"}
+                </p>
+                <p className="text-white font-bold">{b.product.name}</p>
+              </div>
+              {onRemoveBooking && bookings.length > 1 && state.status === "booked" && (
+                <button
+                  onClick={() => onRemoveBooking(i)}
+                  className="text-red-400/50 hover:text-red-400 transition-colors p-1"
+                  title="Remove race"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
             <div className="p-4 grid grid-cols-2 gap-4">
               <div>

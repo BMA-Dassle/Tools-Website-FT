@@ -450,6 +450,20 @@ export default function BookRacePage() {
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
             onOrderCreated={setActiveOrderId}
+            onRemoveBooking={(index) => {
+              cancelActiveOrder();
+              setBookings(prev => {
+                const updated = prev.filter((_, i) => i !== index);
+                if (updated.length === 0) {
+                  setStep("date");
+                } else {
+                  // Re-enter summary to re-book remaining items
+                  setStep("heat");
+                  setTimeout(() => setStep("summary"), 100);
+                }
+                return updated;
+              });
+            }}
           />
         )}
 

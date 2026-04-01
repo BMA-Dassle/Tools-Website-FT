@@ -39,7 +39,7 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
   return (
-    <div className="fixed bottom-6 right-20 z-40 md:bottom-8 md:right-24">
+    <div className="fixed bottom-20 right-4 z-40 md:bottom-8 md:right-24">
       {/* Expanded cart */}
       {open && (
         <div className="absolute bottom-16 right-0 w-72 rounded-xl border border-white/15 bg-[#0a0e1a]/95 backdrop-blur-lg shadow-2xl shadow-black/50 overflow-hidden mb-2">
