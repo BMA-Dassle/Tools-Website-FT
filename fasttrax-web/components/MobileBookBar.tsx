@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { useChatAvailable } from "@/hooks/useChatAvailable";
 import { trackBookingClick } from "@/lib/analytics";
 
 export default function MobileBookBar() {
   const [showContact, setShowContact] = useState(false);
   const agentsOnline = useChatAvailable();
+  const pathname = usePathname();
+
+  // Hide on booking pages — user is already booking
+  if (pathname?.startsWith("/book")) return null;
 
   return (
     <>

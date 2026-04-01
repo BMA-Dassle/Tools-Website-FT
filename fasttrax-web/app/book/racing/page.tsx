@@ -87,8 +87,8 @@ export default function BookRacingPage() {
 
   function handleExperienceSelect(type: RacerType) {
     setRacerType(type);
-    // Auto-scroll to Next button
-    setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    // Auto-advance to party size
+    setTimeout(() => setStep("party"), 300);
   }
 
   function handlePartyNext() {
@@ -112,7 +112,8 @@ export default function BookRacingPage() {
     // Set quantity based on party size for this category
     const q = product.category === "adult" ? adults : juniors;
     setQuantity(Math.max(1, q));
-    setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    // Auto-advance to heat selection
+    setTimeout(() => setStep("heat"), 300);
   }
 
   function handlePackComplete(result: PackBookingResult) {
@@ -232,21 +233,9 @@ export default function BookRacingPage() {
       {/* Main content */}
       <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-[180px]">
 
-        {/* STEP 1: Experience level */}
+        {/* STEP 1: Experience level — auto-advances on selection */}
         {step === "experience" && (
-          <div className="space-y-8">
-            <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
-            {racerType && (
-              <div ref={nextBtnRef} className="flex justify-end">
-                <button
-                  onClick={() => setStep("party")}
-                  className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
-                >
-                  Next: Party Size →
-                </button>
-              </div>
-            )}
-          </div>
+          <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
         )}
 
         {/* STEP 2: Party composition */}
@@ -324,16 +313,6 @@ export default function BookRacingPage() {
                   selected={selectedProduct}
                   onSelect={handleProductSelect}
                 />
-                {selectedProduct && (
-                  <div ref={nextBtnRef} className="flex justify-end">
-                    <button
-                      onClick={() => setStep("heat")}
-                      className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
-                    >
-                      Next: Pick a Heat →
-                    </button>
-                  </div>
-                )}
               </>
             )}
             <button onClick={() => setStep("date")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
