@@ -40,26 +40,41 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     }
   }, [selectedIdx]);
 
+  // Use SMS-Timing dayplanner directly for heats (BMI availability ignores time offsets)
+  async function fetchHeatsFrom(startTime: string): Promise<BmiProposal[]> {
+    const utcTime = startTime.endsWith("Z") ? startTime : `${startTime}.000Z`;
+    const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        productId: race.productId,
+        pageId: race.pageId,
+        quantity,
+        dynamicLines: null,
+        date: utcTime,
+      }),
+    });
+    if (!res.ok) throw new Error("Failed to fetch time slots");
+    const data = await res.json();
+    return data.proposals || [];
+  }
+
   const fetchSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
     setSelectedIdx(null);
     try {
-      // Fetch all heats across the full day in 2-hour jumps (3PM - midnight)
       const dateOnly = date.split("T")[0];
       const allProposals: BmiProposal[] = [];
       const seen = new Set<string>();
 
+      // Fetch in 2-hour jumps to cover the full day (3 PM - midnight)
       const startHours = [15, 17, 19, 21, 23];
       for (const hour of startHours) {
         const h = String(hour).padStart(2, "0");
-        const data = await bmiPost(
-          "availability",
-          { productId: race.productId, quantity },
-          { date: `${dateOnly}T${h}:00:00.000Z` },
-        );
+        const batch = await fetchHeatsFrom(`${dateOnly}T${h}:00:00`);
 
-        for (const p of (data.proposals || [])) {
+        for (const p of batch) {
           const key = p.blocks?.[0]?.block?.start;
           if (key && !seen.has(key)) {
             seen.add(key);
@@ -81,7 +96,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     } finally {
       setLoading(false);
     }
-  }, [race.productId, date, quantity]);
+  }, [race.productId, race.pageId, date, quantity]);
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
