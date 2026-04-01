@@ -289,7 +289,7 @@ export default function BookRacingPage() {
                 {bookings.map((b, i) => (
                   <div key={i} className="flex justify-between text-sm text-white/70">
                     <span>{b.product.name} x{b.quantity}</span>
-                    <span className="text-white/40">{b.block.time}</span>
+                    <span className="text-white/40">{new Date(b.block.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}</span>
                   </div>
                 ))}
               </div>
