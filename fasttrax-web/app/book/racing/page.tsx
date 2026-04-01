@@ -188,7 +188,7 @@ export default function BookRacingPage() {
   const partyTotal = adults + juniors;
 
   return (
-    <div className="min-h-screen bg-[#000418] pt-24">
+    <div className="min-h-screen bg-[#000418] pt-[180px]">
       {/* Sticky header: steps + banner */}
       <div className="sticky top-[128px] z-30">
         <div className="border-b border-white/8 bg-[#000418]">
