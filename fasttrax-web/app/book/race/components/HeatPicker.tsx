@@ -57,7 +57,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
       body: JSON.stringify({
         productId: race.productId,
         pageId: race.pageId,
-        quantity,
+        quantity: 1, // Always fetch per-unit price; booking/book handles quantity
         dynamicLines: null,
         date: utcTime,
       }),
@@ -115,10 +115,10 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
   const selectedProposal = selectedIdx !== null ? proposals[selectedIdx] : null;
   const selectedBlock = selectedProposal?.blocks?.[0]?.block ?? null;
   // Get real price from the proposal block (BMI returns prices on availability)
-  // blockPrice from dayplanner is already the total for the requested quantity
+  // blockPrice is per-unit (dayplanner fetched with qty=1)
   const blockPrice = selectedBlock?.prices?.find(p => p.depositKind === 0)?.amount ?? race.price;
-  const perUnit = quantity > 0 ? blockPrice / quantity : blockPrice;
-  const total = selectedBlock ? blockPrice.toFixed(2) : null;
+  const perUnit = blockPrice;
+  const total = selectedBlock ? (blockPrice * quantity).toFixed(2) : null;
 
   return (
     <div className="space-y-6">
