@@ -209,30 +209,42 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
 
     setState({ status: "paying" });
     try {
-      const amount = cashTotal(state.bill);
-      const paymentId = crypto.randomUUID();
+      const startResult = await sms("payment/start", { billId });
 
-      // Confirm payment via BMI Public API
-      // Note: orderId must be sent as a raw number in JSON (not a string),
-      // but JS loses precision on large integers. Use raw JSON construction.
-      const res = await fetch(`/api/bmi?endpoint=payment/confirm`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: `{"id":"${paymentId}","paymentTime":"${new Date().toISOString()}","amount":${amount},"orderId":${billId}}`,
+      const returnUrl = `${window.location.origin}/book/racing/confirmation?billId=${billId}`;
+      const payResult = await sms("genericpaymentprocessor", {
+        orderId: billId,
+        amount: cashTotal(state.bill),
+        currency: "USD",
+        paymentMode: 0,
+        paymentTotalMode: 0,
+        returnUrl,
+        successUrl: returnUrl,
+        cancelUrl: `${window.location.origin}/book/racing`,
       });
 
-      const result = await res.json();
-      console.log("[payment/confirm]", result);
+      console.log("[payment/start]", startResult);
+      console.log("[genericpaymentprocessor]", payResult);
 
-      if (result.status === 0) {
-        // Payment confirmed — redirect to confirmation
-        window.location.href = `/book/racing/confirmation?billId=${billId}`;
+      const squareUrl = payResult.url ?? payResult.onlinePaymentData?.RedirectUrl ?? payResult.onlinePaymentData?.redirectUrl;
+      if (squareUrl) {
+        window.location.href = squareUrl;
+      } else if (payResult.data) {
+        const qs = new URLSearchParams({
+          providerKind: String(payResult.providerKind ?? -11042),
+          data: payResult.data,
+          transactionId: payResult.transactionId ?? billId,
+          orderId: billId,
+          returnUrl,
+        });
+        window.location.href = `https://booking.bmileisure.com/headpinzftmyers/book/payment-redirect?${qs.toString()}`;
       } else {
-        throw new Error(result.errorMessage || result.Message || "Payment confirmation failed");
+        throw new Error(
+          `Payment processor returned unexpected response: ${JSON.stringify(payResult)}`
+        );
       }
     } catch (err) {
-      console.error("[payment/confirm error]", err);
-      setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed" });
+      setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed to start" });
     }
   }
 
