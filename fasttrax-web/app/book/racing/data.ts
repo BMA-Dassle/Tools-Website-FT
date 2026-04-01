@@ -1,173 +1,51 @@
+// ── Core types ───────────────────────────────────────────────────────────────
+
 export type RaceTier = "starter" | "intermediate" | "pro";
 export type RaceCategory = "adult" | "junior";
+export type RacerType = "new" | "existing";
 
-export interface RaceProduct {
-  productId: string;
-  pageId: string;
-  name: string;
-  displayName: string;
-  category: RaceCategory;
-  tier: RaceTier;
-  price: number;
-  pack?: number; // number of races if a multi-pack
-  age: string;
-  height: string;
-  qualification: string | null;
-  qualifiesFrom?: string; // display name of the tier required
-  description: string;
-  color: string; // tailwind border/accent color token
-}
-
-export const RACE_PRODUCTS: RaceProduct[] = [
-  // ── STARTER ────────────────────────────────────────────────────────────────
-  {
-    productId: "24965505",
-    pageId: "24966930",
-    name: "Starter Race Mega",
-    displayName: "Starter Race",
-    category: "adult",
-    tier: "starter",
-    price: 25.98,
-    age: "13+",
-    height: '59"+ (4\'11"+)',
-    qualification: null,
-    description: "Your first race. No experience needed — jump in and find your pace on the Mega Track.",
-    color: "cyan",
-  },
-
-  // ── INTERMEDIATE ───────────────────────────────────────────────────────────
-  {
-    productId: "24965707",
-    pageId: "25850647",
-    name: "Intermediate Race Mega",
-    displayName: "Intermediate Race",
-    category: "adult",
-    tier: "intermediate",
-    price: 25.98,
-    age: "16+",
-    height: '59"+ (4\'11"+)',
-    qualification: 'Must have hit 41.5s (Blue) or 47s (Red) lap time in an Adult Starter Race.',
-    qualifiesFrom: "Starter Race",
-    description: "You've found your line. Now push the limits with faster drivers.",
-    color: "violet",
-  },
-  {
-    productId: "33415132",
-    pageId: "25850647",
-    name: "Intermediate Race Mega - 3 Race Pack",
-    displayName: "Intermediate 3-Race Pack",
-    category: "adult",
-    tier: "intermediate",
-    price: 49.98,
-    pack: 3,
-    age: "16+",
-    height: '59"+ (4\'11"+)',
-    qualification: 'Must have hit 41.5s (Blue) or 47s (Red) lap time in an Adult Starter Race.',
-    qualifiesFrom: "Starter Race",
-    description: "Best value for qualified intermediate drivers — 3 races, one price.",
-    color: "violet",
-  },
-  {
-    productId: "24966320",
-    pageId: "25850647",
-    name: "Junior Intermediate Race Mega",
-    displayName: "Junior Intermediate Race",
-    category: "junior",
-    tier: "intermediate",
-    price: 20.98,
-    age: "7–13",
-    height: '49"–70"',
-    qualification: 'Must have hit a 1:15 lap time in a Junior Starter Race.',
-    qualifiesFrom: "Junior Starter Race",
-    description: "Junior racers who've proven their pace move up to the competitive grid.",
-    color: "violet",
-  },
-
-  // ── PRO ────────────────────────────────────────────────────────────────────
-  {
-    productId: "24965768",
-    pageId: "25850658",
-    name: "Pro Race Mega",
-    displayName: "Pro Race",
-    category: "adult",
-    tier: "pro",
-    price: 25.98,
-    age: "16+",
-    height: '59"+ (4\'11"+)',
-    qualification: 'Must have hit 32.25s (Blue) or 37.25s (Red) lap time in an Adult Intermediate Race.',
-    qualifiesFrom: "Intermediate Race",
-    description: "The fastest drivers on the track. Every tenth counts at the pro level.",
-    color: "red",
-  },
-  {
-    productId: "33416216",
-    pageId: "25850658",
-    name: "Pro Race Mega - 3 Race Pack",
-    displayName: "Pro 3-Race Pack",
-    category: "adult",
-    tier: "pro",
-    price: 49.98,
-    pack: 3,
-    age: "16+",
-    height: '59"+ (4\'11"+)',
-    qualification: 'Must have hit 32.25s (Blue) or 37.25s (Red) lap time in an Adult Intermediate Race.',
-    qualifiesFrom: "Intermediate Race",
-    description: "Lock in 3 pro races at a discount. Serious racers only.",
-    color: "red",
-  },
-  {
-    productId: "24966863",
-    pageId: "25850658",
-    name: "Junior Pro Race Mega",
-    displayName: "Junior Pro Race",
-    category: "junior",
-    tier: "pro",
-    price: 20.98,
-    age: "7–13",
-    height: '49"–70"',
-    qualification: 'Must have hit a 45s lap time in a Junior Intermediate Race.',
-    qualifiesFrom: "Junior Intermediate Race",
-    description: "Elite junior racing. If you're here, you've earned it.",
-    color: "red",
-  },
-];
-
-export const COLOR_MAP: Record<string, { border: string; bg: string; badge: string; text: string }> = {
-  cyan: {
-    border: "border-[#00E2E5]",
-    bg: "bg-[#00E2E5]/10",
-    badge: "bg-[#00E2E5]/20 text-[#00E2E5]",
-    text: "text-[#00E2E5]",
-  },
-  violet: {
-    border: "border-[#8652FF]",
-    bg: "bg-[#8652FF]/10",
-    badge: "bg-[#8652FF]/20 text-[#8652FF]",
-    text: "text-[#8652FF]",
-  },
-  red: {
-    border: "border-[#E53935]",
-    bg: "bg-[#E53935]/10",
-    badge: "bg-[#E53935]/20 text-[#E53935]",
-    text: "text-[#E53935]",
-  },
-};
-
-export const TIER_LABELS: Record<RaceTier, string> = {
-  starter: "Starter",
-  intermediate: "Intermediate",
-  pro: "Pro",
-};
-
-export const BMI_BOOKING_BASE = "https://booking.bmileisure.com/headpinzftmyers/book/product-list";
-
-// ── SMS-Timing API types ──────────────────────────────────────────────────────
+// ── SMS-Timing API types ─────────────────────────────────────────────────────
 
 export interface SmsPrice {
   amount: number;
   kind: number;
   shortName: string;
   depositKind: number; // 0 = cash, 2 = deposit/membership
+}
+
+/** One product inside a page from GET /api/page/{venue}?date= */
+export interface SmsProduct {
+  id: string;
+  name: string;
+  info: string;
+  shortInfo: string;
+  hasPicture: boolean;
+  isCombo: boolean;
+  minAge: number;
+  maxAge: number;
+  isMembersOnly: boolean;
+  minAmount: number;
+  maxAmount: number;
+  resourceId: string;
+  resourceKind: string;
+  kind: number;
+  bookingMode: number;
+  productGroup: string;
+  sessionGroup: string;
+  durationSec: number;
+  message: string;
+  prices: SmsPrice[];
+  saleMode: number;
+  dynamicGroups: unknown;
+}
+
+/** A page (category) from GET /api/page/{venue}?date= */
+export interface SmsPage {
+  id: string;
+  name: string;
+  defaultName: string;
+  kind: number;
+  products: SmsProduct[];
 }
 
 export interface SmsSessionSetup {
@@ -231,15 +109,149 @@ export interface SmsBill {
   errorMessage: string | null;
 }
 
-// Acknowledgement product IDs required before payment.
-// Adult races need BOTH: age 13+ (24878407) AND height 59"+ (24878469)
-// Junior races need only the height acknowledgement (24878469)
-export const ACKNOWLEDGEMENT_PRODUCTS: Record<string, string[]> = {
-  "24965505": ["24878407", "24878469"], // Starter Race Mega (adult)
-  "24965707": ["24878407", "24878469"], // Intermediate Race Mega (adult)
-  "33415132": ["24878407", "24878469"], // Intermediate 3-Pack (adult)
-  "24965768": ["24878407", "24878469"], // Pro Race Mega (adult)
-  "33416216": ["24878407", "24878469"], // Pro 3-Pack (adult)
-  "24966320": ["24878469"], // Junior Intermediate
-  "24966863": ["24878469"], // Junior Pro
+// ── Classified product (derived from API response) ───────────────────────────
+
+export interface ClassifiedProduct {
+  productId: string;
+  pageId: string;
+  name: string;
+  tier: RaceTier;
+  category: RaceCategory;
+  track: string | null; // "Red", "Blue", or null (Mega/unknown)
+  price: number;       // cash price (depositKind 0)
+  isCombo: boolean;    // multi-pack
+  sessionGroup: string;
+  raw: SmsProduct;
+}
+
+/**
+ * Classify raw API products into our tier/category/track model.
+ * Only returns Karting products.
+ */
+export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
+  const results: ClassifiedProduct[] = [];
+
+  for (const page of pages) {
+    for (const prod of page.products) {
+      if (prod.productGroup !== "Karting") continue;
+
+      const name = prod.name;
+      const nameLower = name.toLowerCase();
+
+      // Determine tier
+      let tier: RaceTier = "starter";
+      if (nameLower.includes("intermediate")) tier = "intermediate";
+      else if (nameLower.includes("pro")) tier = "pro";
+
+      // Determine category: "Junior" in name = junior, otherwise adult
+      const category: RaceCategory = nameLower.includes("junior") ? "junior" : "adult";
+
+      // Determine track
+      let track: string | null = null;
+      if (nameLower.includes("red")) track = "Red";
+      else if (nameLower.includes("blue")) track = "Blue";
+      else if (nameLower.includes("mega")) track = "Mega";
+
+      // Cash price
+      const price = prod.prices.find(p => p.depositKind === 0)?.amount ?? 0;
+
+      results.push({
+        productId: prod.id,
+        pageId: page.id,
+        name,
+        tier,
+        category,
+        track,
+        price,
+        isCombo: prod.isCombo,
+        sessionGroup: prod.sessionGroup,
+        raw: prod,
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Filter products for the wizard based on racer type and party composition.
+ * - New racers → only Starter tier
+ * - Existing racers → Intermediate + Pro tiers
+ * - Only show adult products if adults > 0
+ * - Only show junior products if juniors > 0
+ */
+export function filterProducts(
+  products: ClassifiedProduct[],
+  racerType: RacerType,
+  adultCount: number,
+  juniorCount: number,
+): ClassifiedProduct[] {
+  return products.filter(p => {
+    // Filter by experience level
+    if (racerType === "new" && p.tier !== "starter") return false;
+    if (racerType === "existing" && p.tier === "starter") return false;
+
+    // Filter by party composition
+    if (p.category === "adult" && adultCount === 0) return false;
+    if (p.category === "junior" && juniorCount === 0) return false;
+
+    return true;
+  });
+}
+
+/**
+ * Group products that exist on multiple tracks (Blue/Red).
+ * Returns groups keyed by a normalized name (without track suffix).
+ */
+export function groupByTrack(products: ClassifiedProduct[]): Map<string, ClassifiedProduct[]> {
+  const groups = new Map<string, ClassifiedProduct[]>();
+  for (const p of products) {
+    // Normalize: remove "Red"/"Blue" from name to group them
+    const key = p.name.replace(/\s+(Red|Blue)$/i, "").trim() + `|${p.category}|${p.isCombo}`;
+    const arr = groups.get(key) ?? [];
+    arr.push(p);
+    groups.set(key, arr);
+  }
+  return groups;
+}
+
+// ── Visual theming ───────────────────────────────────────────────────────────
+
+export const TIER_COLOR: Record<RaceTier, { border: string; bg: string; badge: string; text: string }> = {
+  starter: {
+    border: "border-[#00E2E5]",
+    bg: "bg-[#00E2E5]/10",
+    badge: "bg-[#00E2E5]/20 text-[#00E2E5]",
+    text: "text-[#00E2E5]",
+  },
+  intermediate: {
+    border: "border-[#8652FF]",
+    bg: "bg-[#8652FF]/10",
+    badge: "bg-[#8652FF]/20 text-[#8652FF]",
+    text: "text-[#8652FF]",
+  },
+  pro: {
+    border: "border-[#E53935]",
+    bg: "bg-[#E53935]/10",
+    badge: "bg-[#E53935]/20 text-[#E53935]",
+    text: "text-[#E53935]",
+  },
 };
+
+export const TIER_LABELS: Record<RaceTier, string> = {
+  starter: "Starter",
+  intermediate: "Intermediate",
+  pro: "Pro",
+};
+
+// ── Acknowledgements ─────────────────────────────────────────────────────────
+
+// Determine acknowledgements dynamically from product category
+export function getAcknowledgements(category: RaceCategory): string[] {
+  if (category === "adult") {
+    // Age 13+ AND height 59"+
+    return ["24878407", "24878469"];
+  }
+  // Junior — height only
+  return ["24878469"];
+}

@@ -1,29 +1,51 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import type { RaceProduct, SmsProposal, SmsBlock } from "./data";
+import { useState, useEffect, useRef, useCallback } from "react";
+import type { RacerType, RaceCategory, ClassifiedProduct, SmsPage, SmsProposal, SmsBlock } from "./data";
+import { classifyProducts, filterProducts } from "./data";
+
+/** A completed race booking for one category (adult or junior) */
+interface Booking {
+  product: ClassifiedProduct;
+  quantity: number;
+  proposal: SmsProposal;
+  block: SmsBlock;
+}
 import type { ContactInfo } from "./components/ContactForm";
-import RacePicker from "./components/RacePicker";
+import ExperiencePicker from "./components/ExperiencePicker";
+import PartySizePicker from "./components/PartySizePicker";
 import DatePicker from "./components/DatePicker";
+import ProductPicker from "./components/ProductPicker";
 import HeatPicker from "./components/HeatPicker";
 import ContactForm from "./components/ContactForm";
 import OrderSummary from "./components/OrderSummary";
 
-type Step = "race" | "date" | "heat" | "contact" | "summary";
+type Step = "experience" | "party" | "date" | "product" | "heat" | "contact" | "summary";
 
-const STEPS: Step[] = ["race", "date", "heat", "contact", "summary"];
+const STEPS: Step[] = ["experience", "party", "date", "product", "heat", "contact", "summary"];
 const STEP_LABELS: Record<Step, string> = {
-  race: "Race",
+  experience: "Type",
+  party: "Party",
   date: "Date",
+  product: "Race",
   heat: "Heat",
   contact: "Details",
   summary: "Pay",
 };
 
 export default function BookRacingPage() {
-  const [step, setStep] = useState<Step>("race");
-  const [selectedRace, setSelectedRace] = useState<RaceProduct | null>(null);
+  const [step, setStep] = useState<Step>("experience");
+  const [racerType, setRacerType] = useState<RacerType | null>(null);
+  const [adults, setAdults] = useState(1);
+  const [juniors, setJuniors] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [catalogProducts, setCatalogProducts] = useState<ClassifiedProduct[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  // Multi-booking: track which category we're currently booking for
+  const [bookingCategory, setBookingCategory] = useState<RaceCategory>("adult");
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  // Current in-progress selection
+  const [selectedProduct, setSelectedProduct] = useState<ClassifiedProduct | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedProposal, setSelectedProposal] = useState<SmsProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<SmsBlock | null>(null);
@@ -34,41 +56,95 @@ export default function BookRacingPage() {
 
   const currentIdx = STEPS.indexOf(step);
 
-  // Scroll to top of content area whenever the step changes
+  // Scroll to top of content when step changes
   useEffect(() => {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
 
-  // When a race is selected on the race step, scroll down to the Next button
-  useEffect(() => {
-    if (selectedRace && step === "race") {
-      setTimeout(() => {
-        nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 50);
+  // Fetch product catalog when date is selected
+  const fetchCatalog = useCallback(async (date: string) => {
+    setCatalogLoading(true);
+    try {
+      const isoDate = `${date}T00:00:00.000Z`;
+      const res = await fetch(`/api/sms?endpoint=page&date=${encodeURIComponent(isoDate)}`);
+      if (!res.ok) throw new Error("Failed to fetch products");
+      const pages: SmsPage[] = await res.json();
+      const classified = classifyProducts(pages);
+      setCatalogProducts(classified);
+    } catch (err) {
+      console.error("Failed to fetch catalog:", err);
+      setCatalogProducts([]);
+    } finally {
+      setCatalogLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRace]);
+  }, []);
 
-  function handleSelectRace(race: RaceProduct) {
-    setSelectedRace(race);
-    if (race.productId !== selectedRace?.productId) {
-      setSelectedDate(null);
-      setSelectedProposal(null);
-      setSelectedBlock(null);
-    }
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  function handleExperienceSelect(type: RacerType) {
+    setRacerType(type);
+    // Auto-scroll to Next button
+    setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   }
 
-  function handleSelectDate(date: string) {
+  function handlePartyNext() {
+    setStep("date");
+  }
+
+  function handleDateSelect(date: string) {
     setSelectedDate(date);
+    setSelectedProduct(null);
     setSelectedProposal(null);
     setSelectedBlock(null);
-    setStep("heat");
+    setBookings([]);
+    // Start with adults if any, otherwise juniors
+    setBookingCategory(adults > 0 ? "adult" : "junior");
+    fetchCatalog(date);
+    setStep("product");
+  }
+
+  function handleProductSelect(product: ClassifiedProduct) {
+    setSelectedProduct(product);
+    // Set quantity based on party size for this category
+    const q = product.category === "adult" ? adults : juniors;
+    setQuantity(Math.max(1, q));
+    setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   }
 
   function handleConfirmHeat(proposal: SmsProposal, block: SmsBlock) {
+    // Save this booking
+    const booking: Booking = {
+      product: selectedProduct!,
+      quantity,
+      proposal,
+      block,
+    };
+    const updatedBookings = [...bookings, booking];
+    setBookings(updatedBookings);
     setSelectedProposal(proposal);
     setSelectedBlock(block);
-    setStep("contact");
+
+    // Check if we need to book another category
+    const bookedCategories = new Set(updatedBookings.map(b => b.product.category));
+    const needAdult = adults > 0 && !bookedCategories.has("adult");
+    const needJunior = juniors > 0 && !bookedCategories.has("junior");
+
+    if (needAdult) {
+      setBookingCategory("adult");
+      setSelectedProduct(null);
+      setSelectedProposal(null);
+      setSelectedBlock(null);
+      setStep("product");
+    } else if (needJunior) {
+      setBookingCategory("junior");
+      setSelectedProduct(null);
+      setSelectedProposal(null);
+      setSelectedBlock(null);
+      setStep("product");
+    } else {
+      // All categories booked — proceed to contact
+      setStep("contact");
+    }
   }
 
   function handleContactSubmit(info: ContactInfo) {
@@ -78,8 +154,26 @@ export default function BookRacingPage() {
 
   function goToStep(s: Step) {
     const targetIdx = STEPS.indexOf(s);
-    if (targetIdx < currentIdx) setStep(s);
+    if (targetIdx < currentIdx) {
+      setStep(s);
+      // Reset downstream selections when going back
+      if (targetIdx < STEPS.indexOf("product")) {
+        setSelectedProduct(null);
+        setSelectedProposal(null);
+        setSelectedBlock(null);
+        setBookings([]);
+        setBookingCategory(adults > 0 ? "adult" : "junior");
+      }
+    }
   }
+
+  // Filter catalog products based on racer type + party composition + current booking category
+  const filteredProducts = racerType
+    ? filterProducts(catalogProducts, racerType, adults, juniors)
+        .filter(p => p.category === bookingCategory)
+    : [];
+
+  const partyTotal = adults + juniors;
 
   return (
     <div className="min-h-screen bg-[#000418] pt-24">
@@ -96,8 +190,8 @@ export default function BookRacingPage() {
         </div>
 
         {/* Step indicator */}
-        <div className="max-w-4xl mx-auto px-4 pb-4">
-          <div className="flex items-center gap-0">
+        <div className="max-w-4xl mx-auto px-4 pb-4 overflow-x-auto">
+          <div className="flex items-center gap-0 min-w-max">
             {STEPS.map((s, i) => {
               const isPast = i < currentIdx;
               const isCurrent = i === currentIdx;
@@ -107,22 +201,22 @@ export default function BookRacingPage() {
                   <button
                     onClick={() => isPast && goToStep(s)}
                     disabled={isFuture}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
                       isCurrent ? "text-[#00E2E5]" :
                       isPast ? "text-white/60 hover:text-white/80 cursor-pointer" :
                       "text-white/20 cursor-not-allowed"
                     }`}
                   >
-                    <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold ${
+                    <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
                       isCurrent ? "bg-[#00E2E5] text-[#000418]" :
                       isPast ? "bg-white/20 text-white" :
                       "bg-white/8 text-white/20"
                     }`}>
                       {isPast ? "✓" : i + 1}
                     </span>
-                    {STEP_LABELS[s]}
+                    <span className="hidden sm:inline">{STEP_LABELS[s]}</span>
                   </button>
-                  {i < STEPS.length - 1 && <span className="text-white/15 mx-1">›</span>}
+                  {i < STEPS.length - 1 && <span className="text-white/15 mx-0.5">›</span>}
                 </div>
               );
             })}
@@ -133,56 +227,129 @@ export default function BookRacingPage() {
       {/* Main content */}
       <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-24">
 
-        {/* STEP 1: Race */}
-        {step === "race" && (
+        {/* STEP 1: Experience level */}
+        {step === "experience" && (
           <div className="space-y-8">
-            <RacePicker selected={selectedRace} onSelect={handleSelectRace} />
-            {selectedRace && (
+            <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
+            {racerType && (
               <div ref={nextBtnRef} className="flex justify-end">
                 <button
-                  onClick={() => setStep("date")}
+                  onClick={() => setStep("party")}
                   className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
                 >
-                  Next: Pick a Date →
+                  Next: Party Size →
                 </button>
               </div>
             )}
           </div>
         )}
 
-        {/* STEP 2: Date */}
-        {step === "date" && selectedRace && (
+        {/* STEP 2: Party composition */}
+        {step === "party" && (
           <div className="space-y-8">
-            <DatePicker race={selectedRace} selected={selectedDate} onSelect={handleSelectDate} />
+            <PartySizePicker
+              adults={adults}
+              juniors={juniors}
+              onAdultsChange={setAdults}
+              onJuniorsChange={setJuniors}
+            />
             <div className="flex items-center justify-between">
-              <button onClick={() => setStep("race")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
-                ← Change race
+              <button onClick={() => setStep("experience")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                ← Back
               </button>
-              {selectedDate && (
+              {partyTotal > 0 && (
                 <button
-                  onClick={() => setStep("heat")}
+                  onClick={handlePartyNext}
                   className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
                 >
-                  Next: Pick a Heat →
+                  Next: Pick a Date →
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {/* STEP 3: Heat + Quantity */}
-        {step === "heat" && selectedRace && selectedDate && (
+        {/* STEP 3: Date */}
+        {step === "date" && (
+          <div className="space-y-8">
+            <DatePicker selected={selectedDate} onSelect={handleDateSelect} />
+            <button onClick={() => setStep("party")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+              ← Change party size
+            </button>
+          </div>
+        )}
+
+        {/* STEP 4: Product selection */}
+        {step === "product" && racerType && (
+          <div className="space-y-8">
+            {/* Show what's already been booked */}
+            {bookings.length > 0 && (
+              <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+                <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">Booked</p>
+                {bookings.map((b, i) => (
+                  <div key={i} className="flex justify-between text-sm text-white/70">
+                    <span>{b.product.name} x{b.quantity}</span>
+                    <span className="text-white/40">{b.block.time}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Category header when booking for a specific group */}
+            {adults > 0 && juniors > 0 && (
+              <div className="text-center">
+                <p className="text-[#00E2E5] text-sm font-semibold">
+                  Now pick a race for your {bookingCategory === "adult" ? `adult racer${adults > 1 ? "s" : ""} (${adults})` : `junior racer${juniors > 1 ? "s" : ""} (${juniors})`}
+                </p>
+              </div>
+            )}
+
+            {catalogLoading ? (
+              <div className="flex flex-col items-center justify-center gap-4 min-h-[200px]">
+                <div className="w-10 h-10 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
+                <p className="text-white/50 text-sm">Loading available races…</p>
+              </div>
+            ) : (
+              <>
+                <ProductPicker
+                  products={filteredProducts}
+                  racerType={racerType}
+                  adults={adults}
+                  juniors={juniors}
+                  selected={selectedProduct}
+                  onSelect={handleProductSelect}
+                />
+                {selectedProduct && (
+                  <div ref={nextBtnRef} className="flex justify-end">
+                    <button
+                      onClick={() => setStep("heat")}
+                      className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+                    >
+                      Next: Pick a Heat →
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            <button onClick={() => setStep("date")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+              ← Change date
+            </button>
+          </div>
+        )}
+
+        {/* STEP 5: Heat + Quantity */}
+        {step === "heat" && selectedProduct && selectedDate && (
           <HeatPicker
-            race={selectedRace}
+            race={selectedProduct}
             date={selectedDate}
             quantity={quantity}
             onQuantityChange={setQuantity}
             onConfirm={handleConfirmHeat}
-            onBack={() => setStep("date")}
+            onBack={() => setStep("product")}
           />
         )}
 
-        {/* STEP 4: Contact info */}
+        {/* STEP 6: Contact info */}
         {step === "contact" && (
           <ContactForm
             initial={contact}
@@ -191,14 +358,11 @@ export default function BookRacingPage() {
           />
         )}
 
-        {/* STEP 5: Order summary + payment */}
-        {step === "summary" && selectedRace && selectedDate && selectedProposal && selectedBlock && contact && (
+        {/* STEP 7: Order summary + payment */}
+        {step === "summary" && bookings.length > 0 && selectedDate && contact && (
           <OrderSummary
-            race={selectedRace}
+            bookings={bookings}
             date={selectedDate}
-            quantity={quantity}
-            proposal={selectedProposal}
-            block={selectedBlock}
             contact={contact}
             onBack={() => setStep("contact")}
           />

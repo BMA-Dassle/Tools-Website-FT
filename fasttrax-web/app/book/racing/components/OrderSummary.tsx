@@ -1,16 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { RaceProduct, SmsProposal, SmsBlock, SmsBill } from "../data";
-import { ACKNOWLEDGEMENT_PRODUCTS } from "../data";
+import type { ClassifiedProduct, SmsProposal, SmsBlock, SmsBill } from "../data";
+import { getAcknowledgements } from "../data";
 import type { ContactInfo } from "./ContactForm";
 
-interface OrderSummaryProps {
-  race: RaceProduct;
-  date: string;
+export interface BookingItem {
+  product: ClassifiedProduct;
   quantity: number;
   proposal: SmsProposal;
   block: SmsBlock;
+}
+
+interface OrderSummaryProps {
+  /** All bookings to process (adult + junior if applicable) */
+  bookings: BookingItem[];
+  date: string;
   contact: ContactInfo;
   onBack: () => void;
 }
@@ -35,7 +40,7 @@ function cashTotal(bill: SmsBill): number {
   return t?.amount ?? 0;
 }
 
-export default function OrderSummary({ race, date, quantity, proposal, block, contact, onBack }: OrderSummaryProps) {
+export default function OrderSummary({ bookings, date, contact, onBack }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const bookingStarted = useRef(false);
 
@@ -60,69 +65,103 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
   async function runBookingFlow() {
     setState({ status: "booking" });
     try {
-      // 1. Create the booking (build proposal payload from block)
-      const bookingPayload = {
-        productId: race.productId,
-        pageId: race.pageId,
-        quantity,
-        dynamicLines: null,
-        sellKind: 0,
-        resourceId: block.resourceId || "-1",
-        proposal: {
-          blocks: proposal.blocks.map(pb => ({
-            productId: null,
-            productLineIds: [],
-            block: pb.block,
-          })),
-          productLineId: null,
-          selected: true,
-        },
-      };
+      let billId: string | null = null;
 
-      const bookResult = await sms("booking/book", bookingPayload);
-      if (!bookResult.success && bookResult.errorMessage) {
-        throw new Error(bookResult.errorMessage);
+      // Book each item sequentially — first creates the bill, rest add to it
+      for (let i = 0; i < bookings.length; i++) {
+        const { product, quantity, proposal, block } = bookings[i];
+
+        if (i === 0) {
+          // First booking creates the bill
+          const bookingPayload = {
+            productId: product.productId,
+            pageId: product.pageId,
+            quantity,
+            dynamicLines: null,
+            sellKind: 0,
+            resourceId: block.resourceId || "-1",
+            proposal: {
+              blocks: proposal.blocks.map(pb => ({
+                productId: null,
+                productLineIds: [],
+                block: pb.block,
+              })),
+              productLineId: null,
+              selected: true,
+            },
+          };
+
+          const bookResult = await sms("booking/book", bookingPayload);
+          if (!bookResult.success && bookResult.errorMessage) {
+            throw new Error(bookResult.errorMessage);
+          }
+
+          billId = bookResult.id || bookResult.billId;
+          if (!billId) throw new Error("No bill ID returned from booking");
+        } else {
+          // Subsequent bookings add to existing bill
+          const sellPayload = {
+            productId: product.productId,
+            pageId: product.pageId,
+            quantity,
+            billId,
+            dynamicLines: null,
+            sellKind: 0,
+            resourceId: block.resourceId || "-1",
+            proposal: {
+              blocks: proposal.blocks.map(pb => ({
+                productId: null,
+                productLineIds: [],
+                block: pb.block,
+              })),
+              productLineId: null,
+              selected: true,
+            },
+          };
+
+          const sellResult = await sms("booking/sell", [sellPayload]);
+          if (sellResult.errorMessage) {
+            throw new Error(sellResult.errorMessage);
+          }
+        }
+
+        // Get bill overview to add acknowledgements for this item
+        const bill: SmsBill = await sms("bill/overview", { billId });
+        const raceLine = bill.lines.find(l => l.productId === product.productId);
+        const parentBillLineId = raceLine?.id ?? null;
+
+        // Add acknowledgements (waivers)
+        const ackProductIds = getAcknowledgements(product.category);
+        if (ackProductIds.length > 0 && parentBillLineId) {
+          const ackPayload = ackProductIds.map(ackId => ({
+            productId: ackId,
+            pageId: null,
+            quantity: 1,
+            billId,
+            parentBillLineId,
+            dynamicLines: null,
+            sellKind: 2,
+          }));
+          await sms("booking/sell", ackPayload);
+        }
       }
 
-      const billId: string = bookResult.id || bookResult.billId;
-      if (!billId) throw new Error("No bill ID returned from booking");
-
-      // 2. Get bill overview to find line IDs for acknowledgements
-      const bill: SmsBill = await sms("bill/overview", { billId });
-      const raceLine = bill.lines.find(l => l.productId === race.productId);
-      const parentBillLineId = raceLine?.id ?? null;
-
-      // 3. Add acknowledgements (waivers) if any
-      const ackProductIds = ACKNOWLEDGEMENT_PRODUCTS[race.productId] ?? [];
-      if (ackProductIds.length > 0 && parentBillLineId) {
-        const ackPayload = ackProductIds.map(productId => ({
-          productId,
-          pageId: null,
-          quantity: 1,
-          billId,
-          parentBillLineId,
-          dynamicLines: null,
-          sellKind: 2,
-        }));
-        await sms("booking/sell", ackPayload);
-      }
-
-      // 4. Register guest contact — no login/OTP, just name+email+phone attached to the bill
+      // Register guest contact
       try {
         await sms("reservation/registercontactperson", {
           firstName: contact.firstName,
           lastName: contact.lastName,
           email: contact.email,
-          phone: contact.phone.replace(/\D/g, ""), // digits only
+          phone: contact.phone.replace(/\D/g, ""),
           billId,
         });
       } catch {
-        // Non-fatal — booking proceeds without an attached guest profile
+        // Non-fatal
       }
 
-      // 6. Get fresh bill overview with total
-      const finalBill: SmsBill = await sms("bill/overview", { billId });
-      setState({ status: "booked", billId, bill: finalBill });
+      // Get final bill with total
+      const finalBill: SmsBill = await sms("bill/overview", { billId: billId! });
+      setState({ status: "booked", billId: billId!, bill: finalBill });
 
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : "Something went wrong" });
@@ -135,10 +174,8 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
 
     setState({ status: "paying" });
     try {
-      // Start payment session
       const startResult = await sms("payment/start", { billId });
 
-      // Get Square checkout URL
       const returnUrl = `${window.location.origin}/book/racing/confirmation?billId=${billId}`;
       const payResult = await sms("genericpaymentprocessor", {
         orderId: billId,
@@ -154,12 +191,10 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
       console.log("[payment/start]", startResult);
       console.log("[genericpaymentprocessor]", payResult);
 
-      // BMI returns a Square checkout URL — redirect directly to Square
       const squareUrl = payResult.url ?? payResult.onlinePaymentData?.RedirectUrl ?? payResult.onlinePaymentData?.redirectUrl;
       if (squareUrl) {
         window.location.href = squareUrl;
       } else if (payResult.data) {
-        // Encrypted payload — send through BMI's payment-redirect which processes the Square callback
         const qs = new URLSearchParams({
           providerKind: String(payResult.providerKind ?? -11042),
           data: payResult.data,
@@ -169,7 +204,6 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
         });
         window.location.href = `https://booking.bmileisure.com/headpinzftmyers/book/payment-redirect?${qs.toString()}`;
       } else {
-        // Neither url nor data — surface the raw response so we can debug
         throw new Error(
           `Payment processor returned unexpected response: ${JSON.stringify(payResult)}`
         );
@@ -179,11 +213,16 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
     }
   }
 
+  // Computed values
+  const subtotal = bookings.reduce((sum, b) => sum + b.product.price * b.quantity, 0);
+
   if (state.status === "booking") {
     return (
       <div className="min-h-[400px] flex flex-col items-center justify-center gap-4">
         <div className="w-10 h-10 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
-        <p className="text-white/60 text-sm">Reserving your heat…</p>
+        <p className="text-white/60 text-sm">
+          Reserving your heat{bookings.length > 1 ? "s" : ""}…
+        </p>
       </div>
     );
   }
@@ -202,7 +241,7 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
   }
 
   const bill = state.status === "booked" ? state.bill : null;
-  const total = bill ? cashTotal(bill) : race.price * quantity;
+  const total = bill ? cashTotal(bill) : subtotal;
   const isPaying = state.status === "paying";
 
   return (
@@ -211,44 +250,52 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
           {bill ? "Review & Pay" : "Preparing Order…"}
         </h2>
-        {bill && <p className="text-white/50 text-sm">Your heat is reserved. Complete payment to confirm.</p>}
+        {bill && <p className="text-white/50 text-sm">Your heat{bookings.length > 1 ? "s are" : " is"} reserved. Complete payment to confirm.</p>}
       </div>
 
-      {/* Booking summary card */}
-      <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
-        <div className="p-4">
-          <p className="text-white/40 text-xs mb-1">Race</p>
-          <p className="text-white font-bold">{race.displayName}</p>
+      {/* Booking summary cards */}
+      {bookings.map((b, i) => (
+        <div key={i} className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
+          <div className="p-4">
+            <p className="text-white/40 text-xs mb-1">
+              {bookings.length > 1 ? `Race ${i + 1} — ${b.product.category === "adult" ? "Adult" : "Junior"}` : "Race"}
+            </p>
+            <p className="text-white font-bold">{b.product.name}</p>
+          </div>
+          <div className="p-4 grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-white/40 text-xs mb-1">Date</p>
+              <p className="text-white text-sm">{formatDate(date)}</p>
+            </div>
+            <div>
+              <p className="text-white/40 text-xs mb-1">Heat</p>
+              <p className="text-white text-sm">{b.block.name} · {formatTime(b.block.start)}</p>
+            </div>
+          </div>
+          <div className="p-4 grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-white/40 text-xs mb-1">Racers</p>
+              <p className="text-white text-sm">{b.quantity}</p>
+            </div>
+            {i === 0 && (
+              <div>
+                <p className="text-white/40 text-xs mb-1">Contact</p>
+                <p className="text-white text-sm">{contact.firstName} {contact.lastName}</p>
+                <p className="text-white/50 text-xs">{contact.email}</p>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="p-4 grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-white/40 text-xs mb-1">Date</p>
-            <p className="text-white text-sm">{formatDate(date)}</p>
-          </div>
-          <div>
-            <p className="text-white/40 text-xs mb-1">Heat</p>
-            <p className="text-white text-sm">{block.name} · {formatTime(block.start)}</p>
-          </div>
-        </div>
-        <div className="p-4 grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-white/40 text-xs mb-1">Racers</p>
-            <p className="text-white text-sm">{quantity}</p>
-          </div>
-          <div>
-            <p className="text-white/40 text-xs mb-1">Contact</p>
-            <p className="text-white text-sm">{contact.firstName} {contact.lastName}</p>
-            <p className="text-white/50 text-xs">{contact.email}</p>
-          </div>
-        </div>
-      </div>
+      ))}
 
       {/* Price breakdown */}
       <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-white/60">{race.displayName} × {quantity}</span>
-          <span className="text-white">${(race.price * quantity).toFixed(2)}</span>
-        </div>
+        {bookings.map((b, i) => (
+          <div key={i} className="flex justify-between text-sm">
+            <span className="text-white/60">{b.product.name} × {b.quantity}</span>
+            <span className="text-white">${(b.product.price * b.quantity).toFixed(2)}</span>
+          </div>
+        ))}
         {bill && (
           <>
             <div className="flex justify-between text-sm">

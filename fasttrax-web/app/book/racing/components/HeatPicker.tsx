@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { RaceProduct, SmsProposal, SmsBlock } from "../data";
+import type { ClassifiedProduct, SmsProposal, SmsBlock } from "../data";
 
 interface HeatPickerProps {
-  race: RaceProduct;
+  race: ClassifiedProduct;
   date: string; // YYYY-MM-DD
   quantity: number;
   onQuantityChange: (q: number) => void;
@@ -80,29 +80,13 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
       <div className="text-center">
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Pick a Heat</h2>
         <p className="text-white/50 text-sm">
-          <span className="text-white/80">{race.displayName}</span> · {displayDate}
+          <span className="text-white/80">{race.name}</span> · {displayDate}
         </p>
       </div>
 
-      {/* Quantity picker */}
-      <div className="max-w-sm mx-auto rounded-xl border border-white/10 bg-white/5 p-4">
-        <p className="text-white/50 text-xs mb-3 text-center">How many racers?</p>
-        <div className="flex items-center justify-center gap-4">
-          <button
-            onClick={() => onQuantityChange(Math.max(1, quantity - 1))}
-            className="w-10 h-10 rounded-full border border-white/20 text-white/70 hover:border-white/50 hover:text-white transition-all text-xl font-bold"
-          >
-            −
-          </button>
-          <span className="text-white text-2xl font-bold w-8 text-center">{quantity}</span>
-          <button
-            onClick={() => onQuantityChange(Math.min(10, quantity + 1))}
-            className="w-10 h-10 rounded-full border border-white/20 text-white/70 hover:border-white/50 hover:text-white transition-all text-xl font-bold"
-          >
-            +
-          </button>
-        </div>
-        <p className="text-white/30 text-xs text-center mt-2">Max 10 per online booking</p>
+      {/* Racer count summary */}
+      <div className="max-w-sm mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-center">
+        <p className="text-white/50 text-xs">Booking for <span className="text-white font-semibold">{quantity} racer{quantity !== 1 ? "s" : ""}</span></p>
       </div>
 
       {loading ? (
@@ -184,10 +168,10 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
             )}
           </div>
 
-          {race.qualification && (
+          {race.raw.message && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4">
               <p className="text-amber-400 text-xs font-semibold mb-1">Qualification Required</p>
-              <p className="text-amber-300/70 text-xs leading-relaxed">{race.qualification}</p>
+              <p className="text-amber-300/70 text-xs leading-relaxed">{race.raw.message}</p>
             </div>
           )}
 
