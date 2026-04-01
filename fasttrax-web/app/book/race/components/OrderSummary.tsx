@@ -507,12 +507,6 @@ export default function OrderSummary({
             </p>
           </div>
 
-          {/* Payment notice */}
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-400/80 text-center">
-            Payment processing coming soon -- booking will be confirmed without
-            charge.
-          </div>
-
           {/* Actions */}
           <div className="flex items-center justify-between gap-4">
             <button

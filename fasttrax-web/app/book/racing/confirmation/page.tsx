@@ -8,6 +8,12 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
+function checkinTime(iso: string) {
+  const d = new Date(iso);
+  d.setMinutes(d.getMinutes() - 30);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
@@ -215,10 +221,22 @@ export default function ConfirmationPage() {
               )}
             </div>
 
+            {/* Check-in time alert */}
+            {start && (
+              <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-4 text-center">
+                <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-1">Check In By</p>
+                <p className="text-white font-display text-2xl uppercase tracking-widest">
+                  {checkinTime(start)}
+                </p>
+                <p className="text-white/50 text-xs mt-1">
+                  Guest Services, 2nd Floor — 30 minutes before your heat
+                </p>
+              </div>
+            )}
+
             {/* Reminders */}
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/50 space-y-2">
               <p className="font-semibold text-white/70 mb-2">Before you arrive</p>
-              <p>· Arrive <strong className="text-white/70">30 minutes early</strong> for check-in and kart assignment.</p>
               <p>· Stop at <strong className="text-white/70">Guest Services (2nd floor)</strong> first — waivers, height checks, and credentials.</p>
               <p>· A <strong className="text-white/70">$4.99 license fee</strong> per driver applies at first check-in.</p>
               <p>· Closed-toe shoes required. No loose clothing.</p>
