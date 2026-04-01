@@ -292,6 +292,50 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
   const total = bill ? cashTotal(bill) : subtotal;
   const isPaying = state.status === "paying";
 
+  if (isPaying) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center gap-6 max-w-md mx-auto text-center">
+        {/* Racing car animation */}
+        <div className="relative w-full h-16 overflow-hidden">
+          <div className="absolute top-1/2 left-0 w-full h-px bg-white/10" />
+          <div className="absolute top-1/2 -translate-y-1/2 animate-[race_2s_ease-in-out_infinite] text-4xl">
+            🏎️
+          </div>
+        </div>
+        <style>{`
+          @keyframes race {
+            0% { left: -10%; }
+            50% { left: 90%; }
+            100% { left: -10%; }
+          }
+        `}</style>
+        <div>
+          <p className="text-white font-display text-xl uppercase tracking-widest mb-2">
+            Heading to Payment
+          </p>
+          <p className="text-white/40 text-sm">
+            Setting up your secure checkout…
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {[0, 1, 2].map(i => (
+            <div
+              key={i}
+              className="w-2 h-2 rounded-full bg-[#00E2E5]"
+              style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
+            />
+          ))}
+        </div>
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { opacity: 0.2; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-lg mx-auto">
       <div className="text-center">
