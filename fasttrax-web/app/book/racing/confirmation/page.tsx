@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import QRCode from "qrcode";
 import type { SmsBill } from "../data";
 
 function formatTime(iso: string) {
@@ -22,6 +23,7 @@ export default function ConfirmationPage() {
   const [billId, setBillId] = useState<string | null>(null);
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -109,6 +111,14 @@ export default function ConfirmationPage() {
     processAndLoad();
   }, []);
 
+  // Generate QR code when reservationCode is set
+  useEffect(() => {
+    if (!reservationCode) return;
+    QRCode.toDataURL(reservationCode, { width: 200, margin: 1, color: { dark: "#000000", light: "#ffffff" } })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(null));
+  }, [reservationCode]);
+
   // Find the race line (first non-waiver line)
   const raceLine = bill?.lines.find(l => l.scheduledTime);
   const start = raceLine?.scheduledTime?.start;
@@ -148,16 +158,11 @@ export default function ConfirmationPage() {
             </div>
 
             {/* QR Code */}
-            {reservationCode && (
+            {qrDataUrl && (
               <div className="flex flex-col items-center gap-3">
                 <div className="rounded-xl bg-white p-3">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(reservationCode)}`}
-                    alt="Reservation QR Code"
-                    width={180}
-                    height={180}
-                  />
+                  <img src={qrDataUrl} alt="Reservation QR Code" width={180} height={180} />
                 </div>
                 <div className="text-center">
                   {reservationNumber && (
