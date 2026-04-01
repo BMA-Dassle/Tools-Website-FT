@@ -4,17 +4,18 @@ const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 
 /**
- * Update the redirect URL on a Square payment link.
+ * Update the redirect URL on a Square payment link and pre-populate buyer info.
  *
- * POST body: { squareUrl, billId, confirmationBaseUrl }
+ * POST body: { squareUrl, billId, confirmationBaseUrl, buyer?: { email, phone, firstName, lastName } }
  *
  * Finds the payment link by URL, extracts BMI's payment data params
  * from the existing redirect, builds a new redirect pointing to our
  * confirmation page with those same params, and updates the link.
+ * Optionally pre-populates buyer info so they don't re-enter it on Square.
  */
 export async function POST(req: NextRequest) {
   try {
-    const { squareUrl, billId, confirmationBaseUrl } = await req.json();
+    const { squareUrl, billId, confirmationBaseUrl, buyer } = await req.json();
 
     if (!squareUrl || !billId) {
       return NextResponse.json({ error: "squareUrl and billId required" }, { status: 400 });
@@ -51,7 +52,26 @@ export async function POST(req: NextRequest) {
     // transactionId will be appended by Square after payment
     const newRedirect = `${base}?${params.toString()}`;
 
-    // Update the redirect URL
+    // Build update payload with redirect + optional buyer pre-fill
+    const paymentLinkUpdate: Record<string, unknown> = {
+      version: link.version,
+      checkout_options: {
+        redirect_url: newRedirect,
+      },
+    };
+
+    if (buyer) {
+      paymentLinkUpdate.pre_populated_data = {
+        buyer_email: buyer.email || undefined,
+        buyer_phone_number: buyer.phone ? `+1${buyer.phone.replace(/\D/g, "").replace(/^1/, "")}` : undefined,
+        buyer_address: {
+          first_name: buyer.firstName || undefined,
+          last_name: buyer.lastName || undefined,
+        },
+      };
+    }
+
+    // Update the redirect URL and buyer info
     const updateRes = await fetch(`${SQUARE_BASE}/online-checkout/payment-links/${link.id}`, {
       method: "PUT",
       headers: {
@@ -59,14 +79,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
         "Square-Version": "2024-12-18",
       },
-      body: JSON.stringify({
-        payment_link: {
-          version: link.version,
-          checkout_options: {
-            redirect_url: newRedirect,
-          },
-        },
-      }),
+      body: JSON.stringify({ payment_link: paymentLinkUpdate }),
     });
 
     const updateData = await updateRes.json();

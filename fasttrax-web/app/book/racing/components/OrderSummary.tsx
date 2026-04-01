@@ -235,6 +235,12 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
           squareUrl,
           billId,
           confirmationBaseUrl: `${window.location.origin}/book/racing/confirmation`,
+          buyer: {
+            email: contact.email,
+            phone: contact.phone,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+          },
         }),
       });
 
