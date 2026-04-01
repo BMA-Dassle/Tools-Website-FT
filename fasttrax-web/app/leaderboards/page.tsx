@@ -8,7 +8,7 @@ import { trackBookingClick } from "@/lib/analytics";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
-const ACCESS_TOKEN = process.env.NEXT_PUBLIC_SMS_ACCESS_TOKEN || "82ombpyojpnllypblbk";
+const ACCESS_TOKEN = process.env.NEXT_PUBLIC_SMS_ACCESS_TOKEN || "32ombpyioiipibppmll";
 const API_BASE = "https://modules-api22.sms-timing.com/api/besttimes";
 
 type BestTimeRecord = {
