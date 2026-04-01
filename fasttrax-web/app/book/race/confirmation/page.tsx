@@ -80,7 +80,12 @@ export default function ConfirmationPage() {
         setOrder(overview);
 
         // Clean up URL
-        window.history.replaceState({}, "", `/book/race/confirmation?billId=${id}`);
+        // Clean URL — keep params on localhost for debugging
+        if (!window.location.hostname.includes("localhost")) {
+          window.history.replaceState({}, "", `/book/race/confirmation`);
+        } else {
+          window.history.replaceState({}, "", `/book/race/confirmation?billId=${id}`);
+        }
       } catch {
         setError("Couldn't load booking details.");
       } finally {

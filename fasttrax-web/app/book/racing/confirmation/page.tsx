@@ -95,7 +95,11 @@ export default function ConfirmationPage() {
 
         // Clean up URL params after processing
         if (transactionId || providerKind || params.has("checkoutId")) {
-          window.history.replaceState({}, "", `/book/racing/confirmation?billId=${id}`);
+          if (!window.location.hostname.includes("localhost")) {
+            window.history.replaceState({}, "", `/book/racing/confirmation`);
+          } else {
+            window.history.replaceState({}, "", `/book/racing/confirmation?billId=${id}`);
+          }
         }
 
         // Set fallback reservation code if not already set from payment/process
