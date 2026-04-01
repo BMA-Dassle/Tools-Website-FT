@@ -36,6 +36,9 @@ const STEP_LABELS: Record<Step, string> = {
 };
 
 export default function BookRacingPage() {
+  // Redirect to /book/race — this route is disabled
+  useEffect(() => { window.location.href = "/book/race"; }, []);
+
   const [step, setStep] = useState<Step>("experience");
   const [racerType, setRacerType] = useState<RacerType | null>(null);
   const [adults, setAdults] = useState(1);
