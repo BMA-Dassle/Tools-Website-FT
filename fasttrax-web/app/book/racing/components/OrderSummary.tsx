@@ -155,8 +155,9 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
       console.log("[genericpaymentprocessor]", payResult);
 
       // BMI returns a Square checkout URL — redirect directly to Square
-      if (payResult.url) {
-        window.location.href = payResult.url;
+      const squareUrl = payResult.url ?? payResult.onlinePaymentData?.RedirectUrl ?? payResult.onlinePaymentData?.redirectUrl;
+      if (squareUrl) {
+        window.location.href = squareUrl;
       } else if (payResult.data) {
         // Encrypted payload — send through BMI's payment-redirect which processes the Square callback
         const qs = new URLSearchParams({
@@ -174,12 +175,7 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
         );
       }
     } catch (err) {
-      setState({
-        status: "booked",
-        billId,
-        bill: (state as Extract<BookingState, { status: "booked" }>).bill,
-      });
-      alert(err instanceof Error ? err.message : "Payment failed to start");
+      setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed to start" });
     }
   }
 
