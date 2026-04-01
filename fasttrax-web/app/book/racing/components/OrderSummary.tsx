@@ -209,44 +209,45 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
 
     setState({ status: "paying" });
     try {
-      // Our confirmation page is the final destination after Square payment
-      const returnUrl = `${window.location.origin}/book/racing/confirmation?billId=${billId}`;
-
       await sms("payment/start", { billId });
 
+      // Get BMI's Square payment link via genericpaymentprocessor
       const payResult = await sms("genericpaymentprocessor", {
         orderId: billId,
         amount: cashTotal(state.bill),
         currency: "USD",
         paymentMode: 0,
         paymentTotalMode: 0,
-        returnUrl,
-        successUrl: returnUrl,
-        cancelUrl: `${window.location.origin}/book/racing`,
       });
 
       console.log("[genericpaymentprocessor]", payResult);
 
-      // BMI returns a Square checkout URL — go through BMI's payment-redirect
-      // which handles Square callback → payment/process → redirects to our returnUrl
+      const squareUrl = payResult.onlinePaymentData?.RedirectUrl;
+      if (!squareUrl) throw new Error("No payment URL returned");
+
+      // Build our confirmation URL with the payment data params
+      // so our confirmation page can call payment/process
+      const confirmParams = new URLSearchParams({ billId });
       if (payResult.data) {
-        const qs = new URLSearchParams({
-          providerKind: String(payResult.providerKind ?? -11042),
-          data: payResult.data,
-          transactionId: payResult.transactionId ?? billId,
-          orderId: billId,
-          returnUrl,
-        });
-        window.location.href = `https://booking.bmileisure.com/headpinzftmyers/book/payment-redirect?${qs.toString()}`;
-      } else {
-        // Fallback: direct Square URL (won't have payment/process callback)
-        const squareUrl = payResult.onlinePaymentData?.RedirectUrl;
-        if (squareUrl) {
-          window.location.href = squareUrl;
-        } else {
-          throw new Error("No payment URL returned");
-        }
+        confirmParams.set("providerKind", String(payResult.providerKind ?? -11042));
+        confirmParams.set("data", payResult.data);
+        confirmParams.set("transactionId", payResult.transactionId ?? billId);
+        confirmParams.set("orderId", billId);
       }
+      const ourRedirectUrl = `${window.location.origin}/book/racing/confirmation?${confirmParams.toString()}`;
+
+      // Update the Square payment link redirect to point to our site
+      const updateRes = await fetch("/api/square/update-redirect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ squareUrl, redirectUrl: ourRedirectUrl }),
+      });
+
+      const updateData = await updateRes.json();
+      console.log("[square/update-redirect]", updateData);
+
+      // Redirect customer to Square checkout
+      window.location.href = squareUrl;
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed to start" });
     }
