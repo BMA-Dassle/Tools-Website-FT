@@ -451,14 +451,18 @@ export default function BookRacePage() {
             name: b.product.name,
             quantity: b.quantity,
             time: b.block.start,
+            date: b.block.start,
             price: b.blockPrice,
           }))}
           onCheckout={() => {
-            if (verifiedPerson && contact) {
+            if (contact) {
               setStep("summary");
             } else {
               setStep("contact");
             }
+          }}
+          onRemove={(index) => {
+            setBookings(prev => prev.filter((_, i) => i !== index));
           }}
         />
       )}

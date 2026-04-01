@@ -6,12 +6,14 @@ interface CartItem {
   name: string;
   quantity: number;
   time: string;
+  date: string;
   price?: number;
 }
 
 interface FloatingCartProps {
   items: CartItem[];
   onCheckout: () => void;
+  onRemove?: (index: number) => void;
 }
 
 function formatTime(iso: string): string {
@@ -22,7 +24,14 @@ function formatTime(iso: string): string {
   return `${h > 12 ? h - 12 : h || 12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-export default function FloatingCart({ items, onCheckout }: FloatingCartProps) {
+function formatDate(iso: string): string {
+  const [datePart] = iso.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCartProps) {
   const [open, setOpen] = useState(false);
 
   if (items.length === 0) return null;
@@ -42,14 +51,29 @@ export default function FloatingCart({ items, onCheckout }: FloatingCartProps) {
           <div className="max-h-48 overflow-y-auto">
             {items.map((item, i) => (
               <div key={i} className="p-3 border-b border-white/5 last:border-0">
-                <p className="text-white text-sm font-semibold">{item.name}</p>
-                <div className="flex justify-between text-xs text-white/50 mt-0.5">
-                  <span>{item.quantity} racer{item.quantity !== 1 ? "s" : ""}</span>
-                  <span>{formatTime(item.time)}</span>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-white text-sm font-semibold">{item.name}</p>
+                    <p className="text-white/40 text-xs">{formatDate(item.time)} · {formatTime(item.time)}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-white/50 text-xs">{item.quantity} racer{item.quantity !== 1 ? "s" : ""}</span>
+                      {item.price !== undefined && (
+                        <span className="text-[#00E2E5] text-xs">${(item.price * item.quantity).toFixed(2)}</span>
+                      )}
+                    </div>
+                  </div>
+                  {onRemove && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onRemove(i); }}
+                      className="text-red-400/50 hover:text-red-400 transition-colors p-1"
+                      title="Remove"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
-                {item.price !== undefined && (
-                  <p className="text-[#00E2E5] text-xs mt-0.5">${(item.price * item.quantity).toFixed(2)}</p>
-                )}
               </div>
             ))}
           </div>
