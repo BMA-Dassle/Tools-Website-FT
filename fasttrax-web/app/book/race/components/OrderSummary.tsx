@@ -172,6 +172,8 @@ export default function OrderSummary({
       let creditApplied = 0;
       try {
         const overview = await bmiGet(`order/${orderId}/overview`);
+        console.log("[order/overview]", JSON.stringify(overview.total));
+
         const cashEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
         const creditEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
 
@@ -182,7 +184,9 @@ export default function OrderSummary({
           isCreditOrder = true;
           cashOwed = 0;
         }
-      } catch {
+        console.log("[credit check]", { isCreditOrder, cashOwed, creditApplied });
+      } catch (err) {
+        console.error("[order/overview failed]", err);
         // Couldn't check — use our calculated total
       }
 
