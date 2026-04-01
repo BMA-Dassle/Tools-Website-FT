@@ -47,7 +47,7 @@ export default function ConfirmationPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const id = params.get("orderId");
+    const id = params.get("billId") || params.get("orderId");
     setOrderId(id);
     if (!id) {
       setError("No booking ID found.");
@@ -80,7 +80,7 @@ export default function ConfirmationPage() {
         setOrder(overview);
 
         // Clean up URL
-        window.history.replaceState({}, "", `/book/race/confirmation?orderId=${id}`);
+        window.history.replaceState({}, "", `/book/race/confirmation?billId=${id}`);
       } catch {
         setError("Couldn't load booking details.");
       } finally {

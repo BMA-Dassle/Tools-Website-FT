@@ -228,7 +228,7 @@ export default function OrderSummary({
     try {
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const confirmParams = new URLSearchParams({
-        orderId,
+        billId: orderId,
         amount: total.toFixed(2),
         race: raceName,
         name: `${contact.firstName} ${contact.lastName}`,
