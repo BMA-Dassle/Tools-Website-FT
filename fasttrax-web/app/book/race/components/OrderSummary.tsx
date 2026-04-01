@@ -129,15 +129,17 @@ export default function OrderSummary({
 
           if (i === 0) {
             // First booking creates the order
+            console.log("[booking/book] payload:", JSON.stringify(bookPayload));
             const bookResult = await bmiPost("booking/book", bookPayload);
+            console.log("[booking/book] result:", JSON.stringify(bookResult));
 
-            if (!bookResult.success && bookResult.errorMessage) {
-              throw new Error(bookResult.errorMessage);
+            if (bookResult.success === false) {
+              throw new Error(bookResult.errorMessage || "Booking failed");
             }
 
             orderId = String(bookResult.orderId);
             parentBillLineId = bookResult.parentBillLineId ?? null;
-            if (!orderId || orderId === "undefined") {
+            if (!orderId || orderId === "undefined" || orderId === "0") {
               throw new Error("No order ID returned from booking");
             }
           } else {
