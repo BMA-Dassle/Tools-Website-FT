@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import type { ClassifiedProduct, SmsProposal, SmsBlock, SmsBill } from "../data";
 import { getAcknowledgements } from "../data";
 import type { ContactInfo } from "./ContactForm";
+import type { PackBookingResult } from "./PackHeatPicker";
 
 export interface BookingItem {
   product: ClassifiedProduct;
@@ -18,6 +19,10 @@ interface OrderSummaryProps {
   date: string;
   contact: ContactInfo;
   onBack: () => void;
+  /** For pack bookings — bill was already created during heat selection */
+  packResult?: PackBookingResult;
+  /** The pack product that was selected */
+  packProduct?: ClassifiedProduct;
 }
 
 type BookingState =
@@ -40,7 +45,7 @@ function cashTotal(bill: SmsBill): number {
   return t?.amount ?? 0;
 }
 
-export default function OrderSummary({ bookings, date, contact, onBack }: OrderSummaryProps) {
+export default function OrderSummary({ bookings, date, contact, onBack, packResult, packProduct }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const bookingStarted = useRef(false);
 
@@ -67,71 +72,21 @@ export default function OrderSummary({ bookings, date, contact, onBack }: OrderS
     try {
       let billId: string | null = null;
 
-      // Book each item sequentially — first creates the bill, rest add to it
-      for (let i = 0; i < bookings.length; i++) {
-        const { product, quantity, proposal, block } = bookings[i];
+      if (packResult) {
+        // ── Pack booking: bill already created during heat selection ──
+        billId = packResult.billId;
 
-        if (i === 0) {
-          // First booking creates the bill
-          const bookingPayload = {
-            productId: product.productId,
-            pageId: product.pageId,
-            quantity,
-            dynamicLines: null,
-            sellKind: 0,
-            resourceId: block.resourceId || "-1",
-            proposal: {
-              blocks: proposal.blocks.map(pb => ({
-                productId: null,
-                productLineIds: [],
-                block: pb.block,
-              })),
-              productLineId: null,
-              selected: true,
-            },
-          };
-
-          const bookResult = await sms("booking/book", bookingPayload);
-          if (!bookResult.success && bookResult.errorMessage) {
-            throw new Error(bookResult.errorMessage);
-          }
-
-          billId = bookResult.id || bookResult.billId;
-          if (!billId) throw new Error("No bill ID returned from booking");
-        } else {
-          // Subsequent bookings add to existing bill
-          const sellPayload = {
-            productId: product.productId,
-            pageId: product.pageId,
-            quantity,
-            billId,
-            dynamicLines: null,
-            sellKind: 0,
-            resourceId: block.resourceId || "-1",
-            proposal: {
-              blocks: proposal.blocks.map(pb => ({
-                productId: null,
-                productLineIds: [],
-                block: pb.block,
-              })),
-              productLineId: null,
-              selected: true,
-            },
-          };
-
-          const sellResult = await sms("booking/sell", [sellPayload]);
-          if (sellResult.errorMessage) {
-            throw new Error(sellResult.errorMessage);
-          }
-        }
-
-        // Get bill overview to add acknowledgements for this item
+        // Get bill overview to find the pack product line for acknowledgements
         const bill: SmsBill = await sms("bill/overview", { billId });
-        const raceLine = bill.lines.find(l => l.productId === product.productId);
-        const parentBillLineId = raceLine?.id ?? null;
+        const category = packProduct?.category ?? "adult";
+        // Find the main pack line (the one with the pack's productId, or just the first Karting line)
+        const packLine = packProduct
+          ? bill.lines.find(l => l.productId === packProduct.productId)
+          : bill.lines.find(l => l.productGroup === "Karting");
+        const parentBillLineId = packLine?.id ?? null;
 
-        // Add acknowledgements (waivers)
-        const ackProductIds = getAcknowledgements(product.category);
+        // Add acknowledgements
+        const ackProductIds = getAcknowledgements(category);
         if (ackProductIds.length > 0 && parentBillLineId) {
           const ackPayload = ackProductIds.map(ackId => ({
             productId: ackId,
@@ -143,6 +98,86 @@ export default function OrderSummary({ bookings, date, contact, onBack }: OrderS
             sellKind: 2,
           }));
           await sms("booking/sell", ackPayload);
+        }
+      } else {
+        // ── Regular booking flow ──────────────────────────────────────
+        // Book each item sequentially — first creates the bill, rest add to it
+        for (let i = 0; i < bookings.length; i++) {
+          const { product, quantity, proposal, block } = bookings[i];
+
+          if (i === 0) {
+            // First booking creates the bill
+            const bookingPayload = {
+              productId: product.productId,
+              pageId: product.pageId,
+              quantity,
+              dynamicLines: null,
+              sellKind: 0,
+              resourceId: block.resourceId || "-1",
+              proposal: {
+                blocks: proposal.blocks.map(pb => ({
+                  productId: null,
+                  productLineIds: [],
+                  block: pb.block,
+                })),
+                productLineId: null,
+                selected: true,
+              },
+            };
+
+            const bookResult = await sms("booking/book", bookingPayload);
+            if (!bookResult.success && bookResult.errorMessage) {
+              throw new Error(bookResult.errorMessage);
+            }
+
+            billId = bookResult.id || bookResult.billId;
+            if (!billId) throw new Error("No bill ID returned from booking");
+          } else {
+            // Subsequent bookings add to existing bill
+            const sellPayload = {
+              productId: product.productId,
+              pageId: product.pageId,
+              quantity,
+              billId,
+              dynamicLines: null,
+              sellKind: 0,
+              resourceId: block.resourceId || "-1",
+              proposal: {
+                blocks: proposal.blocks.map(pb => ({
+                  productId: null,
+                  productLineIds: [],
+                  block: pb.block,
+                })),
+                productLineId: null,
+                selected: true,
+              },
+            };
+
+            const sellResult = await sms("booking/sell", [sellPayload]);
+            if (sellResult.errorMessage) {
+              throw new Error(sellResult.errorMessage);
+            }
+          }
+
+          // Get bill overview to add acknowledgements for this item
+          const bill: SmsBill = await sms("bill/overview", { billId });
+          const raceLine = bill.lines.find(l => l.productId === product.productId);
+          const parentBillLineId = raceLine?.id ?? null;
+
+          // Add acknowledgements (waivers)
+          const ackProductIds = getAcknowledgements(product.category);
+          if (ackProductIds.length > 0 && parentBillLineId) {
+            const ackPayload = ackProductIds.map(ackId => ({
+              productId: ackId,
+              pageId: null,
+              quantity: 1,
+              billId,
+              parentBillLineId,
+              dynamicLines: null,
+              sellKind: 2,
+            }));
+            await sms("booking/sell", ackPayload);
+          }
         }
       }
 
@@ -214,7 +249,10 @@ export default function OrderSummary({ bookings, date, contact, onBack }: OrderS
   }
 
   // Computed values
-  const subtotal = bookings.reduce((sum, b) => sum + b.product.price * b.quantity, 0);
+  const isPack = !!packResult;
+  const subtotal = isPack && packProduct
+    ? packProduct.price
+    : bookings.reduce((sum, b) => sum + b.product.price * b.quantity, 0);
 
   if (state.status === "booking") {
     return (
@@ -254,48 +292,90 @@ export default function OrderSummary({ bookings, date, contact, onBack }: OrderS
       </div>
 
       {/* Booking summary cards */}
-      {bookings.map((b, i) => (
-        <div key={i} className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
+      {isPack && packResult && packProduct ? (
+        // Pack booking — show all scheduled races
+        <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
           <div className="p-4">
-            <p className="text-white/40 text-xs mb-1">
-              {bookings.length > 1 ? `Race ${i + 1} — ${b.product.category === "adult" ? "Adult" : "Junior"}` : "Race"}
-            </p>
-            <p className="text-white font-bold">{b.product.name}</p>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+                {packResult.schedules.length}-Race Pack
+              </span>
+            </div>
+            <p className="text-white font-bold">{packProduct.name}</p>
           </div>
+          {packResult.schedules.map((s, i) => (
+            <div key={i} className="p-4 flex justify-between items-center">
+              <div>
+                <p className="text-white/40 text-xs mb-0.5">Race {i + 1}{s.trackName ? ` — ${s.trackName} Track` : ""}</p>
+                <p className="text-white text-sm font-medium">{formatTime(s.start)} → {formatTime(s.stop)}</p>
+              </div>
+              <p className="text-white/30 text-xs">{s.name}</p>
+            </div>
+          ))}
           <div className="p-4 grid grid-cols-2 gap-4">
             <div>
               <p className="text-white/40 text-xs mb-1">Date</p>
               <p className="text-white text-sm">{formatDate(date)}</p>
             </div>
             <div>
-              <p className="text-white/40 text-xs mb-1">Heat</p>
-              <p className="text-white text-sm">{b.block.name} · {formatTime(b.block.start)}</p>
+              <p className="text-white/40 text-xs mb-1">Contact</p>
+              <p className="text-white text-sm">{contact.firstName} {contact.lastName}</p>
+              <p className="text-white/50 text-xs">{contact.email}</p>
             </div>
-          </div>
-          <div className="p-4 grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-white/40 text-xs mb-1">Racers</p>
-              <p className="text-white text-sm">{b.quantity}</p>
-            </div>
-            {i === 0 && (
-              <div>
-                <p className="text-white/40 text-xs mb-1">Contact</p>
-                <p className="text-white text-sm">{contact.firstName} {contact.lastName}</p>
-                <p className="text-white/50 text-xs">{contact.email}</p>
-              </div>
-            )}
           </div>
         </div>
-      ))}
+      ) : (
+        // Regular booking cards
+        bookings.map((b, i) => (
+          <div key={i} className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
+            <div className="p-4">
+              <p className="text-white/40 text-xs mb-1">
+                {bookings.length > 1 ? `Race ${i + 1} — ${b.product.category === "adult" ? "Adult" : "Junior"}` : "Race"}
+              </p>
+              <p className="text-white font-bold">{b.product.name}</p>
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-white/40 text-xs mb-1">Date</p>
+                <p className="text-white text-sm">{formatDate(date)}</p>
+              </div>
+              <div>
+                <p className="text-white/40 text-xs mb-1">Heat</p>
+                <p className="text-white text-sm">{b.block.name} · {formatTime(b.block.start)}</p>
+              </div>
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-white/40 text-xs mb-1">Racers</p>
+                <p className="text-white text-sm">{b.quantity}</p>
+              </div>
+              {i === 0 && (
+                <div>
+                  <p className="text-white/40 text-xs mb-1">Contact</p>
+                  <p className="text-white text-sm">{contact.firstName} {contact.lastName}</p>
+                  <p className="text-white/50 text-xs">{contact.email}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ))
+      )}
 
       {/* Price breakdown */}
       <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
-        {bookings.map((b, i) => (
-          <div key={i} className="flex justify-between text-sm">
-            <span className="text-white/60">{b.product.name} × {b.quantity}</span>
-            <span className="text-white">${(b.product.price * b.quantity).toFixed(2)}</span>
+        {isPack && packProduct ? (
+          <div className="flex justify-between text-sm">
+            <span className="text-white/60">{packProduct.name}</span>
+            <span className="text-white">${packProduct.price.toFixed(2)}</span>
           </div>
-        ))}
+        ) : (
+          bookings.map((b, i) => (
+            <div key={i} className="flex justify-between text-sm">
+              <span className="text-white/60">{b.product.name} × {b.quantity}</span>
+              <span className="text-white">${(b.product.price * b.quantity).toFixed(2)}</span>
+            </div>
+          ))
+        )}
         {bill && (
           <>
             <div className="flex justify-between text-sm">

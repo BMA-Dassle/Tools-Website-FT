@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RacerType, RaceCategory, ClassifiedProduct, SmsPage, SmsProposal, SmsBlock } from "./data";
 import { classifyProducts, filterProducts } from "./data";
+import type { PackBookingResult } from "./components/PackHeatPicker";
 
 /** A completed race booking for one category (adult or junior) */
 interface Booking {
@@ -17,6 +18,7 @@ import PartySizePicker from "./components/PartySizePicker";
 import DatePicker from "./components/DatePicker";
 import ProductPicker from "./components/ProductPicker";
 import HeatPicker from "./components/HeatPicker";
+import PackHeatPicker from "./components/PackHeatPicker";
 import ContactForm from "./components/ContactForm";
 import OrderSummary from "./components/OrderSummary";
 
@@ -50,6 +52,8 @@ export default function BookRacingPage() {
   const [selectedProposal, setSelectedProposal] = useState<SmsProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<SmsBlock | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
+  // Pack booking state — when a pack is booked, the bill is already created
+  const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const nextBtnRef = useRef<HTMLDivElement>(null);
@@ -111,6 +115,13 @@ export default function BookRacingPage() {
     setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   }
 
+  function handlePackComplete(result: PackBookingResult) {
+    setPackResult(result);
+    // Pack bookings create the bill during heat selection, so skip straight to contact
+    // (We still need contact info for the reservation)
+    setStep("contact");
+  }
+
   function handleConfirmHeat(proposal: SmsProposal, block: SmsBlock) {
     // Save this booking
     const booking: Booking = {
@@ -162,6 +173,7 @@ export default function BookRacingPage() {
         setSelectedProposal(null);
         setSelectedBlock(null);
         setBookings([]);
+        setPackResult(null);
         setBookingCategory(adults > 0 ? "adult" : "junior");
       }
     }
@@ -339,14 +351,24 @@ export default function BookRacingPage() {
 
         {/* STEP 5: Heat + Quantity */}
         {step === "heat" && selectedProduct && selectedDate && (
-          <HeatPicker
-            race={selectedProduct}
-            date={selectedDate}
-            quantity={quantity}
-            onQuantityChange={setQuantity}
-            onConfirm={handleConfirmHeat}
-            onBack={() => setStep("product")}
-          />
+          selectedProduct.packType !== "none" ? (
+            <PackHeatPicker
+              race={selectedProduct}
+              date={selectedDate}
+              quantity={quantity}
+              onComplete={handlePackComplete}
+              onBack={() => setStep("product")}
+            />
+          ) : (
+            <HeatPicker
+              race={selectedProduct}
+              date={selectedDate}
+              quantity={quantity}
+              onQuantityChange={setQuantity}
+              onConfirm={handleConfirmHeat}
+              onBack={() => setStep("product")}
+            />
+          )
         )}
 
         {/* STEP 6: Contact info */}
@@ -359,12 +381,14 @@ export default function BookRacingPage() {
         )}
 
         {/* STEP 7: Order summary + payment */}
-        {step === "summary" && bookings.length > 0 && selectedDate && contact && (
+        {step === "summary" && selectedDate && contact && (packResult || bookings.length > 0) && (
           <OrderSummary
             bookings={bookings}
             date={selectedDate}
             contact={contact}
             onBack={() => setStep("contact")}
+            packResult={packResult ?? undefined}
+            packProduct={packResult ? selectedProduct ?? undefined : undefined}
           />
         )}
       </div>

@@ -83,6 +83,52 @@ export interface SmsProposal {
   selected: boolean;
 }
 
+/** Modifier page returned from booking/sell for sell-type packs */
+export interface SmsModifierPage {
+  pageId: string;
+  pageName: string;
+  minAmount: number;
+  maxAmount: number;
+  perPerson: boolean;
+  products: SmsProduct[];
+  rows: number;
+  columns: number;
+}
+
+/** Response from booking/sell for sell packs */
+export interface SmsSellResponse {
+  modifiers: SmsModifierPage[];
+  nextProposals: null;
+  schedules: { start: string; stop: string; name: string; quantity: number; resourceId: string }[];
+  laneSplittingInfo: null;
+}
+
+/** Response from booking/book (for combo packs with nextProposals) */
+export interface SmsBookResponse {
+  nextProposals: {
+    current: number;
+    total: number;
+    proposals: SmsProposal[];
+    overbooking: boolean;
+    success: boolean;
+    errorMessage: string | null;
+  } | null;
+  schedules: { start: string; stop: string; name: string; quantity: number; resourceId: string }[];
+  modifiers: SmsModifierPage[];
+  laneSplittingInfo: null;
+  /** Bill ID — may be top-level or nested */
+  id?: string;
+  billId?: string;
+}
+
+/** A scheduled race within a pack booking */
+export interface PackSchedule {
+  start: string;
+  stop: string;
+  name: string;
+  trackName?: string; // e.g. "Blue", "Red"
+}
+
 export interface SmsBillLine {
   id: string;
   parentBillLineId: string | null;
@@ -111,6 +157,8 @@ export interface SmsBill {
 
 // ── Classified product (derived from API response) ───────────────────────────
 
+export type PackType = "none" | "sell" | "combo";
+
 export interface ClassifiedProduct {
   productId: string;
   pageId: string;
@@ -120,6 +168,8 @@ export interface ClassifiedProduct {
   track: string | null; // "Red", "Blue", or null (Mega/unknown)
   price: number;       // cash price (depositKind 0)
   isCombo: boolean;    // multi-pack
+  packType: PackType;  // "sell" = weekday pack (booking/sell flow), "combo" = mega pack (sequential booking/book)
+  raceCount: number;   // 1 for single races, 3 for packs
   sessionGroup: string;
   raw: SmsProduct;
 }
@@ -155,6 +205,18 @@ export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
       // Cash price
       const price = prod.prices.find(p => p.depositKind === 0)?.amount ?? 0;
 
+      // Determine pack type
+      let packType: PackType = "none";
+      if (prod.isCombo) {
+        packType = "combo"; // Mega track combo packs — sequential booking/book flow
+      } else if (nameLower.includes("pack") && prod.durationSec === 0 && !prod.resourceKind) {
+        packType = "sell"; // Weekday sell packs — booking/sell flow with modifier pages
+      }
+
+      // Parse race count from name (e.g. "3-Race Pack", "3 Race Pack")
+      const raceCountMatch = name.match(/(\d+)[- ]?race/i);
+      const raceCount = packType !== "none" ? (raceCountMatch ? parseInt(raceCountMatch[1], 10) : 3) : 1;
+
       results.push({
         productId: prod.id,
         pageId: page.id,
@@ -164,6 +226,8 @@ export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
         track,
         price,
         isCombo: prod.isCombo,
+        packType,
+        raceCount,
         sessionGroup: prod.sessionGroup,
         raw: prod,
       });
@@ -187,9 +251,6 @@ export function filterProducts(
   juniorCount: number,
 ): ClassifiedProduct[] {
   return products.filter(p => {
-    // Hide combo/pack products for now (need different booking flow)
-    if (p.isCombo) return false;
-
     // Filter by experience level
     if (racerType === "new" && p.tier !== "starter") return false;
     if (racerType === "existing" && p.tier === "starter") return false;
@@ -210,7 +271,7 @@ export function groupByTrack(products: ClassifiedProduct[]): Map<string, Classif
   const groups = new Map<string, ClassifiedProduct[]>();
   for (const p of products) {
     // Normalize: remove "Red"/"Blue" from name to group them
-    const key = p.name.replace(/\s+(Red|Blue)$/i, "").trim() + `|${p.category}|${p.isCombo}`;
+    const key = p.name.replace(/\s+(Red|Blue)$/i, "").trim() + `|${p.category}|${p.packType}`;
     const arr = groups.get(key) ?? [];
     arr.push(p);
     groups.set(key, arr);

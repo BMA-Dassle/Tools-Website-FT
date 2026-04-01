@@ -117,9 +117,9 @@ function ProductGroup({ items, selected, onSelect }: {
           <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
             {tierLabel}
           </span>
-          {representative.isCombo && (
+          {representative.packType !== "none" && (
             <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-              Pack
+              {representative.raceCount}-Race Pack
             </span>
           )}
         </div>
@@ -163,6 +163,7 @@ function ProductCard({ product, isSelected, onSelect }: {
 }) {
   const c = TIER_COLOR[product.tier];
   const tierLabel = TIER_LABELS[product.tier];
+  const isPack = product.packType !== "none";
 
   return (
     <button
@@ -170,18 +171,20 @@ function ProductCard({ product, isSelected, onSelect }: {
       className={`text-left rounded-xl border p-4 transition-all duration-200 ${
         isSelected
           ? `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`
-          : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8"
+          : isPack
+            ? "border-amber-500/20 bg-amber-500/5 hover:border-amber-500/40 hover:bg-amber-500/10"
+            : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8"
       }`}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-white text-sm">{product.name}</span>
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
             {tierLabel}
           </span>
-          {product.isCombo && (
+          {isPack && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-              Pack
+              {product.raceCount}-Race Pack
             </span>
           )}
         </div>
@@ -192,7 +195,13 @@ function ProductCard({ product, isSelected, onSelect }: {
         <p className="text-white/30 text-xs">{product.track} Track</p>
       )}
 
-      {product.raw.message && (
+      {isPack && (
+        <p className="text-amber-400/70 text-xs mt-1">
+          ${(product.price / product.raceCount).toFixed(2)}/race — Race more, save more
+        </p>
+      )}
+
+      {product.raw.message && !isPack && (
         <p className="text-amber-400/60 text-[10px] mt-1.5">{product.raw.message}</p>
       )}
     </button>
