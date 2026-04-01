@@ -65,7 +65,16 @@ export default function ConfirmationPage() {
 
     async function confirmAndLoad() {
       try {
-        // Call BMI payment/confirm to mark the order as paid
+        // Fetch order overview BEFORE payment/confirm (BMI clears details after conversion)
+        let overview: OrderOverview | null = null;
+        try {
+          overview = await bmiGet(`order/${id}/overview`);
+          setOrder(overview);
+        } catch {
+          // Order may already be converted to reservation — use URL params as fallback
+        }
+
+        // Confirm payment
         const amount = parseFloat(params.get("amount") || "0");
         try {
           const result = await bmiPost("payment/confirm", {
@@ -81,11 +90,30 @@ export default function ConfirmationPage() {
           // Non-fatal — may already be confirmed
         }
 
-        if (!reservationCode) setReservationCode(`r${id}`);
+        // If order overview failed (already converted), build from URL params
+        if (!overview) {
+          const race = params.get("race");
+          const qty = params.get("qty");
+          const urlAmount = params.get("amount");
+          if (race || urlAmount) {
+            setOrder({
+              orderId: Number(id),
+              date: undefined,
+              subTotal: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
+              total: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
+              totalTax: [{ amount: 0, depositKind: 0 }],
+              totalPaid: 0,
+              lines: race ? [{
+                name: race,
+                quantity: parseFloat(qty || "1"),
+                totalPrice: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
+                productGroup: "Karting",
+              }] : [],
+            });
+          }
+        }
 
-        // Fetch order overview for full details
-        const overview: OrderOverview = await bmiGet(`order/${id}/overview`);
-        setOrder(overview);
+        if (!reservationCode) setReservationCode(`r${id}`);
 
         // Clean up URL
         // Clean URL — keep params on localhost for debugging
