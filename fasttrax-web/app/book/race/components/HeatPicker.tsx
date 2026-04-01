@@ -10,6 +10,7 @@ interface HeatPickerProps {
   quantity: number;
   onQuantityChange: (q: number) => void;
   onConfirm: (proposal: BmiProposal, block: BmiBlock) => void;
+  onAddAnother?: (proposal: BmiProposal, block: BmiBlock) => void;
   onBack: () => void;
 }
 
@@ -32,7 +33,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onBack }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,12 +202,22 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                     ${perUnit.toFixed(2)} × {quantity} = <span className="text-lg">${total}</span>
                   </p>
                 </div>
-                <button
-                  onClick={() => selectedProposal && selectedBlock && onConfirm(selectedProposal, selectedBlock)}
-                  className="shrink-0 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
-                >
-                  Continue to Checkout →
-                </button>
+                <div className="flex flex-col gap-2 shrink-0">
+                  <button
+                    onClick={() => selectedProposal && selectedBlock && onConfirm(selectedProposal, selectedBlock)}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+                  >
+                    Continue to Checkout →
+                  </button>
+                  {onAddAnother && (
+                    <button
+                      onClick={() => selectedProposal && selectedBlock && onAddAnother(selectedProposal, selectedBlock)}
+                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-xs border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
+                    >
+                      + Add Another Race
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <p className="text-center text-white/30 text-sm">Select a heat above to continue</p>

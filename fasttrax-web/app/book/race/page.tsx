@@ -192,6 +192,25 @@ export default function BookRacePage() {
     }
   }
 
+  function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
+    // Save current booking
+    const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
+    const booking: Booking = {
+      product: selectedProduct!,
+      quantity,
+      proposal,
+      block,
+      blockPrice,
+    };
+    setBookings(prev => [...prev, booking]);
+
+    // Reset selection and go back to date step to pick another race
+    setSelectedProduct(null);
+    setSelectedProposal(null);
+    setSelectedBlock(null);
+    setStep("date");
+  }
+
   function handleContactSubmit(info: ContactInfo) {
     setContact(info);
     setStep("summary");
@@ -276,6 +295,29 @@ export default function BookRacePage() {
 
       {/* Main content */}
       <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-[180px]">
+
+        {/* Cart banner — show when races already added */}
+        {bookings.length > 0 && step !== "summary" && (
+          <div className="mb-6 rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4">
+            <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider mb-2">
+              Your Cart ({bookings.length} race{bookings.length !== 1 ? "s" : ""})
+            </p>
+            {bookings.map((b, i) => (
+              <div key={i} className="flex justify-between text-sm text-white/70">
+                <span>{b.product.name} × {b.quantity}</span>
+                <span className="text-white/40">
+                  {(() => {
+                    const [, t] = b.block.start.split("T");
+                    if (!t) return "";
+                    const [h, m] = t.split(":").map(Number);
+                    const ampm = h >= 12 ? "PM" : "AM";
+                    return `${h > 12 ? h - 12 : h || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+                  })()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* STEP 1: Experience level */}
         {step === "experience" && (
@@ -390,6 +432,7 @@ export default function BookRacePage() {
               quantity={quantity}
               onQuantityChange={setQuantity}
               onConfirm={handleConfirmHeat}
+              onAddAnother={handleAddAnother}
               onBack={() => setStep("product")}
             />
           )
