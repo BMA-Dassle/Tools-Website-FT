@@ -232,7 +232,7 @@ export default function BookRacePage() {
 
       {/* Dev banner */}
       <div className="bg-amber-500 text-black text-center py-2 text-sm font-semibold">
-        Development — Using BMI Public API with Self-Managed Payments
+        Development — BMI Public API · Prices hardcoded · Payment pending BMI config
       </div>
 
       {/* Main content */}
