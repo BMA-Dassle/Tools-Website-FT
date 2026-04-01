@@ -33,13 +33,16 @@ export default function ConfirmationPage() {
 
     async function processAndLoad() {
       try {
-        // If Square payment redirect params are present, call payment/process first
+        // Check if we need to process a payment
+        // Square payment links: may have transactionId param
+        // BMI genericpaymentprocessor: may have providerKind + data + transactionId
         const providerKind = params.get("providerKind");
         const data = params.get("data");
         const transactionId = params.get("transactionId");
         const orderId = params.get("orderId");
 
         if (providerKind && data && transactionId) {
+          // BMI payment redirect — call payment/process
           await fetch("/api/sms?endpoint=payment%2Fprocess", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -49,7 +52,25 @@ export default function ConfirmationPage() {
               extraData: { providerKind, data, transactionId, orderId: orderId ?? id },
             }),
           });
-          // Clean up URL params after processing
+        } else if (transactionId || params.has("checkoutId")) {
+          // Square payment link redirect — call payment/process with Square transaction
+          await fetch("/api/sms?endpoint=payment%2Fprocess", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              paymentProviderKind: -11042,
+              paymentMode: 0,
+              extraData: {
+                providerKind: "-11042",
+                transactionId: transactionId || params.get("checkoutId") || id,
+                orderId: id,
+              },
+            }),
+          });
+        }
+
+        // Clean up URL params after processing
+        if (transactionId || providerKind || params.has("checkoutId")) {
           window.history.replaceState({}, "", `/book/racing/confirmation?billId=${id}`);
         }
 

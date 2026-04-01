@@ -209,41 +209,34 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
 
     setState({ status: "paying" });
     try {
-      const startResult = await sms("payment/start", { billId });
-
+      const amount = cashTotal(state.bill);
+      const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const returnUrl = `${window.location.origin}/book/racing/confirmation?billId=${billId}`;
-      const payResult = await sms("genericpaymentprocessor", {
-        orderId: billId,
-        amount: cashTotal(state.bill),
-        currency: "USD",
-        paymentMode: 0,
-        paymentTotalMode: 0,
-        returnUrl,
-        successUrl: returnUrl,
-        cancelUrl: `${window.location.origin}/book/racing`,
+
+      // Initialize SMS-Timing payment session
+      await sms("payment/start", { billId });
+
+      // Create Square checkout via our own API
+      const res = await fetch("/api/square/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          billId,
+          amount,
+          raceName,
+          returnUrl,
+          cancelUrl: `${window.location.origin}/book/racing`,
+        }),
       });
 
-      console.log("[payment/start]", startResult);
-      console.log("[genericpaymentprocessor]", payResult);
+      const data = await res.json();
+      console.log("[square/checkout]", data);
 
-      const squareUrl = payResult.url ?? payResult.onlinePaymentData?.RedirectUrl ?? payResult.onlinePaymentData?.redirectUrl;
-      if (squareUrl) {
-        // Square checkout — redirect directly
-        window.location.href = squareUrl;
-      } else if (payResult.data) {
-        // Got payment data — go to our confirmation page which will call payment/process
-        const qs = new URLSearchParams({
-          billId,
-          providerKind: String(payResult.providerKind ?? -11042),
-          data: payResult.data,
-          transactionId: payResult.transactionId ?? billId,
-          orderId: billId,
-        });
-        window.location.href = `/book/racing/confirmation?${qs.toString()}`;
+      if (data.checkoutUrl) {
+        // Redirect to Square payment page
+        window.location.href = data.checkoutUrl;
       } else {
-        throw new Error(
-          `Payment processor returned unexpected response: ${JSON.stringify(payResult)}`
-        );
+        throw new Error(data.error || "Failed to create payment link");
       }
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed to start" });
