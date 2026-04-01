@@ -182,7 +182,7 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         pageId: race.pageId,
         quantity,
         dynamicLines: null,
-        date: `${date}T00:00:00`,
+        date: date.includes("T") ? date : `${date}T00:00:00`,
       }, sessionRef.current);
       setProposals(res.proposals || []);
     } catch {
@@ -480,7 +480,7 @@ function SellPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatPi
           pageId: racePages[currentRace]?.pageId,
           quantity,
           dynamicLines: null,
-          date: `${date}T00:00:00`,
+          date: date.includes("T") ? date : `${date}T00:00:00`,
         }, sessionRef.current);
         if (!cancelled) setProposals(res.proposals || []);
       } catch {

@@ -69,7 +69,8 @@ export default function BookRacingPage() {
   const fetchCatalog = useCallback(async (date: string) => {
     setCatalogLoading(true);
     try {
-      const isoDate = `${date}T00:00:00.000Z`;
+      const dateOnly = date.split("T")[0];
+      const isoDate = `${dateOnly}T00:00:00.000Z`;
       const res = await fetch(`/api/sms?endpoint=page&date=${encodeURIComponent(isoDate)}`);
       if (!res.ok) throw new Error("Failed to fetch products");
       const pages: SmsPage[] = await res.json();

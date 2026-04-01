@@ -26,8 +26,10 @@ function spotsLabel(free: number, capacity: number) {
 export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onBack }: HeatPickerProps) {
   const [proposals, setProposals] = useState<SmsProposal[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [allLoaded, setAllLoaded] = useState(false);
   const ctaRef = useRef<HTMLDivElement>(null);
 
   // Scroll to CTA when a heat is selected
@@ -39,25 +41,59 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     }
   }, [selectedIdx]);
 
+  async function fetchHeatsFrom(startTime: string): Promise<SmsProposal[]> {
+    const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        productId: race.productId,
+        pageId: race.pageId,
+        quantity,
+        dynamicLines: null,
+        date: startTime,
+      }),
+    });
+    if (!res.ok) throw new Error("Failed to fetch time slots");
+    const data = await res.json();
+    return data.proposals || [];
+  }
+
   const fetchSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
     setSelectedIdx(null);
+    setAllLoaded(false);
     try {
-      const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          productId: race.productId,
-          pageId: race.pageId,
-          quantity,
-          dynamicLines: null,
-          date: `${date}T00:00:00`,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to fetch time slots");
-      const data = await res.json();
-      setProposals(data.proposals || []);
+      // Load all heats by fetching in batches until no more are returned
+      const dateStr = date.includes("T") ? date : `${date}T00:00:00`;
+      const allProposals: SmsProposal[] = [];
+      const seen = new Set<string>();
+      let nextTime = dateStr;
+
+      for (let i = 0; i < 20; i++) { // safety limit
+        const batch = await fetchHeatsFrom(nextTime);
+        if (batch.length === 0) break;
+
+        let addedNew = false;
+        for (const p of batch) {
+          const key = p.blocks?.[0]?.block?.start;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            allProposals.push(p);
+            addedNew = true;
+          }
+        }
+
+        if (!addedNew) break;
+
+        // Next batch starts after the last heat's start time + 1 minute
+        const lastStart = batch[batch.length - 1]?.blocks?.[0]?.block?.stop;
+        if (!lastStart) break;
+        nextTime = lastStart;
+      }
+
+      setProposals(allProposals);
+      setAllLoaded(true);
     } catch {
       setError("Couldn't load time slots. Please try again.");
     } finally {
@@ -67,7 +103,8 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
-  const displayDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+  const dateOnly = date.split("T")[0];
+  const displayDate = new Date(dateOnly + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
   });
 
