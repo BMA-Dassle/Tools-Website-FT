@@ -122,6 +122,7 @@ export default function OrderSummary({
             },
             contactPerson: i === 0
               ? {
+                  personId: personId ? Number(personId) : undefined,
                   firstName: contact.firstName,
                   lastName: contact.lastName,
                   email: contact.email,
@@ -168,25 +169,15 @@ export default function OrderSummary({
         }
       }
 
-      // Register contact person
-      try {
-        await bmiPost("person/registerContactPerson", {
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          phone: contact.phone.replace(/\D/g, ""),
-          orderId,
-        });
-      } catch {
-        // Non-fatal
-      }
-
-      // Link verified returning racer to the event
-      if (personId) {
+      // Register contact person (only for new racers without personId)
+      if (!personId) {
         try {
-          await bmiPost("person/registerProjectPerson", {
-            orderId: Number(orderId),
-            personId: Number(personId),
+          await bmiPost("person/registerContactPerson", {
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            email: contact.email,
+            phone: contact.phone.replace(/\D/g, ""),
+            orderId,
           });
         } catch {
           // Non-fatal
