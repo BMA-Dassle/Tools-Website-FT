@@ -161,30 +161,13 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
               if (!block) return null;
 
               // Check conflicts with already-booked heats (same category)
-              // Same track: can't book same heat or back-to-back (1 heat gap)
-              // Different track: need 2-heat gap (~24 min) between races
+              // Blue heats run every 15 min, Red every 12 min
+              // Require 30 min gap between any races (covers 2 heat gaps on either track)
               const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-              const blockStop = new Date(block.stop.replace(/Z$/, "")).getTime();
-              const currentTrack = race.track;
+              const minGap = 30 * 60_000; // 30 minutes
               const isConflict = bookedHeats.some(bh => {
                 const bhStart = new Date(bh.start.replace(/Z$/, "")).getTime();
-                const bhStop = new Date(bh.stop.replace(/Z$/, "")).getTime();
-                const sameTrack = currentTrack === bh.track;
-
-                // Same heat (any track)
-                if (blockStart === bhStart) return true;
-                // Overlapping (any track)
-                if (blockStart < bhStop && blockStop > bhStart) return true;
-
-                if (sameTrack) {
-                  // Same track: no back-to-back — block heats within 14 min of booked start
-                  // (heats are ~12 min apart, 14 min catches adjacent ones)
-                  if (Math.abs(blockStart - bhStart) < 14 * 60_000) return true;
-                } else {
-                  // Different track: need ~30 min gap between race starts
-                  if (Math.abs(blockStart - bhStart) < 30 * 60_000) return true;
-                }
-                return false;
+                return Math.abs(blockStart - bhStart) < minGap;
               });
 
               const isFull = block.freeSpots < quantity || isConflict;
