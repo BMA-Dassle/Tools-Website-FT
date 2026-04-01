@@ -30,16 +30,41 @@ export default function ConfirmationPage() {
       setLoading(false);
       return;
     }
-    fetch(`/api/sms?endpoint=bill%2Foverview&billId=${encodeURIComponent(id)}`)
-      .then(r => r.json())
-      .then((data: SmsBill) => {
-        setBill(data);
-        setLoading(false);
-      })
-      .catch(() => {
+
+    async function processAndLoad() {
+      try {
+        // If Square payment redirect params are present, call payment/process first
+        const providerKind = params.get("providerKind");
+        const data = params.get("data");
+        const transactionId = params.get("transactionId");
+        const orderId = params.get("orderId");
+
+        if (providerKind && data && transactionId) {
+          await fetch("/api/sms?endpoint=payment%2Fprocess", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              paymentProviderKind: Number(providerKind),
+              paymentMode: 0,
+              extraData: { providerKind, data, transactionId, orderId: orderId ?? id },
+            }),
+          });
+          // Clean up URL params after processing
+          window.history.replaceState({}, "", `/book/racing/confirmation?billId=${id}`);
+        }
+
+        // Fetch bill overview
+        const res = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${encodeURIComponent(id!)}`);
+        const bill: SmsBill = await res.json();
+        setBill(bill);
+      } catch {
         setError("Couldn't load booking details.");
+      } finally {
         setLoading(false);
-      });
+      }
+    }
+
+    processAndLoad();
   }, []);
 
   // Find the race line (first non-waiver line)

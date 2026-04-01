@@ -228,16 +228,18 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
 
       const squareUrl = payResult.url ?? payResult.onlinePaymentData?.RedirectUrl ?? payResult.onlinePaymentData?.redirectUrl;
       if (squareUrl) {
+        // Square checkout — redirect directly
         window.location.href = squareUrl;
       } else if (payResult.data) {
+        // Got payment data — go to our confirmation page which will call payment/process
         const qs = new URLSearchParams({
+          billId,
           providerKind: String(payResult.providerKind ?? -11042),
           data: payResult.data,
           transactionId: payResult.transactionId ?? billId,
           orderId: billId,
-          returnUrl,
         });
-        window.location.href = `https://booking.bmileisure.com/headpinzftmyers/book/payment-redirect?${qs.toString()}`;
+        window.location.href = `/book/racing/confirmation?${qs.toString()}`;
       } else {
         throw new Error(
           `Payment processor returned unexpected response: ${JSON.stringify(payResult)}`

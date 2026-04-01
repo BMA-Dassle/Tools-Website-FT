@@ -49,6 +49,7 @@ const ALLOWED_ENDPOINTS = [
   "reservation/registercontactperson",
   "payment/needtopay",
   "payment/start",
+  "payment/process",
   "genericpaymentprocessor",
 ];
 
@@ -137,6 +138,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (endpoint === "genericpaymentprocessor") {
+    const upstream = await smsPost(endpoint, body, sessionId);
+    const data = await upstream.json();
+    return NextResponse.json(data);
+  }
+
+  if (endpoint === "payment/process") {
     const upstream = await smsPost(endpoint, body, sessionId);
     const data = await upstream.json();
     return NextResponse.json(data);
