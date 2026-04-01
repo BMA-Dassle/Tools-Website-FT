@@ -34,6 +34,8 @@ interface OrderSummaryProps {
   packProduct?: ClassifiedProduct;
   /** Verified returning racer's BMI person ID */
   personId?: string;
+  /** Callback when BMI order is created — for cleanup on back navigation */
+  onOrderCreated?: (orderId: string) => void;
 }
 
 type BookingState =
@@ -72,6 +74,7 @@ export default function OrderSummary({
   packResult,
   packProduct,
   personId,
+  onOrderCreated,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const effectRan = useRef(false);
@@ -156,6 +159,7 @@ export default function OrderSummary({
             if (!orderId || orderId === "undefined" || orderId === "0") {
               throw new Error("No order ID returned from booking");
             }
+            onOrderCreated?.(orderId);
           }
         }
       }

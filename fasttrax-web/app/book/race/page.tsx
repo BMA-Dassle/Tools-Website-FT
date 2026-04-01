@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
-import { classifyProducts, filterProducts, bmiGet } from "./data";
+import { classifyProducts, filterProducts, bmiGet, bmiDelete } from "./data";
 import type { PackBookingResult } from "./components/OrderSummary";
 
 /** A completed race booking for one category (adult or junior) */
@@ -59,6 +59,8 @@ export default function BookRacePage() {
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
+  // Active BMI order ID — cancel when going back
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const nextBtnRef = useRef<HTMLDivElement>(null);
@@ -191,12 +193,24 @@ export default function BookRacePage() {
     setStep("summary");
   }
 
+  function cancelActiveOrder() {
+    if (activeOrderId) {
+      bmiDelete(`bill/${activeOrderId}/cancel`).catch(() => {});
+      setActiveOrderId(null);
+    }
+  }
+
   function goToStep(s: Step) {
     const targetIdx = STEPS.indexOf(s);
     if (targetIdx < currentIdx) {
+      // Cancel BMI order if going back from summary
+      if (currentIdx >= STEPS.indexOf("summary")) {
+        cancelActiveOrder();
+      }
       setStep(s);
       // Reset downstream selections when going back
       if (targetIdx < STEPS.indexOf("product")) {
+        cancelActiveOrder();
         setSelectedProduct(null);
         setSelectedProposal(null);
         setSelectedBlock(null);
@@ -392,10 +406,11 @@ export default function BookRacePage() {
             bookings={bookings}
             date={selectedDate}
             contact={contact}
-            onBack={() => setStep("contact")}
+            onBack={() => { cancelActiveOrder(); setStep("contact"); }}
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
+            onOrderCreated={setActiveOrderId}
           />
         )}
 
