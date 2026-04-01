@@ -4,18 +4,30 @@ import { useState, useEffect } from "react";
 import QRCode from "qrcode";
 import { bmiGet, bmiPost } from "../data";
 
+// Parse time string as local (API returns local ET times without Z suffix)
+function parseLocal(iso: string): Date {
+  // Strip Z suffix if present — these are local times
+  const clean = iso.replace(/Z$/, "");
+  // Parse as YYYY-MM-DDTHH:MM:SS manually to avoid UTC interpretation
+  const [datePart, timePart] = clean.split("T");
+  if (!timePart) return new Date(clean);
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [h, min, s] = timePart.split(":").map(Number);
+  return new Date(y, m - 1, d, h, min, s || 0);
+}
+
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return parseLocal(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 function checkinTime(iso: string) {
-  const d = new Date(iso);
+  const d = parseLocal(iso);
   d.setMinutes(d.getMinutes() - 30);
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  return parseLocal(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
 
 interface Schedule {

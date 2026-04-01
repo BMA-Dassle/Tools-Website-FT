@@ -12,9 +12,17 @@ interface HeatPickerProps {
   onBack: () => void;
 }
 
+function parseLocal(iso: string): Date {
+  const clean = iso.replace(/Z$/, "");
+  const [datePart, timePart] = clean.split("T");
+  if (!timePart) return new Date(clean);
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [h, min, s] = timePart.split(":").map(Number);
+  return new Date(y, m - 1, d, h, min, s || 0);
+}
+
 function formatTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return parseLocal(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 function spotsLabel(free: number, capacity: number) {
