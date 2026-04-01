@@ -124,8 +124,7 @@ export default function BookRacePage() {
     setSelectedProduct(null);
     setSelectedProposal(null);
     setSelectedBlock(null);
-    setBookings([]);
-    // Start with adults if any, otherwise juniors
+    // Don't clear bookings — "Add Another Race" loops back to date
     setBookingCategory(adults > 0 ? "adult" : "junior");
     fetchCatalog(date);
     setStep("product");
@@ -157,11 +156,8 @@ export default function BookRacePage() {
       block,
       blockPrice,
     };
-    // Replace any existing booking for this category (don't accumulate duplicates)
-    const updatedBookings = [
-      ...bookings.filter(b => b.product.category !== booking.product.category),
-      booking,
-    ];
+    // Append to cart (Add Another Race builds up the list)
+    const updatedBookings = [...bookings, booking];
     setBookings(updatedBookings);
     setSelectedProposal(proposal);
     setSelectedBlock(block);
@@ -234,13 +230,16 @@ export default function BookRacePage() {
       setStep(s);
       // Reset downstream selections when going back
       if (targetIdx < STEPS.indexOf("product")) {
-        cancelActiveOrder();
         setSelectedProduct(null);
         setSelectedProposal(null);
         setSelectedBlock(null);
-        setBookings([]);
         setPackResult(null);
         setBookingCategory(adults > 0 ? "adult" : "junior");
+        // Only clear cart when going all the way back to start
+        if (targetIdx <= STEPS.indexOf("party")) {
+          cancelActiveOrder();
+          setBookings([]);
+        }
       }
     }
   }
