@@ -421,6 +421,11 @@ export default function BookRacePage() {
                   ? `Continue to Junior Race${juniors > 1 ? "s" : ""} →`
                   : undefined
               }
+              bookedHeats={
+                bookings
+                  .filter(b => b.product.category === selectedProduct.category)
+                  .map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))
+              }
             />
           )
         )}

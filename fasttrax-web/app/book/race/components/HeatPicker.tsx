@@ -14,6 +14,8 @@ interface HeatPickerProps {
   onBack: () => void;
   /** Label override for the primary button (e.g. "Continue to Junior Races →") */
   confirmLabel?: string;
+  /** Already-booked heats in the cart (same category) — used to block conflicts */
+  bookedHeats?: { start: string; stop: string; track: string | null }[];
 }
 
 function parseLocal(iso: string): Date {
@@ -35,7 +37,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [] }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -157,9 +159,41 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
             {proposals.map((proposal, idx) => {
               const block = proposal.blocks?.[0]?.block;
               if (!block) return null;
-              const isFull = block.freeSpots < quantity;
+
+              // Check conflicts with already-booked heats (same category)
+              // Same track: can't book same heat or back-to-back (1 heat gap)
+              // Different track: need 2-heat gap (~24 min) between races
+              const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
+              const blockStop = new Date(block.stop.replace(/Z$/, "")).getTime();
+              const currentTrack = race.track;
+              const isConflict = bookedHeats.some(bh => {
+                const bhStart = new Date(bh.start.replace(/Z$/, "")).getTime();
+                const bhStop = new Date(bh.stop.replace(/Z$/, "")).getTime();
+                const sameTrack = currentTrack === bh.track;
+
+                // Same heat (any track)
+                if (blockStart === bhStart) return true;
+                // Overlapping (any track)
+                if (blockStart < bhStop && blockStop > bhStart) return true;
+
+                if (sameTrack) {
+                  // Same track: no back-to-back (block within 1 min of booked)
+                  if (Math.abs(blockStop - bhStart) < 60_000) return true;
+                  if (Math.abs(bhStop - blockStart) < 60_000) return true;
+                } else {
+                  // Different track: need ~30 min gap (2 heats worth)
+                  const gap = 30 * 60_000; // 30 minutes
+                  if (Math.abs(blockStart - bhStart) < gap) return true;
+                  if (blockStart < bhStop + gap && blockStop > bhStart - gap) return true;
+                }
+                return false;
+              });
+
+              const isFull = block.freeSpots < quantity || isConflict;
               const isSelected = selectedIdx === idx;
-              const spots = spotsLabel(block.freeSpots, block.capacity);
+              const spots = isConflict
+                ? { text: "text-amber-400", label: "Already in cart" }
+                : spotsLabel(block.freeSpots, block.capacity);
 
               return (
                 <button
