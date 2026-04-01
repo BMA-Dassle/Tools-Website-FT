@@ -98,20 +98,6 @@ export default function OrderSummary({
       if (packResult) {
         // ── Pack booking: order already created during heat selection ──
         orderId = packResult.billId;
-
-        // Add acknowledgements for the pack
-        const category = packProduct?.category ?? "adult";
-        const ackProductIds = getAcknowledgements(category);
-        if (ackProductIds.length > 0) {
-          for (const ackId of ackProductIds) {
-            await bmiPost("booking/sell", {
-              ProductId: ackId,
-              Quantity: 1,
-              OrderId: orderId,
-              ParentOrderItemId: parentBillLineId,
-            });
-          }
-        }
       } else {
         // ── Regular booking flow ──────────────────────────────────────
         for (let i = 0; i < bookings.length; i++) {
@@ -154,48 +140,15 @@ export default function OrderSummary({
             if (!orderId || orderId === "undefined") {
               throw new Error("No order ID returned from booking");
             }
-
-            // Add acknowledgements for this booking
-            const ackProductIds = getAcknowledgements(product.category);
-            for (const ackId of ackProductIds) {
-              await bmiPost("booking/sell", {
-                ProductId: ackId,
-                Quantity: 1,
-                OrderId: orderId,
-                ParentOrderItemId: parentBillLineId,
-              });
-            }
           } else {
-            // Subsequent bookings: use booking/sell to add to existing order
-            const sellResult = await bmiPost("booking/sell", {
-              ProductId: product.productId,
-              Quantity: quantity,
-              OrderId: orderId,
-              ResourceId: block.resourceId || -1,
-              Proposal: {
-                blocks: proposal.blocks.map((pb) => ({
-                  productLineIds: pb.productLineIds,
-                  block: pb.block,
-                })),
-                productLineId: proposal.productLineId,
-              },
+            // Subsequent bookings: use booking/book with existing orderId
+            const bookResult2 = await bmiPost("booking/book", {
+              ...bookPayload,
+              orderId,
             });
 
-            if (!sellResult.success && sellResult.errorMessage) {
-              throw new Error(sellResult.errorMessage);
-            }
-
-            const sellParentId = sellResult.orderItemId ?? parentBillLineId;
-
-            // Add acknowledgements
-            const ackProductIds = getAcknowledgements(product.category);
-            for (const ackId of ackProductIds) {
-              await bmiPost("booking/sell", {
-                ProductId: ackId,
-                Quantity: 1,
-                OrderId: orderId,
-                ParentOrderItemId: sellParentId,
-              });
+            if (!bookResult2.success && bookResult2.errorMessage) {
+              throw new Error(bookResult2.errorMessage);
             }
           }
         }
