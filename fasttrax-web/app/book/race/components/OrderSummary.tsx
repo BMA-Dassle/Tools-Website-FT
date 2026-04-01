@@ -183,6 +183,7 @@ export default function OrderSummary({
     setState({ status: "paying" });
     try {
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
+      const heatStart = bookings[0]?.block.start || "";
       const confirmParams = new URLSearchParams({
         billId: orderId,
         amount: total.toFixed(2),
@@ -190,6 +191,7 @@ export default function OrderSummary({
         name: `${contact.firstName} ${contact.lastName}`,
         email: contact.email,
         qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
+        heat: heatStart,
       });
       const returnUrl = `${window.location.origin}/book/race/confirmation?${confirmParams.toString()}`;
 

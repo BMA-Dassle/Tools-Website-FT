@@ -95,10 +95,11 @@ export default function ConfirmationPage() {
           const race = params.get("race");
           const qty = params.get("qty");
           const urlAmount = params.get("amount");
+          const heat = params.get("heat");
           if (race || urlAmount) {
             setOrder({
               orderId: Number(id),
-              date: undefined,
+              date: heat || undefined,
               subTotal: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
               total: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
               totalTax: [{ amount: 0, depositKind: 0 }],
@@ -108,6 +109,7 @@ export default function ConfirmationPage() {
                 quantity: parseFloat(qty || "1"),
                 totalPrice: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
                 productGroup: "Karting",
+                scheduledTime: heat ? { start: heat, stop: "" } : undefined,
               }] : [],
             });
           }
