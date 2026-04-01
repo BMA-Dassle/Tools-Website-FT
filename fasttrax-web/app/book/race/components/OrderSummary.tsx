@@ -359,11 +359,11 @@ export default function OrderSummary({
       {/* Header */}
       <div className="text-center">
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
-          {isBooked ? "Review & Confirm" : "Preparing Order..."}
+          {isBooked ? "Review & Pay" : "Preparing Order..."}
         </h2>
         {isBooked && (
           <p className="text-white/50 text-sm">
-            Your heat{bookings.length > 1 ? "s are" : " is"} reserved. Confirm
+            Your heat{bookings.length > 1 ? "s are" : " is"} reserved. Complete
             your booking below.
           </p>
         )}
@@ -527,7 +527,7 @@ export default function OrderSummary({
                   Confirming...
                 </>
               ) : (
-                <>Confirm Booking -- ${total.toFixed(2)}</>
+                <>Pay ${total.toFixed(2)} →</>
               )}
             </button>
           </div>
