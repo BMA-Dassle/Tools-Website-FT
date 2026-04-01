@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
 import { bmiGet, bmiPost } from "../data";
 
@@ -64,6 +64,7 @@ export default function ConfirmationPage() {
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const confirmStarted = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -76,6 +77,9 @@ export default function ConfirmationPage() {
     }
 
     async function confirmAndLoad() {
+      if (confirmStarted.current) return;
+      confirmStarted.current = true;
+
       try {
         // Fetch booking details from Redis (primary) or localStorage (fallback)
         let details: Record<string, string> | null = null;
