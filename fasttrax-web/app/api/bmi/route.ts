@@ -97,10 +97,16 @@ export async function GET(req: NextRequest) {
     const qs = upstreamParams.toString();
     const url = `${BMI_API_URL}/public-booking/${BMI_CLIENT_KEY}/${endpoint}${qs ? `?${qs}` : ""}`;
 
+    console.log(`[BMI GET] ${url}`);
     const upstream = await fetch(url, {
       headers: bmiHeaders(token),
       cache: "no-store",
     });
+    if (!upstream.ok && endpoint.includes("order")) {
+      const errBody = await upstream.text();
+      console.error(`[BMI GET ERROR] ${upstream.status}: ${errBody}`);
+      return NextResponse.json(JSON.parse(errBody), { status: upstream.status });
+    }
 
     // Image endpoint returns binary
     if (endpoint === "image/product") {
@@ -143,6 +149,7 @@ export async function POST(req: NextRequest) {
     const qs = upstreamParams.toString();
     const url = `${BMI_API_URL}/public-booking/${BMI_CLIENT_KEY}/${endpoint}${qs ? `?${qs}` : ""}`;
 
+    console.log(`[BMI POST] ${url}`);
     const upstream = await fetch(url, {
       method: "POST",
       headers: bmiHeaders(token),

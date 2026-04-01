@@ -74,7 +74,7 @@ export default function OrderSummary({
   personId,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
-  const bookingStarted = useRef(false);
+  const effectRan = useRef(false);
 
   // Computed pricing — prefer real block price from availability over catalog price
   const isPack = !!packResult;
@@ -85,17 +85,24 @@ export default function OrderSummary({
   const total = calculateTotal(subtotal);
 
   // Auto-start booking process when component mounts
+  // React strict mode guard: track across mount/unmount/remount cycle
   useEffect(() => {
-    if (bookingStarted.current) return;
-    bookingStarted.current = true;
+    if (effectRan.current) return;
+    effectRan.current = true;
     runBookingFlow();
+    return () => {
+      // In strict mode, this cleanup runs before remount.
+      // Do NOT reset effectRan — we want to prevent double booking.
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function runBookingFlow() {
+    console.log("[runBookingFlow] STARTED, effectRan:", effectRan.current);
     setState({ status: "booking" });
     try {
       let orderId: string | null = null;
+      let lastBookPrices: { amount: number; depositKind: number }[] | null = null;
 
       if (packResult) {
         orderId = packResult.billId;
@@ -142,6 +149,9 @@ export default function OrderSummary({
             throw new Error(result.errorMessage || "Booking failed");
           }
 
+          // Capture prices from response for credit detection
+          if (result.prices) lastBookPrices = result.prices;
+
           if (!orderId) {
             orderId = String(result.orderId);
             if (!orderId || orderId === "undefined" || orderId === "0") {
@@ -166,29 +176,13 @@ export default function OrderSummary({
         }
       }
 
-      // ── Get real total from BMI (credits auto-applied) ──────────────
-      let isCreditOrder = false;
-      let cashOwed = total;
-      let creditApplied = 0;
-      try {
-        const overview = await bmiGet(`order/${orderId}/overview`);
-        console.log("[order/overview]", JSON.stringify(overview.total));
-
-        const cashEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const creditEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
-
-        if (cashEntry) cashOwed = cashEntry.amount;
-        if (creditEntry) creditApplied = Math.abs(creditEntry.amount);
-
-        if (creditEntry && (!cashEntry || cashEntry.amount === 0)) {
-          isCreditOrder = true;
-          cashOwed = 0;
-        }
-        console.log("[credit check]", { isCreditOrder, cashOwed, creditApplied });
-      } catch (err) {
-        console.error("[order/overview failed]", err);
-        // Couldn't check — use our calculated total
-      }
+      // ── Credit detection ──────────────────────────────────────────────
+      // BMI auto-applies credits when personId is linked. We can't check
+      // order/overview because BMI may auto-convert to reservation immediately.
+      // If we booked with a personId, treat as credit booking.
+      let isCreditOrder = !!personId;
+      let cashOwed = isCreditOrder ? 0 : total;
+      let creditApplied = isCreditOrder ? bookings.reduce((s, b) => s + b.quantity, 0) : 0;
 
       setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied });
     } catch (err) {
