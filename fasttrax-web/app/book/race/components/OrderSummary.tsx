@@ -600,7 +600,7 @@ export default function OrderSummary({
                   Confirming...
                 </>
               ) : (
-                <>{state.status === "booked" && state.isCreditOrder ? "Confirm Booking (Credit)" : `Pay $${total.toFixed(2)} →`}</>
+                <>{state.status === "booked" && state.isCreditOrder ? "Confirm Booking (Credit)" : `Pay $${(state.status === "booked" ? state.cashOwed : total).toFixed(2)} →`}</>
               )}
             </button>
           </div>
