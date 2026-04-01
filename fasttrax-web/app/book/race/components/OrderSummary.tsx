@@ -186,7 +186,9 @@ export default function OrderSummary({
     try {
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";
-      const confirmParams = new URLSearchParams({
+
+      // Store booking details in localStorage — Square strips query params on redirect
+      const bookingDetails = {
         billId: orderId,
         amount: total.toFixed(2),
         race: raceName,
@@ -194,8 +196,10 @@ export default function OrderSummary({
         email: contact.email,
         qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
         heat: heatStart,
-      });
-      const returnUrl = `${window.location.origin}/book/race/confirmation?${confirmParams.toString()}`;
+      };
+      localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
+
+      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}`;
 
       // Create Square checkout via our own API
       const res = await fetch("/api/square/checkout", {

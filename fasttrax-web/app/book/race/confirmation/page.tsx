@@ -65,17 +65,23 @@ export default function ConfirmationPage() {
 
     async function confirmAndLoad() {
       try {
-        // Fetch order overview BEFORE payment/confirm (BMI clears details after conversion)
+        // Read booking details from localStorage (Square strips query params on redirect)
+        const stored = localStorage.getItem(`booking_${id}`);
+        const details = stored ? JSON.parse(stored) : null;
+        const amount = details?.amount ? parseFloat(details.amount) : 0;
+
+        // Try order overview first (may still be available before conversion)
         let overview: OrderOverview | null = null;
         try {
           overview = await bmiGet(`order/${id}/overview`);
-          setOrder(overview);
+          if (overview?.lines?.length && overview.lines.length > 0) {
+            setOrder(overview);
+          }
         } catch {
-          // Order may already be converted to reservation — use URL params as fallback
+          // Order may already be converted
         }
 
         // Confirm payment
-        const amount = parseFloat(params.get("amount") || "0");
         try {
           const result = await bmiPost("payment/confirm", {
             id: crypto.randomUUID(),
@@ -90,30 +96,27 @@ export default function ConfirmationPage() {
           // Non-fatal — may already be confirmed
         }
 
-        // If order overview failed (already converted), build from URL params
-        if (!overview) {
-          const race = params.get("race");
-          const qty = params.get("qty");
-          const urlAmount = params.get("amount");
-          const heat = params.get("heat");
-          if (race || urlAmount) {
-            setOrder({
-              orderId: Number(id),
-              date: heat || undefined,
-              subTotal: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
-              total: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
-              totalTax: [{ amount: 0, depositKind: 0 }],
-              totalPaid: 0,
-              lines: race ? [{
-                name: race,
-                quantity: parseFloat(qty || "1"),
-                totalPrice: [{ amount: parseFloat(urlAmount || "0"), depositKind: 0 }],
-                productGroup: "Karting",
-                scheduledTime: heat ? { start: heat, stop: "" } : undefined,
-              }] : [],
-            });
-          }
+        // If no overview data, use stored booking details
+        if (!overview?.lines?.length && details) {
+          setOrder({
+            orderId: Number(id),
+            date: details.heat || undefined,
+            subTotal: [{ amount: parseFloat(details.amount || "0"), depositKind: 0 }],
+            total: [{ amount: parseFloat(details.amount || "0"), depositKind: 0 }],
+            totalTax: [{ amount: 0, depositKind: 0 }],
+            totalPaid: 0,
+            lines: details.race ? [{
+              name: details.race,
+              quantity: parseFloat(details.qty || "1"),
+              totalPrice: [{ amount: parseFloat(details.amount || "0"), depositKind: 0 }],
+              productGroup: "Karting",
+              scheduledTime: details.heat ? { start: details.heat, stop: "" } : undefined,
+            }] : [],
+          });
         }
+
+        // Clean up localStorage
+        if (stored) localStorage.removeItem(`booking_${id}`);
 
         if (!reservationCode) setReservationCode(`r${id}`);
 
