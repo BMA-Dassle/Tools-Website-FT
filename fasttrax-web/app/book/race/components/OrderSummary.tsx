@@ -118,15 +118,18 @@ export default function OrderSummary({
           const { product, quantity, proposal, block } = bookings[i];
 
           const bookPayload = {
-            productId: product.productId,
+            productId: String(product.productId),
             quantity,
-            resourceId: block.resourceId || -1,
+            resourceId: Number(block.resourceId) || -1,
             proposal: {
               blocks: proposal.blocks.map((pb) => ({
-                productLineIds: pb.productLineIds,
-                block: pb.block,
+                productLineIds: pb.productLineIds || [],
+                block: {
+                  ...pb.block,
+                  resourceId: Number(pb.block.resourceId) || -1,
+                },
               })),
-              productLineId: proposal.productLineId,
+              productLineId: proposal.productLineId ?? null,
             },
             contactPerson: i === 0
               ? {
