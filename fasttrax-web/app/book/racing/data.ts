@@ -231,15 +231,15 @@ export interface SmsBill {
   errorMessage: string | null;
 }
 
-// Acknowledgement product IDs required before payment
+// Acknowledgement product IDs required before payment.
+// Adult races need BOTH: age 13+ (24878407) AND height 59"+ (24878469)
+// Junior races need only the height acknowledgement (24878469)
 export const ACKNOWLEDGEMENT_PRODUCTS: Record<string, string[]> = {
-  // Adult starter/intermediate/pro — 13+ age requirement
-  "24965505": ["24878407"], // Starter Race Mega
-  "24965707": ["24878407"], // Intermediate Race Mega
-  "33415132": ["24878407"], // Intermediate 3-Pack
-  "24965768": ["24878407"], // Pro Race Mega
-  "33416216": ["24878407"], // Pro 3-Pack
-  // Junior races — different acknowledgement
+  "24965505": ["24878407", "24878469"], // Starter Race Mega (adult)
+  "24965707": ["24878407", "24878469"], // Intermediate Race Mega (adult)
+  "33415132": ["24878407", "24878469"], // Intermediate 3-Pack (adult)
+  "24965768": ["24878407", "24878469"], // Pro Race Mega (adult)
+  "33416216": ["24878407", "24878469"], // Pro 3-Pack (adult)
   "24966320": ["24878469"], // Junior Intermediate
   "24966863": ["24878469"], // Junior Pro
 };
