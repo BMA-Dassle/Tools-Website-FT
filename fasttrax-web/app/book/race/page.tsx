@@ -156,7 +156,11 @@ export default function BookRacePage() {
       block,
       blockPrice,
     };
-    const updatedBookings = [...bookings, booking];
+    // Replace any existing booking for this category (don't accumulate duplicates)
+    const updatedBookings = [
+      ...bookings.filter(b => b.product.category !== booking.product.category),
+      booking,
+    ];
     setBookings(updatedBookings);
     setSelectedProposal(proposal);
     setSelectedBlock(block);
