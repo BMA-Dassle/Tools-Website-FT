@@ -42,6 +42,8 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
   }, [selectedIdx]);
 
   async function fetchHeatsFrom(startTime: string): Promise<SmsProposal[]> {
+    // API requires Z suffix (UTC) for correct timezone handling
+    const utcTime = startTime.endsWith("Z") ? startTime : `${startTime}.000Z`;
     const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -50,7 +52,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
         pageId: race.pageId,
         quantity,
         dynamicLines: null,
-        date: startTime,
+        date: utcTime,
       }),
     });
     if (!res.ok) throw new Error("Failed to fetch time slots");
@@ -64,33 +66,32 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     setSelectedIdx(null);
     setAllLoaded(false);
     try {
-      // Load all heats by fetching in batches until no more are returned
-      const dateStr = date.includes("T") ? date : `${date}T00:00:00`;
+      const dateOnly = date.split("T")[0];
+      // Start from opening time (3 PM local = 15:00)
       const allProposals: SmsProposal[] = [];
       const seen = new Set<string>();
-      let nextTime = dateStr;
 
-      for (let i = 0; i < 20; i++) { // safety limit
-        const batch = await fetchHeatsFrom(nextTime);
-        if (batch.length === 0) break;
+      // Fetch in 2-hour jumps to cover the full day (3 PM - midnight)
+      const startHours = [15, 17, 19, 21, 23];
+      for (const hour of startHours) {
+        const h = String(hour).padStart(2, "0");
+        const batch = await fetchHeatsFrom(`${dateOnly}T${h}:00:00`);
 
-        let addedNew = false;
         for (const p of batch) {
           const key = p.blocks?.[0]?.block?.start;
           if (key && !seen.has(key)) {
             seen.add(key);
             allProposals.push(p);
-            addedNew = true;
           }
         }
-
-        if (!addedNew) break;
-
-        // Next batch starts after the last heat's start time + 1 minute
-        const lastStart = batch[batch.length - 1]?.blocks?.[0]?.block?.stop;
-        if (!lastStart) break;
-        nextTime = lastStart;
       }
+
+      // Sort by start time
+      allProposals.sort((a, b) => {
+        const aStart = a.blocks?.[0]?.block?.start || "";
+        const bStart = b.blocks?.[0]?.block?.start || "";
+        return aStart.localeCompare(bStart);
+      });
 
       setProposals(allProposals);
       setAllLoaded(true);
