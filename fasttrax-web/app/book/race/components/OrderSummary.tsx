@@ -164,31 +164,45 @@ export default function OrderSummary({
         }
       }
 
-      // Register contact person (with personId if returning racer — triggers credit application)
+      // ── Get bill from BMI: register contact, then check overview ──────
+      // Step 1: Register contact WITHOUT personId (so order persists)
       try {
         await bmiPost("person/registerContactPerson", {
-          personId: personId ? Number(personId) : undefined,
           firstName: contact.firstName,
           lastName: contact.lastName,
           email: contact.email,
           phone: contact.phone.replace(/\D/g, ""),
           orderId,
         });
-      } catch {
-        // Non-fatal
-      }
+      } catch { /* non-fatal */ }
 
-      // ── Get real bill from BMI (credits auto-applied after person linked) ──
-      let isCreditOrder = false;
-      let cashOwed = total;
-      let creditApplied = 0;
+      // Step 2: Get overview BEFORE linking person (shows cash totals)
       let bmiTotal = total;
       let bmiSubtotal = subtotal;
       let bmiTax = tax;
       let bmiLines: { name: string; quantity: number; amount: number }[] = [];
+      let isCreditOrder = false;
+      let cashOwed = total;
+      let creditApplied = 0;
 
       try {
-        const overview = await bmiGet(`order/${orderId}/overview`);
+        let overview = await bmiGet(`order/${orderId}/overview`);
+
+        // Step 3: If returning racer, link personId to apply credits, then re-fetch
+        if (personId) {
+          try {
+            await bmiPost("person/registerContactPerson", {
+              personId: Number(personId),
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone.replace(/\D/g, ""),
+              orderId,
+            });
+            // Re-fetch overview with credits applied
+            overview = await bmiGet(`order/${orderId}/overview`);
+          } catch { /* credits couldn't be applied — use cash totals */ }
+        }
 
         // Extract totals
         const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
