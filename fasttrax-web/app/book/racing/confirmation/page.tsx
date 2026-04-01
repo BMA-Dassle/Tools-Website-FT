@@ -183,6 +183,19 @@ export default function ConfirmationPage() {
               </div>
             )}
 
+            {/* Check-in time alert */}
+            {start && (
+              <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-4 text-center">
+                <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-1">Check In By</p>
+                <p className="text-white font-display text-2xl uppercase tracking-widest">
+                  {checkinTime(start)}
+                </p>
+                <p className="text-white/50 text-xs mt-1">
+                  Guest Services, 2nd Floor — 30 minutes before your heat
+                </p>
+              </div>
+            )}
+
             {/* Booking details */}
             <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
               {raceLine && (
@@ -224,19 +237,6 @@ export default function ConfirmationPage() {
                 </div>
               )}
             </div>
-
-            {/* Check-in time alert */}
-            {start && (
-              <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-4 text-center">
-                <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-1">Check In By</p>
-                <p className="text-white font-display text-2xl uppercase tracking-widest">
-                  {checkinTime(start)}
-                </p>
-                <p className="text-white/50 text-xs mt-1">
-                  Guest Services, 2nd Floor — 30 minutes before your heat
-                </p>
-              </div>
-            )}
 
             {/* Reminders */}
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/50 space-y-2">
