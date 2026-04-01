@@ -107,7 +107,7 @@ function ProductGroup({ items, selected, onSelect }: {
       isAnySelected
         ? `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`
         : "border-white/10 bg-white/5"
-    }`} style={isAnySelected ? { ringColor: undefined } : undefined}>
+    }`}>
       {/* Header */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <div>
