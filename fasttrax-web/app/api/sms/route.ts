@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 
 const SMS_BASE = "https://booking-api22.sms-timing.com/api";
 const CLIENT_KEY = "headpinzftmyers";
-const ACCESS_TOKEN = "82ombpyojpnllypblbk";
+const ACCESS_TOKEN = process.env.SMS_ACCESS_TOKEN || "82ombpyojpnllypblbk";
 const SMS_VERSION = "6251006 202511051229";
 
 function smsHeaders(sessionId?: string) {
