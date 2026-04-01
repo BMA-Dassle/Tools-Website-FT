@@ -127,10 +127,9 @@ export default function OrderSummary({
             },
           };
 
-          // First booking: include contact person (with personId for credits)
+          // First booking: include contact (WITHOUT personId — added later via registerContactPerson)
           if (i === 0) {
             bookPayload.contactPerson = {
-              personId: personId ? Number(personId) : undefined,
               firstName: contact.firstName,
               lastName: contact.lastName,
               email: contact.email,
@@ -161,28 +160,49 @@ export default function OrderSummary({
         }
       }
 
-      // Register contact person (only for new racers without personId)
-      if (!personId) {
-        try {
-          await bmiPost("person/registerContactPerson", {
-            firstName: contact.firstName,
-            lastName: contact.lastName,
-            email: contact.email,
-            phone: contact.phone.replace(/\D/g, ""),
-            orderId,
-          });
-        } catch {
-          // Non-fatal
-        }
+      // Register contact person (with personId if returning racer — triggers credit application)
+      try {
+        await bmiPost("person/registerContactPerson", {
+          personId: personId ? Number(personId) : undefined,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone.replace(/\D/g, ""),
+          orderId,
+        });
+      } catch {
+        // Non-fatal
       }
 
-      // ── Credit detection ──────────────────────────────────────────────
-      // BMI auto-applies credits when personId is linked. We can't check
-      // order/overview because BMI may auto-convert to reservation immediately.
-      // If we booked with a personId, treat as credit booking.
-      let isCreditOrder = !!personId;
-      let cashOwed = isCreditOrder ? 0 : total;
-      let creditApplied = isCreditOrder ? bookings.reduce((s, b) => s + b.quantity, 0) : 0;
+      // ── Get real total from BMI (credits auto-applied after person linked) ──
+      let isCreditOrder = false;
+      let cashOwed = total;
+      let creditApplied = 0;
+      try {
+        const overview = await bmiGet(`order/${orderId}/overview`);
+        console.log("[order/overview]", JSON.stringify(overview.total));
+
+        const cashEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const creditEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+
+        if (cashEntry) cashOwed = cashEntry.amount;
+        if (creditEntry) creditApplied = Math.abs(creditEntry.amount);
+
+        if (creditEntry && (!cashEntry || cashEntry.amount === 0)) {
+          isCreditOrder = true;
+          cashOwed = 0;
+        }
+      } catch {
+        // Fallback: if personId present, assume credit for 1 racer
+        if (personId) {
+          const totalRacers = bookings.reduce((s, b) => s + b.quantity, 0);
+          creditApplied = 1;
+          const perRacer = totalRacers > 0 ? total / totalRacers : total;
+          cashOwed = Math.max(0, total - perRacer);
+          isCreditOrder = cashOwed < 0.01;
+          if (isCreditOrder) cashOwed = 0;
+        }
+      }
 
       setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied });
     } catch (err) {
