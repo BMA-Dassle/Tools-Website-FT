@@ -177,14 +177,12 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                 if (blockStart < bhStop && blockStop > bhStart) return true;
 
                 if (sameTrack) {
-                  // Same track: no back-to-back (block within 1 min of booked)
-                  if (Math.abs(blockStop - bhStart) < 60_000) return true;
-                  if (Math.abs(bhStop - blockStart) < 60_000) return true;
+                  // Same track: no back-to-back — block heats within 14 min of booked start
+                  // (heats are ~12 min apart, 14 min catches adjacent ones)
+                  if (Math.abs(blockStart - bhStart) < 14 * 60_000) return true;
                 } else {
-                  // Different track: need ~30 min gap (2 heats worth)
-                  const gap = 30 * 60_000; // 30 minutes
-                  if (Math.abs(blockStart - bhStart) < gap) return true;
-                  if (blockStart < bhStop + gap && blockStop > bhStart - gap) return true;
+                  // Different track: need ~30 min gap between race starts
+                  if (Math.abs(blockStart - bhStart) < 30 * 60_000) return true;
                 }
                 return false;
               });
