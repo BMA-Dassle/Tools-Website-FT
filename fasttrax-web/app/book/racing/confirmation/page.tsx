@@ -20,6 +20,8 @@ export default function ConfirmationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [billId, setBillId] = useState<string | null>(null);
+  const [reservationCode, setReservationCode] = useState<string | null>(null);
+  const [reservationNumber, setReservationNumber] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -41,20 +43,23 @@ export default function ConfirmationPage() {
         const transactionId = params.get("transactionId");
         const orderId = params.get("orderId");
 
-        if (providerKind && data && transactionId) {
+        let processResult: { reservationCode?: string; reservationNumber?: string } | null = null;
+
+        if (providerKind && data) {
           // BMI payment redirect — call payment/process
-          await fetch("/api/sms?endpoint=payment%2Fprocess", {
+          const processRes = await fetch("/api/sms?endpoint=payment%2Fprocess", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               paymentProviderKind: Number(providerKind),
               paymentMode: 0,
-              extraData: { providerKind, data, transactionId, orderId: orderId ?? id },
+              extraData: { providerKind, data, transactionId: transactionId || id, orderId: orderId ?? id },
             }),
           });
+          processResult = await processRes.json();
         } else if (transactionId || params.has("checkoutId")) {
           // Square payment link redirect — call payment/process with Square transaction
-          await fetch("/api/sms?endpoint=payment%2Fprocess", {
+          const processRes = await fetch("/api/sms?endpoint=payment%2Fprocess", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -67,11 +72,27 @@ export default function ConfirmationPage() {
               },
             }),
           });
+          processResult = await processRes.json();
+        }
+
+        if (processResult?.reservationCode) {
+          setReservationCode(processResult.reservationCode);
+        } else {
+          // Fallback: construct from billId
+          setReservationCode(`r${id}`);
+        }
+        if (processResult?.reservationNumber) {
+          setReservationNumber(processResult.reservationNumber);
         }
 
         // Clean up URL params after processing
         if (transactionId || providerKind || params.has("checkoutId")) {
           window.history.replaceState({}, "", `/book/racing/confirmation?billId=${id}`);
+        }
+
+        // Set fallback reservation code if not already set from payment/process
+        if (!reservationCode) {
+          setReservationCode(`r${id}`);
         }
 
         // Fetch bill overview
@@ -125,6 +146,27 @@ export default function ConfirmationPage() {
                 Your race is confirmed. Check your email for a receipt.
               </p>
             </div>
+
+            {/* QR Code */}
+            {reservationCode && (
+              <div className="flex flex-col items-center gap-3">
+                <div className="rounded-xl bg-white p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(reservationCode)}`}
+                    alt="Reservation QR Code"
+                    width={180}
+                    height={180}
+                  />
+                </div>
+                <div className="text-center">
+                  {reservationNumber && (
+                    <p className="text-white font-bold text-lg">{reservationNumber}</p>
+                  )}
+                  <p className="text-white/40 text-xs">Show this QR code at check-in</p>
+                </div>
+              </div>
+            )}
 
             {/* Booking details */}
             <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
