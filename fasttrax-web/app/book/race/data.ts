@@ -127,6 +127,31 @@ export function calculateTotal(subtotal: number): number {
   return Math.round((subtotal + calculateTax(subtotal)) * 100) / 100;
 }
 
+// ── Price lookup ────────────────────────────────────────────────────────────
+// BMI Public API does not return prices. These are the known prices from the
+// SMS-Timing API, keyed by tier + category + packType.
+
+const PRICE_TABLE: Record<string, number> = {
+  // Single races
+  "starter|adult|none": 25.98,
+  "starter|junior|none": 25.98,
+  "intermediate|adult|none": 25.98,
+  "intermediate|junior|none": 25.98,
+  "pro|adult|none": 25.98,
+  "pro|junior|none": 25.98,
+  // Combo packs (Mega — 3 races)
+  "intermediate|adult|combo": 49.98,
+  "pro|adult|combo": 49.98,
+  // Sell packs (weekday — 3 races)
+  "intermediate|adult|sell": 49.99,
+  "pro|adult|sell": 49.99,
+};
+
+function lookupPrice(tier: RaceTier, category: RaceCategory, packType: PackType, apiPrice: number): number {
+  if (apiPrice > 0) return apiPrice; // Use API price if available
+  return PRICE_TABLE[`${tier}|${category}|${packType}`] ?? 25.98;
+}
+
 // ── Classified product ──────────────────────────────────────────────────────
 
 export type PackType = "none" | "sell" | "combo";
@@ -171,7 +196,7 @@ export function classifyProducts(pages: BmiPage[]): ClassifiedProduct[] {
       else if (nameLower.includes("blue")) track = "Blue";
       else if (nameLower.includes("mega")) track = "Mega";
 
-      const price = prod.prices.find(p => p.depositKind === 0)?.amount ?? 0;
+      const apiPrice = prod.prices?.find(p => p.depositKind === 0)?.amount ?? 0;
 
       let packType: PackType = "none";
       if (prod.isCombo) {
@@ -182,6 +207,8 @@ export function classifyProducts(pages: BmiPage[]): ClassifiedProduct[] {
 
       const raceCountMatch = name.match(/(\d+)[- ]?race/i);
       const raceCount = packType !== "none" ? (raceCountMatch ? parseInt(raceCountMatch[1], 10) : 3) : 1;
+
+      const price = lookupPrice(tier, category, packType, apiPrice);
 
       results.push({
         productId: String(prod.id),
