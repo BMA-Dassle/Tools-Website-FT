@@ -225,26 +225,25 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
       const squareUrl = payResult.onlinePaymentData?.RedirectUrl;
       if (!squareUrl) throw new Error("No payment URL returned");
 
-      // Build our confirmation URL with the payment data params
-      // so our confirmation page can call payment/process
-      const confirmParams = new URLSearchParams({ billId });
-      if (payResult.data) {
-        confirmParams.set("providerKind", String(payResult.providerKind ?? -11042));
-        confirmParams.set("data", payResult.data);
-        confirmParams.set("transactionId", payResult.transactionId ?? billId);
-        confirmParams.set("orderId", billId);
-      }
-      const ourRedirectUrl = `${window.location.origin}/book/racing/confirmation?${confirmParams.toString()}`;
-
-      // Update the Square payment link redirect to point to our site
+      // Update the Square payment link redirect:
+      // Extracts BMI's payment data (providerKind, data) from BMI's existing
+      // redirect URL on the Square link, then rebuilds it pointing to our site
       const updateRes = await fetch("/api/square/update-redirect", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ squareUrl, redirectUrl: ourRedirectUrl }),
+        body: JSON.stringify({
+          squareUrl,
+          billId,
+          confirmationBaseUrl: `${window.location.origin}/book/racing/confirmation`,
+        }),
       });
 
       const updateData = await updateRes.json();
       console.log("[square/update-redirect]", updateData);
+
+      if (updateData.error) {
+        console.warn("Failed to update redirect, using Square link directly:", updateData.error);
+      }
 
       // Redirect customer to Square checkout
       window.location.href = squareUrl;
