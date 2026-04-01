@@ -237,6 +237,8 @@ export function filterProducts(
   juniorCount: number,
 ): ClassifiedProduct[] {
   return products.filter(p => {
+    // Hide race packs for now
+    if (p.packType !== "none") return false;
     if (racerType === "new" && p.tier !== "starter") return false;
     if (racerType === "existing" && p.tier === "starter") return false;
     if (p.category === "adult" && adultCount === 0) return false;

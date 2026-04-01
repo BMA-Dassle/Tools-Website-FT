@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock, PackSchedule } from "../data";
-import { getAcknowledgements, calculateTax, calculateTotal, bmiPost } from "../data";
+import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } from "../data";
 import type { ContactInfo } from "./ContactForm";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ interface OrderSummaryProps {
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -184,7 +184,24 @@ export default function OrderSummary({
         }
       }
 
-      setState({ status: "booked", orderId: orderId! });
+      // Check if order is a credit booking (auto-applied from person's account)
+      let isCreditOrder = false;
+      let cashOwed = total;
+      try {
+        const overview = await bmiGet(`order/${orderId}/overview`);
+        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+        if (creditTotal && (!cashTotal || cashTotal.amount === 0)) {
+          isCreditOrder = true;
+          cashOwed = 0;
+        } else if (cashTotal) {
+          cashOwed = cashTotal.amount;
+        }
+      } catch {
+        // Couldn't check — assume cash
+      }
+
+      setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed });
     } catch (err) {
       setState({
         status: "error",
@@ -195,41 +212,56 @@ export default function OrderSummary({
 
   async function handleConfirm() {
     if (state.status !== "booked") return;
-    const { orderId } = state;
+    const { orderId, isCreditOrder, cashOwed } = state;
 
     setState({ status: "paying" });
     try {
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";
 
-      // Store booking details in Redis — Square strips query params on redirect
-      // and BMI clears order details after payment/confirm
+      // Store booking details in Redis + localStorage
       const bookingDetails = {
         billId: orderId,
-        amount: total.toFixed(2),
+        amount: (isCreditOrder ? 0 : cashOwed).toFixed(2),
         race: raceName,
         name: `${contact.firstName} ${contact.lastName}`,
         email: contact.email,
         qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
         heat: heatStart,
+        isCreditOrder: isCreditOrder ? "true" : "false",
       };
       await fetch("/api/booking-store", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(bookingDetails),
       });
-      // Also keep localStorage as fallback
       localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
 
+      // Credit order — skip Square, confirm directly with BMI
+      if (isCreditOrder) {
+        const confirmResult = await bmiPost("payment/confirm", {
+          id: crypto.randomUUID(),
+          paymentTime: new Date().toISOString(),
+          amount: 0,
+          orderId: Number(orderId),
+          depositKind: 2,
+        });
+        console.log("[payment/confirm credit]", confirmResult);
+
+        // Go straight to confirmation page
+        window.location.href = `/book/race/confirmation?billId=${orderId}`;
+        return;
+      }
+
+      // Cash order — create Square checkout
       const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}`;
 
-      // Create Square checkout via our own API
       const res = await fetch("/api/square/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           billId: orderId,
-          amount: total,
+          amount: cashOwed,
           raceName,
           returnUrl,
           cancelUrl: `${window.location.origin}/book/race`,
@@ -345,7 +377,7 @@ export default function OrderSummary({
       {/* Header */}
       <div className="text-center">
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
-          {isBooked ? "Review & Pay" : "Preparing Order..."}
+          {isBooked ? (state.status === "booked" && state.isCreditOrder ? "Review & Confirm" : "Review & Pay") : "Preparing Order..."}
         </h2>
         {isBooked && (
           <p className="text-white/50 text-sm">
@@ -513,7 +545,7 @@ export default function OrderSummary({
                   Confirming...
                 </>
               ) : (
-                <>Pay ${total.toFixed(2)} →</>
+                <>{state.status === "booked" && state.isCreditOrder ? "Confirm Booking (Credit)" : `Pay $${total.toFixed(2)} →`}</>
               )}
             </button>
           </div>
