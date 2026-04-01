@@ -39,7 +39,7 @@ interface OrderSummaryProps {
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -96,17 +96,15 @@ export default function OrderSummary({
     setState({ status: "booking" });
     try {
       let orderId: string | null = null;
-      let parentBillLineId: string | number | null = null;
 
       if (packResult) {
-        // ── Pack booking: order already created during heat selection ──
         orderId = packResult.billId;
       } else {
-        // ── Regular booking flow ──────────────────────────────────────
+        // ── Build the bill: book each category ──────────────────────────
         for (let i = 0; i < bookings.length; i++) {
           const { product, quantity, proposal, block } = bookings[i];
 
-          const bookPayload = {
+          const bookPayload: Record<string, unknown> = {
             productId: String(product.productId),
             quantity,
             resourceId: Number(block.resourceId) || -1,
@@ -120,50 +118,34 @@ export default function OrderSummary({
               })),
               productLineId: proposal.productLineId ?? null,
             },
-            contactPerson: i === 0
-              ? {
-                  personId: personId ? Number(personId) : undefined,
-                  firstName: contact.firstName,
-                  lastName: contact.lastName,
-                  email: contact.email,
-                  phone: contact.phone.replace(/\D/g, ""),
-                }
-              : undefined,
           };
 
+          // First booking: include contact person (with personId for credits)
           if (i === 0) {
-            // First booking creates the order
-            console.log("[booking/book] payload:", JSON.stringify(bookPayload));
-            const bookResult = await bmiPost("booking/book", bookPayload);
-            console.log("[booking/book] result:", JSON.stringify(bookResult));
+            bookPayload.contactPerson = {
+              personId: personId ? Number(personId) : undefined,
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone.replace(/\D/g, ""),
+            };
+          }
 
-            // Store booking/book response in Redis for debugging
-            try {
-              await fetch("/api/booking-store", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ billId: `debug_${bookResult.orderId}`, bookPayload, bookResult }),
-              });
-            } catch { /* non-fatal */ }
+          // Add to existing bill if not first
+          if (orderId) {
+            bookPayload.orderId = orderId;
+          }
 
-            if (bookResult.success === false) {
-              throw new Error(bookResult.errorMessage || "Booking failed");
-            }
+          const result = await bmiPost("booking/book", bookPayload);
 
-            orderId = String(bookResult.orderId);
-            parentBillLineId = bookResult.parentBillLineId ?? null;
+          if (result.success === false) {
+            throw new Error(result.errorMessage || "Booking failed");
+          }
+
+          if (!orderId) {
+            orderId = String(result.orderId);
             if (!orderId || orderId === "undefined" || orderId === "0") {
               throw new Error("No order ID returned from booking");
-            }
-          } else {
-            // Subsequent bookings: use booking/book with existing orderId
-            const bookResult2 = await bmiPost("booking/book", {
-              ...bookPayload,
-              orderId,
-            });
-
-            if (!bookResult2.success && bookResult2.errorMessage) {
-              throw new Error(bookResult2.errorMessage);
             }
           }
         }
@@ -184,24 +166,27 @@ export default function OrderSummary({
         }
       }
 
-      // Check if order is a credit booking (auto-applied from person's account)
+      // ── Get real total from BMI (credits auto-applied) ──────────────
       let isCreditOrder = false;
       let cashOwed = total;
+      let creditApplied = 0;
       try {
         const overview = await bmiGet(`order/${orderId}/overview`);
-        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
-        if (creditTotal && (!cashTotal || cashTotal.amount === 0)) {
+        const cashEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const creditEntry = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+
+        if (cashEntry) cashOwed = cashEntry.amount;
+        if (creditEntry) creditApplied = Math.abs(creditEntry.amount);
+
+        if (creditEntry && (!cashEntry || cashEntry.amount === 0)) {
           isCreditOrder = true;
           cashOwed = 0;
-        } else if (cashTotal) {
-          cashOwed = cashTotal.amount;
         }
       } catch {
-        // Couldn't check — assume cash
+        // Couldn't check — use our calculated total
       }
 
-      setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed });
+      setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied });
     } catch (err) {
       setState({
         status: "error",
@@ -506,6 +491,22 @@ export default function OrderSummary({
             <span className="text-white">Total</span>
             <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
           </div>
+
+          {/* Credit/cash breakdown from BMI */}
+          {state.status === "booked" && state.creditApplied > 0 && (
+            <>
+              <div className="flex justify-between text-sm">
+                <span className="text-green-400">Credits Applied</span>
+                <span className="text-green-400">-{state.creditApplied} credit{state.creditApplied !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
+                <span className="text-white">{state.cashOwed > 0 ? "Due Now" : "Amount Due"}</span>
+                <span className={`text-lg ${state.cashOwed > 0 ? "text-[#00E2E5]" : "text-green-400"}`}>
+                  {state.cashOwed > 0 ? `$${state.cashOwed.toFixed(2)}` : "$0.00"}
+                </span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
