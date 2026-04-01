@@ -189,56 +189,52 @@ export default function BookRacingPage() {
 
   return (
     <div className="min-h-screen bg-[#000418] pt-24">
-      {/* Header */}
-      <div className="border-b border-white/8" style={{ background: "linear-gradient(180deg, #010A20 0%, #000418 100%)" }}>
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <a href="/racing" className="text-white/30 hover:text-white/60 text-xs transition-colors inline-block">
-            ← Back to Racing
-          </a>
-        </div>
-
-        {/* Step indicator */}
-        <div className="max-w-4xl mx-auto px-4 pb-4 overflow-x-auto">
-          <div className="flex items-center gap-0 min-w-max">
-            {STEPS.map((s, i) => {
-              const isPast = i < currentIdx;
-              const isCurrent = i === currentIdx;
-              const isFuture = i > currentIdx;
-              return (
-                <div key={s} className="flex items-center">
-                  <button
-                    onClick={() => isPast && goToStep(s)}
-                    disabled={isFuture}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
-                      isCurrent ? "text-[#00E2E5]" :
-                      isPast ? "text-white/60 hover:text-white/80 cursor-pointer" :
-                      "text-white/20 cursor-not-allowed"
-                    }`}
-                  >
-                    <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
-                      isCurrent ? "bg-[#00E2E5] text-[#000418]" :
-                      isPast ? "bg-white/20 text-white" :
-                      "bg-white/8 text-white/20"
-                    }`}>
-                      {isPast ? "✓" : i + 1}
-                    </span>
-                    <span className="hidden sm:inline">{STEP_LABELS[s]}</span>
-                  </button>
-                  {i < STEPS.length - 1 && <span className="text-white/15 mx-0.5">›</span>}
-                </div>
-              );
-            })}
+      {/* Sticky header: steps + banner */}
+      <div className="sticky top-0 z-40">
+        <div className="border-b border-white/8 bg-[#000418]">
+          {/* Step indicator */}
+          <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
+            <div className="flex items-center gap-0 min-w-max">
+              {STEPS.map((s, i) => {
+                const isPast = i < currentIdx;
+                const isCurrent = i === currentIdx;
+                const isFuture = i > currentIdx;
+                return (
+                  <div key={s} className="flex items-center">
+                    <button
+                      onClick={() => isPast && goToStep(s)}
+                      disabled={isFuture}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+                        isCurrent ? "text-[#00E2E5]" :
+                        isPast ? "text-white/60 hover:text-white/80 cursor-pointer" :
+                        "text-white/20 cursor-not-allowed"
+                      }`}
+                    >
+                      <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
+                        isCurrent ? "bg-[#00E2E5] text-[#000418]" :
+                        isPast ? "bg-white/20 text-white" :
+                        "bg-white/8 text-white/20"
+                      }`}>
+                        {isPast ? "✓" : i + 1}
+                      </span>
+                      <span className="hidden sm:inline">{STEP_LABELS[s]}</span>
+                    </button>
+                    {i < STEPS.length - 1 && <span className="text-white/15 mx-0.5">›</span>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Dev banner */}
-      <div className="bg-amber-500 text-black text-center py-2 text-sm font-semibold">
-        Development — Using BMI Native Booking API (SMS-Timing)
+        {/* Dev banner */}
+        <div className="bg-amber-500 text-black text-center py-1.5 text-xs font-semibold">
+          Development — Using BMI Native Booking API (SMS-Timing)
+        </div>
       </div>
 
       {/* Main content */}
-      <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-24">
+      <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-32">
 
         {/* STEP 1: Experience level */}
         {step === "experience" && (
