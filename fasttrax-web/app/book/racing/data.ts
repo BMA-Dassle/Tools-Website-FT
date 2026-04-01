@@ -187,6 +187,9 @@ export function filterProducts(
   juniorCount: number,
 ): ClassifiedProduct[] {
   return products.filter(p => {
+    // Hide combo/pack products for now (need different booking flow)
+    if (p.isCombo) return false;
+
     // Filter by experience level
     if (racerType === "new" && p.tier !== "starter") return false;
     if (racerType === "existing" && p.tier === "starter") return false;
