@@ -2,30 +2,47 @@
 
 import { useState, useEffect } from "react";
 import QRCode from "qrcode";
-import { bmiPost } from "../data";
+import { bmiGet, bmiPost } from "../data";
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+}
+
+interface OrderLine {
+  name: string;
+  quantity: number;
+  totalPrice: { amount: number; depositKind: number }[];
+  scheduledTime?: { start: string; stop: string } | null;
+  productGroup: string;
+}
+
+interface OrderOverview {
+  orderId: number;
+  date?: string;
+  subTotal: { amount: number; depositKind: number }[];
+  total: { amount: number; depositKind: number }[];
+  totalTax: { amount: number; depositKind: number }[];
+  totalPaid: number;
+  lines: OrderLine[];
+}
 
 export default function ConfirmationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [order, setOrder] = useState<OrderOverview | null>(null);
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [raceName, setRaceName] = useState<string | null>(null);
-  const [contactName, setContactName] = useState<string | null>(null);
-  const [contactEmail, setContactEmail] = useState<string | null>(null);
-  const [totalPaid, setTotalPaid] = useState<string | null>(null);
-  const [racerCount, setRacerCount] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("orderId");
     setOrderId(id);
-    setRaceName(params.get("race"));
-    setContactName(params.get("name"));
-    setContactEmail(params.get("email"));
-    setTotalPaid(params.get("amount"));
-    setRacerCount(params.get("qty"));
     if (!id) {
       setError("No booking ID found.");
       setLoading(false);
@@ -34,31 +51,32 @@ export default function ConfirmationPage() {
 
     async function confirmAndLoad() {
       try {
-        // Get the payment amount from URL (passed by OrderSummary)
-        const amount = parseFloat(params.get("amount") || "0");
-
         // Call BMI payment/confirm to mark the order as paid
-        const result = await bmiPost("payment/confirm", {
-          id: crypto.randomUUID(),
-          paymentTime: new Date().toISOString(),
-          amount,
-          orderId: Number(id),
-        });
+        const amount = parseFloat(params.get("amount") || "0");
+        try {
+          const result = await bmiPost("payment/confirm", {
+            id: crypto.randomUUID(),
+            paymentTime: new Date().toISOString(),
+            amount,
+            orderId: Number(id),
+          });
 
-        if (result.reservationCode) {
-          setReservationCode(result.reservationCode);
-        } else {
-          setReservationCode(`r${id}`);
-        }
-        if (result.reservationNumber) {
-          setReservationNumber(result.reservationNumber);
+          if (result.reservationCode) setReservationCode(result.reservationCode);
+          if (result.reservationNumber) setReservationNumber(result.reservationNumber);
+        } catch {
+          // Non-fatal — may already be confirmed
         }
 
-        // Clean up URL params
+        if (!reservationCode) setReservationCode(`r${id}`);
+
+        // Fetch order overview for full details
+        const overview: OrderOverview = await bmiGet(`order/${id}/overview`);
+        setOrder(overview);
+
+        // Clean up URL
         window.history.replaceState({}, "", `/book/race/confirmation?orderId=${id}`);
       } catch {
-        // Non-fatal — reservation may already be confirmed
-        setReservationCode(`r${id}`);
+        setError("Couldn't load booking details.");
       } finally {
         setLoading(false);
       }
@@ -74,6 +92,11 @@ export default function ConfirmationPage() {
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(null));
   }, [reservationCode]);
+
+  // Extract data from order
+  const raceLine = order?.lines.find(l => l.productGroup === "Karting" && l.scheduledTime);
+  const start = raceLine?.scheduledTime?.start;
+  const cashTotal = order?.total.find(t => t.depositKind === 0)?.amount;
 
   return (
     <div className="min-h-screen bg-[#000418] pt-24">
@@ -124,35 +147,40 @@ export default function ConfirmationPage() {
               </div>
             )}
 
-            {/* Booking details */}
+            {/* Booking details from order/overview */}
             <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
-              {raceName && (
+              {raceLine && (
                 <div className="p-4">
                   <p className="text-white/40 text-xs mb-1">Race</p>
-                  <p className="text-white font-bold">{raceName}</p>
+                  <p className="text-white font-bold">{raceLine.name}</p>
+                </div>
+              )}
+              {start && (
+                <div className="p-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Date</p>
+                    <p className="text-white text-sm">{formatDate(start)}</p>
+                  </div>
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Heat time</p>
+                    <p className="text-white text-sm">{formatTime(start)}</p>
+                  </div>
                 </div>
               )}
               <div className="p-4 grid grid-cols-2 gap-4">
-                {racerCount && (
+                {raceLine && (
                   <div>
                     <p className="text-white/40 text-xs mb-1">Racers</p>
-                    <p className="text-white text-sm">{racerCount}</p>
+                    <p className="text-white text-sm">{raceLine.quantity}</p>
                   </div>
                 )}
-                {totalPaid && (
+                {cashTotal !== undefined && (
                   <div>
                     <p className="text-white/40 text-xs mb-1">Total</p>
-                    <p className="text-[#00E2E5] font-bold text-lg">${totalPaid}</p>
+                    <p className="text-[#00E2E5] font-bold text-lg">${cashTotal.toFixed(2)}</p>
                   </div>
                 )}
               </div>
-              {contactName && (
-                <div className="p-4">
-                  <p className="text-white/40 text-xs mb-1">Contact</p>
-                  <p className="text-white text-sm">{contactName}</p>
-                  {contactEmail && <p className="text-white/50 text-xs">{contactEmail}</p>}
-                </div>
-              )}
               <div className="p-4">
                 <p className="text-white/40 text-xs mb-1">Booking reference</p>
                 <p className="text-white/70 text-sm font-mono">{orderId}</p>
