@@ -227,7 +227,15 @@ export default function OrderSummary({
     setState({ status: "paying" });
     try {
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
-      const returnUrl = `${window.location.origin}/book/race/confirmation?orderId=${orderId}`;
+      const confirmParams = new URLSearchParams({
+        orderId,
+        amount: total.toFixed(2),
+        race: raceName,
+        name: `${contact.firstName} ${contact.lastName}`,
+        email: contact.email,
+        qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
+      });
+      const returnUrl = `${window.location.origin}/book/race/confirmation?${confirmParams.toString()}`;
 
       // Create Square checkout via our own API
       const res = await fetch("/api/square/checkout", {
@@ -239,6 +247,12 @@ export default function OrderSummary({
           raceName,
           returnUrl,
           cancelUrl: `${window.location.origin}/book/race`,
+          buyer: {
+            email: contact.email,
+            phone: contact.phone,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+          },
         }),
       });
 

@@ -11,11 +11,21 @@ export default function ConfirmationPage() {
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [raceName, setRaceName] = useState<string | null>(null);
+  const [contactName, setContactName] = useState<string | null>(null);
+  const [contactEmail, setContactEmail] = useState<string | null>(null);
+  const [totalPaid, setTotalPaid] = useState<string | null>(null);
+  const [racerCount, setRacerCount] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("orderId");
     setOrderId(id);
+    setRaceName(params.get("race"));
+    setContactName(params.get("name"));
+    setContactEmail(params.get("email"));
+    setTotalPaid(params.get("amount"));
+    setRacerCount(params.get("qty"));
     if (!id) {
       setError("No booking ID found.");
       setLoading(false);
@@ -24,11 +34,14 @@ export default function ConfirmationPage() {
 
     async function confirmAndLoad() {
       try {
+        // Get the payment amount from URL (passed by OrderSummary)
+        const amount = parseFloat(params.get("amount") || "0");
+
         // Call BMI payment/confirm to mark the order as paid
         const result = await bmiPost("payment/confirm", {
           id: crypto.randomUUID(),
           paymentTime: new Date().toISOString(),
-          amount: 0, // BMI calculates from the order
+          amount,
           orderId: Number(id),
         });
 
@@ -111,10 +124,39 @@ export default function ConfirmationPage() {
               </div>
             )}
 
-            {/* Order reference */}
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <p className="text-white/40 text-xs mb-1">Booking reference</p>
-              <p className="text-white/70 text-sm font-mono">{orderId}</p>
+            {/* Booking details */}
+            <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
+              {raceName && (
+                <div className="p-4">
+                  <p className="text-white/40 text-xs mb-1">Race</p>
+                  <p className="text-white font-bold">{raceName}</p>
+                </div>
+              )}
+              <div className="p-4 grid grid-cols-2 gap-4">
+                {racerCount && (
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Racers</p>
+                    <p className="text-white text-sm">{racerCount}</p>
+                  </div>
+                )}
+                {totalPaid && (
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Total</p>
+                    <p className="text-[#00E2E5] font-bold text-lg">${totalPaid}</p>
+                  </div>
+                )}
+              </div>
+              {contactName && (
+                <div className="p-4">
+                  <p className="text-white/40 text-xs mb-1">Contact</p>
+                  <p className="text-white text-sm">{contactName}</p>
+                  {contactEmail && <p className="text-white/50 text-xs">{contactEmail}</p>}
+                </div>
+              )}
+              <div className="p-4">
+                <p className="text-white/40 text-xs mb-1">Booking reference</p>
+                <p className="text-white/70 text-sm font-mono">{orderId}</p>
+              </div>
             </div>
 
             {/* Reminders */}

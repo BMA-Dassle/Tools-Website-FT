@@ -14,7 +14,7 @@ const SQUARE_LOCATION = process.env.SQUARE_LOCATION_ID || "";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { billId, amount, raceName, returnUrl, cancelUrl } = await req.json();
+    const { billId, amount, raceName, returnUrl, cancelUrl, buyer } = await req.json();
 
     if (!billId || !amount) {
       return NextResponse.json({ error: "billId and amount required" }, { status: 400 });
@@ -45,9 +45,14 @@ export async function POST(req: NextRequest) {
           redirect_url: returnUrl || undefined,
           ask_for_shipping_address: false,
         },
-        pre_populated_data: {
-          buyer_email: undefined,
-        },
+        pre_populated_data: buyer ? {
+          buyer_email: buyer.email || undefined,
+          buyer_phone_number: buyer.phone ? `+1${buyer.phone.replace(/\D/g, "").replace(/^1/, "")}` : undefined,
+          buyer_address: (buyer.firstName || buyer.lastName) ? {
+            first_name: buyer.firstName || undefined,
+            last_name: buyer.lastName || undefined,
+          } : undefined,
+        } : undefined,
         payment_note: `FastTrax Booking ${billId}`,
       }),
     });
