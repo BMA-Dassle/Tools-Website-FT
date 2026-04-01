@@ -248,7 +248,8 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
       console.log("[square/update-redirect]", updateData);
 
       if (updateData.error) {
-        console.warn("Failed to update redirect, using Square link directly:", updateData.error);
+        console.error("[square/update-redirect FAILED]", updateData.error);
+        // Fallback: still redirect to Square but it will go back to BMI's site
       }
 
       // Redirect customer to Square checkout

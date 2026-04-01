@@ -17,9 +17,16 @@ export async function POST(req: NextRequest) {
   try {
     const { squareUrl, billId, confirmationBaseUrl, buyer } = await req.json();
 
+    if (!SQUARE_TOKEN) {
+      console.error("[update-redirect] SQUARE_ACCESS_TOKEN env var not set!");
+      return NextResponse.json({ error: "Square not configured" }, { status: 500 });
+    }
+
     if (!squareUrl || !billId) {
       return NextResponse.json({ error: "squareUrl and billId required" }, { status: 400 });
     }
+
+    console.log("[update-redirect] Looking for link:", squareUrl);
 
     // Find the payment link by listing recent links and matching the URL
     const listRes = await fetch(`${SQUARE_BASE}/online-checkout/payment-links`, {
