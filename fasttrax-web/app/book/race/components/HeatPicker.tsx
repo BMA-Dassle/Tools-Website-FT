@@ -66,7 +66,9 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
 
   const selectedProposal = selectedIdx !== null ? proposals[selectedIdx] : null;
   const selectedBlock = selectedProposal?.blocks?.[0]?.block ?? null;
-  const total = selectedBlock ? (race.price * quantity).toFixed(2) : null;
+  // Get real price from the proposal block (BMI returns prices on availability)
+  const blockPrice = selectedBlock?.prices?.find(p => p.depositKind === 0)?.amount ?? race.price;
+  const total = selectedBlock ? (blockPrice * quantity).toFixed(2) : null;
 
   return (
     <div className="space-y-6">
@@ -146,7 +148,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   <p className="text-white/50 text-xs mb-1">Selected</p>
                   <p className="text-white font-bold">{selectedBlock.name} · {formatTime(selectedBlock.start)}</p>
                   <p className="text-[#00E2E5] text-sm font-semibold mt-0.5">
-                    ${race.price.toFixed(2)} × {quantity} = <span className="text-lg">${total}</span>
+                    ${blockPrice.toFixed(2)} × {quantity} = <span className="text-lg">${total}</span>
                   </p>
                 </div>
                 <button

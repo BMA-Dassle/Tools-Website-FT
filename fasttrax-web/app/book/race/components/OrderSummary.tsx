@@ -18,6 +18,8 @@ export interface BookingItem {
   quantity: number;
   proposal: BmiProposal;
   block: BmiBlock;
+  /** Real price from availability proposal (includes day/time pricing) */
+  blockPrice?: number;
 }
 
 interface OrderSummaryProps {
@@ -71,11 +73,11 @@ export default function OrderSummary({
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const bookingStarted = useRef(false);
 
-  // Computed pricing
+  // Computed pricing — prefer real block price from availability over catalog price
   const isPack = !!packResult;
   const subtotal = isPack && packProduct
     ? packProduct.price
-    : bookings.reduce((sum, b) => sum + b.product.price * b.quantity, 0);
+    : bookings.reduce((sum, b) => sum + (b.blockPrice ?? b.product.price) * b.quantity, 0);
   const tax = calculateTax(subtotal);
   const total = calculateTotal(subtotal);
 
@@ -224,20 +226,35 @@ export default function OrderSummary({
 
     setState({ status: "paying" });
     try {
-      // Placeholder payment confirm -- will be replaced with Square integration
-      await bmiPost("payment/confirm", {
-        id: crypto.randomUUID(),
-        paymentTime: new Date().toISOString(),
-        amount: total,
-        orderId,
+      const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
+      const returnUrl = `${window.location.origin}/book/race/confirmation?orderId=${orderId}`;
+
+      // Create Square checkout via our own API
+      const res = await fetch("/api/square/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          billId: orderId,
+          amount: total,
+          raceName,
+          returnUrl,
+          cancelUrl: `${window.location.origin}/book/race`,
+        }),
       });
 
-      // Redirect to confirmation page
-      window.location.href = `/book/race/confirmation?orderId=${orderId}`;
+      const data = await res.json();
+      console.log("[square/checkout]", data);
+
+      if (data.checkoutUrl) {
+        // Redirect to Square payment page
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error(data.error || "Failed to create payment link");
+      }
     } catch (err) {
       setState({
         status: "error",
-        message: err instanceof Error ? err.message : "Payment confirmation failed",
+        message: err instanceof Error ? err.message : "Payment failed to start",
       });
     }
   }
@@ -273,10 +290,55 @@ export default function OrderSummary({
     );
   }
 
+  // ── Paying state ──────────────────────────────────────────────────────────
+
+  if (state.status === "paying") {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center gap-6 max-w-md mx-auto text-center">
+        <div className="relative w-full h-16 overflow-hidden">
+          <div className="absolute top-1/2 left-0 w-full h-px bg-white/10" />
+          <div className="absolute top-1/2 -translate-y-1/2 animate-[race_2s_ease-in-out_infinite] text-4xl">
+            🏎️
+          </div>
+        </div>
+        <style>{`
+          @keyframes race {
+            0% { left: -10%; }
+            50% { left: 90%; }
+            100% { left: -10%; }
+          }
+        `}</style>
+        <div>
+          <p className="text-white font-display text-xl uppercase tracking-widest mb-2">
+            Heading to Payment
+          </p>
+          <p className="text-white/40 text-sm">
+            Setting up your secure checkout…
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {[0, 1, 2].map(i => (
+            <div
+              key={i}
+              className="w-2 h-2 rounded-full bg-[#00E2E5]"
+              style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
+            />
+          ))}
+        </div>
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { opacity: 0.2; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   // ── Main UI ────────────────────────────────────────────────────────────────
 
   const isBooked = state.status === "booked";
-  const isPaying = state.status === "paying";
+  const isPaying = false; // handled above
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
@@ -393,7 +455,7 @@ export default function OrderSummary({
                 {b.product.name} x {b.quantity}
               </span>
               <span className="text-white">
-                ${(b.product.price * b.quantity).toFixed(2)}
+                ${((b.blockPrice ?? b.product.price) * b.quantity).toFixed(2)}
               </span>
             </div>
           ))

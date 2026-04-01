@@ -11,6 +11,7 @@ interface Booking {
   quantity: number;
   proposal: BmiProposal;
   block: BmiBlock;
+  blockPrice?: number;
 }
 import type { ContactInfo } from "./components/ContactForm";
 import ExperiencePicker from "./components/ExperiencePicker";
@@ -85,8 +86,8 @@ export default function BookRacePage() {
 
   function handleExperienceSelect(type: RacerType) {
     setRacerType(type);
-    // Auto-scroll to Next button
-    setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    // Auto-advance to party size
+    setTimeout(() => setStep("party"), 300);
   }
 
   function handlePartyNext() {
@@ -110,7 +111,8 @@ export default function BookRacePage() {
     // Set quantity based on party size for this category
     const q = product.category === "adult" ? adults : juniors;
     setQuantity(Math.max(1, q));
-    setTimeout(() => nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    // Auto-advance to heat selection
+    setTimeout(() => setStep("heat"), 300);
   }
 
   function handlePackComplete(result: PackBookingResult) {
@@ -121,12 +123,14 @@ export default function BookRacePage() {
   }
 
   function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
-    // Save this booking
+    // Save this booking with real price from availability
+    const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const booking: Booking = {
       product: selectedProduct!,
       quantity,
       proposal,
       block,
+      blockPrice,
     };
     const updatedBookings = [...bookings, booking];
     setBookings(updatedBookings);
@@ -186,73 +190,52 @@ export default function BookRacePage() {
   const partyTotal = adults + juniors;
 
   return (
-    <div className="min-h-screen bg-[#000418] pt-24">
-      {/* Header */}
-      <div className="border-b border-white/8" style={{ background: "linear-gradient(180deg, #010A20 0%, #000418 100%)" }}>
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <a href="/racing" className="text-white/30 hover:text-white/60 text-xs transition-colors inline-block">
-            ← Back to Racing
-          </a>
-        </div>
-
-        {/* Step indicator */}
-        <div className="max-w-4xl mx-auto px-4 pb-4 overflow-x-auto">
-          <div className="flex items-center gap-0 min-w-max">
-            {STEPS.map((s, i) => {
-              const isPast = i < currentIdx;
-              const isCurrent = i === currentIdx;
-              const isFuture = i > currentIdx;
-              return (
-                <div key={s} className="flex items-center">
-                  <button
-                    onClick={() => isPast && goToStep(s)}
-                    disabled={isFuture}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
-                      isCurrent ? "text-[#00E2E5]" :
-                      isPast ? "text-white/60 hover:text-white/80 cursor-pointer" :
-                      "text-white/20 cursor-not-allowed"
-                    }`}
-                  >
-                    <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
-                      isCurrent ? "bg-[#00E2E5] text-[#000418]" :
-                      isPast ? "bg-white/20 text-white" :
-                      "bg-white/8 text-white/20"
-                    }`}>
-                      {isPast ? "✓" : i + 1}
-                    </span>
-                    <span className="hidden sm:inline">{STEP_LABELS[s]}</span>
-                  </button>
-                  {i < STEPS.length - 1 && <span className="text-white/15 mx-0.5">›</span>}
-                </div>
-              );
-            })}
+    <div className="min-h-screen bg-[#000418] pt-[180px]">
+      {/* Sticky header: steps */}
+      <div className="sticky top-[128px] z-30">
+        <div className="border-b border-white/8 bg-[#000418]">
+          {/* Step indicator */}
+          <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
+            <div className="flex items-center gap-0 min-w-max">
+              {STEPS.map((s, i) => {
+                const isPast = i < currentIdx;
+                const isCurrent = i === currentIdx;
+                const isFuture = i > currentIdx;
+                return (
+                  <div key={s} className="flex items-center">
+                    <button
+                      onClick={() => isPast && goToStep(s)}
+                      disabled={isFuture}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+                        isCurrent ? "text-[#00E2E5]" :
+                        isPast ? "text-white/60 hover:text-white/80 cursor-pointer" :
+                        "text-white/20 cursor-not-allowed"
+                      }`}
+                    >
+                      <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
+                        isCurrent ? "bg-[#00E2E5] text-[#000418]" :
+                        isPast ? "bg-white/20 text-white" :
+                        "bg-white/8 text-white/20"
+                      }`}>
+                        {isPast ? "✓" : i + 1}
+                      </span>
+                      <span className="hidden sm:inline">{STEP_LABELS[s]}</span>
+                    </button>
+                    {i < STEPS.length - 1 && <span className="text-white/15 mx-0.5">›</span>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Dev banner */}
-      <div className="bg-amber-500 text-black text-center py-2 text-sm font-semibold">
-        Development — BMI Public API · Prices hardcoded · Payment pending BMI config
       </div>
 
       {/* Main content */}
-      <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-24">
+      <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-[180px]">
 
-        {/* STEP 1: Experience level */}
+        {/* STEP 1: Experience level — auto-advances on selection */}
         {step === "experience" && (
-          <div className="space-y-8">
-            <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
-            {racerType && (
-              <div ref={nextBtnRef} className="flex justify-end">
-                <button
-                  onClick={() => setStep("party")}
-                  className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
-                >
-                  Next: Party Size →
-                </button>
-              </div>
-            )}
-          </div>
+          <ExperiencePicker selected={racerType} onSelect={handleExperienceSelect} />
         )}
 
         {/* STEP 2: Party composition */}
@@ -330,16 +313,6 @@ export default function BookRacePage() {
                   selected={selectedProduct}
                   onSelect={handleProductSelect}
                 />
-                {selectedProduct && (
-                  <div ref={nextBtnRef} className="flex justify-end">
-                    <button
-                      onClick={() => setStep("heat")}
-                      className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
-                    >
-                      Next: Pick a Heat →
-                    </button>
-                  </div>
-                )}
               </>
             )}
             <button onClick={() => setStep("date")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
@@ -390,6 +363,9 @@ export default function BookRacePage() {
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
           />
         )}
+
+        {/* Dev tag */}
+        <p className="text-white/10 text-[10px] text-center mt-12">BMI Public API</p>
       </div>
     </div>
   );
