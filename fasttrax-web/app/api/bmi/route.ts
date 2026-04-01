@@ -56,12 +56,15 @@ const ALLOWED_GET = [
   "products",
   "availability",
   "image/product",
+  "order",
 ];
 
 const ALLOWED_POST = [
   "availability",
   "booking/book",
   "booking/sell",
+  "booking/memo",
+  "booking/removeItem",
   "payment/confirm",
   "person/registerContactPerson",
 ];
