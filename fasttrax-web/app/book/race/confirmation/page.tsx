@@ -18,11 +18,18 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
 
+interface Schedule {
+  start: string;
+  stop?: string;
+  name?: string;
+}
+
 interface OrderLine {
   name: string;
   quantity: number;
   totalPrice: { amount: number; depositKind: number }[];
   scheduledTime?: { start: string; stop: string } | null;
+  schedules?: Schedule[];
   productGroup: string;
 }
 
@@ -34,6 +41,7 @@ interface OrderOverview {
   totalTax: { amount: number; depositKind: number }[];
   totalPaid: number;
   lines: OrderLine[];
+  scheduleDays?: { date: string; schedules: Schedule[] }[];
 }
 
 export default function ConfirmationPage() {
@@ -105,8 +113,12 @@ export default function ConfirmationPage() {
   }, [reservationCode]);
 
   // Extract data from order
-  const raceLine = order?.lines.find(l => l.productGroup === "Karting" && l.scheduledTime);
-  const start = raceLine?.scheduledTime?.start;
+  const raceLine = order?.lines.find(l => l.productGroup === "Karting");
+  const start = raceLine?.scheduledTime?.start
+    || raceLine?.schedules?.[0]?.start
+    || order?.scheduleDays?.[0]?.schedules?.[0]?.start
+    || order?.date
+    || null;
   const cashTotal = order?.total.find(t => t.depositKind === 0)?.amount;
 
   return (
