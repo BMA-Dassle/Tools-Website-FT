@@ -190,7 +190,7 @@ export default function BookRacingPage() {
   return (
     <div className="min-h-screen bg-[#000418] pt-24">
       {/* Sticky header: steps + banner */}
-      <div className="sticky top-0 z-40">
+      <div className="sticky top-[72px] z-30">
         <div className="border-b border-white/8 bg-[#000418]">
           {/* Step indicator */}
           <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
