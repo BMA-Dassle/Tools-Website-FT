@@ -136,11 +136,13 @@ function ProductGroup({ items, selected, onSelect }: {
               key={item.productId}
               onClick={() => onSelect(item)}
               className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 ${
-                isThis
-                  ? item.track === "Red"
-                    ? "bg-red-500/20 text-red-400 border border-red-500/50"
-                    : "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-                  : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10 hover:text-white/60"
+                item.track === "Red"
+                  ? isThis
+                    ? "bg-red-500/25 text-red-400 border-2 border-red-500 ring-1 ring-red-500/30"
+                    : "bg-red-500/10 text-red-400/70 border border-red-500/30 hover:bg-red-500/20 hover:text-red-400"
+                  : isThis
+                    ? "bg-blue-500/25 text-blue-400 border-2 border-blue-500 ring-1 ring-blue-500/30"
+                    : "bg-blue-500/10 text-blue-400/70 border border-blue-500/30 hover:bg-blue-500/20 hover:text-blue-400"
               }`}
             >
               {item.track} Track
