@@ -45,12 +45,37 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     setError(null);
     setSelectedIdx(null);
     try {
-      const data = await bmiPost(
-        "availability",
-        { productId: race.productId, quantity },
-        { date },
-      );
-      setProposals(data.proposals || []);
+      // Fetch all heats across the full day in 2-hour jumps (3PM - midnight)
+      const dateOnly = date.split("T")[0];
+      const allProposals: BmiProposal[] = [];
+      const seen = new Set<string>();
+
+      const startHours = [15, 17, 19, 21, 23];
+      for (const hour of startHours) {
+        const h = String(hour).padStart(2, "0");
+        const data = await bmiPost(
+          "availability",
+          { productId: race.productId, quantity },
+          { date: `${dateOnly}T${h}:00:00.000Z` },
+        );
+
+        for (const p of (data.proposals || [])) {
+          const key = p.blocks?.[0]?.block?.start;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            allProposals.push(p);
+          }
+        }
+      }
+
+      // Sort by start time
+      allProposals.sort((a, b) => {
+        const aStart = a.blocks?.[0]?.block?.start || "";
+        const bStart = b.blocks?.[0]?.block?.start || "";
+        return aStart.localeCompare(bStart);
+      });
+
+      setProposals(allProposals);
     } catch {
       setError("Couldn't load time slots. Please try again.");
     } finally {
