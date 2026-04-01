@@ -413,6 +413,11 @@ export default function BookRacePage() {
               onConfirm={handleConfirmHeat}
               onAddAnother={handleAddAnother}
               onBack={() => setStep("product")}
+              confirmLabel={
+                bookingCategory === "adult" && juniors > 0
+                  ? `Continue to Junior Race${juniors > 1 ? "s" : ""} →`
+                  : undefined
+              }
             />
           )
         )}

@@ -12,6 +12,8 @@ interface HeatPickerProps {
   onConfirm: (proposal: BmiProposal, block: BmiBlock) => void;
   onAddAnother?: (proposal: BmiProposal, block: BmiBlock) => void;
   onBack: () => void;
+  /** Label override for the primary button (e.g. "Continue to Junior Races →") */
+  confirmLabel?: string;
 }
 
 function parseLocal(iso: string): Date {
@@ -33,7 +35,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,7 +209,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                     onClick={() => selectedProposal && selectedBlock && onConfirm(selectedProposal, selectedBlock)}
                     className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
                   >
-                    Continue to Checkout →
+                    {confirmLabel || "Continue to Checkout →"}
                   </button>
                   {onAddAnother && (
                     <button
