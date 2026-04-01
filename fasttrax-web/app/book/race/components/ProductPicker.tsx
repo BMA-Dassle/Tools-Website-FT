@@ -1,0 +1,209 @@
+"use client";
+
+import type { ClassifiedProduct, RacerType } from "../data";
+import { TIER_COLOR, TIER_LABELS, groupByTrack } from "../data";
+
+interface ProductPickerProps {
+  products: ClassifiedProduct[];
+  racerType: RacerType;
+  adults: number;
+  juniors: number;
+  selected: ClassifiedProduct | null;
+  onSelect: (product: ClassifiedProduct) => void;
+}
+
+export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect }: ProductPickerProps) {
+  const grouped = groupByTrack(products);
+
+  // Separate adult and junior product groups
+  const adultGroups: [string, ClassifiedProduct[]][] = [];
+  const juniorGroups: [string, ClassifiedProduct[]][] = [];
+  for (const [key, items] of grouped) {
+    if (items[0].category === "junior") juniorGroups.push([key, items]);
+    else adultGroups.push([key, items]);
+  }
+
+  const hasAdultSection = adults > 0 && adultGroups.length > 0;
+  const hasJuniorSection = juniors > 0 && juniorGroups.length > 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center space-y-2">
+        <h2 className="text-2xl font-display uppercase tracking-widest text-white">
+          {racerType === "new" ? "Pick Your Starter Race" : "Choose Your Race"}
+        </h2>
+        <p className="text-white/40 text-sm max-w-md mx-auto">
+          {racerType === "new"
+            ? "All first-time racers start here. Pick the race that fits your group."
+            : "Select from races you've qualified for."}
+        </p>
+      </div>
+
+      {products.length === 0 && (
+        <div className="text-center py-8">
+          <p className="text-white/40 text-sm">No races available for this date and party. Try a different date.</p>
+        </div>
+      )}
+
+      {/* Adult races */}
+      {hasAdultSection && (
+        <Section title={juniors > 0 ? "Adult Races" : undefined}>
+          {adultGroups.map(([key, items]) => (
+            <ProductGroup key={key} items={items} selected={selected} onSelect={onSelect} />
+          ))}
+        </Section>
+      )}
+
+      {/* Junior races */}
+      {hasJuniorSection && (
+        <Section title={adults > 0 ? "Junior Races" : undefined}>
+          {juniorGroups.map(([key, items]) => (
+            <ProductGroup key={key} items={items} selected={selected} onSelect={onSelect} />
+          ))}
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-3">
+      {title && (
+        <p className="text-xs font-bold uppercase tracking-widest text-white/30 text-center">{title}</p>
+      )}
+      <div className="grid gap-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ProductGroup({ items, selected, onSelect }: {
+  items: ClassifiedProduct[];
+  selected: ClassifiedProduct | null;
+  onSelect: (p: ClassifiedProduct) => void;
+}) {
+  const hasMultipleTracks = items.length > 1 && items.some(i => i.track === "Red") && items.some(i => i.track === "Blue");
+  const representative = items[0];
+  const c = TIER_COLOR[representative.tier];
+  const tierLabel = TIER_LABELS[representative.tier];
+
+  // Single product or Mega — just show one card
+  if (!hasMultipleTracks) {
+    const product = items[0];
+    const isSelected = selected?.productId === product.productId;
+    return (
+      <ProductCard product={product} isSelected={isSelected} onSelect={onSelect} />
+    );
+  }
+
+  // Multiple tracks — show a grouped card with track toggle
+  const isAnySelected = items.some(i => selected?.productId === i.productId);
+  const selectedTrackProduct = items.find(i => selected?.productId === i.productId);
+
+  return (
+    <div className={`rounded-xl border p-4 transition-all duration-200 ${
+      isAnySelected
+        ? `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`
+        : "border-white/10 bg-white/5"
+    }`}>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div>
+          <span className="font-bold text-white text-sm">
+            {representative.name.replace(/\s+(Red|Blue)$/i, "").trim()}
+          </span>
+          <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
+            {tierLabel}
+          </span>
+          {representative.packType !== "none" && (
+            <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+              {representative.raceCount}-Race Pack
+            </span>
+          )}
+        </div>
+        <span className={`${c.text} font-bold text-sm`}>${representative.price.toFixed(2)}</span>
+      </div>
+
+      {/* Track selection */}
+      <p className="text-white/40 text-xs mb-2">Which track?</p>
+      <div className="flex gap-2">
+        {items.map(item => {
+          const isThis = selected?.productId === item.productId;
+          return (
+            <button
+              key={item.productId}
+              onClick={() => onSelect(item)}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 ${
+                isThis
+                  ? item.track === "Red"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/50"
+                    : "bg-blue-500/20 text-blue-400 border border-blue-500/50"
+                  : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10 hover:text-white/60"
+              }`}
+            >
+              {item.track} Track
+            </button>
+          );
+        })}
+      </div>
+
+      {representative.raw.message && (
+        <p className="text-amber-400/60 text-[10px] mt-2">{representative.raw.message}</p>
+      )}
+    </div>
+  );
+}
+
+function ProductCard({ product, isSelected, onSelect }: {
+  product: ClassifiedProduct;
+  isSelected: boolean;
+  onSelect: (p: ClassifiedProduct) => void;
+}) {
+  const c = TIER_COLOR[product.tier];
+  const tierLabel = TIER_LABELS[product.tier];
+  const isPack = product.packType !== "none";
+
+  return (
+    <button
+      onClick={() => onSelect(product)}
+      className={`text-left rounded-xl border p-4 transition-all duration-200 ${
+        isSelected
+          ? `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`
+          : isPack
+            ? "border-amber-500/20 bg-amber-500/5 hover:border-amber-500/40 hover:bg-amber-500/10"
+            : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-bold text-white text-sm">{product.name}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
+            {tierLabel}
+          </span>
+          {isPack && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+              {product.raceCount}-Race Pack
+            </span>
+          )}
+        </div>
+        <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
+      </div>
+
+      {product.track && (
+        <p className="text-white/30 text-xs">{product.track} Track</p>
+      )}
+
+      {isPack && (
+        <p className="text-amber-400/70 text-xs mt-1">
+          ${(product.price / product.raceCount).toFixed(2)}/race — Race more, save more
+        </p>
+      )}
+
+      {product.raw.message && !isPack && (
+        <p className="text-amber-400/60 text-[10px] mt-1.5">{product.raw.message}</p>
+      )}
+    </button>
+  );
+}

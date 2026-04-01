@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { RacerType, RaceCategory, ClassifiedProduct, SmsPage, SmsProposal, SmsBlock } from "./data";
-import { classifyProducts, filterProducts } from "./data";
-import type { PackBookingResult } from "./components/PackHeatPicker";
+import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
+import { classifyProducts, filterProducts, bmiGet } from "./data";
+import type { PackBookingResult } from "./components/OrderSummary";
 
 /** A completed race booking for one category (adult or junior) */
 interface Booking {
   product: ClassifiedProduct;
   quantity: number;
-  proposal: SmsProposal;
-  block: SmsBlock;
+  proposal: BmiProposal;
+  block: BmiBlock;
 }
 import type { ContactInfo } from "./components/ContactForm";
 import ExperiencePicker from "./components/ExperiencePicker";
@@ -35,7 +35,7 @@ const STEP_LABELS: Record<Step, string> = {
   summary: "Pay",
 };
 
-export default function BookRacingPage() {
+export default function BookRacePage() {
   const [step, setStep] = useState<Step>("experience");
   const [racerType, setRacerType] = useState<RacerType | null>(null);
   const [adults, setAdults] = useState(1);
@@ -49,8 +49,8 @@ export default function BookRacingPage() {
   // Current in-progress selection
   const [selectedProduct, setSelectedProduct] = useState<ClassifiedProduct | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [selectedProposal, setSelectedProposal] = useState<SmsProposal | null>(null);
-  const [selectedBlock, setSelectedBlock] = useState<SmsBlock | null>(null);
+  const [selectedProposal, setSelectedProposal] = useState<BmiProposal | null>(null);
+  const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
@@ -70,9 +70,7 @@ export default function BookRacingPage() {
     setCatalogLoading(true);
     try {
       const isoDate = `${date}T00:00:00.000Z`;
-      const res = await fetch(`/api/sms?endpoint=page&date=${encodeURIComponent(isoDate)}`);
-      if (!res.ok) throw new Error("Failed to fetch products");
-      const pages: SmsPage[] = await res.json();
+      const pages: BmiPage[] = await bmiGet("page", { date: isoDate });
       const classified = classifyProducts(pages);
       setCatalogProducts(classified);
     } catch (err) {
@@ -122,7 +120,7 @@ export default function BookRacingPage() {
     setStep("contact");
   }
 
-  function handleConfirmHeat(proposal: SmsProposal, block: SmsBlock) {
+  function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
     // Save this booking
     const booking: Booking = {
       product: selectedProduct!,
@@ -234,7 +232,7 @@ export default function BookRacingPage() {
 
       {/* Dev banner */}
       <div className="bg-amber-500 text-black text-center py-2 text-sm font-semibold">
-        Development — Using BMI Native Booking API (SMS-Timing)
+        Development — Using BMI Public API with Self-Managed Payments
       </div>
 
       {/* Main content */}
