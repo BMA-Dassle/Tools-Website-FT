@@ -187,7 +187,8 @@ export default function OrderSummary({
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";
 
-      // Store booking details in localStorage — Square strips query params on redirect
+      // Store booking details in Redis — Square strips query params on redirect
+      // and BMI clears order details after payment/confirm
       const bookingDetails = {
         billId: orderId,
         amount: total.toFixed(2),
@@ -197,6 +198,12 @@ export default function OrderSummary({
         qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
         heat: heatStart,
       };
+      await fetch("/api/booking-store", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(bookingDetails),
+      });
+      // Also keep localStorage as fallback
       localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
 
       const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}`;

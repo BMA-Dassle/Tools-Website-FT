@@ -77,12 +77,20 @@ export default function ConfirmationPage() {
 
     async function confirmAndLoad() {
       try {
-        // Read booking details from localStorage (Square strips query params on redirect)
-        const stored = localStorage.getItem(`booking_${id}`);
-        const details = stored ? JSON.parse(stored) : null;
+        // Fetch booking details from Redis (primary) or localStorage (fallback)
+        let details: Record<string, string> | null = null;
+        try {
+          const storeRes = await fetch(`/api/booking-store?billId=${id}`);
+          if (storeRes.ok) details = await storeRes.json();
+        } catch { /* Redis unavailable */ }
+        if (!details) {
+          const stored = localStorage.getItem(`booking_${id}`);
+          if (stored) details = JSON.parse(stored);
+        }
+
         const amount = details?.amount ? parseFloat(details.amount) : 0;
 
-        // Try order overview first (may still be available before conversion)
+        // Try order overview (may still be available before BMI converts it)
         let overview: OrderOverview | null = null;
         try {
           overview = await bmiGet(`order/${id}/overview`);
@@ -90,7 +98,7 @@ export default function ConfirmationPage() {
             setOrder(overview);
           }
         } catch {
-          // Order may already be converted
+          // Order already converted to reservation
         }
 
         // Confirm payment
@@ -105,10 +113,10 @@ export default function ConfirmationPage() {
           if (result.reservationCode) setReservationCode(result.reservationCode);
           if (result.reservationNumber) setReservationNumber(result.reservationNumber);
         } catch {
-          // Non-fatal — may already be confirmed
+          // Non-fatal — may already be confirmed via Square webhook
         }
 
-        // If no overview data, use stored booking details
+        // If no overview data, build from stored details
         if (!overview?.lines?.length && details) {
           setOrder({
             orderId: Number(id),
@@ -127,8 +135,8 @@ export default function ConfirmationPage() {
           });
         }
 
-        // Clean up localStorage
-        if (stored) localStorage.removeItem(`booking_${id}`);
+        // Clean up
+        localStorage.removeItem(`booking_${id}`);
 
         if (!reservationCode) setReservationCode(`r${id}`);
 
