@@ -56,6 +56,7 @@ export default function BookRacePage() {
   const [selectedProposal, setSelectedProposal] = useState<BmiProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
+  const [heatPickerKey, setHeatPickerKey] = useState(0); // Force remount on each visit
   // Returning racer person data from BMI lookup
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
@@ -136,6 +137,7 @@ export default function BookRacePage() {
     const q = product.category === "adult" ? adults : juniors;
     setQuantity(Math.max(1, q));
     // Auto-advance to heat selection
+    setHeatPickerKey(k => k + 1); // Force fresh HeatPicker mount
     setTimeout(() => setStep("heat"), 300);
   }
 
@@ -406,6 +408,7 @@ export default function BookRacePage() {
             />
           ) : (
             <HeatPicker
+              key={heatPickerKey}
               race={selectedProduct}
               date={selectedDate}
               quantity={quantity}
