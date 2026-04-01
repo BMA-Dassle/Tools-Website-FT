@@ -133,6 +133,15 @@ export default function OrderSummary({
             const bookResult = await bmiPost("booking/book", bookPayload);
             console.log("[booking/book] result:", JSON.stringify(bookResult));
 
+            // Store booking/book response in Redis for debugging
+            try {
+              await fetch("/api/booking-store", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ billId: `debug_${bookResult.orderId}`, bookPayload, bookResult }),
+              });
+            } catch { /* non-fatal */ }
+
             if (bookResult.success === false) {
               throw new Error(bookResult.errorMessage || "Booking failed");
             }
