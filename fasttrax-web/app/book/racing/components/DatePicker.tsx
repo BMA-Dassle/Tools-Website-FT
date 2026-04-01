@@ -1,13 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { RaceProduct } from "../data";
 
 interface DatePickerProps {
-  race: RaceProduct;
+  /** Optional product to check availability for. If null, uses a default Starter product. */
+  productId?: string;
+  pageId?: string;
   selected: string | null; // ISO date string YYYY-MM-DD
   onSelect: (date: string) => void;
 }
+
+// Mega product (Tuesdays — full combined track)
+const MEGA_PRODUCT = { productId: "24965505", pageId: "24966930" };
+// Regular products covering weekdays + weekends
+const REGULAR_PRODUCTS = [
+  { productId: "24960859", pageId: "24961568" },  // Starter Race Red (Mon-Thu)
+  { productId: "24953280", pageId: "24871574" },  // Starter Race Red (Fri-Sun)
+];
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -21,13 +30,40 @@ function toISO(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-export default function DatePicker({ race, selected, onSelect }: DatePickerProps) {
+async function fetchCalendarDays(p: { productId: string; pageId: string }, dateFrom: string, dateUntil: string): Promise<string[]> {
+  const res = await fetch("/api/sms?endpoint=dayplanner%2Fcalendarrange", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ productId: p.productId, pageId: p.pageId, quantity: 1, dateFrom, dateUntil }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.days || []).map((d: string) => d.split("T")[0]);
+}
+
+export default function DatePicker({ productId, pageId, selected, onSelect }: DatePickerProps) {
   const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const todayStr = toISO(today.getFullYear(), today.getMonth(), today.getDate());
+
+  // Auto-advance to next month if no future dates remain this month
+  const initMonth = () => {
+    const daysLeft = getDaysInMonth(today.getFullYear(), today.getMonth()) - today.getDate();
+    // If 0 days left this month (last day), start on next month
+    if (daysLeft === 0) {
+      const m = today.getMonth();
+      return m === 11 ? { year: today.getFullYear() + 1, month: 0 } : { year: today.getFullYear(), month: m + 1 };
+    }
+    return { year: today.getFullYear(), month: today.getMonth() };
+  };
+  const init = initMonth();
+
+  const [viewYear, setViewYear] = useState(init.year);
+  const [viewMonth, setViewMonth] = useState(init.month);
   const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
+  const [megaDates, setMegaDates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkedNoFuture, setCheckedNoFuture] = useState(false);
 
   const fetchAvailability = useCallback(async (year: number, month: number) => {
     setLoading(true);
@@ -37,35 +73,44 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
       const lastDay = getDaysInMonth(year, month);
       const dateUntil = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-      const res = await fetch("/api/sms?endpoint=dayplanner%2Fcalendarrange", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          productId: race.productId,
-          pageId: race.pageId,
-          quantity: 1,
-          dateFrom,
-          dateUntil,
-        }),
-      });
+      if (productId && pageId) {
+        const days = await fetchCalendarDays({ productId, pageId }, dateFrom, dateUntil);
+        setAvailableDates(new Set(days));
+        setMegaDates(new Set());
+        return { all: days, mega: [] as string[] };
+      } else {
+        const [megaDays, ...regularResults] = await Promise.all([
+          fetchCalendarDays(MEGA_PRODUCT, dateFrom, dateUntil),
+          ...REGULAR_PRODUCTS.map(p => fetchCalendarDays(p, dateFrom, dateUntil)),
+        ]);
 
-      if (!res.ok) throw new Error("Failed to fetch availability");
-      const data = await res.json();
-
-      const dates = new Set<string>(
-        (data.days || []).map((d: string) => d.split("T")[0])
-      );
-      setAvailableDates(dates);
+        const allDates = new Set<string>([...megaDays, ...regularResults.flat()]);
+        setAvailableDates(allDates);
+        setMegaDates(new Set(megaDays));
+        return { all: [...allDates], mega: megaDays };
+      }
     } catch {
       setError("Couldn't load availability. Please try again.");
+      return { all: [] as string[], mega: [] as string[] };
     } finally {
       setLoading(false);
     }
-  }, [race.productId, race.pageId]);
+  }, [productId, pageId]);
 
   useEffect(() => {
-    fetchAvailability(viewYear, viewMonth);
-  }, [viewYear, viewMonth, fetchAvailability]);
+    fetchAvailability(viewYear, viewMonth).then(({ all }) => {
+      // If this is the initial month and no future dates, auto-advance
+      if (!checkedNoFuture) {
+        setCheckedNoFuture(true);
+        const futureDates = all.filter(d => d >= todayStr);
+        if (futureDates.length === 0) {
+          // Advance to next month
+          if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+          else setViewMonth(m => m + 1);
+        }
+      }
+    });
+  }, [viewYear, viewMonth, fetchAvailability, checkedNoFuture, todayStr]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
@@ -79,7 +124,6 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const firstDow = getFirstDayOfWeek(viewYear, viewMonth);
-  const todayStr = toISO(today.getFullYear(), today.getMonth(), today.getDate());
   const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const canPrev = !(viewYear === today.getFullYear() && viewMonth === today.getMonth());
@@ -91,7 +135,7 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
           Pick a Date
         </h2>
         <p className="text-white/50 text-sm">
-          Showing availability for <span className="text-white/80">{race.displayName}</span>
+          Choose when you&apos;d like to race.
         </p>
       </div>
 
@@ -138,7 +182,6 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
           </div>
         ) : (
           <div className="grid grid-cols-7 gap-1">
-            {/* Empty cells before first day */}
             {Array.from({ length: firstDow }).map((_, i) => (
               <div key={`empty-${i}`} />
             ))}
@@ -148,6 +191,7 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
               const dateStr = toISO(viewYear, viewMonth, day);
               const isPast = dateStr < todayStr;
               const isAvailable = availableDates.has(dateStr);
+              const isMega = megaDates.has(dateStr);
               const isSelected = selected === dateStr;
               const isToday = dateStr === todayStr;
 
@@ -159,9 +203,13 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
                   className={`
                     aspect-square rounded-lg text-sm font-medium transition-all duration-150
                     ${isSelected
-                      ? "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
+                      ? isMega
+                        ? "bg-[#A855F7] text-white font-bold shadow-lg shadow-[#A855F7]/30"
+                        : "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
                       : isAvailable && !isPast
-                        ? "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
+                        ? isMega
+                          ? "bg-[#A855F7]/20 text-[#C084FC] hover:bg-[#A855F7]/35 cursor-pointer"
+                          : "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
                         : "text-white/20 cursor-not-allowed"
                     }
                     ${isToday && !isSelected ? "ring-1 ring-white/30" : ""}
@@ -175,20 +223,30 @@ export default function DatePicker({ race, selected, onSelect }: DatePickerProps
         )}
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-4 mt-4 text-[11px] text-white/40">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-4 text-[11px] text-white/40">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-[#00E2E5]/15" />
             <span>Available</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded bg-[#00E2E5]" />
-            <span>Selected</span>
+            <div className="w-3 h-3 rounded bg-[#A855F7]/20 ring-1 ring-[#A855F7]/50" />
+            <span>Mega Track</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-white/5" />
             <span>Unavailable</span>
           </div>
         </div>
+
+        {/* Mega explainer */}
+        {megaDates.size > 0 && (
+          <div className="mt-3 rounded-xl border border-[#A855F7]/20 bg-[#A855F7]/5 p-3 text-center">
+            <p className="text-[#C084FC] text-xs font-semibold mb-0.5">Mega Track Tuesdays</p>
+            <p className="text-white/40 text-[11px] leading-relaxed">
+              Blue &amp; Red tracks combine into one massive circuit!
+            </p>
+          </div>
+        )}
 
         {availableDates.size === 0 && !loading && !error && (
           <p className="text-center text-white/40 text-sm mt-4">

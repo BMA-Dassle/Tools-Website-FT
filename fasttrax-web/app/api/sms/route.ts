@@ -167,5 +167,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(await upstream.json());
   }
 
+  // ── PRODUCT CATALOG ─────────────────────────────────────────────────────
+  const date = searchParams.get("date");
+  if (endpoint === "page" && date) {
+    const upstream = await fetch(
+      `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?date=${encodeURIComponent(date)}`,
+      { headers: smsHeaders(sessionId), cache: "no-store" }
+    );
+    return NextResponse.json(await upstream.json());
+  }
+
   return NextResponse.json({ error: "Not found" }, { status: 404 });
 }
