@@ -24,6 +24,7 @@ import HeatPicker from "./components/HeatPicker";
 import PackHeatPicker from "./components/PackHeatPicker";
 import ContactForm from "./components/ContactForm";
 import OrderSummary from "./components/OrderSummary";
+import FloatingCart from "./components/FloatingCart";
 
 type Step = "experience" | "party" | "date" | "product" | "heat" | "contact" | "summary";
 
@@ -296,28 +297,7 @@ export default function BookRacePage() {
       {/* Main content */}
       <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-[180px]">
 
-        {/* Cart banner — show when races already added */}
-        {bookings.length > 0 && step !== "summary" && (
-          <div className="mb-6 rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4">
-            <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider mb-2">
-              Your Cart ({bookings.length} race{bookings.length !== 1 ? "s" : ""})
-            </p>
-            {bookings.map((b, i) => (
-              <div key={i} className="flex justify-between text-sm text-white/70">
-                <span>{b.product.name} × {b.quantity}</span>
-                <span className="text-white/40">
-                  {(() => {
-                    const [, t] = b.block.start.split("T");
-                    if (!t) return "";
-                    const [h, m] = t.split(":").map(Number);
-                    const ampm = h >= 12 ? "PM" : "AM";
-                    return `${h > 12 ? h - 12 : h || 12}:${String(m).padStart(2, "0")} ${ampm}`;
-                  })()}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Floating cart */}
 
         {/* STEP 1: Experience level */}
         {step === "experience" && (
@@ -464,6 +444,25 @@ export default function BookRacePage() {
         {/* Dev tag */}
         <p className="text-white/10 text-[10px] text-center mt-12">BMI Public API</p>
       </div>
+
+      {/* Floating cart */}
+      {step !== "summary" && (
+        <FloatingCart
+          items={bookings.map(b => ({
+            name: b.product.name,
+            quantity: b.quantity,
+            time: b.block.start,
+            price: b.blockPrice,
+          }))}
+          onCheckout={() => {
+            if (verifiedPerson && contact) {
+              setStep("summary");
+            } else {
+              setStep("contact");
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
