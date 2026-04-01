@@ -190,7 +190,7 @@ export default function BookRacingPage() {
   return (
     <div className="min-h-screen bg-[#000418] pt-24">
       {/* Sticky header: steps + banner */}
-      <div className="sticky top-[72px] z-30">
+      <div className="sticky top-[80px] z-30">
         <div className="border-b border-white/8 bg-[#000418]">
           {/* Step indicator */}
           <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
@@ -227,10 +227,6 @@ export default function BookRacingPage() {
           </div>
         </div>
 
-        {/* Dev banner */}
-        <div className="bg-amber-500 text-black text-center py-1.5 text-xs font-semibold">
-          Development — Using BMI Native Booking API (SMS-Timing)
-        </div>
       </div>
 
       {/* Main content */}
@@ -388,6 +384,8 @@ export default function BookRacingPage() {
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
           />
         )}
+        {/* Dev tag */}
+        <p className="text-white/10 text-[10px] text-center mt-12">SMS-Timing API</p>
       </div>
     </div>
   );
