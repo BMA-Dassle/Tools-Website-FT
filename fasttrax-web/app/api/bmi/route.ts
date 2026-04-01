@@ -69,6 +69,7 @@ const ALLOWED_POST = [
   "booking/removeItem",
   "payment/confirm",
   "person/registerContactPerson",
+  "person/registerProjectPerson",
 ];
 
 const ALLOWED_DELETE = [

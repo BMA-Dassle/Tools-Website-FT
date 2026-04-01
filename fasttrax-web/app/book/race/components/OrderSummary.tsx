@@ -32,6 +32,8 @@ interface OrderSummaryProps {
   packResult?: PackBookingResult;
   /** The pack product that was selected */
   packProduct?: ClassifiedProduct;
+  /** Verified returning racer's BMI person ID */
+  personId?: string;
 }
 
 type BookingState =
@@ -69,6 +71,7 @@ export default function OrderSummary({
   onBack,
   packResult,
   packProduct,
+  personId,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const bookingStarted = useRef(false);
@@ -175,7 +178,19 @@ export default function OrderSummary({
           orderId,
         });
       } catch {
-        // Non-fatal -- contact registration failure shouldn't block booking
+        // Non-fatal
+      }
+
+      // Link verified returning racer to the event
+      if (personId) {
+        try {
+          await bmiPost("person/registerProjectPerson", {
+            orderId: Number(orderId),
+            personId: Number(personId),
+          });
+        } catch {
+          // Non-fatal
+        }
       }
 
       setState({ status: "booked", orderId: orderId! });

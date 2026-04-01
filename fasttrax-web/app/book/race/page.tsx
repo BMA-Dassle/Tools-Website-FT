@@ -395,6 +395,7 @@ export default function BookRacePage() {
             onBack={() => setStep("contact")}
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
+            personId={verifiedPerson?.personId}
           />
         )}
 
