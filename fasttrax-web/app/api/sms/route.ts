@@ -46,8 +46,7 @@ const ALLOWED_ENDPOINTS = [
   "booking/book",
   "booking/sell",
   "bill/overview",
-  "login/basiclogin",
-  "reservation/addcontactperson",
+  "reservation/registercontactperson",
   "payment/needtopay",
   "payment/start",
   "genericpaymentprocessor",
@@ -111,23 +110,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(await upstream.json());
   }
 
-  // ── LOGIN ─────────────────────────────────────────────────────────────────
-  if (endpoint === "login/basiclogin") {
-    const { userInput, defaultTemplate } = body;
-    const qs = defaultTemplate ? "locale=en-US&defaultTemplate=true" : "locale=en-US";
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?${qs}`,
-      { method: "POST", headers: smsHeaders(sessionId), body: JSON.stringify({ fallbackTag: null, userInput }) }
-    );
-    const data = await upstream.json();
-    return NextResponse.json(data);
-  }
-
   // ── RESERVATION ───────────────────────────────────────────────────────────
-  if (endpoint === "reservation/addcontactperson") {
-    const { billId, personId } = body;
-    const qs = `billId=${billId}&personId=${personId}&addProjectPerson=true`;
-    const upstream = await smsPostQS(endpoint, qs, sessionId);
+  // Guest checkout: register contact person without login/OTP
+  if (endpoint === "reservation/registercontactperson") {
+    const upstream = await smsPost(endpoint, body, sessionId);
     const data = await upstream.json();
     return NextResponse.json(data);
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { RaceProduct, SmsProposal, SmsBlock } from "../data";
 
 interface HeatPickerProps {
@@ -28,6 +28,16 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const ctaRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to CTA when a heat is selected
+  useEffect(() => {
+    if (selectedIdx !== null) {
+      setTimeout(() => {
+        ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+    }
+  }, [selectedIdx]);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -152,7 +162,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
           </div>
 
           {/* CTA */}
-          <div className={`rounded-xl border p-5 transition-all duration-300 ${selectedBlock ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
+          <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedBlock ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
             {selectedBlock ? (
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>

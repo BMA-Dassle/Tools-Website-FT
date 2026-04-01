@@ -50,7 +50,6 @@ export default function RacePicker({ selected, onSelect }: RacePickerProps) {
                         : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/10"
                       }
                     `}
-                    style={isSelected ? { ringColor: "currentColor" } : {}}
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <span className="font-bold text-white text-sm leading-tight">

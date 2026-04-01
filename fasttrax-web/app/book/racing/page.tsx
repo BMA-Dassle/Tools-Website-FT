@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { RaceProduct, SmsProposal, SmsBlock } from "./data";
 import type { ContactInfo } from "./components/ContactForm";
 import RacePicker from "./components/RacePicker";
@@ -29,7 +29,25 @@ export default function BookRacingPage() {
   const [selectedBlock, setSelectedBlock] = useState<SmsBlock | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
 
+  const contentRef = useRef<HTMLDivElement>(null);
+  const nextBtnRef = useRef<HTMLDivElement>(null);
+
   const currentIdx = STEPS.indexOf(step);
+
+  // Scroll to top of content area whenever the step changes
+  useEffect(() => {
+    contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [step]);
+
+  // When a race is selected on the race step, scroll down to the Next button
+  useEffect(() => {
+    if (selectedRace && step === "race") {
+      setTimeout(() => {
+        nextBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRace]);
 
   function handleSelectRace(race: RaceProduct) {
     setSelectedRace(race);
@@ -113,14 +131,14 @@ export default function BookRacingPage() {
       </div>
 
       {/* Main content */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div ref={contentRef} className="max-w-4xl mx-auto px-4 py-8 scroll-mt-24">
 
         {/* STEP 1: Race */}
         {step === "race" && (
           <div className="space-y-8">
             <RacePicker selected={selectedRace} onSelect={handleSelectRace} />
             {selectedRace && (
-              <div className="flex justify-end">
+              <div ref={nextBtnRef} className="flex justify-end">
                 <button
                   onClick={() => setStep("date")}
                   className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"

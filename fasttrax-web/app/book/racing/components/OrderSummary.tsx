@@ -107,26 +107,17 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
         await sms("booking/sell", ackPayload);
       }
 
-      // 4. Look up customer profile (guest mode — no OTP email)
-      //    defaultTemplate=true tells BMI to use guest/auto-login rather than sending a one-time code
-      let personId: string | number | null = null;
+      // 4. Register guest contact — no login/OTP, just name+email+phone attached to the bill
       try {
-        const loginResult = await sms("login/basiclogin", {
-          userInput: contact.email,
-          defaultTemplate: true,
+        await sms("reservation/registercontactperson", {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone.replace(/\D/g, ""), // digits only
+          billId,
         });
-        personId = loginResult.personId ?? loginResult.id ?? null;
       } catch {
-        // Non-fatal — booking proceeds without an attached profile
-      }
-
-      // 5. Attach contact person to bill (if we got a personId)
-      if (personId) {
-        try {
-          await sms("reservation/addcontactperson", { billId, personId });
-        } catch {
-          // Non-fatal
-        }
+        // Non-fatal — booking proceeds without an attached guest profile
       }
 
       // 6. Get fresh bill overview with total
@@ -144,8 +135,8 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
 
     setState({ status: "paying" });
     try {
-      // Start payment
-      await sms("payment/start", { billId });
+      // Start payment session
+      const startResult = await sms("payment/start", { billId });
 
       // Get Square checkout URL
       const returnUrl = `${window.location.origin}/book/racing/confirmation?billId=${billId}`;
@@ -160,9 +151,13 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
         cancelUrl: `${window.location.origin}/book/racing`,
       });
 
+      console.log("[payment/start]", startResult);
+      console.log("[genericpaymentprocessor]", payResult);
+
       // BMI returns a Square checkout URL — redirect directly to Square
-      if (payResult.url) {
-        window.location.href = payResult.url;
+      const squareUrl = payResult.url ?? payResult.onlinePaymentData?.RedirectUrl ?? payResult.onlinePaymentData?.redirectUrl;
+      if (squareUrl) {
+        window.location.href = squareUrl;
       } else if (payResult.data) {
         // Encrypted payload — send through BMI's payment-redirect which processes the Square callback
         const qs = new URLSearchParams({
@@ -174,16 +169,13 @@ export default function OrderSummary({ race, date, quantity, proposal, block, co
         });
         window.location.href = `https://booking.bmileisure.com/headpinzftmyers/book/payment-redirect?${qs.toString()}`;
       } else {
-        // Fallback: go to confirmation to at least show booking details
-        window.location.href = returnUrl;
+        // Neither url nor data — surface the raw response so we can debug
+        throw new Error(
+          `Payment processor returned unexpected response: ${JSON.stringify(payResult)}`
+        );
       }
     } catch (err) {
-      setState({
-        status: "booked",
-        billId,
-        bill: (state as Extract<BookingState, { status: "booked" }>).bill,
-      });
-      alert(err instanceof Error ? err.message : "Payment failed to start");
+      setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed to start" });
     }
   }
 
