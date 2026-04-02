@@ -266,7 +266,8 @@ export default function OrderSummary({
       // POV: use sell (no time slot needed)
       if (pov && pov.quantity > 0) {
         try {
-          await fetch("/api/sms?endpoint=booking%2Fsell", {
+          console.log("[POV sell]", { productId: pov.id, quantity: pov.quantity, billId: orderId });
+          const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify([{
@@ -278,31 +279,40 @@ export default function OrderSummary({
               sellKind: 0,
             }]),
           });
-        } catch { /* non-fatal */ }
+          const povResult = await povRes.json();
+          console.log("[POV sell result]", povRes.status, JSON.stringify(povResult));
+        } catch (err) {
+          console.error("[POV sell error]", err);
+        }
       }
 
-      // Activity add-ons: use booking/book with time slot proposal
+      // Activity add-ons: use BMI booking/book (same as races) to add to existing order
+      console.log("[add-ons] processing", addOns.length, "add-ons, with proposal:", addOns.map(a => ({ id: a.id, name: a.name, qty: a.quantity, hasProposal: !!a.proposal })));
       for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
         try {
-          await fetch("/api/sms?endpoint=booking%2Fbook", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              productId: addon.id,
-              pageId: "42730172",
-              quantity: addon.quantity,
-              billId: orderId,
-              dynamicLines: null,
-              sellKind: 0,
-              resourceId: (addon.block as { resourceId?: string })?.resourceId || "-1",
-              proposal: {
-                blocks: [(addon.proposal as { blocks: unknown[] }).blocks[0]],
-                productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
-                selected: true,
-              },
-            }),
-          });
-        } catch { /* non-fatal */ }
+          const block = (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks[0];
+          const addonPayload = {
+            productId: String(addon.id),
+            quantity: addon.quantity,
+            resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
+            orderId,
+            proposal: {
+              blocks: [{
+                productLineIds: block.productLineIds || [],
+                block: {
+                  ...block.block,
+                  resourceId: Number((block.block as Record<string, unknown>).resourceId) || -1,
+                },
+              }],
+              productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
+            },
+          };
+          console.log("[add-on book]", addon.name, JSON.stringify(addonPayload, null, 2));
+          const result = await bmiPost("booking/book", addonPayload);
+          console.log("[add-on book result]", addon.name, JSON.stringify(result));
+        } catch (err) {
+          console.error("[add-on book error]", addon.name, err);
+        }
       }
 
       const hasAddOns = (pov && pov.quantity > 0) || addOns.some(a => a.quantity > 0 && a.proposal);
