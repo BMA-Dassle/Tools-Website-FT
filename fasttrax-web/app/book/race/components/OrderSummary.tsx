@@ -179,91 +179,11 @@ export default function OrderSummary({
         }
       }
 
-      // ── Get bill from BMI: register contact, then check overview ──────
-      // Step 1: Register contact WITHOUT personId (so order persists)
-      try {
-        await bmiPost("person/registerContactPerson", {
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          phone: contact.phone.replace(/\D/g, ""),
-          orderId,
-        });
-      } catch { /* non-fatal */ }
+      // ── Add POV and add-ons to the bill BEFORE registerContactPerson ──
+      // registerContactPerson (especially with personId) can convert the
+      // order to a reservation, so all items must be on the bill first.
 
-      // Step 2: Get overview BEFORE adding sell items (sell destroys the bill)
-      let bmiTotal = total;
-      let bmiSubtotal = subtotal;
-      let bmiTax = tax;
-      let bmiLines: { name: string; quantity: number; amount: number }[] = [];
-      let isCreditOrder = false;
-      let cashOwed = total;
-      let creditApplied = 0;
-
-      try {
-        let overview = await bmiGet(`order/${orderId}/overview`);
-
-        // Step 3: If returning racer, link personId to apply credits, then re-fetch
-        if (personId) {
-          try {
-            await bmiPost("person/registerContactPerson", {
-              personId: Number(personId),
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone.replace(/\D/g, ""),
-              orderId,
-            });
-            // Re-fetch overview with credits applied
-            overview = await bmiGet(`order/${orderId}/overview`);
-          } catch { /* credits couldn't be applied — use cash totals */ }
-        }
-
-        // Extract totals
-        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
-        const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
-
-        if (cashTotal) { bmiTotal = cashTotal.amount; cashOwed = cashTotal.amount; }
-        if (cashSub) bmiSubtotal = cashSub.amount;
-        if (cashTax) bmiTax = cashTax.amount;
-        if (creditTotal) creditApplied = Math.abs(creditTotal.amount);
-
-        if (creditTotal && (!cashTotal || cashTotal.amount === 0)) {
-          isCreditOrder = true;
-          cashOwed = 0;
-          // For credit orders, use the credit amount as the "total" for display
-          bmiTotal = 0;
-        }
-
-        // Extract line items
-        if (overview.lines) {
-          bmiLines = overview.lines.map((l: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }) => {
-            const cashPrice = l.totalPrice?.find(p => p.depositKind === 0);
-            return { name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0 };
-          });
-        }
-      } catch {
-        // Fallback to local calculation
-        if (personId) {
-          const totalRacers = bookings.reduce((s, b) => s + b.quantity, 0);
-          creditApplied = 1;
-          const perRacer = totalRacers > 0 ? total / totalRacers : total;
-          cashOwed = Math.max(0, total - perRacer);
-          isCreditOrder = cashOwed < 0.01;
-          if (isCreditOrder) cashOwed = 0;
-        }
-        bmiLines = bookings.map(b => ({
-          name: b.product.name,
-          quantity: b.quantity,
-          amount: (b.blockPrice ?? b.product.price) * b.quantity,
-        }));
-      }
-
-      // ── Add POV and add-ons via SMS-Timing (preserves bill) ──────────
-
-      // POV: use sell (no time slot needed)
+      // POV: use SMS-Timing sell (no time slot needed, preserves bill)
       if (pov && pov.quantity > 0) {
         try {
           console.log("[POV sell]", { productId: pov.id, quantity: pov.quantity, billId: orderId });
@@ -315,43 +235,85 @@ export default function OrderSummary({
         }
       }
 
-      const hasAddOns = (pov && pov.quantity > 0) || addOns.some(a => a.quantity > 0 && a.proposal);
-      if (hasAddOns) {
+      // ── Now register contact and get overview ──────────────────────────
+      // Step 1: Register contact WITHOUT personId (so order persists)
+      try {
+        await bmiPost("person/registerContactPerson", {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone.replace(/\D/g, ""),
+          orderId,
+        });
+      } catch { /* non-fatal */ }
 
-        // Re-fetch overview to get updated totals with add-ons
-        try {
-          const updated = await bmiGet(`order/${orderId}/overview`);
-          const uCash = updated.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-          const uSub = updated.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
-          const uTax = updated.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
-          if (uCash) { bmiTotal = uCash.amount; cashOwed = uCash.amount; }
-          if (uSub) bmiSubtotal = uSub.amount;
-          if (uTax) bmiTax = uTax.amount;
-          if (updated.lines) {
-            bmiLines = updated.lines.map((l: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }) => {
-              const cp = l.totalPrice?.find(p => p.depositKind === 0);
-              return { name: l.name, quantity: l.quantity, amount: cp?.amount ?? 0 };
+      // Step 2: Get overview
+      let bmiTotal = total;
+      let bmiSubtotal = subtotal;
+      let bmiTax = tax;
+      let bmiLines: { name: string; quantity: number; amount: number }[] = [];
+      let isCreditOrder = false;
+      let cashOwed = total;
+      let creditApplied = 0;
+
+      try {
+        let overview = await bmiGet(`order/${orderId}/overview`);
+
+        // Step 3: If returning racer, link personId to apply credits, then re-fetch
+        if (personId) {
+          try {
+            await bmiPost("person/registerContactPerson", {
+              personId: Number(personId),
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone.replace(/\D/g, ""),
+              orderId,
             });
-          }
-        } catch {
-          // Fallback: add prices manually if overview fails
-          let addOnSub = 0;
-          if (pov && pov.quantity > 0) {
-            bmiLines.push({ name: "POV Video Footage", quantity: pov.quantity, amount: pov.price * pov.quantity });
-            addOnSub += pov.price * pov.quantity;
-          }
-          for (const a of addOns.filter(x => x.quantity > 0)) {
-            bmiLines.push({ name: a.name, quantity: a.quantity, amount: a.price * a.quantity });
-            addOnSub += a.price * a.quantity;
-          }
-          if (addOnSub > 0) {
-            const addTax = calculateTax(addOnSub);
-            bmiSubtotal += addOnSub;
-            bmiTax += addTax;
-            bmiTotal += addOnSub + addTax;
-            cashOwed += addOnSub + addTax;
-          }
+            // Re-fetch overview with credits applied
+            overview = await bmiGet(`order/${orderId}/overview`);
+          } catch { /* credits couldn't be applied — use cash totals */ }
         }
+
+        // Extract totals
+        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+        const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
+
+        if (cashTotal) { bmiTotal = cashTotal.amount; cashOwed = cashTotal.amount; }
+        if (cashSub) bmiSubtotal = cashSub.amount;
+        if (cashTax) bmiTax = cashTax.amount;
+        if (creditTotal) creditApplied = Math.abs(creditTotal.amount);
+
+        if (creditTotal && (!cashTotal || cashTotal.amount === 0)) {
+          isCreditOrder = true;
+          cashOwed = 0;
+          bmiTotal = 0;
+        }
+
+        // Extract line items
+        if (overview.lines) {
+          bmiLines = overview.lines.map((l: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }) => {
+            const cashPrice = l.totalPrice?.find(p => p.depositKind === 0);
+            return { name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0 };
+          });
+        }
+      } catch {
+        // Fallback to local calculation
+        if (personId) {
+          const totalRacers = bookings.reduce((s, b) => s + b.quantity, 0);
+          creditApplied = 1;
+          const perRacer = totalRacers > 0 ? total / totalRacers : total;
+          cashOwed = Math.max(0, total - perRacer);
+          isCreditOrder = cashOwed < 0.01;
+          if (isCreditOrder) cashOwed = 0;
+        }
+        bmiLines = bookings.map(b => ({
+          name: b.product.name,
+          quantity: b.quantity,
+          amount: (b.blockPrice ?? b.product.price) * b.quantity,
+        }));
       }
 
       setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied, bmiTotal, bmiSubtotal, bmiTax, bmiLines });
