@@ -1,14 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
-const SMS_BASE = "https://booking-api22.sms-timing.com/api";
+const CONNECTION_INFO_URL = "https://backend.sms-timing.com/api/connectioninfo/encrypted";
+const ENCRYPTED_CLIENT = "U2FsdGVkX18rw9HVQvtJrdeGZNAVakzC08J8Ij8PZNI%3D";
 const CLIENT_KEY = "headpinzftmyers";
-const ACCESS_TOKEN = process.env.SMS_ACCESS_TOKEN || "32ombpyioiipibppmll";
 const SMS_VERSION = "6251006 202511051229";
 
-function smsHeaders(sessionId?: string) {
+// ── Auto-renewing SMS-Timing token ──────────────────────────────────────────
+let cachedSmsToken: string | null = process.env.SMS_ACCESS_TOKEN || null;
+let smsTokenExpiry = 0;
+
+async function getSmsToken(): Promise<string> {
+  // Cache for 1 hour — connectioninfo always returns the current valid token
+  if (cachedSmsToken && Date.now() < smsTokenExpiry) return cachedSmsToken;
+
+  try {
+    const res = await fetch(
+      `${CONNECTION_INFO_URL}?message=${ENCRYPTED_CLIENT}&locationType=3&type=booking`,
+      { cache: "no-store" },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      cachedSmsToken = data.AccessToken;
+      smsTokenExpiry = Date.now() + 60 * 60 * 1000; // 1 hour
+      return cachedSmsToken!;
+    }
+  } catch {
+    // Fall through to cached/hardcoded
+  }
+
+  return cachedSmsToken || "32ombpyioiipibppmll";
+}
+
+const SMS_BASE = "https://booking-api22.sms-timing.com/api";
+
+function smsHeaders(sessionId?: string, token?: string) {
   return {
-    "x-fast-accesstoken": ACCESS_TOKEN,
+    "x-fast-accesstoken": token || cachedSmsToken || "32ombpyioiipibppmll",
     "x-fast-version": SMS_VERSION,
     "x-session-id": sessionId || randomUUID(),
     "accept": "application/json",
@@ -17,25 +45,28 @@ function smsHeaders(sessionId?: string) {
 }
 
 async function smsGet(path: string, sessionId?: string) {
+  const token = await getSmsToken();
   return fetch(`${SMS_BASE}/${path}/${CLIENT_KEY}`, {
-    headers: smsHeaders(sessionId),
+    headers: smsHeaders(sessionId, token),
     cache: "no-store",
   });
 }
 
 async function smsPost(path: string, body: unknown, sessionId?: string) {
+  const token = await getSmsToken();
   return fetch(`${SMS_BASE}/${path}/${CLIENT_KEY}`, {
     method: "POST",
-    headers: smsHeaders(sessionId),
+    headers: smsHeaders(sessionId, token),
     body: JSON.stringify(body),
     cache: "no-store",
   });
 }
 
 async function smsPostQS(path: string, qs: string, sessionId?: string) {
+  const token = await getSmsToken();
   return fetch(`${SMS_BASE}/${path}/${CLIENT_KEY}?${qs}`, {
     method: "POST",
-    headers: smsHeaders(sessionId),
+    headers: smsHeaders(sessionId, token),
     cache: "no-store",
   });
 }
@@ -65,6 +96,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
   // ── DAY PLANNER ──────────────────────────────────────────────────────────
+  const token = await getSmsToken();
+
   if (endpoint === "dayplanner/calendarrange") {
     const { dateFrom, dateUntil, ...rest } = body;
     const qs = new URLSearchParams();
@@ -72,7 +105,7 @@ export async function POST(req: NextRequest) {
     if (dateUntil) qs.set("dateUntil", dateUntil);
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?${qs.toString()}`,
-      { method: "POST", headers: smsHeaders(sessionId), body: JSON.stringify(rest) }
+      { method: "POST", headers: smsHeaders(sessionId, token), body: JSON.stringify(rest) }
     );
     return NextResponse.json(await upstream.json());
   }
@@ -82,7 +115,7 @@ export async function POST(req: NextRequest) {
     const qs = date ? `date=${encodeURIComponent(date)}` : "";
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?${qs}`,
-      { method: "POST", headers: smsHeaders(sessionId), body: JSON.stringify(rest) }
+      { method: "POST", headers: smsHeaders(sessionId, token), body: JSON.stringify(rest) }
     );
     return NextResponse.json(await upstream.json());
   }
@@ -106,7 +139,7 @@ export async function POST(req: NextRequest) {
     const { billId } = body;
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?billId=${billId}`,
-      { headers: smsHeaders(sessionId), cache: "no-store" }
+      { headers: smsHeaders(sessionId, token), cache: "no-store" }
     );
     return NextResponse.json(await upstream.json());
   }
@@ -124,7 +157,7 @@ export async function POST(req: NextRequest) {
     const { billId } = body;
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?billId=${billId}`,
-      { headers: smsHeaders(sessionId), cache: "no-store" }
+      { headers: smsHeaders(sessionId, token), cache: "no-store" }
     );
     return NextResponse.json(await upstream.json());
   }
@@ -157,11 +190,12 @@ export async function GET(req: NextRequest) {
   const endpoint = searchParams.get("endpoint");
   const billId = searchParams.get("billId");
   const sessionId = req.headers.get("x-booking-session") || randomUUID();
+  const token = await getSmsToken();
 
   if (endpoint === "bill/overview" && billId) {
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?billId=${billId}`,
-      { headers: smsHeaders(sessionId), cache: "no-store" }
+      { headers: smsHeaders(sessionId, token), cache: "no-store" }
     );
     return NextResponse.json(await upstream.json());
   }
@@ -169,7 +203,7 @@ export async function GET(req: NextRequest) {
   if (endpoint === "payment/needtopay" && billId) {
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?billId=${billId}`,
-      { headers: smsHeaders(sessionId), cache: "no-store" }
+      { headers: smsHeaders(sessionId, token), cache: "no-store" }
     );
     return NextResponse.json(await upstream.json());
   }
@@ -179,7 +213,7 @@ export async function GET(req: NextRequest) {
   if (endpoint === "page" && date) {
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${CLIENT_KEY}?date=${encodeURIComponent(date)}`,
-      { headers: smsHeaders(sessionId), cache: "no-store" }
+      { headers: smsHeaders(sessionId, token), cache: "no-store" }
     );
     return NextResponse.json(await upstream.json());
   }
