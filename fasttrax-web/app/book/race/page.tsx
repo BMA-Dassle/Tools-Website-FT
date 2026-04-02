@@ -513,13 +513,29 @@ export default function BookRacePage() {
       {/* Floating cart */}
       {step !== "summary" && (
         <FloatingCart
-          items={bookings.map(b => ({
-            name: b.product.name,
-            quantity: b.quantity,
-            time: b.block.start,
-            date: b.block.start,
-            price: b.blockPrice,
-          }))}
+          items={[
+            ...bookings.map(b => ({
+              name: b.product.name,
+              quantity: b.quantity,
+              time: b.block.start,
+              date: b.block.start,
+              price: b.blockPrice,
+            })),
+            ...(selectedPov && selectedPov.quantity > 0 ? [{
+              name: "POV Video Footage",
+              quantity: selectedPov.quantity,
+              time: "",
+              date: "",
+              price: selectedPov.price,
+            }] : []),
+            ...selectedAddOns.filter(a => a.quantity > 0).map(a => ({
+              name: a.shortName,
+              quantity: a.quantity,
+              time: a.selectedTime || "",
+              date: a.selectedTime || "",
+              price: a.price,
+            })),
+          ].sort((a, b) => (a.time || "z").localeCompare(b.time || "z"))}
           onCheckout={() => {
             if (contact) {
               setStep("summary");
@@ -528,7 +544,19 @@ export default function BookRacePage() {
             }
           }}
           onRemove={(index) => {
-            setBookings(prev => prev.filter((_, i) => i !== index));
+            // Only remove race bookings (first N items), not add-ons
+            if (index < bookings.length) {
+              setBookings(prev => prev.filter((_, i) => i !== index));
+            } else {
+              const addOnIdx = index - bookings.length;
+              const povCount = (selectedPov && selectedPov.quantity > 0) ? 1 : 0;
+              if (addOnIdx < povCount) {
+                setSelectedPov(null);
+              } else {
+                const aoIdx = addOnIdx - povCount;
+                setSelectedAddOns(prev => prev.filter((_, i) => i !== aoIdx));
+              }
+            }
           }}
         />
       )}
