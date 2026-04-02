@@ -72,17 +72,6 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
     color: "#E53935",
     location: "headpinz",
   },
-  {
-    id: "30084297",
-    name: "POV Video Footage",
-    shortName: "POV Camera",
-    description: "Pre-pay online for your ViewPoint camera footage and save $2! Relive every turn and overtake from your kart's perspective.",
-    price: 5,
-    image: "",
-    perPerson: true,
-    color: "#00E2E5",
-    location: "fasttrax",
-  },
 ];
 
 export default function AddOnsPage({ racerCount, onContinue, onBack }: AddOnsPageProps) {

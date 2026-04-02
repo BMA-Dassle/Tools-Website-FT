@@ -1,0 +1,120 @@
+"use client";
+
+import { useState } from "react";
+
+const POV_VIDEO = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/pov-footage-zJ2UgFa8SI4hFRGuYeKRJ9V7RnmnkK.mp4";
+
+export interface PovSelection {
+  id: string;
+  quantity: number;
+  price: number;
+}
+
+interface PovUpsellProps {
+  racerCount: number;
+  onContinue: (pov: PovSelection | null) => void;
+  onBack: () => void;
+}
+
+export default function PovUpsell({ racerCount, onContinue, onBack }: PovUpsellProps) {
+  const [qty, setQty] = useState(0);
+  const price = 5;
+
+  return (
+    <div className="space-y-8 max-w-xl mx-auto">
+      {/* Header */}
+      <div className="text-center space-y-2">
+        <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest">Exclusive Online Add-On</p>
+        <h2 className="text-3xl font-display uppercase tracking-widest text-white">
+          Elevate Your<br />Racing Experience
+        </h2>
+        <p className="text-white/40 text-sm">
+          Save $2 per camera when you pre-pay online
+        </p>
+      </div>
+
+      {/* Video */}
+      <div className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-[#00E2E5]/10">
+        <video
+          src={POV_VIDEO}
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="w-full aspect-video object-cover"
+        />
+      </div>
+
+      {/* Description */}
+      <div className="text-center space-y-3">
+        <h3 className="text-white font-bold text-lg">ViewPoint POV Camera</h3>
+        <p className="text-white/50 text-sm leading-relaxed max-w-md mx-auto">
+          Relive every turn, overtake, and adrenaline-fueled moment from your kart&apos;s perspective.
+          Your footage is ready to download after your race — perfect for sharing on social media.
+        </p>
+        <div className="flex items-center justify-center gap-3">
+          <span className="text-[#00E2E5] font-bold text-2xl">${price}</span>
+          <span className="text-white/30 text-sm">/person</span>
+          <span className="text-white/20">|</span>
+          <span className="text-red-400/60 text-sm line-through">$7 at check-in</span>
+        </div>
+      </div>
+
+      {/* Quantity selector */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-semibold text-sm">How many cameras?</p>
+            <p className="text-white/40 text-xs">One per kart — capture your personal race footage</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setQty(Math.max(0, qty - 1))}
+              disabled={qty === 0}
+              className="w-10 h-10 rounded-lg border border-white/20 text-white/60 hover:border-white/40 hover:text-white disabled:opacity-30 transition-colors flex items-center justify-center text-xl font-bold"
+            >
+              -
+            </button>
+            <span className="w-8 text-center text-white font-bold text-lg">{qty}</span>
+            <button
+              onClick={() => setQty(qty + 1)}
+              className="w-10 h-10 rounded-lg border border-white/20 text-white/60 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-xl font-bold"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {qty === 0 && (
+          <button
+            onClick={() => setQty(racerCount)}
+            className="mt-3 w-full py-2.5 rounded-lg text-sm font-semibold bg-[#00E2E5]/10 text-[#00E2E5] border border-[#00E2E5]/30 hover:bg-[#00E2E5]/20 transition-colors"
+          >
+            Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — ${(price * racerCount).toFixed(2)}
+          </button>
+        )}
+
+        {qty > 0 && (
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-white/50 text-sm">{qty} camera{qty !== 1 ? "s" : ""}</span>
+            <span className="text-[#00E2E5] font-bold text-lg">${(price * qty).toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* CTA */}
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => onContinue(qty > 0 ? { id: "30084297", quantity: qty, price } : null)}
+          className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+        >
+          {qty > 0 ? `Continue with ${qty} Camera${qty !== 1 ? "s" : ""} →` : "Skip — Continue to Checkout →"}
+        </button>
+      </div>
+
+      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+        ← Back to heat selection
+      </button>
+    </div>
+  );
+}
