@@ -503,6 +503,20 @@ export default function BookRacePage() {
                 return updated;
               });
             }}
+            onRemoveAddOn={(index) => {
+              cancelActiveOrder();
+              setSelectedAddOns(prev => prev.filter((_, i) => i !== index));
+              // Re-enter summary to re-book
+              setStep("heat");
+              setTimeout(() => setStep("summary"), 100);
+            }}
+            onRemovePov={() => {
+              cancelActiveOrder();
+              setSelectedPov(null);
+              // Re-enter summary to re-book
+              setStep("heat");
+              setTimeout(() => setStep("summary"), 100);
+            }}
           />
         )}
 

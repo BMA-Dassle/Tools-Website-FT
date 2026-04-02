@@ -42,6 +42,10 @@ interface OrderSummaryProps {
   addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean; proposal?: unknown; block?: unknown; selectedTime?: string }[];
   /** Selected POV cameras */
   pov?: { id: string; quantity: number; price: number } | null;
+  /** Callback to remove an add-on by its index in the addOns array */
+  onRemoveAddOn?: (index: number) => void;
+  /** Callback to remove POV */
+  onRemovePov?: () => void;
 }
 
 type BookingState =
@@ -84,6 +88,8 @@ export default function OrderSummary({
   onRemoveBooking,
   addOns = [],
   pov,
+  onRemoveAddOn,
+  onRemovePov,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const effectRan = useRef(false);
@@ -524,9 +530,8 @@ export default function OrderSummary({
         )}
       </div>
 
-      {/* Booking summary cards */}
-      {isPack && packResult && packProduct ? (
-        // Pack booking -- show all scheduled races
+      {/* Pack booking — special layout */}
+      {isPack && packResult && packProduct && (
         <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.08]">
           <div className="p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -564,113 +569,162 @@ export default function OrderSummary({
             </div>
           </div>
         </div>
-      ) : (
-        // Regular booking cards
-        bookings.map((b, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.08]"
-          >
-            <div className="p-4 flex justify-between items-start">
-              <div>
-                <p className="text-white/40 text-xs mb-1">
-                  {bookings.length > 1
-                    ? `Race ${i + 1} -- ${b.product.category === "adult" ? "Adult" : "Junior"}`
-                    : "Race"}
-                </p>
-                <p className="text-white font-bold">{b.product.name}</p>
-              </div>
-              {onRemoveBooking && bookings.length > 1 && state.status === "booked" && (
-                <button
-                  onClick={() => onRemoveBooking(i)}
-                  className="text-red-400/50 hover:text-red-400 transition-colors p-1"
-                  title="Remove race"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-white/40 text-xs mb-1">Date</p>
-                <p className="text-white text-sm">{formatDate(date)}</p>
-              </div>
-              <div>
-                <p className="text-white/40 text-xs mb-1">Heat</p>
-                <p className="text-white text-sm">
-                  {b.block.name} &middot; {formatTime(b.block.start)}
-                </p>
-              </div>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-white/40 text-xs mb-1">Racers</p>
-                <p className="text-white text-sm">{b.quantity}</p>
-              </div>
-              {i === 0 && (
-                <div>
-                  <p className="text-white/40 text-xs mb-1">Contact</p>
-                  <p className="text-white text-sm">
-                    {contact.firstName} {contact.lastName}
-                  </p>
-                  <p className="text-white/50 text-xs">{contact.email}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        ))
       )}
 
-      {/* Add-on cards — sorted by time with race cards above */}
-      {(() => {
-        // Build combined sorted list of add-ons (POV + activities)
-        const addOnCards: { key: string; name: string; time?: string; qty: number; qtyLabel: string; price: number; isAddon: true }[] = [];
-        if (pov && pov.quantity > 0) {
-          addOnCards.push({ key: "pov", name: "POV Video Footage", qty: pov.quantity, qtyLabel: `${pov.quantity} camera${pov.quantity !== 1 ? "s" : ""}`, price: pov.price * pov.quantity, isAddon: true });
-        }
-        for (const a of addOns.filter(x => x.quantity > 0)) {
-          addOnCards.push({ key: `addon-${a.id}`, name: a.name, time: a.selectedTime, qty: a.quantity, qtyLabel: a.perPerson ? `${a.quantity} ${a.quantity === 1 ? "person" : "people"}` : `${a.quantity}`, price: a.price * a.quantity, isAddon: true });
-        }
-        // Sort by time (items without time go last)
-        addOnCards.sort((a, b) => {
-          if (!a.time && !b.time) return 0;
-          if (!a.time) return 1;
-          if (!b.time) return -1;
-          return a.time.localeCompare(b.time);
+      {/* All items — races + add-ons merged and sorted by time */}
+      {!isPack && (() => {
+        type CardItem =
+          | { type: "race"; time: string; bookingIdx: number }
+          | { type: "pov" }
+          | { type: "addon"; addOnIdx: number; time: string };
+
+        const cards: CardItem[] = [];
+
+        // Race cards
+        bookings.forEach((_, i) => {
+          cards.push({ type: "race", time: bookings[i].block.start, bookingIdx: i });
         });
 
-        return addOnCards.map(card => (
-          <div key={card.key} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 divide-y divide-white/[0.08]">
-            <div className="p-4">
-              <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-wider mb-1">Add-On</p>
-              <p className="text-white font-bold">{card.name}</p>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-4">
-              {card.time ? (
-                <>
+        // POV (no time — goes last)
+        if (pov && pov.quantity > 0) {
+          cards.push({ type: "pov" });
+        }
+
+        // Activity add-ons
+        addOns.forEach((a, i) => {
+          if (a.quantity > 0) {
+            cards.push({ type: "addon", addOnIdx: i, time: a.selectedTime || "" });
+          }
+        });
+
+        // Sort by time (items without time go last)
+        cards.sort((a, b) => {
+          const tA = a.type === "race" ? a.time : a.type === "addon" ? a.time : "";
+          const tB = b.type === "race" ? b.time : b.type === "addon" ? b.time : "";
+          if (!tA && !tB) return 0;
+          if (!tA) return 1;
+          if (!tB) return -1;
+          return tA.localeCompare(tB);
+        });
+
+        const removeBtn = (onClick: () => void, title: string) => (
+          <button
+            onClick={onClick}
+            className="text-red-400/50 hover:text-red-400 transition-colors p-1"
+            title={title}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        );
+
+        return cards.map((card, ci) => {
+          if (card.type === "race") {
+            const b = bookings[card.bookingIdx];
+            return (
+              <div key={`race-${card.bookingIdx}`} className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.08]">
+                <div className="p-4 flex justify-between items-start">
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">
+                      {bookings.length > 1
+                        ? `Race ${card.bookingIdx + 1} -- ${b.product.category === "adult" ? "Adult" : "Junior"}`
+                        : "Race"}
+                    </p>
+                    <p className="text-white font-bold">{b.product.name}</p>
+                  </div>
+                  {onRemoveBooking && bookings.length > 1 && state.status === "booked" && removeBtn(() => onRemoveBooking(card.bookingIdx), "Remove race")}
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-white/40 text-xs mb-1">Date</p>
                     <p className="text-white text-sm">{formatDate(date)}</p>
                   </div>
                   <div>
-                    <p className="text-white/40 text-xs mb-1">Time</p>
-                    <p className="text-white text-sm">{formatTime(card.time)}</p>
+                    <p className="text-white/40 text-xs mb-1">Heat</p>
+                    <p className="text-white text-sm">
+                      {b.block.name} &middot; {formatTime(b.block.start)}
+                    </p>
                   </div>
-                </>
-              ) : (
-                <div>
-                  <p className="text-white/40 text-xs mb-1">{card.qtyLabel}</p>
                 </div>
-              )}
-              <div>
-                <p className="text-white/40 text-xs mb-1">Price</p>
-                <p className="text-[#00E2E5] text-sm font-semibold">${card.price.toFixed(2)}</p>
+                <div className="p-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Racers</p>
+                    <p className="text-white text-sm">{b.quantity}</p>
+                  </div>
+                  {card.bookingIdx === 0 && (
+                    <div>
+                      <p className="text-white/40 text-xs mb-1">Contact</p>
+                      <p className="text-white text-sm">
+                        {contact.firstName} {contact.lastName}
+                      </p>
+                      <p className="text-white/50 text-xs">{contact.email}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          if (card.type === "pov") {
+            return (
+              <div key="pov" className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 divide-y divide-white/[0.08]">
+                <div className="p-4 flex justify-between items-start">
+                  <div>
+                    <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-wider mb-1">Add-On</p>
+                    <p className="text-white font-bold">POV Video Footage</p>
+                  </div>
+                  {onRemovePov && state.status === "booked" && removeBtn(() => onRemovePov(), "Remove POV")}
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">{pov!.quantity} camera{pov!.quantity !== 1 ? "s" : ""}</p>
+                  </div>
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Price</p>
+                    <p className="text-[#00E2E5] text-sm font-semibold">${(pov!.price * pov!.quantity).toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          // addon
+          const a = addOns[card.addOnIdx];
+          return (
+            <div key={`addon-${a.id}`} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 divide-y divide-white/[0.08]">
+              <div className="p-4 flex justify-between items-start">
+                <div>
+                  <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-wider mb-1">Add-On</p>
+                  <p className="text-white font-bold">{a.name}</p>
+                </div>
+                {onRemoveAddOn && state.status === "booked" && removeBtn(() => onRemoveAddOn(card.addOnIdx), "Remove add-on")}
+              </div>
+              <div className="p-4 grid grid-cols-2 gap-4">
+                {a.selectedTime ? (
+                  <>
+                    <div>
+                      <p className="text-white/40 text-xs mb-1">Date</p>
+                      <p className="text-white text-sm">{formatDate(date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/40 text-xs mb-1">Time</p>
+                      <p className="text-white text-sm">{formatTime(a.selectedTime)}</p>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">{a.perPerson ? `${a.quantity} ${a.quantity === 1 ? "person" : "people"}` : `${a.quantity}`}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-white/40 text-xs mb-1">Price</p>
+                  <p className="text-[#00E2E5] text-sm font-semibold">${(a.price * a.quantity).toFixed(2)}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ));
+          );
+        });
       })()}
 
       {/* Price breakdown — from BMI bill */}
