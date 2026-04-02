@@ -23,18 +23,21 @@ import ProductPicker from "./components/ProductPicker";
 import HeatPicker from "./components/HeatPicker";
 import PackHeatPicker from "./components/PackHeatPicker";
 import ContactForm from "./components/ContactForm";
+import AddOnsPage from "./components/AddOnsPage";
+import type { AddOnItem } from "./components/AddOnsPage";
 import OrderSummary from "./components/OrderSummary";
 import FloatingCart from "./components/FloatingCart";
 
-type Step = "experience" | "party" | "date" | "product" | "heat" | "contact" | "summary";
+type Step = "experience" | "party" | "date" | "product" | "heat" | "addons" | "contact" | "summary";
 
-const STEPS: Step[] = ["experience", "party", "date", "product", "heat", "contact", "summary"];
+const STEPS: Step[] = ["experience", "party", "date", "product", "heat", "addons", "contact", "summary"];
 const STEP_LABELS: Record<Step, string> = {
   experience: "Type",
   party: "Party",
   date: "Date",
   product: "Race",
   heat: "Heat",
+  addons: "Extras",
   contact: "Details",
   summary: "Pay",
 };
@@ -57,6 +60,7 @@ export default function BookRacePage() {
   const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
   const [heatPickerKey, setHeatPickerKey] = useState(0); // Force remount on each visit
+  const [selectedAddOns, setSelectedAddOns] = useState<AddOnItem[]>([]);
   // Returning racer person data from BMI lookup
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
@@ -182,12 +186,8 @@ export default function BookRacePage() {
       setSelectedBlock(null);
       setStep("product");
     } else {
-      // All categories booked — skip contact if verified returning racer
-      if (verifiedPerson && contact) {
-        setStep("summary");
-      } else {
-        setStep("contact");
-      }
+      // All categories booked — go to add-ons
+      setStep("addons");
     }
   }
 
@@ -431,11 +431,28 @@ export default function BookRacePage() {
         )}
 
         {/* STEP 6: Contact info */}
+        {/* STEP 6: Add-ons upsell */}
+        {step === "addons" && (
+          <AddOnsPage
+            racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
+            onContinue={(addOns) => {
+              setSelectedAddOns(addOns);
+              if (verifiedPerson && contact) {
+                setStep("summary");
+              } else {
+                setStep("contact");
+              }
+            }}
+            onBack={() => setStep("heat")}
+          />
+        )}
+
+        {/* STEP 7: Contact info */}
         {step === "contact" && (
           <ContactForm
             initial={contact}
             onSubmit={handleContactSubmit}
-            onBack={() => setStep("heat")}
+            onBack={() => setStep("addons")}
           />
         )}
 
