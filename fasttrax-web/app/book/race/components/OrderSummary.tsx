@@ -38,6 +38,10 @@ interface OrderSummaryProps {
   onOrderCreated?: (orderId: string) => void;
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
+  /** Selected add-on activities */
+  addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean }[];
+  /** Selected POV cameras */
+  pov?: { id: string; quantity: number; price: number } | null;
 }
 
 type BookingState =
@@ -78,6 +82,8 @@ export default function OrderSummary({
   personId,
   onOrderCreated,
   onRemoveBooking,
+  addOns = [],
+  pov,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const effectRan = useRef(false);
@@ -178,6 +184,19 @@ export default function OrderSummary({
           orderId,
         });
       } catch { /* non-fatal */ }
+
+      // ── Add POV and add-ons to the bill via booking/sell ──────────────
+      const allSellItems = [
+        ...(pov && pov.quantity > 0 ? [{ ProductId: Number(pov.id), Quantity: pov.quantity, OrderId: Number(orderId) }] : []),
+        ...addOns.filter(a => a.quantity > 0).map(a => ({ ProductId: Number(a.id), Quantity: a.quantity, OrderId: Number(orderId) })),
+      ];
+      for (const item of allSellItems) {
+        try {
+          await bmiPost("booking/sell", item);
+        } catch {
+          console.warn("[booking/sell add-on failed]", item);
+        }
+      }
 
       // Step 2: Get overview BEFORE linking person (shows cash totals)
       let bmiTotal = total;
