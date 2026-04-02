@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Image from "next/image";
 
+const HEADPINZ_LOGO = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png";
+
 export interface AddOnItem {
   id: string;
   name: string;
@@ -13,6 +15,7 @@ export interface AddOnItem {
   perPerson: boolean; // true = per racer, false = per group (up to X people)
   maxPerGroup?: number; // e.g. Shuffly up to 10, Duck Pin up to 6
   color: string;
+  location: "fasttrax" | "headpinz";
   quantity: number; // selected quantity
 }
 
@@ -33,37 +36,41 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
     perPerson: false,
     maxPerGroup: 10,
     color: "#E53935",
+    location: "fasttrax",
   },
   {
     id: "23345635",
-    name: "Duck Pin - 1 Hour",
-    shortName: "Duckpin Bowling",
+    name: "Duckpin Bowling - 1 Hour",
+    shortName: "Duckpin",
     description: "Fast, fun bowling with smaller pins and lighter balls. No rental shoes required! Perfect for groups between races.",
     price: 35,
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
     perPerson: false,
     maxPerGroup: 6,
     color: "#004AAD",
+    location: "fasttrax",
   },
   {
     id: "27488200",
-    name: "HeadPinz Gel Blasters Combo",
+    name: "Nexus Gel Blaster Arena",
     shortName: "Gel Blaster",
-    description: "Step into a live-action video game! High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
+    description: "Step into a live-action video game! High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets. Located at HeadPinz next door.",
     price: 10,
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg",
     perPerson: true,
     color: "#39FF14",
+    location: "headpinz",
   },
   {
     id: "8976685",
-    name: "HeadPinz Laser Tag",
+    name: "Nexus Laser Tag Arena",
     shortName: "Laser Tag",
-    description: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena filled with lights, fog, and music.",
+    description: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena filled with lights, fog, and music. Located at HeadPinz next door.",
     price: 10,
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg",
     perPerson: true,
     color: "#E53935",
+    location: "headpinz",
   },
   {
     id: "30084297",
@@ -74,6 +81,7 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
     image: "",
     perPerson: true,
     color: "#00E2E5",
+    location: "fasttrax",
   },
 ];
 
@@ -137,11 +145,20 @@ export default function AddOnsPage({ racerCount, onContinue, onBack }: AddOnsPag
                       className="object-cover"
                       sizes="(max-width: 640px) 100vw, 160px"
                     />
-                    <div
-                      className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
-                      style={{ backgroundColor: addon.color }}
-                    >
-                      {addon.shortName}
+                    <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                      <span
+                        className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
+                        style={{ backgroundColor: addon.color }}
+                      >
+                        {addon.shortName}
+                      </span>
+                      {addon.location === "headpinz" && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={HEADPINZ_LOGO} alt="HeadPinz" className="h-3.5 w-auto" />
+                          <span className="text-[9px] text-white/80 font-semibold">Next Door</span>
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -154,6 +171,15 @@ export default function AddOnsPage({ racerCount, onContinue, onBack }: AddOnsPag
                       <span className="text-[#00E2E5] font-bold text-sm shrink-0">{priceLabel}</span>
                     </div>
                     <p className="text-white/40 text-xs mt-1 leading-relaxed">{addon.description}</p>
+                    {addon.location === "headpinz" && (
+                      <p className="text-amber-400/80 text-[10px] font-semibold mt-1 flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Located at HeadPinz — right next door to FastTrax
+                      </p>
+                    )}
                   </div>
 
                   {/* Quantity controls */}
