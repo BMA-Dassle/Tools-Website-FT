@@ -571,7 +571,19 @@ export default function OrderSummary({
         </div>
       )}
 
-      {/* All items — races + add-ons merged and sorted by time */}
+      {/* Contact + date bar */}
+      {!isPack && (
+        <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between text-sm">
+          <div>
+            <span className="text-white font-semibold">{contact.firstName} {contact.lastName}</span>
+            <span className="text-white/30 mx-2">&middot;</span>
+            <span className="text-white/50">{contact.email}</span>
+          </div>
+          <span className="text-white/40 text-xs">{formatDate(date)}</span>
+        </div>
+      )}
+
+      {/* All items — races + add-ons merged, sorted by time, compact rows */}
       {!isPack && (() => {
         type CardItem =
           | { type: "race"; time: string; bookingIdx: number }
@@ -579,25 +591,10 @@ export default function OrderSummary({
           | { type: "addon"; addOnIdx: number; time: string };
 
         const cards: CardItem[] = [];
+        bookings.forEach((_, i) => cards.push({ type: "race", time: bookings[i].block.start, bookingIdx: i }));
+        if (pov && pov.quantity > 0) cards.push({ type: "pov" });
+        addOns.forEach((a, i) => { if (a.quantity > 0) cards.push({ type: "addon", addOnIdx: i, time: a.selectedTime || "" }); });
 
-        // Race cards
-        bookings.forEach((_, i) => {
-          cards.push({ type: "race", time: bookings[i].block.start, bookingIdx: i });
-        });
-
-        // POV (no time — goes last)
-        if (pov && pov.quantity > 0) {
-          cards.push({ type: "pov" });
-        }
-
-        // Activity add-ons
-        addOns.forEach((a, i) => {
-          if (a.quantity > 0) {
-            cards.push({ type: "addon", addOnIdx: i, time: a.selectedTime || "" });
-          }
-        });
-
-        // Sort by time (items without time go last)
         cards.sort((a, b) => {
           const tA = a.type === "race" ? a.time : a.type === "addon" ? a.time : "";
           const tB = b.type === "race" ? b.time : b.type === "addon" ? b.time : "";
@@ -607,124 +604,71 @@ export default function OrderSummary({
           return tA.localeCompare(tB);
         });
 
-        const removeBtn = (onClick: () => void, title: string) => (
-          <button
-            onClick={onClick}
-            className="text-red-400/50 hover:text-red-400 transition-colors p-1"
-            title={title}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        const xBtn = (onClick: () => void) => (
+          <button onClick={onClick} className="text-red-400/40 hover:text-red-400 transition-colors p-0.5 -mr-1 shrink-0">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         );
 
-        return cards.map((card, ci) => {
-          if (card.type === "race") {
-            const b = bookings[card.bookingIdx];
-            return (
-              <div key={`race-${card.bookingIdx}`} className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.08]">
-                <div className="p-4 flex justify-between items-start">
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">
-                      {bookings.length > 1
-                        ? `Race ${card.bookingIdx + 1} -- ${b.product.category === "adult" ? "Adult" : "Junior"}`
-                        : "Race"}
-                    </p>
-                    <p className="text-white font-bold">{b.product.name}</p>
-                  </div>
-                  {onRemoveBooking && bookings.length > 1 && state.status === "booked" && removeBtn(() => onRemoveBooking(card.bookingIdx), "Remove race")}
-                </div>
-                <div className="p-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Date</p>
-                    <p className="text-white text-sm">{formatDate(date)}</p>
-                  </div>
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Heat</p>
-                    <p className="text-white text-sm">
-                      {b.block.name} &middot; {formatTime(b.block.start)}
-                    </p>
-                  </div>
-                </div>
-                <div className="p-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Racers</p>
-                    <p className="text-white text-sm">{b.quantity}</p>
-                  </div>
-                  {card.bookingIdx === 0 && (
-                    <div>
-                      <p className="text-white/40 text-xs mb-1">Contact</p>
-                      <p className="text-white text-sm">
-                        {contact.firstName} {contact.lastName}
+        return (
+          <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.06]">
+            {cards.map((card) => {
+              if (card.type === "race") {
+                const b = bookings[card.bookingIdx];
+                return (
+                  <div key={`race-${card.bookingIdx}`} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-semibold text-sm truncate">{b.product.name}</span>
+                        <span className="text-white/20 text-xs shrink-0">x{b.quantity}</span>
+                      </div>
+                      <p className="text-white/40 text-xs mt-0.5">
+                        {b.block.name} &middot; {formatTime(b.block.start)}
                       </p>
-                      <p className="text-white/50 text-xs">{contact.email}</p>
                     </div>
-                  )}
-                </div>
-              </div>
-            );
-          }
+                    {onRemoveBooking && bookings.length > 1 && state.status === "booked" && xBtn(() => onRemoveBooking(card.bookingIdx))}
+                  </div>
+                );
+              }
 
-          if (card.type === "pov") {
-            return (
-              <div key="pov" className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 divide-y divide-white/[0.08]">
-                <div className="p-4 flex justify-between items-start">
-                  <div>
-                    <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-wider mb-1">Add-On</p>
-                    <p className="text-white font-bold">POV Video Footage</p>
+              if (card.type === "pov") {
+                return (
+                  <div key="pov" className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#00E2E5] text-[9px] font-bold uppercase tracking-wider shrink-0">Add-On</span>
+                        <span className="text-white font-semibold text-sm truncate">POV Video</span>
+                        <span className="text-white/20 text-xs shrink-0">x{pov!.quantity}</span>
+                      </div>
+                      <p className="text-[#00E2E5]/60 text-xs mt-0.5">${(pov!.price * pov!.quantity).toFixed(2)}</p>
+                    </div>
+                    {onRemovePov && state.status === "booked" && xBtn(() => onRemovePov())}
                   </div>
-                  {onRemovePov && state.status === "booked" && removeBtn(() => onRemovePov(), "Remove POV")}
-                </div>
-                <div className="p-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">{pov!.quantity} camera{pov!.quantity !== 1 ? "s" : ""}</p>
-                  </div>
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Price</p>
-                    <p className="text-[#00E2E5] text-sm font-semibold">${(pov!.price * pov!.quantity).toFixed(2)}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          }
+                );
+              }
 
-          // addon
-          const a = addOns[card.addOnIdx];
-          return (
-            <div key={`addon-${a.id}`} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 divide-y divide-white/[0.08]">
-              <div className="p-4 flex justify-between items-start">
-                <div>
-                  <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-wider mb-1">Add-On</p>
-                  <p className="text-white font-bold">{a.name}</p>
-                </div>
-                {onRemoveAddOn && state.status === "booked" && removeBtn(() => onRemoveAddOn(card.addOnIdx), "Remove add-on")}
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-4">
-                {a.selectedTime ? (
-                  <>
-                    <div>
-                      <p className="text-white/40 text-xs mb-1">Date</p>
-                      <p className="text-white text-sm">{formatDate(date)}</p>
+              const a = addOns[card.addOnIdx];
+              return (
+                <div key={`addon-${a.id}`} className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[#00E2E5] text-[9px] font-bold uppercase tracking-wider shrink-0">Add-On</span>
+                      <span className="text-white font-semibold text-sm truncate">{a.name}</span>
+                      {a.quantity > 1 && <span className="text-white/20 text-xs shrink-0">x{a.quantity}</span>}
                     </div>
-                    <div>
-                      <p className="text-white/40 text-xs mb-1">Time</p>
-                      <p className="text-white text-sm">{formatTime(a.selectedTime)}</p>
-                    </div>
-                  </>
-                ) : (
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">{a.perPerson ? `${a.quantity} ${a.quantity === 1 ? "person" : "people"}` : `${a.quantity}`}</p>
+                    <p className="text-white/40 text-xs mt-0.5">
+                      {a.selectedTime ? formatTime(a.selectedTime) : (a.perPerson ? `${a.quantity} ${a.quantity === 1 ? "person" : "people"}` : "")}
+                      <span className="text-[#00E2E5]/60 ml-2">${(a.price * a.quantity).toFixed(2)}</span>
+                    </p>
                   </div>
-                )}
-                <div>
-                  <p className="text-white/40 text-xs mb-1">Price</p>
-                  <p className="text-[#00E2E5] text-sm font-semibold">${(a.price * a.quantity).toFixed(2)}</p>
+                  {onRemoveAddOn && state.status === "booked" && xBtn(() => onRemoveAddOn(card.addOnIdx))}
                 </div>
-              </div>
-            </div>
-          );
-        });
+              );
+            })}
+          </div>
+        );
       })()}
 
       {/* Price breakdown — from BMI bill */}
