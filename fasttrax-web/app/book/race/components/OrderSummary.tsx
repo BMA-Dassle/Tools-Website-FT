@@ -185,20 +185,7 @@ export default function OrderSummary({
         });
       } catch { /* non-fatal */ }
 
-      // ── Add POV and add-ons to the bill via booking/sell ──────────────
-      const allSellItems = [
-        ...(pov && pov.quantity > 0 ? [{ ProductId: Number(pov.id), Quantity: pov.quantity, OrderId: Number(orderId) }] : []),
-        ...addOns.filter(a => a.quantity > 0).map(a => ({ ProductId: Number(a.id), Quantity: a.quantity, OrderId: Number(orderId) })),
-      ];
-      for (const item of allSellItems) {
-        try {
-          await bmiPost("booking/sell", item);
-        } catch {
-          console.warn("[booking/sell add-on failed]", item);
-        }
-      }
-
-      // Step 2: Get overview BEFORE linking person (shows cash totals)
+      // Step 2: Get overview BEFORE adding sell items (sell destroys the bill)
       let bmiTotal = total;
       let bmiSubtotal = subtotal;
       let bmiTax = tax;
@@ -266,6 +253,37 @@ export default function OrderSummary({
           quantity: b.quantity,
           amount: (b.blockPrice ?? b.product.price) * b.quantity,
         }));
+      }
+
+      // ── Add POV and add-ons to the bill AFTER overview (sell destroys bill) ──
+      const allSellItems = [
+        ...(pov && pov.quantity > 0 ? [{ ProductId: Number(pov.id), Quantity: pov.quantity, OrderId: Number(orderId) }] : []),
+        ...addOns.filter(a => a.quantity > 0).map(a => ({ ProductId: Number(a.id), Quantity: a.quantity, OrderId: Number(orderId) })),
+      ];
+      for (const item of allSellItems) {
+        try {
+          await bmiPost("booking/sell", item);
+        } catch { /* non-fatal */ }
+      }
+
+      // Add POV/add-on prices to the displayed totals
+      let addOnSubtotal = 0;
+      if (pov && pov.quantity > 0) {
+        bmiLines.push({ name: "POV Video Footage", quantity: pov.quantity, amount: pov.price * pov.quantity });
+        addOnSubtotal += pov.price * pov.quantity;
+      }
+      for (const a of addOns) {
+        if (a.quantity > 0) {
+          bmiLines.push({ name: a.name, quantity: a.quantity, amount: a.price * a.quantity });
+          addOnSubtotal += a.price * a.quantity;
+        }
+      }
+      if (addOnSubtotal > 0) {
+        const addOnTax = calculateTax(addOnSubtotal);
+        bmiSubtotal += addOnSubtotal;
+        bmiTax += addOnTax;
+        bmiTotal += addOnSubtotal + addOnTax;
+        cashOwed += addOnSubtotal + addOnTax;
       }
 
       setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied, bmiTotal, bmiSubtotal, bmiTax, bmiLines });
