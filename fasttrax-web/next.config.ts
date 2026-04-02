@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "wuce3at4k1appcmf.public.blob.vercel-storage.com",
       },
+      {
+        protocol: "https",
+        hostname: "headpinz.com",
+      },
     ],
   },
   headers: async () => [
