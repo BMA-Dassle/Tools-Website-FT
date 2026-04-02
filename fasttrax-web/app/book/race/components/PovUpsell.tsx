@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-const POV_VIDEO = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/pov-footage-zJ2UgFa8SI4hFRGuYeKRJ9V7RnmnkK.mp4";
+const POV_VIDEO = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/viewpoint-pov-suJzzax08ZbSJpcdNKQvT9nNvWlgFc.mp4";
 
 export interface PovSelection {
   id: string;
