@@ -255,35 +255,69 @@ export default function OrderSummary({
         }));
       }
 
-      // ── Add POV and add-ons to the bill AFTER overview (sell destroys bill) ──
-      const allSellItems = [
-        ...(pov && pov.quantity > 0 ? [{ ProductId: Number(pov.id), Quantity: pov.quantity, OrderId: Number(orderId) }] : []),
-        ...addOns.filter(a => a.quantity > 0).map(a => ({ ProductId: Number(a.id), Quantity: a.quantity, OrderId: Number(orderId) })),
+      // ── Add POV and add-ons via SMS-Timing sell (BMI sell destroys bill) ──
+      const smsSellItems = [
+        ...(pov && pov.quantity > 0 ? [{ productId: pov.id, quantity: pov.quantity }] : []),
+        ...addOns.filter(a => a.quantity > 0).map(a => ({ productId: a.id, quantity: a.quantity })),
       ];
-      for (const item of allSellItems) {
-        try {
-          await bmiPost("booking/sell", item);
-        } catch { /* non-fatal */ }
-      }
 
-      // Add POV/add-on prices to the displayed totals
-      let addOnSubtotal = 0;
-      if (pov && pov.quantity > 0) {
-        bmiLines.push({ name: "POV Video Footage", quantity: pov.quantity, amount: pov.price * pov.quantity });
-        addOnSubtotal += pov.price * pov.quantity;
-      }
-      for (const a of addOns) {
-        if (a.quantity > 0) {
-          bmiLines.push({ name: a.name, quantity: a.quantity, amount: a.price * a.quantity });
-          addOnSubtotal += a.price * a.quantity;
+      if (smsSellItems.length > 0) {
+        // Sell via SMS-Timing (preserves the bill)
+        const sellPayload = smsSellItems.map(item => ({
+          productId: item.productId,
+          pageId: null,
+          quantity: item.quantity,
+          billId: orderId,
+          dynamicLines: null,
+          sellKind: 0,
+        }));
+
+        try {
+          const smsRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(sellPayload),
+          });
+          const smsResult = await smsRes.json();
+          console.log("[sms booking/sell add-ons]", smsResult.success);
+        } catch {
+          console.warn("[sms booking/sell failed]");
         }
-      }
-      if (addOnSubtotal > 0) {
-        const addOnTax = calculateTax(addOnSubtotal);
-        bmiSubtotal += addOnSubtotal;
-        bmiTax += addOnTax;
-        bmiTotal += addOnSubtotal + addOnTax;
-        cashOwed += addOnSubtotal + addOnTax;
+
+        // Re-fetch overview to get updated totals with add-ons
+        try {
+          const updated = await bmiGet(`order/${orderId}/overview`);
+          const uCash = updated.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+          const uSub = updated.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
+          const uTax = updated.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
+          if (uCash) { bmiTotal = uCash.amount; cashOwed = uCash.amount; }
+          if (uSub) bmiSubtotal = uSub.amount;
+          if (uTax) bmiTax = uTax.amount;
+          if (updated.lines) {
+            bmiLines = updated.lines.map((l: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }) => {
+              const cp = l.totalPrice?.find(p => p.depositKind === 0);
+              return { name: l.name, quantity: l.quantity, amount: cp?.amount ?? 0 };
+            });
+          }
+        } catch {
+          // Fallback: add prices manually if overview fails
+          let addOnSub = 0;
+          if (pov && pov.quantity > 0) {
+            bmiLines.push({ name: "POV Video Footage", quantity: pov.quantity, amount: pov.price * pov.quantity });
+            addOnSub += pov.price * pov.quantity;
+          }
+          for (const a of addOns.filter(x => x.quantity > 0)) {
+            bmiLines.push({ name: a.name, quantity: a.quantity, amount: a.price * a.quantity });
+            addOnSub += a.price * a.quantity;
+          }
+          if (addOnSub > 0) {
+            const addTax = calculateTax(addOnSub);
+            bmiSubtotal += addOnSub;
+            bmiTax += addTax;
+            bmiTotal += addOnSub + addTax;
+            cashOwed += addOnSub + addTax;
+          }
+        }
       }
 
       setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied, bmiTotal, bmiSubtotal, bmiTax, bmiLines });
