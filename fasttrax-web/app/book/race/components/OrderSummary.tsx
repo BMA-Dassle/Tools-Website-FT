@@ -39,7 +39,7 @@ interface OrderSummaryProps {
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
   /** Selected add-on activities */
-  addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean; proposal?: unknown; block?: unknown }[];
+  addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean; proposal?: unknown; block?: unknown; selectedTime?: string }[];
   /** Selected POV cameras */
   pov?: { id: string; quantity: number; price: number } | null;
 }
@@ -622,6 +622,56 @@ export default function OrderSummary({
           </div>
         ))
       )}
+
+      {/* Add-on cards — sorted by time with race cards above */}
+      {(() => {
+        // Build combined sorted list of add-ons (POV + activities)
+        const addOnCards: { key: string; name: string; time?: string; qty: number; qtyLabel: string; price: number; isAddon: true }[] = [];
+        if (pov && pov.quantity > 0) {
+          addOnCards.push({ key: "pov", name: "POV Video Footage", qty: pov.quantity, qtyLabel: `${pov.quantity} camera${pov.quantity !== 1 ? "s" : ""}`, price: pov.price * pov.quantity, isAddon: true });
+        }
+        for (const a of addOns.filter(x => x.quantity > 0)) {
+          addOnCards.push({ key: `addon-${a.id}`, name: a.name, time: a.selectedTime, qty: a.quantity, qtyLabel: a.perPerson ? `${a.quantity} ${a.quantity === 1 ? "person" : "people"}` : `${a.quantity}`, price: a.price * a.quantity, isAddon: true });
+        }
+        // Sort by time (items without time go last)
+        addOnCards.sort((a, b) => {
+          if (!a.time && !b.time) return 0;
+          if (!a.time) return 1;
+          if (!b.time) return -1;
+          return a.time.localeCompare(b.time);
+        });
+
+        return addOnCards.map(card => (
+          <div key={card.key} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 divide-y divide-white/[0.08]">
+            <div className="p-4">
+              <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-wider mb-1">Add-On</p>
+              <p className="text-white font-bold">{card.name}</p>
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-4">
+              {card.time ? (
+                <>
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Date</p>
+                    <p className="text-white text-sm">{formatDate(date)}</p>
+                  </div>
+                  <div>
+                    <p className="text-white/40 text-xs mb-1">Time</p>
+                    <p className="text-white text-sm">{formatTime(card.time)}</p>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <p className="text-white/40 text-xs mb-1">{card.qtyLabel}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-white/40 text-xs mb-1">Price</p>
+                <p className="text-[#00E2E5] text-sm font-semibold">${card.price.toFixed(2)}</p>
+              </div>
+            </div>
+          </div>
+        ));
+      })()}
 
       {/* Price breakdown — from BMI bill */}
       <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">

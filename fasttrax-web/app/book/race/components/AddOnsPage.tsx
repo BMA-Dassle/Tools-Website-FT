@@ -233,6 +233,21 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
         </p>
       </div>
 
+      {/* Show booked race times for reference */}
+      {bookedHeats.length > 0 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <p className="text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-2">Your Race Schedule</p>
+          <div className="flex flex-wrap gap-2">
+            {bookedHeats.map((h, i) => (
+              <span key={i} className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/70 text-xs font-semibold">
+                {formatTime(h.start)}
+              </span>
+            ))}
+          </div>
+          <p className="text-white/30 text-[10px] mt-1.5">Pick add-on times that don&apos;t overlap with your races</p>
+        </div>
+      )}
+
       <div className="grid gap-4">
         {ADD_ONS.map(addon => {
           const qty = getQty(addon.id);
