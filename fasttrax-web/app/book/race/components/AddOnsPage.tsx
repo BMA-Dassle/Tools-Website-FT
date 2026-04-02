@@ -36,7 +36,7 @@ interface TimeSlot {
 interface AddOnsPageProps {
   racerCount: number;
   date: string; // YYYY-MM-DD
-  bookedHeats: { start: string; stop: string }[]; // race heats to avoid
+  bookedHeats: { start: string; stop: string; track: string | null }[]; // race heats to avoid
   onContinue: (addOns: AddOnItem[]) => void;
   onBack: () => void;
 }
@@ -238,11 +238,18 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <p className="text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-2">Your Race Schedule</p>
           <div className="flex flex-wrap gap-2">
-            {bookedHeats.map((h, i) => (
-              <span key={i} className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/70 text-xs font-semibold">
-                {formatTime(h.start)}
-              </span>
-            ))}
+            {bookedHeats.map((h, i) => {
+              const color = h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5";
+              return (
+                <span
+                  key={i}
+                  className="px-3 py-1 rounded-full text-xs font-semibold border"
+                  style={{ borderColor: color, color, backgroundColor: `${color}15` }}
+                >
+                  🏎️ {formatTime(h.start)} — {h.track ?? "Race"}
+                </span>
+              );
+            })}
           </div>
           <p className="text-white/30 text-[10px] mt-1.5">Pick add-on times that don&apos;t overlap with your races</p>
         </div>
@@ -376,22 +383,49 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                         <div className="space-y-1.5">
                           <p className="text-white/50 text-[10px] uppercase tracking-wider font-semibold">Select a time</p>
                           <div className="flex flex-wrap gap-1.5">
-                            {(timeSlots[addon.id] || []).map((slot, idx) => {
-                              const isChosen = selectedTimes[addon.id] === idx;
-                              return (
-                                <button
-                                  key={slot.start}
-                                  onClick={() => setSelectedTimes(prev => ({ ...prev, [addon.id]: idx }))}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                    isChosen
-                                      ? "bg-[#00E2E5] text-[#000418]"
-                                      : "bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white"
-                                  }`}
-                                >
-                                  {formatTime(slot.start)}
-                                </button>
-                              );
-                            })}
+                            {(() => {
+                              const slots = timeSlots[addon.id] || [];
+                              // Merge race heats into the timeline
+                              const allItems: { time: string; type: "slot" | "race"; idx?: number; trackColor?: string; label: string }[] = [
+                                ...slots.map((s, idx) => ({ time: s.start, type: "slot" as const, idx, label: formatTime(s.start) })),
+                                ...bookedHeats.map(h => ({
+                                  time: h.start,
+                                  type: "race" as const,
+                                  trackColor: h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5",
+                                  label: formatTime(h.start),
+                                })),
+                              ];
+                              allItems.sort((a, b) => a.time.localeCompare(b.time));
+                              // Deduplicate (race heat times already filtered from slots)
+                              return allItems.map((item, i) => {
+                                if (item.type === "race") {
+                                  return (
+                                    <span
+                                      key={`race-${i}`}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-bold border-2 opacity-70 cursor-not-allowed"
+                                      style={{ borderColor: item.trackColor, color: item.trackColor, backgroundColor: `${item.trackColor}15` }}
+                                      title="Your race"
+                                    >
+                                      {item.label} 🏎️
+                                    </span>
+                                  );
+                                }
+                                const isChosen = selectedTimes[addon.id] === item.idx;
+                                return (
+                                  <button
+                                    key={`slot-${item.idx}`}
+                                    onClick={() => setSelectedTimes(prev => ({ ...prev, [addon.id]: item.idx! }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                      isChosen
+                                        ? "bg-[#00E2E5] text-[#000418]"
+                                        : "bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white"
+                                    }`}
+                                  >
+                                    {item.label}
+                                  </button>
+                                );
+                              });
+                            })()}
                           </div>
                           {selectedTimes[addon.id] !== undefined && (
                             <p className="text-white/30 text-[10px]">

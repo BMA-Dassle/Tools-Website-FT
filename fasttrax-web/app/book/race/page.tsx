@@ -453,7 +453,7 @@ export default function BookRacePage() {
           <AddOnsPage
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
             date={selectedDate || ""}
-            bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop }))}
+            bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
             onContinue={(addOns) => {
               setSelectedAddOns(addOns);
               if (verifiedPerson && contact) {
