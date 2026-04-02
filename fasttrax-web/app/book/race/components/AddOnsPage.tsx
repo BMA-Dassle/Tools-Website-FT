@@ -17,10 +17,26 @@ export interface AddOnItem {
   color: string;
   location: "fasttrax" | "headpinz";
   quantity: number; // selected quantity
+  // Scheduling (for entry/bookable products)
+  selectedTime?: string; // ISO start time
+  proposal?: unknown; // full proposal for booking/book
+  block?: unknown; // selected block
+}
+
+interface TimeSlot {
+  start: string;
+  stop: string;
+  name: string;
+  freeSpots: number;
+  capacity: number;
+  proposal: unknown;
+  block: unknown;
 }
 
 interface AddOnsPageProps {
   racerCount: number;
+  date: string; // YYYY-MM-DD
+  bookedHeats: { start: string; stop: string }[]; // race heats to avoid
   onContinue: (addOns: AddOnItem[]) => void;
   onBack: () => void;
 }
@@ -74,8 +90,38 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
   },
 ];
 
-export default function AddOnsPage({ racerCount, onContinue, onBack }: AddOnsPageProps) {
+function parseLocal(iso: string): Date {
+  const clean = iso.replace(/Z$/, "");
+  const [datePart, timePart] = clean.split("T");
+  if (!timePart) return new Date(clean);
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [h, min, s] = timePart.split(":").map(Number);
+  return new Date(y, m - 1, d, h, min, s || 0);
+}
+
+function formatTime(iso: string): string {
+  const d = parseLocal(iso);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+// Check if a time slot conflicts with any booked race heat (30 min buffer)
+function conflictsWithRace(slotStart: string, slotStop: string, heats: { start: string; stop: string }[]): boolean {
+  const sStart = parseLocal(slotStart).getTime();
+  const sStop = parseLocal(slotStop).getTime();
+  const buffer = 30 * 60_000;
+  return heats.some(h => {
+    const hStart = parseLocal(h.start).getTime();
+    const hStop = parseLocal(h.stop).getTime();
+    // Overlap or within buffer
+    return sStart < (hStop + buffer) && sStop > (hStart - buffer);
+  });
+}
+
+export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, onBack }: AddOnsPageProps) {
   const [selections, setSelections] = useState<Record<string, number>>({});
+  const [timeSlots, setTimeSlots] = useState<Record<string, TimeSlot[]>>({});
+  const [selectedTimes, setSelectedTimes] = useState<Record<string, number>>({}); // index into timeSlots
+  const [loadingSlots, setLoadingSlots] = useState<Record<string, boolean>>({});
 
   function getQty(id: string) {
     return selections[id] || 0;
@@ -83,12 +129,93 @@ export default function AddOnsPage({ racerCount, onContinue, onBack }: AddOnsPag
 
   function setQty(id: string, qty: number) {
     setSelections(prev => ({ ...prev, [id]: Math.max(0, qty) }));
+    // Fetch time slots when first selected
+    if (qty > 0 && !timeSlots[id] && !loadingSlots[id]) {
+      fetchTimeSlots(id, qty);
+    }
+    if (qty === 0) {
+      setSelectedTimes(prev => { const n = { ...prev }; delete n[id]; return n; });
+    }
+  }
+
+  async function fetchTimeSlots(productId: string, qty: number) {
+    setLoadingSlots(prev => ({ ...prev, [productId]: true }));
+    try {
+      const dateOnly = date.split("T")[0];
+      const allSlots: TimeSlot[] = [];
+      const seen = new Set<string>();
+
+      // Fetch in 2-hour jumps
+      const startHours = [11, 13, 15, 17, 19, 21];
+      for (const hour of startHours) {
+        const h = String(hour).padStart(2, "0");
+        const utcTime = `${dateOnly}T${h}:00:00.000Z`;
+        try {
+          const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              productId,
+              pageId: "42730172", // Private add-ons page
+              quantity: qty,
+              dynamicLines: null,
+              date: utcTime,
+            }),
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          for (const p of (data.proposals || [])) {
+            const block = p.blocks?.[0]?.block;
+            if (!block) continue;
+            const key = block.start;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            // Skip if conflicts with race heats
+            if (conflictsWithRace(block.start, block.stop, bookedHeats)) continue;
+
+            allSlots.push({
+              start: block.start,
+              stop: block.stop,
+              name: block.name,
+              freeSpots: block.freeSpots,
+              capacity: block.capacity,
+              proposal: p,
+              block,
+            });
+          }
+        } catch { /* skip this hour */ }
+      }
+
+      allSlots.sort((a, b) => a.start.localeCompare(b.start));
+      setTimeSlots(prev => ({ ...prev, [productId]: allSlots }));
+
+      // Auto-select first available slot
+      if (allSlots.length > 0) {
+        setSelectedTimes(prev => ({ ...prev, [productId]: 0 }));
+      }
+    } catch {
+      setTimeSlots(prev => ({ ...prev, [productId]: [] }));
+    } finally {
+      setLoadingSlots(prev => ({ ...prev, [productId]: false }));
+    }
   }
 
   function handleContinue() {
     const addOns: AddOnItem[] = ADD_ONS
       .filter(a => getQty(a.id) > 0)
-      .map(a => ({ ...a, quantity: getQty(a.id) }));
+      .map(a => {
+        const slots = timeSlots[a.id] || [];
+        const selectedIdx = selectedTimes[a.id];
+        const slot = selectedIdx !== undefined ? slots[selectedIdx] : undefined;
+        return {
+          ...a,
+          quantity: getQty(a.id),
+          selectedTime: slot?.start,
+          proposal: slot?.proposal,
+          block: slot?.block,
+        };
+      });
     onContinue(addOns);
   }
 
@@ -219,6 +346,47 @@ export default function AddOnsPage({ racerCount, onContinue, onBack }: AddOnsPag
                       </span>
                     )}
                   </div>
+
+                  {/* Time picker — shows when add-on is selected */}
+                  {isSelected && (
+                    <div className="mt-3 pt-3 border-t border-white/10">
+                      {loadingSlots[addon.id] ? (
+                        <div className="flex items-center gap-2 text-white/40 text-xs">
+                          <div className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin" />
+                          Loading available times...
+                        </div>
+                      ) : (timeSlots[addon.id]?.length ?? 0) === 0 ? (
+                        <p className="text-amber-400/70 text-xs">No times available on this date</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <p className="text-white/50 text-[10px] uppercase tracking-wider font-semibold">Select a time</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(timeSlots[addon.id] || []).map((slot, idx) => {
+                              const isChosen = selectedTimes[addon.id] === idx;
+                              return (
+                                <button
+                                  key={slot.start}
+                                  onClick={() => setSelectedTimes(prev => ({ ...prev, [addon.id]: idx }))}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                    isChosen
+                                      ? "bg-[#00E2E5] text-[#000418]"
+                                      : "bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white"
+                                  }`}
+                                >
+                                  {formatTime(slot.start)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {selectedTimes[addon.id] !== undefined && (
+                            <p className="text-white/30 text-[10px]">
+                              {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].start)} — {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].stop)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

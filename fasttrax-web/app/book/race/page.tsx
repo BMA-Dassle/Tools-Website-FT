@@ -452,6 +452,8 @@ export default function BookRacePage() {
         {step === "addons" && (
           <AddOnsPage
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
+            date={selectedDate || ""}
+            bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop }))}
             onContinue={(addOns) => {
               setSelectedAddOns(addOns);
               if (verifiedPerson && contact) {
@@ -485,7 +487,7 @@ export default function BookRacePage() {
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
             onOrderCreated={setActiveOrderId}
-            addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson }))}
+            addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block }))}
             pov={selectedPov}
             onRemoveBooking={(index) => {
               cancelActiveOrder();

@@ -39,7 +39,7 @@ interface OrderSummaryProps {
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
   /** Selected add-on activities */
-  addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean }[];
+  addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean; proposal?: unknown; block?: unknown }[];
   /** Selected POV cameras */
   pov?: { id: string; quantity: number; price: number } | null;
 }
@@ -255,34 +255,52 @@ export default function OrderSummary({
         }));
       }
 
-      // ── Add POV and add-ons via SMS-Timing sell (BMI sell destroys bill) ──
-      const smsSellItems = [
-        ...(pov && pov.quantity > 0 ? [{ productId: pov.id, quantity: pov.quantity }] : []),
-        ...addOns.filter(a => a.quantity > 0).map(a => ({ productId: a.id, quantity: a.quantity })),
-      ];
+      // ── Add POV and add-ons via SMS-Timing (preserves bill) ──────────
 
-      if (smsSellItems.length > 0) {
-        // Sell via SMS-Timing (preserves the bill)
-        const sellPayload = smsSellItems.map(item => ({
-          productId: item.productId,
-          pageId: null,
-          quantity: item.quantity,
-          billId: orderId,
-          dynamicLines: null,
-          sellKind: 0,
-        }));
-
+      // POV: use sell (no time slot needed)
+      if (pov && pov.quantity > 0) {
         try {
-          const smsRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
+          await fetch("/api/sms?endpoint=booking%2Fsell", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(sellPayload),
+            body: JSON.stringify([{
+              productId: pov.id,
+              pageId: null,
+              quantity: pov.quantity,
+              billId: orderId,
+              dynamicLines: null,
+              sellKind: 0,
+            }]),
           });
-          const smsResult = await smsRes.json();
-          console.log("[sms booking/sell add-ons]", smsResult.success);
-        } catch {
-          console.warn("[sms booking/sell failed]");
-        }
+        } catch { /* non-fatal */ }
+      }
+
+      // Activity add-ons: use booking/book with time slot proposal
+      for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
+        try {
+          await fetch("/api/sms?endpoint=booking%2Fbook", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              productId: addon.id,
+              pageId: "42730172",
+              quantity: addon.quantity,
+              billId: orderId,
+              dynamicLines: null,
+              sellKind: 0,
+              resourceId: (addon.block as { resourceId?: string })?.resourceId || "-1",
+              proposal: {
+                blocks: [(addon.proposal as { blocks: unknown[] }).blocks[0]],
+                productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
+                selected: true,
+              },
+            }),
+          });
+        } catch { /* non-fatal */ }
+      }
+
+      const hasAddOns = (pov && pov.quantity > 0) || addOns.some(a => a.quantity > 0 && a.proposal);
+      if (hasAddOns) {
 
         // Re-fetch overview to get updated totals with add-ons
         try {
