@@ -118,9 +118,9 @@ export default function BookRacePage() {
 
   function handlePersonVerified(person: PersonData) {
     setVerifiedPerson(person);
-    // Add as first racer
-    setVerifiedRacers([person]);
-    setAdults(1);
+    // Don't set category yet — will be asked on party step
+    setVerifiedRacers([{ ...person, category: undefined }]);
+    setAdults(0);
     setJuniors(0);
     // Pre-fill contact from verified person
     const nameParts = person.fullName.split(" ");
@@ -130,8 +130,19 @@ export default function BookRacePage() {
       email: person.email,
       phone: "",
     });
-    // Auto-advance to party
+    // Go to party step — will show category choice for primary
     setTimeout(() => setStep("party"), 300);
+  }
+
+  function handlePrimaryCategorySelect(cat: "adult" | "junior") {
+    setVerifiedRacers(prev => prev.map((r, i) => i === 0 ? { ...r, category: cat } : r));
+    if (cat === "junior") {
+      setAdults(0);
+      setJuniors(1);
+    } else {
+      setAdults(1);
+      setJuniors(0);
+    }
   }
 
   function handleAddRacer(person: PersonData, category: "adult" | "junior") {
@@ -448,7 +459,31 @@ export default function BookRacePage() {
               </p>
             </div>
 
+            {/* Primary racer category choice (if not set) */}
+            {verifiedRacers.length > 0 && !verifiedRacers[0]?.category && (
+              <div className="max-w-md mx-auto rounded-xl border border-[#8652FF]/30 bg-[#8652FF]/5 p-4 space-y-3">
+                <p className="text-white font-semibold text-sm text-center">{verifiedRacers[0].fullName}, are you racing as...</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handlePrimaryCategorySelect("adult")}
+                    className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
+                  >
+                    <span className="block">Adult</span>
+                    <span className="text-white/30 text-[10px]">13+ &middot; 59&quot;+ tall</span>
+                  </button>
+                  <button
+                    onClick={() => handlePrimaryCategorySelect("junior")}
+                    className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
+                  >
+                    <span className="block">Junior</span>
+                    <span className="text-white/30 text-[10px]">7-13 &middot; 49&quot;+ tall</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Verified racers list */}
+            {verifiedRacers[0]?.category && (
             <div className="max-w-md mx-auto space-y-2">
               {verifiedRacers.map((r, i) => (
                 <div key={r.personId} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-center justify-between gap-3">
@@ -545,23 +580,27 @@ export default function BookRacePage() {
                 </div>
               )}
             </div>
+            )}
 
-            {/* Summary */}
-            <div className="max-w-md mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-xs text-white/40 text-center">
-              {verifiedRacers.length} racer{verifiedRacers.length !== 1 ? "s" : ""} in your party
-            </div>
+            {verifiedRacers[0]?.category && (
+              <>
+                <div className="max-w-md mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-xs text-white/40 text-center">
+                  {verifiedRacers.length} racer{verifiedRacers.length !== 1 ? "s" : ""} in your party
+                </div>
 
-            <div className="flex items-center justify-between max-w-md mx-auto">
-              <button onClick={() => { setStep("experience"); setVerifiedPerson(null); setVerifiedRacers([]); }} className="text-sm text-white/40 hover:text-white/70 transition-colors">
-                ← Back
-              </button>
-              <button
-                onClick={handlePartyNext}
-                className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
-              >
-                Next: Pick a Date →
-              </button>
-            </div>
+                <div className="flex items-center justify-between max-w-md mx-auto">
+                  <button onClick={() => { setStep("experience"); setVerifiedPerson(null); setVerifiedRacers([]); }} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                    ← Back
+                  </button>
+                  <button
+                    onClick={handlePartyNext}
+                    className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+                  >
+                    Next: Pick a Date →
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
