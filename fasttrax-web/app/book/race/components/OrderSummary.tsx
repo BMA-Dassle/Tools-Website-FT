@@ -179,32 +179,9 @@ export default function OrderSummary({
         }
       }
 
-      // ── Add POV and add-ons to the bill BEFORE registerContactPerson ──
-      // registerContactPerson (especially with personId) can convert the
-      // order to a reservation, so all items must be on the bill first.
-
-      // POV: use SMS-Timing sell (no time slot needed, preserves bill)
-      if (pov && pov.quantity > 0) {
-        try {
-          console.log("[POV sell]", { productId: pov.id, quantity: pov.quantity, billId: orderId });
-          const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify([{
-              productId: pov.id,
-              pageId: null,
-              quantity: pov.quantity,
-              billId: String(orderId),
-              dynamicLines: null,
-              sellKind: 0,
-            }]),
-          });
-          const povResult = await povRes.json();
-          console.log("[POV sell result]", povRes.status, JSON.stringify(povResult));
-        } catch (err) {
-          console.error("[POV sell error]", err);
-        }
-      }
+      // ── Add add-ons and POV to the bill BEFORE registerContactPerson ──
+      // Order: booking/book items first (preserves orderId), then SMS sell
+      // items last (sell can create a separate billId).
 
       // Activity add-ons: use BMI booking/book (same as races) to add to existing order
       console.log("[add-ons] processing", addOns.length, "add-ons, with proposal:", addOns.map(a => ({ id: a.id, name: a.name, qty: a.quantity, hasProposal: !!a.proposal })));
@@ -232,6 +209,29 @@ export default function OrderSummary({
           console.log("[add-on book result]", addon.name, JSON.stringify(result));
         } catch (err) {
           console.error("[add-on book error]", addon.name, err);
+        }
+      }
+
+      // POV: use SMS-Timing sell AFTER booking/book items (sell creates separate billId)
+      if (pov && pov.quantity > 0) {
+        try {
+          console.log("[POV sell]", { productId: pov.id, quantity: pov.quantity, billId: orderId });
+          const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify([{
+              productId: pov.id,
+              pageId: null,
+              quantity: pov.quantity,
+              billId: String(orderId),
+              dynamicLines: null,
+              sellKind: 0,
+            }]),
+          });
+          const povResult = await povRes.json();
+          console.log("[POV sell result]", povRes.status, JSON.stringify(povResult));
+        } catch (err) {
+          console.error("[POV sell error]", err);
         }
       }
 
