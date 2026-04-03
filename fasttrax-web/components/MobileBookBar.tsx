@@ -49,8 +49,6 @@ export default function MobileBookBar() {
         <div className="flex gap-2">
           <a
             href="/book/race"
-            target="_blank"
-            rel="noopener noreferrer"
             onClick={trackBookingClick}
             className="flex-1 block bg-[#E53935] hover:bg-[#c62828] text-white font-[var(--font-poppins)] font-bold text-sm py-3.5 rounded-full text-center uppercase tracking-widest transition-colors"
           >

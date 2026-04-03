@@ -107,8 +107,6 @@ export default function RacerJourney() {
           <div className="flex flex-wrap gap-3">
             <a
               href="/book/race"
-              target="_blank"
-              rel="noopener noreferrer"
               onClick={trackBookingClick}
               className="font-[var(--font-poppins)] font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)" }}

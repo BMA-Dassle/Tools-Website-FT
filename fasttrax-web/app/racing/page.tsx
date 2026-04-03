@@ -642,8 +642,6 @@ export default function RacingPage() {
           <div className="text-center mt-10">
             <a
               href="/book/race"
-              target="_blank"
-              rel="noopener noreferrer"
               onClick={trackBookingClick}
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
@@ -902,8 +900,6 @@ export default function RacingPage() {
           </h2>
           <a
             href="/book/race"
-            target="_blank"
-            rel="noopener noreferrer"
             onClick={trackBookingClick}
             className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{

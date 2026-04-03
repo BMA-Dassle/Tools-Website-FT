@@ -668,8 +668,6 @@ export default function LeaderboardsPage() {
             </p>
             <a
               href="/book/race"
-              target="_blank"
-              rel="noopener noreferrer"
               onClick={trackBookingClick}
               className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
@@ -987,8 +985,6 @@ export default function LeaderboardsPage() {
           <div className="flex flex-wrap gap-4 justify-center">
             <a
               href="/book/race"
-              target="_blank"
-              rel="noopener noreferrer"
               onClick={trackBookingClick}
               className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{

@@ -63,8 +63,6 @@ export default function PromoCard() {
               <div className="flex flex-wrap gap-3">
                 <a
                   href="/book/race"
-                  target="_blank"
-                  rel="noopener noreferrer"
                   onClick={trackBookingClick}
                   className="bg-[#E53935] hover:bg-[#c62828] text-white font-[var(--font-jakarta)] font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors"
                 >
