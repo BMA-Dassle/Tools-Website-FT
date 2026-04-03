@@ -24,6 +24,8 @@ interface Booking {
   billLineId?: string;
   /** Which bills this booking spans (one per racer) */
   bills?: RacerBill[];
+  /** Line IDs for each race on each bill (for removal) */
+  billLineIds?: { billId: string; lineId: string }[];
 }
 import type { ContactInfo } from "./components/ContactForm";
 import type { PersonData } from "./components/ReturningRacerLookup";
@@ -234,32 +236,33 @@ export default function BookRacePage() {
       const racerCount = cat === "adult" ? adults : juniors;
       console.log("[handleConfirmHeat]", JSON.stringify({ cat, existingBills: existingCatBills.length, catRacersCount: catRacers.length, allRacersWithCats: verifiedRacers.map(r => ({ n: r.fullName?.substring(0,10), c: r.category, p: r.personId })) }));
 
+      let createdBills: RacerBill[] = [];
+
       if (existingCatBills.length > 0) {
         // Bills exist for this category — add this race to them
+        createdBills = existingCatBills;
         for (const bill of existingCatBills) {
           const { billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
           if (billLineId) bookingBillLineIds.push({ billId: bill.billId, lineId: billLineId });
         }
       } else if (racerType === "existing" && verifiedRacers.length > 0) {
         // Returning racers: one bill per person matching THIS category
-        // If category filter returns nothing, use racers without category (primary)
         const matchingRacers = catRacers.length > 0
           ? catRacers
           : verifiedRacers.filter(r => !r.category || r.category === cat);
-        const newBills: RacerBill[] = [];
-        for (const racer of (matchingRacers.length > 0 ? matchingRacers : [verifiedPerson!].filter(Boolean))) {
+        const racersToBook = matchingRacers.length > 0 ? matchingRacers : [verifiedPerson!].filter(Boolean);
+        for (const racer of racersToBook) {
           const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
-          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
+          createdBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
           if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
         }
-        setActiveBills(prev => [...prev, ...newBills]);
+        setActiveBills(prev => [...prev, ...createdBills]);
       } else {
         // New racers: one bill for the group
-        const newBills: RacerBill[] = [];
         const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
-        newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
         if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
-        setActiveBills(prev => [...prev, ...newBills]);
+        setActiveBills(prev => [...prev, ...createdBills]);
       }
 
       const booking: Booking = {
@@ -268,7 +271,8 @@ export default function BookRacePage() {
         proposal,
         block,
         blockPrice,
-        bills: existingCatBills.length > 0 ? existingCatBills : activeBills.filter(b => b.category === cat),
+        bills: createdBills, // set from local tracking above
+        billLineIds: bookingBillLineIds,
       };
 
       // If we cancelled existing (single re-select), bookings was already cleaned.
@@ -893,21 +897,29 @@ export default function BookRacePage() {
             pov={selectedPov}
             onRemoveBooking={async (index) => {
               const toRemove = bookings[index];
-              // Cancel the bills associated with this booking
-              if (toRemove?.bills) {
-                for (const bill of toRemove.bills) {
-                  // If this bill is shared with other bookings, just remove the line
-                  const otherBookingsOnBill = bookings.filter((b, i) => i !== index && b.bills?.some(bb => bb.billId === bill.billId));
-                  if (otherBookingsOnBill.length > 0 && toRemove.billLineId) {
-                    await removeBookingLine(bill.billId, toRemove.billLineId).catch(() => {});
+              // Remove this booking's lines from BMI bills
+              if (toRemove?.billLineIds && toRemove.billLineIds.length > 0) {
+                for (const { billId, lineId } of toRemove.billLineIds) {
+                  // Check if other bookings share this bill
+                  const otherBookingsOnBill = bookings.filter((b, i) => i !== index && b.bills?.some(bb => bb.billId === billId));
+                  if (otherBookingsOnBill.length > 0) {
+                    // Shared bill — just remove this line
+                    await removeBookingLine(billId, lineId).catch(() => {});
                   } else {
-                    // This bill is only for this booking — cancel the whole bill
+                    // Bill only has this booking — cancel the whole bill
+                    await bmiDelete(`bill/${billId}/cancel`).catch(() => {});
+                    setActiveBills(prev => prev.filter(b => b.billId !== billId));
+                  }
+                }
+              } else if (toRemove?.bills) {
+                // Fallback: cancel all bills for this booking
+                for (const bill of toRemove.bills) {
+                  const otherBookingsOnBill = bookings.filter((b, i) => i !== index && b.bills?.some(bb => bb.billId === bill.billId));
+                  if (otherBookingsOnBill.length === 0) {
                     await bmiDelete(`bill/${bill.billId}/cancel`).catch(() => {});
                     setActiveBills(prev => prev.filter(b => b.billId !== bill.billId));
                   }
                 }
-              } else if (toRemove?.billLineId && activeOrderId) {
-                await removeBookingLine(activeOrderId, toRemove.billLineId).catch(() => {});
               }
               setBookings(prev => {
                 const updated = prev.filter((_, i) => i !== index);
