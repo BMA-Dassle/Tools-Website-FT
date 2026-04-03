@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ClassifiedProduct, RacerType } from "../data";
 import { TIER_COLOR, TIER_LABELS, groupByTrack } from "../data";
 
@@ -38,6 +39,42 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
             : "Select from races you've qualified for."}
         </p>
       </div>
+
+      {/* Track descriptions */}
+      {products.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
+          <div className="relative rounded-xl overflow-hidden border border-red-500/30 aspect-[3/4]">
+            <Image
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp"
+              alt="Red Track"
+              fill
+              className="object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-red-900/90 via-red-900/40 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
+              <h3 className="font-display text-white text-lg uppercase tracking-wider mb-1">Red Track</h3>
+              <p className="text-white/70 text-[11px] leading-snug">
+                Sharp turns and relentless hairpins — a technical gauntlet for drivers who thrive on control.
+              </p>
+            </div>
+          </div>
+          <div className="relative rounded-xl overflow-hidden border border-blue-500/30 aspect-[3/4]">
+            <Image
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/racing-2.webp"
+              alt="Blue Track"
+              fill
+              className="object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/40 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
+              <h3 className="font-display text-white text-lg uppercase tracking-wider mb-1">Blue Track</h3>
+              <p className="text-white/70 text-[11px] leading-snug">
+                Smooth banks, sweeping turns, and high-speed straights — the perfect mix of speed and precision.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {products.length === 0 && (
         <div className="text-center py-8">
