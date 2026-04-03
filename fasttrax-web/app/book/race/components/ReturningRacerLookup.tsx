@@ -62,10 +62,15 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             (b.lastSeen || "").localeCompare(a.lastSeen || "")
           );
           const loginCode = tags[0]?.tag || "";
-          // Get membership names
+          // Get meaningful active membership names (filter out junk like "Default", "Testing")
+          const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
           const memberships = (p.memberships || [])
-            .filter((m: { stops: string }) => !m.stops || new Date(m.stops) > new Date())
-            .map((m: { name: string }) => m.name);
+            .filter((m: { stops: string; name: string }) =>
+              (!m.stops || new Date(m.stops) > new Date()) &&
+              RELEVANT_MEMBERSHIPS.some(r => m.name.toLowerCase().includes(r))
+            )
+            .map((m: { name: string }) => m.name)
+            .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i); // dedupe
           // Parse last seen from description or lastLineUp
           const lastSeen = p.lastLineUp
             ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
