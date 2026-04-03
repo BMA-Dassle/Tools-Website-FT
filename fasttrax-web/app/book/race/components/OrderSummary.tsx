@@ -132,23 +132,30 @@ export default function OrderSummary({
     setState({ status: "booking" });
     try {
       // Register contact on each bill + link personId for credits
+      // Use raw JSON to avoid Number() precision loss on large billIds
       for (const bill of bills) {
         try {
-          await bmiPost("person/registerContactPerson", {
+          const regBody: Record<string, unknown> = {
             firstName: contact.firstName,
             lastName: contact.lastName,
             email: contact.email,
             phone: contact.phone.replace(/\D/g, ""),
-            orderId: bill.billId,
+          };
+          // Register contact (without personId first)
+          const regJson = `{"orderId":${bill.billId},` + JSON.stringify(regBody).slice(1);
+          const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson" });
+          await fetch(`/api/bmi?${regQs.toString()}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: regJson,
           });
+          // Link personId to apply credits
           if (bill.personId) {
-            await bmiPost("person/registerContactPerson", {
-              personId: Number(bill.personId),
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone.replace(/\D/g, ""),
-              orderId: bill.billId,
+            const regWithPerson = `{"orderId":${bill.billId},"personId":${bill.personId},` + JSON.stringify(regBody).slice(1);
+            await fetch(`/api/bmi?${regQs.toString()}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: regWithPerson,
             });
           }
         } catch { /* non-fatal */ }
