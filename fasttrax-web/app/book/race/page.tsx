@@ -224,6 +224,7 @@ export default function BookRacePage() {
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
+    const bookingBillLineIds: { billId: string; lineId: string }[] = [];
     try {
       // Check if we already have bills for this category
       const existingCatBills = activeBills.filter(b => b.category === cat);
@@ -234,28 +235,28 @@ export default function BookRacePage() {
       console.log("[handleConfirmHeat]", cat, "existingBills:", existingCatBills.length);
 
       if (existingCatBills.length > 0) {
-        // Bills exist — add this race to them (don't cancel, don't create new)
+        // Bills exist — add this race to each existing bill
         for (const bill of existingCatBills) {
-          await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
+          const { billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
+          // Store billLineId for removal later
+          if (billLineId) bookingBillLineIds.push({ billId: bill.billId, lineId: billLineId });
         }
-      } else {
-        // No bills yet — create new
+      } else if (racerType === "existing" && verifiedRacers.length > 0) {
+        // Returning racers: one bill per person (for per-person credits)
+        // Use ALL verified racers, not just category-matched ones
         const newBills: RacerBill[] = [];
-        // Returning racers: match by category, fall back to verifiedPerson if no category match
-        const racers = catRacers.length > 0
-          ? catRacers
-          : (racerType === "existing" && verifiedPerson ? [verifiedPerson] : []);
-
-        if (racers.length > 0) {
-          for (const racer of racers) {
-            const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
-            newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
-          }
-        } else {
-          // New racers: one bill for the group
-          const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
-          newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        for (const racer of verifiedRacers) {
+          const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
+          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: racer.category || cat });
+          if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
         }
+        setActiveBills(prev => [...prev, ...newBills]);
+      } else {
+        // New racers: one bill for the group
+        const newBills: RacerBill[] = [];
+        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
+        newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
         setActiveBills(prev => [...prev, ...newBills]);
       }
 
