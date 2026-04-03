@@ -382,7 +382,7 @@ export default function ConfirmationPage() {
             </div>
 
             {/* RIGHT: Racer's Journey */}
-            <div>
+            <div className="lg:pt-2">
               <RacerJourneySteps />
             </div>
           </div>
@@ -428,11 +428,11 @@ function RacerJourneySteps() {
   return (
     <div className="space-y-4">
       {/* Header + Track Status */}
-      <div className="text-center">
-        <h2 className="font-display text-xl uppercase tracking-widest text-white mb-1">
+      <div className="text-center mb-2">
+        <h2 className="font-display text-2xl uppercase tracking-widest text-white">
           The Racer&apos;s Journey
         </h2>
-        <p className="text-white/40 text-xs">Arrive to drive</p>
+        <p className="text-white/40 text-sm">Arrive to Drive</p>
       </div>
 
       {/* Live Track Status */}
