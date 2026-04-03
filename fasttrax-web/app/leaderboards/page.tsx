@@ -8,8 +8,8 @@ import { trackBookingClick } from "@/lib/analytics";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
-const ACCESS_TOKEN = process.env.NEXT_PUBLIC_SMS_ACCESS_TOKEN || "32ombpyioiipibppmll";
-const API_BASE = "https://modules-api22.sms-timing.com/api/besttimes";
+// Besttimes API — proxied through /api/besttimes with auto-token renewal
+const API_BASE = "/api/besttimes";
 
 type BestTimeRecord = {
   position: number;
@@ -127,7 +127,7 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
     setLoading(true);
     try {
       const startDate = encodeURIComponent(getStartDate(timeRange));
-      const url = `${API_BASE}/records/headpinzftmyers?locale=en-US&rscId=${category.rscId}&scgId=${category.scgId}&startDate=${startDate}&endDate=&maxResult=10&accessToken=${ACCESS_TOKEN}&_t=${Date.now()}`;
+      const url = `${API_BASE}?endpoint=records&rscId=${category.rscId}&scgId=${category.scgId}&startDate=${startDate}&maxResult=10&_t=${Date.now()}`;
       const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       setRecords(data.records || []);
