@@ -117,23 +117,13 @@ export default function OrderSummary({
   }, []);
 
   async function runBookingFlow() {
-    console.log("[runBookingFlow] STARTED — all items already on bill, billId:", billId);
+    console.log("[runBookingFlow] STARTED — all items on bill, billId:", billId);
     setState({ status: "booking" });
     try {
-      // Everything (races, add-ons, POV) is already booked onto the bill.
-      // Just register contact and get overview.
+      // Everything (races, add-ons, POV) is already on the bill.
+      // Do NOT register contact here — that converts the order and breaks
+      // the ability to go back and modify. Contact is registered at payment time.
       const orderId = billId;
-
-      // ── Register contact and get overview ──────────────────────────────
-      try {
-        await bmiPost("person/registerContactPerson", {
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          phone: contact.phone.replace(/\D/g, ""),
-          orderId,
-        });
-      } catch { /* non-fatal */ }
 
       let bmiTotal = total;
       let bmiSubtotal = subtotal;
@@ -144,20 +134,15 @@ export default function OrderSummary({
       let creditApplied = 0;
 
       try {
-        let overview = await bmiGet(`order/${orderId}/overview`);
+        // Use SMS-Timing bill/overview (works on unconverted orders)
+        const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${orderId}`);
+        let overview = await overviewRes.json();
 
-        if (personId) {
-          try {
-            await bmiPost("person/registerContactPerson", {
-              personId: Number(personId),
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone.replace(/\D/g, ""),
-              orderId,
-            });
-            overview = await bmiGet(`order/${orderId}/overview`);
-          } catch { /* credits couldn't be applied — use cash totals */ }
+        // If returning racer with personId, check for credits
+        if (personId && overview.lines) {
+          // Look for credit deposit kinds in the overview
+          const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+          if (creditTotal) creditApplied = Math.abs(creditTotal.amount);
         }
 
         // Extract totals
@@ -216,6 +201,36 @@ export default function OrderSummary({
 
     setState({ status: "paying" });
     try {
+      // Register contact NOW (at payment time, not earlier — keeps bill editable)
+      try {
+        await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            email: contact.email,
+            phone: contact.phone.replace(/\D/g, ""),
+            billId: orderId,
+          }),
+        });
+        // If returning racer, link personId for credits
+        if (personId) {
+          await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              personId: Number(personId),
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone.replace(/\D/g, ""),
+              billId: orderId,
+            }),
+          });
+        }
+      } catch { /* non-fatal */ }
+
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";
 
