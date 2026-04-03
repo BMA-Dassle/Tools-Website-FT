@@ -124,9 +124,38 @@ export default function OrderSummary({
     setState({ status: "booking" });
     try {
       // Everything (races, add-ons, POV) is already on the bill.
-      // Do NOT register contact here — that converts the order and breaks
-      // the ability to go back and modify. Contact is registered at payment time.
+      // Register contact + personId now to apply credits and get accurate totals.
       const orderId = billId;
+
+      // Register contact person (attaches name to reservation)
+      try {
+        await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            email: contact.email,
+            phone: contact.phone.replace(/\D/g, ""),
+            billId: orderId,
+          }),
+        });
+        // If returning racer, link personId to apply credits
+        if (personId) {
+          await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              personId: Number(personId),
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone.replace(/\D/g, ""),
+              billId: orderId,
+            }),
+          });
+        }
+      } catch { /* non-fatal */ }
 
       let bmiTotal = total;
       let bmiSubtotal = subtotal;
@@ -137,16 +166,9 @@ export default function OrderSummary({
       let creditApplied = 0;
 
       try {
-        // Use SMS-Timing bill/overview (works on unconverted orders)
+        // Get overview (now with contact + credits applied)
         const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${orderId}`);
         let overview = await overviewRes.json();
-
-        // If returning racer with personId, check for credits
-        if (personId && overview.lines) {
-          // Look for credit deposit kinds in the overview
-          const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
-          if (creditTotal) creditApplied = Math.abs(creditTotal.amount);
-        }
 
         // Extract totals
         const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
@@ -204,49 +226,20 @@ export default function OrderSummary({
 
     setState({ status: "paying" });
     try {
-      // Register contact NOW (at payment time, not earlier — keeps bill editable)
-      try {
-        await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            firstName: contact.firstName,
-            lastName: contact.lastName,
-            email: contact.email,
-            phone: contact.phone.replace(/\D/g, ""),
-            billId: orderId,
-          }),
-        });
-        // If returning racer, link personId for credits
-        if (personId) {
-          await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              personId: Number(personId),
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone.replace(/\D/g, ""),
-              billId: orderId,
-            }),
+      // Contact + personId already registered in runBookingFlow.
+      // Register additional racers as project persons now.
+      for (const racer of additionalRacers) {
+        try {
+          const nameParts = racer.fullName.split(" ");
+          await bmiPost("person/registerProjectPerson", {
+            personId: Number(racer.personId),
+            firstName: nameParts[0] || "",
+            lastName: nameParts.slice(1).join(" ") || "",
+            orderId,
           });
-        }
-
-        // Register additional racers as project persons
-        for (const racer of additionalRacers) {
-          try {
-            const nameParts = racer.fullName.split(" ");
-            await bmiPost("person/registerProjectPerson", {
-              personId: Number(racer.personId),
-              firstName: nameParts[0] || "",
-              lastName: nameParts.slice(1).join(" ") || "",
-              orderId,
-            });
-            console.log("[registerProjectPerson]", racer.fullName, racer.personId);
-          } catch { /* non-fatal */ }
-        }
-      } catch { /* non-fatal */ }
+          console.log("[registerProjectPerson]", racer.fullName, racer.personId);
+        } catch { /* non-fatal */ }
+      }
 
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";

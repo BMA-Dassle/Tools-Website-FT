@@ -309,11 +309,6 @@ export default function BookRacePage() {
   function goToStep(s: Step) {
     const targetIdx = STEPS.indexOf(s);
     if (targetIdx < currentIdx) {
-      // Only cancel BMI order if going back PAST heat selection (to product/date/party)
-      if (targetIdx < STEPS.indexOf("heat")) {
-        cancelActiveOrder();
-        setBookings([]);
-      }
       setStep(s);
       // Reset downstream selections when going back
       if (targetIdx < STEPS.indexOf("product")) {
@@ -322,11 +317,11 @@ export default function BookRacePage() {
         setSelectedBlock(null);
         setPackResult(null);
         setBookingCategory(adults > 0 ? "adult" : "junior");
-        // Only clear cart when going all the way back to start
-        if (targetIdx <= STEPS.indexOf("party")) {
-          cancelActiveOrder();
-          setBookings([]);
-        }
+      }
+      // Only cancel the entire bill when going back to party/experience (starting over)
+      if (targetIdx <= STEPS.indexOf("party")) {
+        cancelActiveOrder();
+        setBookings([]);
       }
     }
   }
