@@ -331,35 +331,25 @@ export default function BookRacePage() {
     }
   }
 
-  // For returning racers, use the LOWEST tier across all verified racers
-  const partyMemberships = racerType === "existing" && verifiedRacers.length > 0
-    ? (() => {
-        // Find the lowest tier in the party
-        const tiers = verifiedRacers.map(r => {
-          const mems = (r.memberships || []).map(m => m.toLowerCase());
-          if (mems.some(m => m.includes("qualified pro"))) return 2;
-          if (mems.some(m => m.includes("qualified intermediate"))) return 1;
-          return 0;
-        });
-        const lowestTier = Math.min(...tiers);
-        // Return fake memberships matching the lowest tier
-        if (lowestTier >= 2) return ["Qualified Pro"];
-        if (lowestTier >= 1) return ["Qualified Intermediate"];
-        return [];
-      })()
-    : verifiedPerson?.memberships;
-
-  const lowestTierLabel = racerType === "existing" && verifiedRacers.length > 1
-    ? (() => {
-        const tiers = verifiedRacers.map(r => getRacerTier(r.memberships || []));
-        const levels = tiers.map(t => t === "Pro" ? 2 : t === "Intermediate" ? 1 : 0);
-        const lowest = Math.min(...levels);
-        return lowest >= 2 ? null : lowest >= 1 ? "Intermediate" : "Starter";
-      })()
-    : null;
+  // Per-category: find lowest tier among racers in each category
+  function getCategoryMemberships(cat: "adult" | "junior"): string[] | undefined {
+    if (racerType !== "existing") return undefined;
+    const catRacers = verifiedRacers.filter(r => r.category === cat);
+    if (catRacers.length === 0) return verifiedPerson?.memberships;
+    const tiers = catRacers.map(r => {
+      const mems = (r.memberships || []).map(m => m.toLowerCase());
+      if (mems.some(m => m.includes("qualified pro"))) return 2;
+      if (mems.some(m => m.includes("qualified intermediate"))) return 1;
+      return 0;
+    });
+    const lowestTier = Math.min(...tiers);
+    if (lowestTier >= 2) return ["Qualified Pro"];
+    if (lowestTier >= 1) return ["Qualified Intermediate"];
+    return [];
+  }
 
   const filteredProducts = racerType
-    ? filterProducts(catalogProducts, racerType, adults, juniors, partyMemberships)
+    ? filterProducts(catalogProducts, racerType, adults, juniors, getCategoryMemberships(bookingCategory))
         .filter(p => p.category === bookingCategory)
     : [];
 
@@ -630,14 +620,25 @@ export default function BookRacePage() {
               </div>
             )}
 
-            {/* Category header when booking for a specific group */}
-            {adults > 0 && juniors > 0 && (
-              <div className="text-center">
+            {/* Category header — always show for returning racers or mixed parties */}
+            {(adults > 0 && juniors > 0) || (racerType === "existing" && verifiedRacers.length > 0) ? (
+              <div className="text-center space-y-1">
                 <p className="text-[#00E2E5] text-sm font-semibold">
-                  Now pick a race for your {bookingCategory === "adult" ? `adult racer${adults > 1 ? "s" : ""} (${adults})` : `junior racer${juniors > 1 ? "s" : ""} (${juniors})`}
+                  {bookingCategory === "adult"
+                    ? `Scheduling for ${adults} adult${adults !== 1 ? "s" : ""}`
+                    : `Scheduling for ${juniors} junior${juniors !== 1 ? "s" : ""}`}
                 </p>
+                {racerType === "existing" && (() => {
+                  const catRacers = verifiedRacers.filter(r => r.category === bookingCategory);
+                  if (catRacers.length === 0) return null;
+                  return (
+                    <p className="text-white/40 text-xs">
+                      {catRacers.map(r => r.fullName).join(", ")}
+                    </p>
+                  );
+                })()}
               </div>
-            )}
+            ) : null}
 
             {catalogLoading ? (
               <div className="flex flex-col items-center justify-center gap-4 min-h-[200px]">
@@ -646,13 +647,21 @@ export default function BookRacePage() {
               </div>
             ) : (
               <>
-                {lowestTierLabel && racerType === "existing" && verifiedRacers.length > 1 && (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center mb-4">
-                    <p className="text-amber-400 text-xs">
-                      Showing <strong>{lowestTierLabel}</strong> and below — not everyone in your party has qualified for higher tiers.
-                    </p>
-                  </div>
-                )}
+                {racerType === "existing" && verifiedRacers.length > 1 && (() => {
+                  const catRacers = verifiedRacers.filter(r => r.category === bookingCategory);
+                  const catMems = getCategoryMemberships(bookingCategory) || [];
+                  const hasPro = catMems.some(m => m.toLowerCase().includes("qualified pro"));
+                  const hasInt = catMems.some(m => m.toLowerCase().includes("qualified intermediate"));
+                  const tierLabel = hasPro ? null : hasInt ? "Intermediate" : "Starter";
+                  if (!tierLabel || catRacers.length <= 1) return null;
+                  return (
+                    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center mb-4">
+                      <p className="text-amber-400 text-xs">
+                        Showing <strong>{tierLabel}</strong> and below for {bookingCategory}s — not everyone has qualified for higher tiers.
+                      </p>
+                    </div>
+                  );
+                })()}
                 <ProductPicker
                   products={filteredProducts}
                   racerType={racerType}
