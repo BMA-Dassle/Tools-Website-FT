@@ -44,8 +44,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
 
     setPhase("looking");
     try {
-      // Search via Office API for all people with this email
-      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}`);
+      // Search via Office API — get up to 200 results to find accounts with memberships
+      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}&max=200`);
       const results = await searchRes.json();
 
       if (!Array.isArray(results) || results.length === 0) {
@@ -53,20 +53,33 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         return;
       }
 
-      // Deduplicate search results by name — keep most recent per unique name
-      // Search description format: "Name phone: xxx Last seen: date Memberships: ..."
+      // Filter to only accounts with "Memberships:" in their description (real racers)
+      // Then deduplicate by name
+      const withMemberships = (results as { localId: string; description: string }[])
+        .filter(r => r.description.includes("Memberships:"));
+
       const byName = new Map<string, { localId: string; description: string }>();
-      for (const r of results as { localId: string; description: string }[]) {
+      for (const r of withMemberships) {
         const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].split(" Last seen:")[0].trim();
-        // Keep the first (most recent) entry per name
+        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
         if (!byName.has(name)) {
           byName.set(name, r);
         }
       }
 
-      // Fetch details only for unique names (max 5)
-      const uniqueEntries = [...byName.values()].slice(0, 5);
+      // If no accounts with memberships, also check accounts without (but dedup by name, max 5)
+      if (byName.size === 0) {
+        for (const r of results as { localId: string; description: string }[]) {
+          const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
+          const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
+          if (!byName.has(name)) {
+            byName.set(name, r);
+            if (byName.size >= 5) break;
+          }
+        }
+      }
+
+      const uniqueEntries = [...byName.values()].slice(0, 10);
       const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
 
       const detailPromises = uniqueEntries.map(async (r) => {
