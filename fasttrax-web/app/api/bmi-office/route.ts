@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -9,6 +10,16 @@ const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
 const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
 const OFFICE_PASS = Buffer.from(OFFICE_PASS_B64, "base64").toString();
 const SMS_VERSION = "6251006 202511051229";
+
+function officeHeaders(token: string) {
+  return {
+    "Authorization": `Bearer ${token}`,
+    "x-fast-version": SMS_VERSION,
+    "x-session-id": randomUUID(),
+    "Accept": "application/json, text/plain, */*",
+    "clientkey": CLIENT_KEY,
+  };
+}
 
 // ── Token cache ─────────────────────────────────────────────────────────────
 
@@ -21,7 +32,7 @@ async function getOfficeToken(): Promise<string> {
   }
 
   const body = `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`;
-  console.log(`[BMI Office auth] user=${OFFICE_USER} pass=${OFFICE_PASS} pass_length=${OFFICE_PASS.length}`);
+  console.log(`[BMI Office auth] user=${OFFICE_USER}`);
   const res = await fetch(`${OFFICE_API}/auth/token`, {
     method: "POST",
     headers: {
@@ -67,12 +78,7 @@ export async function GET(req: NextRequest) {
       const url = `${OFFICE_API}/api/${CLIENT_KEY}/search/person?token=${encodeURIComponent(query)}&maxResults=${max}`;
       console.log(`[BMI Office search] ${url} token_start=${token.substring(0, 20)}`);
       const res = await fetch(url, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "x-fast-version": SMS_VERSION,
-          "Accept": "application/json, text/plain, */*",
-          "clientkey": CLIENT_KEY,
-        },
+        headers: officeHeaders(token),
         cache: "no-store",
       });
       let rawText = await res.text();
@@ -85,7 +91,7 @@ export async function GET(req: NextRequest) {
         tokenExpiry = 0;
         token = await getOfficeToken();
         const retry = await fetch(url, {
-          headers: { "Authorization": `Bearer ${token}`, "x-fast-version": SMS_VERSION },
+          headers: officeHeaders(token),
           cache: "no-store",
         });
         rawText = await retry.text();
