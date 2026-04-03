@@ -215,12 +215,14 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
         const slots = timeSlots[a.id] || [];
         const selectedIdx = selectedTimes[a.id];
         const slot = selectedIdx !== undefined ? slots[selectedIdx] : undefined;
+        // If no slot selected but we have previous data from initialAddOns, carry it forward
+        const prev = initialAddOns?.find(ia => ia.id === a.id);
         return {
           ...a,
           quantity: getQty(a.id),
-          selectedTime: slot?.start,
-          proposal: slot?.proposal,
-          block: slot?.block,
+          selectedTime: slot?.start ?? prev?.selectedTime,
+          proposal: slot?.proposal ?? prev?.proposal,
+          block: slot?.block ?? prev?.block,
         };
       });
     onContinue(addOns);
