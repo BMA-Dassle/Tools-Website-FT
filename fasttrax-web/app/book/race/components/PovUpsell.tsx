@@ -8,6 +8,7 @@ export interface PovSelection {
   id: string;
   quantity: number;
   price: number;
+  billLineId?: string;
 }
 
 interface PovUpsellProps {

@@ -58,16 +58,6 @@ type BookingState =
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Inject orderId as raw number into JSON string (avoids JS Number precision loss) */
-function injectRawOrderId(jsonBody: string, rawOrderId: string): string {
-  return `{"orderId":${rawOrderId},` + jsonBody.slice(1);
-}
-
-/** Extract orderId from raw BMI response text (avoids Number precision loss) */
-function extractRawOrderId(responseText: string): string | null {
-  const m = responseText.match(/"orderId"\s*:\s*(\d+)/);
-  return m ? m[1] : null;
-}
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", {
@@ -127,69 +117,12 @@ export default function OrderSummary({
   }, []);
 
   async function runBookingFlow() {
-    console.log("[runBookingFlow] STARTED — races already booked, billId:", billId);
+    console.log("[runBookingFlow] STARTED — all items already on bill, billId:", billId);
     setState({ status: "booking" });
     try {
-      // Races are already booked at heat selection. Use the existing billId.
+      // Everything (races, add-ons, POV) is already booked onto the bill.
+      // Just register contact and get overview.
       const orderId = billId;
-
-      // ── Add add-ons to the same bill via BMI Public booking/book ──────
-      console.log("[add-ons] processing", addOns.length, "add-ons, orderId:", orderId);
-      for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
-        try {
-          const addonBody: Record<string, unknown> = {
-            productId: String(addon.id),
-            quantity: addon.quantity,
-            resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
-            proposal: {
-              blocks: (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks.map(b => ({
-                productLineIds: b.productLineIds || [],
-                block: {
-                  ...b.block,
-                  resourceId: Number((b.block as Record<string, unknown>).resourceId) || -1,
-                },
-              })),
-              productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
-            },
-          };
-          const addonJson = injectRawOrderId(JSON.stringify(addonBody), orderId);
-          console.log("[add-on book]", addon.name, "raw JSON orderId:", orderId);
-          const addonQs = new URLSearchParams({ endpoint: "booking/book" });
-          const addonRes = await fetch(`/api/bmi?${addonQs.toString()}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: addonJson,
-          });
-          const addonRaw = await addonRes.text();
-          const result = JSON.parse(addonRaw);
-          const resultOrderId = extractRawOrderId(addonRaw);
-          console.log("[add-on book result]", addon.name, "returned orderId:", resultOrderId, "same?", resultOrderId === orderId);
-        } catch (err) {
-          console.error("[add-on book error]", addon.name, err);
-        }
-      }
-
-      // POV: use SMS-Timing sell (after booking/book items)
-      if (pov && pov.quantity > 0) {
-        try {
-          const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify([{
-              productId: pov.id,
-              pageId: null,
-              quantity: pov.quantity,
-              billId: orderId,
-              dynamicLines: null,
-              sellKind: 0,
-            }]),
-          });
-          const povResult = await povRes.json();
-          console.log("[POV sell result]", povRes.status, JSON.stringify(povResult));
-        } catch (err) {
-          console.error("[POV sell error]", err);
-        }
-      }
 
       // ── Register contact and get overview ──────────────────────────────
       try {

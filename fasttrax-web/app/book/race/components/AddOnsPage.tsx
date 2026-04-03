@@ -21,6 +21,7 @@ export interface AddOnItem {
   selectedTime?: string; // ISO start time
   proposal?: unknown; // full proposal for booking/book
   block?: unknown; // selected block
+  billLineId?: string; // BMI line ID for removal
 }
 
 interface TimeSlot {

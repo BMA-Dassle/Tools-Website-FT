@@ -471,8 +471,37 @@ export default function BookRacePage() {
           <PovUpsell
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
             initial={selectedPov}
-            onContinue={(pov) => {
-              setSelectedPov(pov);
+            onContinue={async (pov) => {
+              // Remove old POV from bill if changing
+              if (selectedPov?.billLineId) {
+                await removeBookingLine(selectedPov.billLineId).catch(() => {});
+              }
+              // Book POV onto bill now (if selected)
+              if (pov && pov.quantity > 0 && activeOrderId) {
+                try {
+                  const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify([{
+                      productId: pov.id,
+                      pageId: null,
+                      quantity: pov.quantity,
+                      billId: activeOrderId,
+                      dynamicLines: null,
+                      sellKind: 0,
+                    }]),
+                  });
+                  const povResult = await povRes.json();
+                  console.log("[POV sell]", povResult);
+                  // Track the bill line ID for removal
+                  const lineId = povResult.parentBillLineId ? String(povResult.parentBillLineId) : undefined;
+                  setSelectedPov({ ...pov, billLineId: lineId });
+                } catch {
+                  setSelectedPov(pov);
+                }
+              } else {
+                setSelectedPov(pov);
+              }
               setStep("addons");
             }}
             onBack={() => setStep("heat")}
@@ -486,8 +515,51 @@ export default function BookRacePage() {
             date={selectedDate || ""}
             bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
             initialAddOns={selectedAddOns}
-            onContinue={(addOns) => {
-              setSelectedAddOns(addOns);
+            onContinue={async (addOns) => {
+              // Remove old add-on lines from bill
+              for (const old of selectedAddOns.filter(a => a.billLineId)) {
+                await removeBookingLine(old.billLineId!).catch(() => {});
+              }
+              // Book new add-ons onto bill
+              const bookedAddOns: AddOnItem[] = [];
+              for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
+                try {
+                  const addonBody: Record<string, unknown> = {
+                    productId: String(addon.id),
+                    quantity: addon.quantity,
+                    resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
+                    proposal: {
+                      blocks: (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks.map(b => ({
+                        productLineIds: b.productLineIds || [],
+                        block: {
+                          ...b.block,
+                          resourceId: Number((b.block as Record<string, unknown>).resourceId) || -1,
+                        },
+                      })),
+                      productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
+                    },
+                  };
+                  const addonJson = `{"orderId":${activeOrderId},` + JSON.stringify(addonBody).slice(1);
+                  const qs = new URLSearchParams({ endpoint: "booking/book" });
+                  const res = await fetch(`/api/bmi?${qs.toString()}`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: addonJson,
+                  });
+                  const raw = await res.text();
+                  const lineMatch = raw.match(/"orderItemId"\s*:\s*(\d+)/);
+                  console.log("[add-on book]", addon.name, "lineId:", lineMatch?.[1]);
+                  bookedAddOns.push({ ...addon, billLineId: lineMatch?.[1] });
+                } catch (err) {
+                  console.error("[add-on book error]", addon.name, err);
+                  bookedAddOns.push(addon);
+                }
+              }
+              // Also keep add-ons with quantity but no proposal (no time slot needed)
+              for (const addon of addOns.filter(a => a.quantity > 0 && !a.proposal)) {
+                bookedAddOns.push(addon);
+              }
+              setSelectedAddOns(bookedAddOns);
               if (verifiedPerson && contact) {
                 setStep("summary");
               } else {
@@ -540,14 +612,21 @@ export default function BookRacePage() {
               });
             }}
             onRemoveAddOn={(index) => {
+              const toRemove = selectedAddOns[index];
+              if (toRemove?.billLineId) {
+                removeBookingLine(toRemove.billLineId).catch(() => {});
+              }
               setSelectedAddOns(prev => prev.filter((_, i) => i !== index));
-              // Re-enter summary to re-process add-ons
+              // Re-enter summary to refresh totals
               setStep("heat");
               setTimeout(() => setStep("summary"), 100);
             }}
             onRemovePov={() => {
+              if (selectedPov?.billLineId) {
+                removeBookingLine(selectedPov.billLineId).catch(() => {});
+              }
               setSelectedPov(null);
-              // Re-enter summary to re-process
+              // Re-enter summary to refresh totals
               setStep("heat");
               setTimeout(() => setStep("summary"), 100);
             }}
