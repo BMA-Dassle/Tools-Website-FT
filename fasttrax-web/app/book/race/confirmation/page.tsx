@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
 import { bmiGet, bmiPost } from "../data";
 import { trackBookingComplete } from "@/lib/analytics";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
 
 // Parse time string as local (API returns local ET times without Z suffix)
 function parseLocal(iso: string): Date {
@@ -355,13 +356,8 @@ export default function ConfirmationPage() {
               </div>
             </div>
 
-            {/* Reminders */}
-            <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/50 space-y-2">
-              <p className="font-semibold text-white/70 mb-2">Before you arrive</p>
-              <p>· Stop at <strong className="text-white/70">Guest Services (2nd floor)</strong> first — waivers, height checks, and credentials.</p>
-              <p>· A <strong className="text-white/70">$4.99 license fee</strong> per driver applies at first check-in.</p>
-              <p>· Closed-toe shoes required. No loose clothing.</p>
-            </div>
+            {/* Racer's Journey — arrival steps */}
+            <RacerJourneySteps />
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -380,6 +376,95 @@ export default function ConfirmationPage() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Racer's Journey Steps (no CTAs) ─────────────────────────────────────────
+
+const journeySteps = [
+  {
+    num: "1",
+    title: "ARRIVE 30 MINUTES EARLY",
+    subtitle: "",
+    desc: "Give yourself the \"Pre-Race Window.\" Arriving early gives you time for any unexpected lines at check-in so you're cleared for the pits without losing a second of track time.",
+    color: "rgb(228,28,29)",
+  },
+  {
+    num: "2",
+    title: "THE PIT GATE",
+    subtitle: "Guest Services \u2014 2nd Floor",
+    desc: "STOP HERE FIRST. This is where we verify waivers, check heights/ages, and issue your racing credentials. On weekends, additional team members are at our event check-in desk on the 1st floor.",
+    color: "rgb(0,74,173)",
+  },
+  {
+    num: "3",
+    title: "TRACKSIDE CHECK-IN",
+    subtitle: "1st Floor Karting Counter",
+    desc: "Your race time is the close of karting check-in for your heat \u2014 not the start. Be at the 1st floor karting counter at least 5 minutes before your scheduled time to rent your POV camera and enter the safety briefing.",
+    color: "rgb(134,82,255)",
+  },
+];
+
+function dotColor(status: string) {
+  return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
+}
+
+function RacerJourneySteps() {
+  const trackData = useTrackStatus();
+
+  return (
+    <div className="space-y-4">
+      {/* Header + Track Status */}
+      <div className="text-center">
+        <h2 className="font-display text-xl uppercase tracking-widest text-white mb-1">
+          The Racer&apos;s Journey
+        </h2>
+        <p className="text-white/40 text-xs">Arrive to drive</p>
+      </div>
+
+      {/* Live Track Status */}
+      {trackData && (
+        <div className="space-y-1.5">
+          <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Live Track Status</p>
+          {trackData.tracks.map((t) => (
+            <div
+              key={t.trackName}
+              className="flex items-center justify-between px-3 py-2 rounded-lg"
+              style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
+            >
+              <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
+              <div className="flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                <span className="text-white/70 text-xs">{t.delayFormatted}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Journey Steps */}
+      <div className="space-y-3">
+        {journeySteps.map((s) => (
+          <div
+            key={s.num}
+            className="flex gap-3 items-start p-3 rounded-2xl"
+            style={{ backgroundColor: "rgba(7,16,39,0.6)", border: `1.5px dashed ${s.color}40` }}
+          >
+            <div
+              className="shrink-0 flex items-center justify-center font-display text-white text-lg rounded-md"
+              style={{ backgroundColor: s.color, width: "36px", height: "48px" }}
+            >
+              {s.num}
+            </div>
+            <div>
+              <h3 className="font-display uppercase text-sm" style={{ color: s.color }}>{s.title}</h3>
+              {s.subtitle && <p className="text-white/40 text-[11px]">{s.subtitle}</p>}
+              <p className="text-white/70 text-xs leading-relaxed mt-1">{s.desc}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
