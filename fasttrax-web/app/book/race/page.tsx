@@ -225,51 +225,32 @@ export default function BookRacePage() {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
     try {
-      // Track current bills locally (React state updates are batched/async)
-      let currentBills = [...activeBills];
-      let currentBookings = [...bookings];
-
-      // Only cancel old bills if we have exactly one booking for this category (re-selecting)
-      const existingCatBookings = currentBookings.filter(b => b.product.category === cat);
-      if (existingCatBookings.length === 1) {
-        const oldBills = currentBills.filter(b => b.category === cat);
-        for (const ob of oldBills) {
-          await bmiDelete(`bill/${ob.billId}/cancel`).catch(() => {});
-        }
-        currentBills = currentBills.filter(b => b.category !== cat);
-        currentBookings = currentBookings.filter(b => b.product.category !== cat);
-      }
-
-      // Book race(s) — add to existing bills if available, create new if not
+      // Check if we already have bills for this category
+      const existingCatBills = activeBills.filter(b => b.category === cat);
       const catRacers = racerType === "existing"
         ? verifiedRacers.filter(r => r.category === cat)
         : [];
       const racerCount = cat === "adult" ? adults : juniors;
-      const existingCatBills = currentBills.filter(b => b.category === cat);
-      const newBills: RacerBill[] = [];
 
       if (existingCatBills.length > 0) {
-        // Add to existing bills (same person = same bill)
+        // Bills exist — add this race to them (don't cancel, don't create new)
         for (const bill of existingCatBills) {
           await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
         }
-      } else if (racerType === "existing" && catRacers.length > 0) {
-        // First booking for returning racers: each gets their own bill
-        for (const racer of catRacers) {
-          const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
-          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
-        }
       } else {
-        // First booking for new racers: one bill for the group
-        const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
-        newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        // No bills yet — create new
+        const newBills: RacerBill[] = [];
+        if (racerType === "existing" && catRacers.length > 0) {
+          for (const racer of catRacers) {
+            const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
+            newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
+          }
+        } else {
+          const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
+          newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        }
+        setActiveBills(prev => [...prev, ...newBills]);
       }
-
-      const finalBills = newBills.length > 0
-        ? [...currentBills.filter(b => b.category !== cat), ...newBills]
-        : currentBills;
-      setActiveBills(finalBills);
-      setBookings(currentBookings);
 
       const booking: Booking = {
         product: selectedProduct!,
@@ -277,7 +258,7 @@ export default function BookRacePage() {
         proposal,
         block,
         blockPrice,
-        bills: newBills,
+        bills: existingCatBills.length > 0 ? existingCatBills : activeBills.filter(b => b.category === cat),
       };
 
       // If we cancelled existing (single re-select), bookings was already cleaned.
