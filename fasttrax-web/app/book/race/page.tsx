@@ -897,24 +897,23 @@ export default function BookRacePage() {
                 return updated;
               });
             }}
-            onRemoveAddOn={(index) => {
+            onRemoveAddOn={async (index) => {
               const toRemove = selectedAddOns[index];
               if (toRemove?.billLineId) {
-                removeBookingLine(activeOrderId!,toRemove.billLineId).catch(() => {});
+                await removeBookingLine(activeOrderId!, toRemove.billLineId).catch(() => {});
               }
               setSelectedAddOns(prev => prev.filter((_, i) => i !== index));
-              // Re-enter summary to refresh totals
+              // Re-enter summary to refresh totals (after removal completes)
               setStep("heat");
-              setTimeout(() => setStep("summary"), 100);
+              setTimeout(() => setStep("summary"), 200);
             }}
-            onRemovePov={() => {
+            onRemovePov={async () => {
               if (selectedPov?.billLineId) {
-                removeBookingLine(activeOrderId!,selectedPov.billLineId).catch(() => {});
+                await removeBookingLine(activeOrderId!, selectedPov.billLineId).catch(() => {});
               }
               setSelectedPov(null);
-              // Re-enter summary to refresh totals
               setStep("heat");
-              setTimeout(() => setStep("summary"), 100);
+              setTimeout(() => setStep("summary"), 200);
             }}
           />
         )}
