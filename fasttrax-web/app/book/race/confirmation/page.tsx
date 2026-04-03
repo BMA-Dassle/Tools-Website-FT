@@ -283,7 +283,7 @@ export default function ConfirmationPage() {
 
       {/* Main content */}
       {!loading && orderId && (
-        <div className="max-w-6xl mx-auto px-4 pb-16 -mt-4">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 pt-6">
           {/* Per-racer confirmations */}
           {confirmations.length > 1 && (
             <div className="flex flex-wrap justify-center gap-3 mb-8">
@@ -304,12 +304,12 @@ export default function ConfirmationPage() {
             {/* LEFT: QR + booking details */}
             <div className="space-y-6">
               {/* QR Code + Check-in time */}
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 flex flex-col sm:flex-row items-center gap-6">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 overflow-hidden">
                 {qrDataUrl && (
                   <div className="shrink-0">
-                    <div className="rounded-xl bg-white p-3 shadow-xl shadow-[#00E2E5]/10">
+                    <div className="rounded-xl bg-white p-2.5 shadow-xl shadow-[#00E2E5]/10">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={qrDataUrl} alt="Reservation QR Code" width={160} height={160} />
+                      <img src={qrDataUrl} alt="Reservation QR Code" width={140} height={140} className="w-[120px] h-[120px] sm:w-[140px] sm:h-[140px]" />
                     </div>
                   </div>
                 )}
@@ -382,7 +382,7 @@ export default function ConfirmationPage() {
             </div>
 
             {/* RIGHT: Racer's Journey */}
-            <div className="lg:pt-2">
+            <div className="lg:sticky lg:top-40 lg:self-start">
               <RacerJourneySteps />
             </div>
           </div>
