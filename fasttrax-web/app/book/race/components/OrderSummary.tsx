@@ -58,6 +58,39 @@ type BookingState =
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * POST to BMI with orderId injected as a raw JSON number (not string).
+ * orderId values exceed Number.MAX_SAFE_INTEGER so we can't use Number().
+ * Instead we serialize the body without orderId, then splice it in as raw text.
+ */
+async function bmiPostWithOrderId(endpoint: string, body: Record<string, unknown>, rawOrderId: string) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { orderId: _drop, ...rest } = body;
+  const json = JSON.stringify(rest);
+  // Insert orderId as a raw number right after the opening brace
+  const withOrderId = `{"orderId":${rawOrderId},` + json.slice(1);
+  const qs = new URLSearchParams({ endpoint });
+  const res = await fetch(`/api/bmi?${qs.toString()}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: withOrderId,
+  });
+  if (!res.ok) throw new Error(`BMI POST ${endpoint} failed: ${res.status}`);
+  return res.text().then(t => {
+    // Extract orderId as string from raw response before JSON.parse corrupts it
+    const m = t.match(/"orderId"\s*:\s*(\d+)/);
+    const parsed = JSON.parse(t);
+    if (m) parsed._rawOrderId = m[1];
+    return parsed;
+  });
+}
+
+/** Extract orderId from raw BMI response text (avoids Number precision loss) */
+function extractRawOrderId(responseText: string): string | null {
+  const m = responseText.match(/"orderId"\s*:\s*(\d+)/);
+  return m ? m[1] : null;
+}
+
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -155,14 +188,22 @@ export default function OrderSummary({
             };
           }
 
-          // Add to existing bill if not first
-          if (orderId) {
-            bookPayload.orderId = Number(orderId);
-          }
+          // orderId for multi-race is injected as raw text in the fetch body below
 
           console.log(`[race book ${i}] payload:`, JSON.stringify(bookPayload));
-          const result = await bmiPost("booking/book", bookPayload);
-          console.log(`[race book ${i}] result:`, JSON.stringify(result));
+          // Use raw text fetch to preserve orderId precision
+          const qs = new URLSearchParams({ endpoint: "booking/book" });
+          const raceRes = await fetch(`/api/bmi?${qs.toString()}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: orderId
+              ? `{"orderId":${orderId},` + JSON.stringify(bookPayload).slice(1)
+              : JSON.stringify(bookPayload),
+          });
+          const rawText = await raceRes.text();
+          const result = JSON.parse(rawText);
+          const rawId = extractRawOrderId(rawText);
+          console.log(`[race book ${i}] result orderId (raw):`, rawId, "parsed:", result.orderId);
 
           if (result.success === false) {
             throw new Error(result.errorMessage || "Booking failed");
@@ -170,12 +211,8 @@ export default function OrderSummary({
 
           if (result.prices) lastBookPrices = result.prices;
 
-          if (!orderId) {
-            // Extract orderId as string from raw to avoid precision loss
-            orderId = String(result.orderId);
-            if (!orderId || orderId === "undefined" || orderId === "0") {
-              throw new Error("No order ID returned from booking");
-            }
+          if (!orderId && rawId) {
+            orderId = rawId;
             onOrderCreated?.(orderId);
           }
         }
@@ -187,11 +224,10 @@ export default function OrderSummary({
       console.log("[add-ons] processing", addOns.length, "add-ons, orderId:", orderId);
       for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
         try {
-          const addonPayload: Record<string, unknown> = {
+          const addonBody: Record<string, unknown> = {
             productId: String(addon.id),
             quantity: addon.quantity,
             resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
-            orderId: Number(orderId),
             proposal: {
               blocks: (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks.map(b => ({
                 productLineIds: b.productLineIds || [],
@@ -203,9 +239,19 @@ export default function OrderSummary({
               productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
             },
           };
-          console.log("[add-on book]", addon.name, "orderId:", orderId, JSON.stringify(addonPayload));
-          const result = await bmiPost("booking/book", addonPayload);
-          console.log("[add-on book result]", addon.name, "returned orderId:", result.orderId, "same?", String(result.orderId) === orderId);
+          // Inject orderId as raw number to avoid JS precision loss
+          const addonJson = `{"orderId":${orderId},` + JSON.stringify(addonBody).slice(1);
+          console.log("[add-on book]", addon.name, "raw JSON orderId:", orderId);
+          const addonQs = new URLSearchParams({ endpoint: "booking/book" });
+          const addonRes = await fetch(`/api/bmi?${addonQs.toString()}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: addonJson,
+          });
+          const addonRaw = await addonRes.text();
+          const result = JSON.parse(addonRaw);
+          const resultOrderId = extractRawOrderId(addonRaw);
+          console.log("[add-on book result]", addon.name, "returned orderId:", resultOrderId, "same?", resultOrderId === orderId);
         } catch (err) {
           console.error("[add-on book error]", addon.name, err);
         }
