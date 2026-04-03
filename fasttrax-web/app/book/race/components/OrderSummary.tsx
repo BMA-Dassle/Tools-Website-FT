@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock, PackSchedule } from "../data";
 import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } from "../data";
+import { trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { ContactInfo } from "./ContactForm";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -153,6 +154,7 @@ export default function OrderSummary({
   }, []);
 
   async function runBookingFlow() {
+    trackBookingReview();
     console.log("[runBookingFlow] STARTED — bills:", JSON.stringify(bills.map(b => ({ billId: b.billId, personId: b.personId, racer: b.racerName }))));
     setState({ status: "booking" });
     try {
@@ -245,6 +247,7 @@ export default function OrderSummary({
     const { orderId, isCreditOrder, cashOwed } = state;
 
     setState({ status: "paying" });
+    trackBookingPayment(isCreditOrder ? "credit" : "square", cashOwed);
     try {
       const raceName = "Deposit";
       const heatStart = bookings[0]?.block.start || "";

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
 import { bmiGet, bmiPost } from "../data";
+import { trackBookingComplete } from "@/lib/analytics";
 
 // Parse time string as local (API returns local ET times without Z suffix)
 function parseLocal(iso: string): Date {
@@ -152,6 +153,9 @@ export default function ConfirmationPage() {
           // Non-fatal — may already be confirmed
         }
         setConfirmations(allConfirmations);
+        if (allConfirmations.length > 0) {
+          trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
+        }
 
         // Add memo to each bill listing related reservations in the group
         if (allConfirmations.length > 1) {

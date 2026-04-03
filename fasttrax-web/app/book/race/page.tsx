@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
 import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine } from "./data";
+import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackBookingResult } from "./components/OrderSummary";
 
 /** A per-person bill in BMI */
@@ -121,13 +122,12 @@ export default function BookRacePage() {
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   function handleExperienceSelect(type: RacerType) {
+    trackBookingExperience(type);
     setRacerType(type);
     setVerifiedPerson(null);
     if (type === "new") {
-      // New racers auto-advance to party size
       setTimeout(() => setStep("party"), 300);
     }
-    // Returning racers stay on experience step — ReturningRacerLookup will show
   }
 
   function handlePersonVerified(person: PersonData) {
@@ -192,10 +192,12 @@ export default function BookRacePage() {
   }
 
   function handlePartyNext() {
+    trackBookingParty(adults, juniors);
     setStep("date");
   }
 
   function handleDateSelect(date: string) {
+    trackBookingDate(date);
     setSelectedDate(date);
     setSelectedProduct(null);
     setSelectedProposal(null);
@@ -207,6 +209,7 @@ export default function BookRacePage() {
   }
 
   function handleProductSelect(product: ClassifiedProduct) {
+    trackBookingProduct(product.name, product.track, product.tier);
     setSelectedProduct(product);
     // Set quantity based on party size for this category
     const q = product.category === "adult" ? adults : juniors;
@@ -224,6 +227,7 @@ export default function BookRacePage() {
   }
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
+    trackBookingHeat(block.start, selectedProduct?.track ?? null);
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
     const bookingBillLineIds: { billId: string; lineId: string }[] = [];
@@ -353,6 +357,7 @@ export default function BookRacePage() {
   }
 
   function handleContactSubmit(info: ContactInfo) {
+    trackBookingContact();
     setContact(info);
     setStep("summary");
   }
@@ -782,6 +787,7 @@ export default function BookRacePage() {
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
             initial={selectedPov}
             onContinue={async (pov) => {
+              trackBookingPov(pov?.quantity ?? 0);
               // Remove old POV from bill if changing
               if (selectedPov?.billLineId) {
                 await removeBookingLine(activeOrderId!,selectedPov.billLineId).catch(() => {});
@@ -826,6 +832,7 @@ export default function BookRacePage() {
             bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
             initialAddOns={selectedAddOns}
             onContinue={async (addOns) => {
+              trackBookingAddOns(addOns.filter(a => a.quantity > 0).map(a => a.shortName));
               // Remove old add-on lines from bill
               for (const old of selectedAddOns.filter(a => a.billLineId)) {
                 await removeBookingLine(activeOrderId!,old.billLineId!).catch(() => {});
