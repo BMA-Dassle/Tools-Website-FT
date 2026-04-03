@@ -139,7 +139,6 @@ export async function POST(req: NextRequest) {
 
   try {
     const token = await getToken();
-    const body = await req.json().catch(() => ({}));
 
     // Build upstream URL with query params
     const upstreamParams = new URLSearchParams();
@@ -149,16 +148,30 @@ export async function POST(req: NextRequest) {
     const qs = upstreamParams.toString();
     const url = `${BMI_API_URL}/public-booking/${BMI_CLIENT_KEY}/${endpoint}${qs ? `?${qs}` : ""}`;
 
+    // Pass request body as raw text to avoid JSON number precision loss on orderId
+    const bodyStr = await req.text();
     console.log(`[BMI POST] ${url}`);
+    if (endpoint.startsWith("booking/book")) {
+      console.log(`[BMI POST body] ${bodyStr.substring(0, 500)}`);
+    }
+
     const upstream = await fetch(url, {
       method: "POST",
       headers: bmiHeaders(token),
-      body: JSON.stringify(body),
+      body: bodyStr,
       cache: "no-store",
     });
 
-    const data = await upstream.json();
-    return NextResponse.json(data, { status: upstream.status });
+    // Return raw text for booking endpoints to avoid JSON number precision loss
+    // (orderId values exceed Number.MAX_SAFE_INTEGER)
+    const rawText = await upstream.text();
+    if (endpoint.startsWith("booking/")) {
+      console.log(`[BMI POST response] ${rawText.substring(0, 500)}`);
+    }
+    return new NextResponse(rawText, {
+      status: upstream.status,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "BMI API error" },

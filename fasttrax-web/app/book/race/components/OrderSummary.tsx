@@ -51,7 +51,7 @@ interface OrderSummaryProps {
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: number; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number }[] }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number }[] }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -119,13 +119,13 @@ export default function OrderSummary({
     console.log("[runBookingFlow] STARTED, effectRan:", effectRan.current);
     setState({ status: "booking" });
     try {
-      let orderId: number | null = null;
+      let orderId: string | null = null;
       let lastBookPrices: { amount: number; depositKind: number }[] | null = null;
 
       if (packResult) {
-        orderId = Number(packResult.billId);
+        orderId = packResult.billId;
       } else {
-        // ── Build the bill: book each category ──────────────────────────
+        // ── Build the bill: book each race via BMI Public API ──────────
         for (let i = 0; i < bookings.length; i++) {
           const { product, quantity, proposal, block } = bookings[i];
 
@@ -145,7 +145,7 @@ export default function OrderSummary({
             },
           };
 
-          // First booking: include contact (WITHOUT personId — added later via registerContactPerson)
+          // First booking: include contact
           if (i === 0) {
             bookPayload.contactPerson = {
               firstName: contact.firstName,
@@ -160,63 +160,60 @@ export default function OrderSummary({
             bookPayload.orderId = orderId;
           }
 
+          console.log(`[race book ${i}] payload:`, JSON.stringify(bookPayload));
           const result = await bmiPost("booking/book", bookPayload);
+          console.log(`[race book ${i}] result:`, JSON.stringify(result));
 
           if (result.success === false) {
             throw new Error(result.errorMessage || "Booking failed");
           }
 
-          // Capture prices from response for credit detection
           if (result.prices) lastBookPrices = result.prices;
 
           if (!orderId) {
-            orderId = Number(result.orderId);
-            if (!orderId || isNaN(orderId)) {
+            // Extract orderId as string from raw to avoid precision loss
+            orderId = String(result.orderId);
+            if (!orderId || orderId === "undefined" || orderId === "0") {
               throw new Error("No order ID returned from booking");
             }
-            onOrderCreated?.(String(orderId));
+            onOrderCreated?.(orderId);
           }
         }
       }
 
-      // ── Add add-ons and POV to the bill BEFORE registerContactPerson ──
-      // Order: booking/book items first (preserves orderId), then SMS sell
-      // items last (sell can create a separate billId).
+      if (!orderId) throw new Error("No order ID returned from booking");
 
-      // Activity add-ons: use SMS-Timing booking/book with billId (matches BMI hosted flow from HAR)
-      console.log("[add-ons] processing", addOns.length, "add-ons, with proposal:", addOns.map(a => ({ id: a.id, name: a.name, qty: a.quantity, hasProposal: !!a.proposal })));
+      // ── Add add-ons to the same bill via BMI Public booking/book ──────
+      console.log("[add-ons] processing", addOns.length, "add-ons, orderId:", orderId);
       for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
         try {
-          const addonPayload = {
+          const addonPayload: Record<string, unknown> = {
             productId: String(addon.id),
-            pageId: "42730172",
             quantity: addon.quantity,
-            billId: String(orderId),
-            dynamicLines: null,
-            sellKind: 0,
-            resourceId: String((addon.block as { resourceId?: string })?.resourceId || "-1"),
+            resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
+            orderId,
             proposal: {
-              ...(addon.proposal as Record<string, unknown>),
-              selected: true,
+              blocks: (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks.map(b => ({
+                productLineIds: b.productLineIds || [],
+                block: {
+                  ...b.block,
+                  resourceId: Number((b.block as Record<string, unknown>).resourceId) || -1,
+                },
+              })),
+              productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
             },
           };
-          console.log("[add-on book]", addon.name, JSON.stringify(addonPayload, null, 2));
-          const addonRes = await fetch("/api/sms?endpoint=booking%2Fbook", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(addonPayload),
-          });
-          const addonResult = await addonRes.json();
-          console.log("[add-on book result]", addon.name, addonRes.status, JSON.stringify(addonResult));
+          console.log("[add-on book]", addon.name, "orderId:", orderId, JSON.stringify(addonPayload));
+          const result = await bmiPost("booking/book", addonPayload);
+          console.log("[add-on book result]", addon.name, "returned orderId:", result.orderId, "same?", String(result.orderId) === orderId);
         } catch (err) {
           console.error("[add-on book error]", addon.name, err);
         }
       }
 
-      // POV: use SMS-Timing sell AFTER booking/book items (sell creates separate billId)
+      // POV: use SMS-Timing sell (after booking/book items)
       if (pov && pov.quantity > 0) {
         try {
-          console.log("[POV sell]", { productId: pov.id, quantity: pov.quantity, billId: orderId });
           const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -224,7 +221,7 @@ export default function OrderSummary({
               productId: pov.id,
               pageId: null,
               quantity: pov.quantity,
-              billId: String(orderId),
+              billId: orderId,
               dynamicLines: null,
               sellKind: 0,
             }]),
@@ -236,8 +233,7 @@ export default function OrderSummary({
         }
       }
 
-      // ── Now register contact and get overview ──────────────────────────
-      // Step 1: Register contact WITHOUT personId (so order persists)
+      // ── Register contact and get overview ──────────────────────────────
       try {
         await bmiPost("person/registerContactPerson", {
           firstName: contact.firstName,
@@ -248,7 +244,6 @@ export default function OrderSummary({
         });
       } catch { /* non-fatal */ }
 
-      // Step 2: Get overview
       let bmiTotal = total;
       let bmiSubtotal = subtotal;
       let bmiTax = tax;
@@ -260,7 +255,6 @@ export default function OrderSummary({
       try {
         let overview = await bmiGet(`order/${orderId}/overview`);
 
-        // Step 3: If returning racer, link personId to apply credits, then re-fetch
         if (personId) {
           try {
             await bmiPost("person/registerContactPerson", {
@@ -271,7 +265,6 @@ export default function OrderSummary({
               phone: contact.phone.replace(/\D/g, ""),
               orderId,
             });
-            // Re-fetch overview with credits applied
             overview = await bmiGet(`order/${orderId}/overview`);
           } catch { /* credits couldn't be applied — use cash totals */ }
         }
