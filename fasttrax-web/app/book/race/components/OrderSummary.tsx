@@ -240,12 +240,13 @@ export default function OrderSummary({
       if (isCreditOrder) {
         for (const bill of bills) {
           try {
-            await bmiPost("payment/confirm", {
-              id: crypto.randomUUID(),
-              paymentTime: new Date().toISOString(),
-              amount: 0,
-              orderId: Number(bill.billId),
-              depositKind: 2,
+            // Use raw JSON to avoid Number() precision loss on large billIds
+            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${bill.billId},"depositKind":2}`;
+            const qs = new URLSearchParams({ endpoint: "payment/confirm" });
+            await fetch(`/api/bmi?${qs.toString()}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: confirmBody,
             });
             console.log("[payment/confirm credit]", bill.billId, bill.racerName);
           } catch { /* non-fatal */ }

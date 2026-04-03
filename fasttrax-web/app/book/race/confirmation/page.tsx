@@ -110,12 +110,15 @@ export default function ConfirmationPage() {
         const allBillIds = billIdsParam ? billIdsParam.split(",") : [id];
         try {
           for (const bid of allBillIds) {
-            const result = await bmiPost("payment/confirm", {
-              id: crypto.randomUUID(),
-              paymentTime: new Date().toISOString(),
-              amount: allBillIds.length === 1 ? amount : 0, // split amount across bills or 0 for credit bills
-              orderId: Number(bid),
+            // Use raw JSON to avoid Number() precision loss on large bill IDs
+            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${allBillIds.length === 1 ? amount : 0},"orderId":${bid}}`;
+            const qs = new URLSearchParams({ endpoint: "payment/confirm" });
+            const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: confirmBody,
             });
+            const result = await confirmRes.json();
             if (result.reservationCode) setReservationCode(result.reservationCode);
             if (result.reservationNumber) setReservationNumber(result.reservationNumber);
           }
