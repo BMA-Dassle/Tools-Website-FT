@@ -330,36 +330,41 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                     )}
                   </div>
 
-                  {/* Quantity controls */}
-                  <div className="flex items-center justify-between">
-                    {addon.perPerson ? (
-                      // Per person: show quantity picker (default to racer count)
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setQty(addon.id, qty - 1)}
-                          disabled={qty === 0}
-                          className="w-8 h-8 rounded-lg border border-white/20 text-white/60 hover:border-white/40 hover:text-white disabled:opacity-30 transition-colors flex items-center justify-center text-lg"
-                        >
-                          -
-                        </button>
-                        <span className="w-8 text-center text-white font-bold text-sm">{qty}</span>
-                        <button
-                          onClick={() => setQty(addon.id, qty + 1)}
-                          className="w-8 h-8 rounded-lg border border-white/20 text-white/60 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-lg"
-                        >
-                          +
-                        </button>
-                        {qty === 0 && (
-                          <button
-                            onClick={() => setQty(addon.id, racerCount)}
-                            className="ml-2 text-[#00E2E5] text-xs font-semibold hover:underline"
-                          >
-                            Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""}
-                          </button>
-                        )}
-                      </div>
+                  {/* Add / Quantity controls */}
+                  {addon.perPerson ? (
+                    qty === 0 ? (
+                      /* Primary: "Add for all X racers" button */
+                      <button
+                        onClick={() => setQty(addon.id, racerCount)}
+                        className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#00E2E5]/10 text-[#00E2E5] border border-[#00E2E5]/30 hover:bg-[#00E2E5]/20 transition-colors"
+                      >
+                        Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — ${(addon.price * racerCount).toFixed(2)}
+                      </button>
                     ) : (
-                      // Per group: toggle on/off
+                      /* Added state: show total + small adjuster */
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setQty(addon.id, qty - 1)}
+                            className="w-7 h-7 rounded border border-white/20 text-white/50 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-sm"
+                          >
+                            -
+                          </button>
+                          <span className="w-6 text-center text-white font-semibold text-xs">{qty}</span>
+                          <button
+                            onClick={() => setQty(addon.id, qty + 1)}
+                            className="w-7 h-7 rounded border border-white/20 text-white/50 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-sm"
+                          >
+                            +
+                          </button>
+                          <span className="text-white/30 text-[10px] ml-1">{qty} {qty === 1 ? "person" : "people"}</span>
+                        </div>
+                        <span className="text-[#00E2E5] text-sm font-semibold">${(addon.price * qty).toFixed(2)}</span>
+                      </div>
+                    )
+                  ) : (
+                    /* Per group: toggle on/off */
+                    <div className="flex items-center justify-between">
                       <button
                         onClick={() => setQty(addon.id, qty > 0 ? 0 : 1)}
                         className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
@@ -370,14 +375,13 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                       >
                         {isSelected ? "Added ✓" : "Add to Booking"}
                       </button>
-                    )}
-
-                    {qty > 0 && (
-                      <span className="text-[#00E2E5] text-sm font-semibold">
-                        ${(addon.price * qty).toFixed(2)}
-                      </span>
-                    )}
-                  </div>
+                      {qty > 0 && (
+                        <span className="text-[#00E2E5] text-sm font-semibold">
+                          ${(addon.price * qty).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Time picker — shows when add-on is selected */}
                   {isSelected && (

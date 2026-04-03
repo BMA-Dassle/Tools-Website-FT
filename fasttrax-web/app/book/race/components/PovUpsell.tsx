@@ -62,45 +62,47 @@ export default function PovUpsell({ racerCount, onContinue, onBack, initial }: P
         </div>
       </div>
 
-      {/* Quantity selector */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-white font-semibold text-sm">How many cameras?</p>
-            <p className="text-white/40 text-xs">One per kart — capture your personal race footage</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setQty(Math.max(0, qty - 1))}
-              disabled={qty === 0}
-              className="w-10 h-10 rounded-lg border border-white/20 text-white/60 hover:border-white/40 hover:text-white disabled:opacity-30 transition-colors flex items-center justify-center text-xl font-bold"
-            >
-              -
-            </button>
-            <span className="w-8 text-center text-white font-bold text-lg">{qty}</span>
-            <button
-              onClick={() => setQty(qty + 1)}
-              className="w-10 h-10 rounded-lg border border-white/20 text-white/60 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-xl font-bold"
-            >
-              +
-            </button>
-          </div>
-        </div>
-
-        {qty === 0 && (
+      {/* Add / Quantity */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+        {qty === 0 ? (
+          /* Primary: "Add for all X racers" */
           <button
             onClick={() => setQty(racerCount)}
-            className="mt-3 w-full py-2.5 rounded-lg text-sm font-semibold bg-[#00E2E5]/10 text-[#00E2E5] border border-[#00E2E5]/30 hover:bg-[#00E2E5]/20 transition-colors"
+            className="w-full py-3.5 rounded-xl text-sm font-bold bg-[#00E2E5]/15 text-[#00E2E5] border border-[#00E2E5]/30 hover:bg-[#00E2E5]/25 transition-colors"
           >
             Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — ${(price * racerCount).toFixed(2)}
           </button>
-        )}
-
-        {qty > 0 && (
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-white/50 text-sm">{qty} camera{qty !== 1 ? "s" : ""}</span>
-            <span className="text-[#00E2E5] font-bold text-lg">${(price * qty).toFixed(2)}</span>
-          </div>
+        ) : (
+          /* Added state: total + small adjuster */
+          <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setQty(Math.max(0, qty - 1))}
+                  className="w-8 h-8 rounded-lg border border-white/20 text-white/50 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-lg"
+                >
+                  -
+                </button>
+                <span className="w-6 text-center text-white font-bold text-sm">{qty}</span>
+                <button
+                  onClick={() => setQty(qty + 1)}
+                  className="w-8 h-8 rounded-lg border border-white/20 text-white/50 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-lg"
+                >
+                  +
+                </button>
+                <span className="text-white/30 text-xs">{qty} camera{qty !== 1 ? "s" : ""}</span>
+              </div>
+              <span className="text-[#00E2E5] font-bold text-lg">${(price * qty).toFixed(2)}</span>
+            </div>
+            {qty !== racerCount && (
+              <button
+                onClick={() => setQty(racerCount)}
+                className="w-full py-2 rounded-lg text-xs font-semibold text-[#00E2E5]/70 hover:text-[#00E2E5] transition-colors"
+              >
+                Set to all {racerCount} racers
+              </button>
+            )}
+          </>
         )}
       </div>
 
