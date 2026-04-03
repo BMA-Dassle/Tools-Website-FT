@@ -127,32 +127,24 @@ export default function OrderSummary({
       // Register contact + personId now to apply credits and get accurate totals.
       const orderId = billId;
 
-      // Register contact person (attaches name to reservation)
+      // Register contact via BMI Public API (applies credits when personId linked)
       try {
-        await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
+        await bmiPost("person/registerContactPerson", {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone.replace(/\D/g, ""),
+          orderId,
+        });
+        // If returning racer, link personId to apply credits
+        if (personId) {
+          await bmiPost("person/registerContactPerson", {
+            personId: Number(personId),
             firstName: contact.firstName,
             lastName: contact.lastName,
             email: contact.email,
             phone: contact.phone.replace(/\D/g, ""),
-            billId: orderId,
-          }),
-        });
-        // If returning racer, link personId to apply credits
-        if (personId) {
-          await fetch("/api/sms?endpoint=reservation%2Fregistercontactperson", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              personId: Number(personId),
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone.replace(/\D/g, ""),
-              billId: orderId,
-            }),
+            orderId,
           });
         }
       } catch { /* non-fatal */ }
