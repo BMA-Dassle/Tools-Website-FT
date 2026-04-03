@@ -153,6 +153,26 @@ export default function ConfirmationPage() {
         }
         setConfirmations(allConfirmations);
 
+        // Add memo to each bill listing related reservations in the group
+        if (allConfirmations.length > 1) {
+          const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+          for (const conf of allConfirmations) {
+            try {
+              const others = allConfirmations
+                .filter(c => c.billId !== conf.billId && c.resNumber)
+                .map(c => `${c.resNumber} (${c.racerName})`)
+                .join(", ");
+              if (!others) continue;
+              const memo = `Group booking — related reservations: ${others}`;
+              await fetch(`/api/bmi?${memoQs.toString()}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: `{"orderId":${conf.billId},"memo":"${memo.replace(/"/g, '\\"')}"}`,
+              });
+            } catch { /* non-fatal */ }
+          }
+        }
+
         // If no overview data, build from stored details
         if (!overview?.lines?.length && details) {
           setOrder({

@@ -58,6 +58,31 @@ interface OrderSummaryProps {
   onRemovePov?: () => void;
 }
 
+/** Add a memo to each bill listing all related reservations in the group */
+async function addGroupMemo(
+  bills: RacerBill[],
+  resNumbers: { billId: string; racer: string; resNum: string }[],
+) {
+  const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+  for (const bill of bills) {
+    try {
+      const others = resNumbers
+        .filter(r => r.billId !== bill.billId && r.resNum)
+        .map(r => `${r.resNum} (${r.racer})`)
+        .join(", ");
+      if (!others) continue;
+      const memo = `Group booking — related reservations: ${others}`;
+      const memoBody = `{"orderId":${bill.billId},"memo":"${memo.replace(/"/g, '\\"')}"}`;
+      await fetch(`/api/bmi?${memoQs.toString()}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: memoBody,
+      });
+      console.log("[memo]", bill.billId, memo);
+    } catch { /* non-fatal */ }
+  }
+}
+
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
@@ -246,18 +271,25 @@ export default function OrderSummary({
 
       // Credit order — skip Square, confirm each bill directly with BMI
       if (isCreditOrder) {
+        const resNumbers: { billId: string; racer: string; resNum: string }[] = [];
         for (const bill of bills) {
           try {
-            // Use raw JSON to avoid Number() precision loss on large billIds
             const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${bill.billId},"depositKind":2}`;
             const qs = new URLSearchParams({ endpoint: "payment/confirm" });
-            await fetch(`/api/bmi?${qs.toString()}`, {
+            const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: confirmBody,
             });
-            console.log("[payment/confirm credit]", bill.billId, bill.racerName);
+            const confirmResult = await confirmRes.json();
+            resNumbers.push({ billId: bill.billId, racer: bill.racerName, resNum: confirmResult.reservationNumber || "" });
+            console.log("[payment/confirm credit]", bill.billId, bill.racerName, confirmResult.reservationNumber);
           } catch { /* non-fatal */ }
+        }
+
+        // Add memo to each bill listing all related reservations in the group
+        if (bills.length > 1) {
+          await addGroupMemo(bills, resNumbers);
         }
 
         window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}`;
