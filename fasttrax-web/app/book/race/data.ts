@@ -316,6 +316,64 @@ export async function bmiPost(endpoint: string, body: unknown, params?: Record<s
   return res.json();
 }
 
+/** Extract orderId from raw BMI JSON (avoids JS Number precision loss on large IDs) */
+export function extractRawOrderId(responseText: string): string | null {
+  const m = responseText.match(/"orderId"\s*:\s*(\d+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Book a race heat via BMI Public API, preserving orderId precision.
+ * Returns { rawOrderId, result } where rawOrderId is extracted from raw text.
+ */
+export async function bookRaceHeat(
+  product: ClassifiedProduct,
+  quantity: number,
+  proposal: BmiProposal,
+  existingOrderId?: string | null,
+): Promise<{ rawOrderId: string; result: Record<string, unknown> }> {
+  const payload: Record<string, unknown> = {
+    productId: String(product.productId),
+    quantity,
+    resourceId: Number(proposal.blocks[0]?.block.resourceId) || -1,
+    proposal: {
+      blocks: proposal.blocks.map((pb) => ({
+        productLineIds: pb.productLineIds || [],
+        block: {
+          ...pb.block,
+          resourceId: Number(pb.block.resourceId) || -1,
+        },
+      })),
+      productLineId: proposal.productLineId ?? null,
+    },
+  };
+
+  // Inject orderId as raw number to avoid JS precision loss
+  const bodyJson = existingOrderId
+    ? `{"orderId":${existingOrderId},` + JSON.stringify(payload).slice(1)
+    : JSON.stringify(payload);
+
+  const qs = new URLSearchParams({ endpoint: "booking/book" });
+  const res = await fetch(`/api/bmi?${qs.toString()}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: bodyJson,
+  });
+  const rawText = await res.text();
+  const result = JSON.parse(rawText);
+  const rawOrderId = extractRawOrderId(rawText);
+
+  if (result.success === false) {
+    throw new Error(result.errorMessage || "Booking failed");
+  }
+  if (!rawOrderId) {
+    throw new Error("No order ID returned from booking");
+  }
+
+  console.log("[bookRaceHeat] orderId (raw):", rawOrderId, "(parsed would be:", result.orderId, ")");
+  return { rawOrderId, result };
+}
+
 export async function bmiDelete(endpoint: string) {
   const qs = new URLSearchParams({ endpoint });
   const res = await fetch(`/api/bmi?${qs.toString()}`, { method: "DELETE" });

@@ -23,19 +23,19 @@ export interface BookingItem {
 }
 
 interface OrderSummaryProps {
-  /** All bookings to process (adult + junior if applicable) */
+  /** All bookings (already booked — races held at heat selection) */
   bookings: BookingItem[];
   date: string;
   contact: ContactInfo;
   onBack: () => void;
+  /** BMI bill ID — races already booked onto this bill */
+  billId: string;
   /** For pack bookings -- order was already created during heat selection */
   packResult?: PackBookingResult;
   /** The pack product that was selected */
   packProduct?: ClassifiedProduct;
   /** Verified returning racer's BMI person ID */
   personId?: string;
-  /** Callback when BMI order is created — for cleanup on back navigation */
-  onOrderCreated?: (orderId: string) => void;
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
   /** Selected add-on activities */
@@ -58,31 +58,9 @@ type BookingState =
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * POST to BMI with orderId injected as a raw JSON number (not string).
- * orderId values exceed Number.MAX_SAFE_INTEGER so we can't use Number().
- * Instead we serialize the body without orderId, then splice it in as raw text.
- */
-async function bmiPostWithOrderId(endpoint: string, body: Record<string, unknown>, rawOrderId: string) {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { orderId: _drop, ...rest } = body;
-  const json = JSON.stringify(rest);
-  // Insert orderId as a raw number right after the opening brace
-  const withOrderId = `{"orderId":${rawOrderId},` + json.slice(1);
-  const qs = new URLSearchParams({ endpoint });
-  const res = await fetch(`/api/bmi?${qs.toString()}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: withOrderId,
-  });
-  if (!res.ok) throw new Error(`BMI POST ${endpoint} failed: ${res.status}`);
-  return res.text().then(t => {
-    // Extract orderId as string from raw response before JSON.parse corrupts it
-    const m = t.match(/"orderId"\s*:\s*(\d+)/);
-    const parsed = JSON.parse(t);
-    if (m) parsed._rawOrderId = m[1];
-    return parsed;
-  });
+/** Inject orderId as raw number into JSON string (avoids JS Number precision loss) */
+function injectRawOrderId(jsonBody: string, rawOrderId: string): string {
+  return `{"orderId":${rawOrderId},` + jsonBody.slice(1);
 }
 
 /** Extract orderId from raw BMI response text (avoids Number precision loss) */
@@ -114,10 +92,10 @@ export default function OrderSummary({
   date,
   contact,
   onBack,
+  billId,
   packResult,
   packProduct,
   personId,
-  onOrderCreated,
   onRemoveBooking,
   addOns = [],
   pov,
@@ -149,76 +127,11 @@ export default function OrderSummary({
   }, []);
 
   async function runBookingFlow() {
-    console.log("[runBookingFlow] STARTED, effectRan:", effectRan.current);
+    console.log("[runBookingFlow] STARTED — races already booked, billId:", billId);
     setState({ status: "booking" });
     try {
-      let orderId: string | null = null;
-      let lastBookPrices: { amount: number; depositKind: number }[] | null = null;
-
-      if (packResult) {
-        orderId = packResult.billId;
-      } else {
-        // ── Build the bill: book each race via BMI Public API ──────────
-        for (let i = 0; i < bookings.length; i++) {
-          const { product, quantity, proposal, block } = bookings[i];
-
-          const bookPayload: Record<string, unknown> = {
-            productId: String(product.productId),
-            quantity,
-            resourceId: Number(block.resourceId) || -1,
-            proposal: {
-              blocks: proposal.blocks.map((pb) => ({
-                productLineIds: pb.productLineIds || [],
-                block: {
-                  ...pb.block,
-                  resourceId: Number(pb.block.resourceId) || -1,
-                },
-              })),
-              productLineId: proposal.productLineId ?? null,
-            },
-          };
-
-          // First booking: include contact
-          if (i === 0) {
-            bookPayload.contactPerson = {
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-              phone: contact.phone.replace(/\D/g, ""),
-            };
-          }
-
-          // orderId for multi-race is injected as raw text in the fetch body below
-
-          console.log(`[race book ${i}] payload:`, JSON.stringify(bookPayload));
-          // Use raw text fetch to preserve orderId precision
-          const qs = new URLSearchParams({ endpoint: "booking/book" });
-          const raceRes = await fetch(`/api/bmi?${qs.toString()}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: orderId
-              ? `{"orderId":${orderId},` + JSON.stringify(bookPayload).slice(1)
-              : JSON.stringify(bookPayload),
-          });
-          const rawText = await raceRes.text();
-          const result = JSON.parse(rawText);
-          const rawId = extractRawOrderId(rawText);
-          console.log(`[race book ${i}] result orderId (raw):`, rawId, "parsed:", result.orderId);
-
-          if (result.success === false) {
-            throw new Error(result.errorMessage || "Booking failed");
-          }
-
-          if (result.prices) lastBookPrices = result.prices;
-
-          if (!orderId && rawId) {
-            orderId = rawId;
-            onOrderCreated?.(orderId);
-          }
-        }
-      }
-
-      if (!orderId) throw new Error("No order ID returned from booking");
+      // Races are already booked at heat selection. Use the existing billId.
+      const orderId = billId;
 
       // ── Add add-ons to the same bill via BMI Public booking/book ──────
       console.log("[add-ons] processing", addOns.length, "add-ons, orderId:", orderId);
@@ -239,8 +152,7 @@ export default function OrderSummary({
               productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
             },
           };
-          // Inject orderId as raw number to avoid JS precision loss
-          const addonJson = `{"orderId":${orderId},` + JSON.stringify(addonBody).slice(1);
+          const addonJson = injectRawOrderId(JSON.stringify(addonBody), orderId);
           console.log("[add-on book]", addon.name, "raw JSON orderId:", orderId);
           const addonQs = new URLSearchParams({ endpoint: "booking/book" });
           const addonRes = await fetch(`/api/bmi?${addonQs.toString()}`, {

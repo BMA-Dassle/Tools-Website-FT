@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
-import { classifyProducts, filterProducts, bmiGet, bmiDelete } from "./data";
+import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat } from "./data";
 import type { PackBookingResult } from "./components/OrderSummary";
 
 /** A completed race booking for one category (adult or junior) */
@@ -156,62 +156,79 @@ export default function BookRacePage() {
     setStep("contact");
   }
 
-  function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
-    // Save this booking with real price from availability
+  async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
+    // Book immediately to hold the spot
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
-    const booking: Booking = {
-      product: selectedProduct!,
-      quantity,
-      proposal,
-      block,
-      blockPrice,
-    };
-    // Append to cart (Add Another Race builds up the list)
-    const updatedBookings = [...bookings, booking];
-    setBookings(updatedBookings);
-    setSelectedProposal(proposal);
-    setSelectedBlock(block);
+    try {
+      const { rawOrderId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
+      if (!activeOrderId) {
+        setActiveOrderId(rawOrderId);
+      }
 
-    // Check if we need to book another category
-    const bookedCategories = new Set(updatedBookings.map(b => b.product.category));
-    const needAdult = adults > 0 && !bookedCategories.has("adult");
-    const needJunior = juniors > 0 && !bookedCategories.has("junior");
+      const booking: Booking = {
+        product: selectedProduct!,
+        quantity,
+        proposal,
+        block,
+        blockPrice,
+      };
+      const updatedBookings = [...bookings, booking];
+      setBookings(updatedBookings);
+      setSelectedProposal(proposal);
+      setSelectedBlock(block);
 
-    if (needAdult) {
-      setBookingCategory("adult");
-      setSelectedProduct(null);
-      setSelectedProposal(null);
-      setSelectedBlock(null);
-      setStep("product");
-    } else if (needJunior) {
-      setBookingCategory("junior");
-      setSelectedProduct(null);
-      setSelectedProposal(null);
-      setSelectedBlock(null);
-      setStep("product");
-    } else {
-      // All categories booked — go to POV upsell
-      setStep("pov");
+      // Check if we need to book another category
+      const bookedCategories = new Set(updatedBookings.map(b => b.product.category));
+      const needAdult = adults > 0 && !bookedCategories.has("adult");
+      const needJunior = juniors > 0 && !bookedCategories.has("junior");
+
+      if (needAdult) {
+        setBookingCategory("adult");
+        setSelectedProduct(null);
+        setSelectedProposal(null);
+        setSelectedBlock(null);
+        setStep("product");
+      } else if (needJunior) {
+        setBookingCategory("junior");
+        setSelectedProduct(null);
+        setSelectedProposal(null);
+        setSelectedBlock(null);
+        setStep("product");
+      } else {
+        setStep("pov");
+      }
+    } catch (err) {
+      console.error("[handleConfirmHeat] booking failed:", err);
+      alert("Failed to reserve heat. Please try again.");
     }
   }
 
-  function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
-    // Save current booking
+  async function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
-    const booking: Booking = {
-      product: selectedProduct!,
-      quantity,
-      proposal,
-      block,
-      blockPrice,
-    };
-    setBookings(prev => [...prev, booking]);
+    try {
+      const { rawOrderId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
+      if (!activeOrderId) {
+        setActiveOrderId(rawOrderId);
+      }
 
-    // Reset selection and go back to date step to pick another race
-    setSelectedProduct(null);
-    setSelectedProposal(null);
-    setSelectedBlock(null);
-    setStep("date");
+      const booking: Booking = {
+        product: selectedProduct!,
+        quantity,
+        proposal,
+        block,
+        blockPrice,
+      };
+      setBookings(prev => [...prev, booking]);
+
+      // Reset selection and go back to date step
+      setSelectedProduct(null);
+      setSelectedProposal(null);
+      setSelectedBlock(null);
+      setStep("date");
+    } catch (err) {
+      console.error("[handleAddAnother] booking failed:", err);
+      alert("Failed to reserve heat. Please try again.");
+    }
   }
 
   function handleContactSubmit(info: ContactInfo) {
@@ -229,9 +246,10 @@ export default function BookRacePage() {
   function goToStep(s: Step) {
     const targetIdx = STEPS.indexOf(s);
     if (targetIdx < currentIdx) {
-      // Cancel BMI order if going back from summary
-      if (currentIdx >= STEPS.indexOf("summary")) {
+      // Only cancel BMI order if going back PAST heat selection (to product/date/party)
+      if (targetIdx < STEPS.indexOf("heat")) {
         cancelActiveOrder();
+        setBookings([]);
       }
       setStep(s);
       // Reset downstream selections when going back
@@ -477,16 +495,16 @@ export default function BookRacePage() {
         )}
 
         {/* STEP 7: Order summary + payment */}
-        {step === "summary" && selectedDate && contact && (packResult || bookings.length > 0) && (
+        {step === "summary" && selectedDate && contact && activeOrderId && (packResult || bookings.length > 0) && (
           <OrderSummary
             bookings={bookings}
             date={selectedDate}
             contact={contact}
-            onBack={() => { cancelActiveOrder(); setStep("contact"); }}
+            billId={activeOrderId}
+            onBack={() => setStep("contact")}
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
-            onOrderCreated={setActiveOrderId}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
             onRemoveBooking={(index) => {
@@ -496,7 +514,6 @@ export default function BookRacePage() {
                 if (updated.length === 0) {
                   setStep("date");
                 } else {
-                  // Re-enter summary to re-book remaining items
                   setStep("heat");
                   setTimeout(() => setStep("summary"), 100);
                 }
@@ -504,16 +521,14 @@ export default function BookRacePage() {
               });
             }}
             onRemoveAddOn={(index) => {
-              cancelActiveOrder();
               setSelectedAddOns(prev => prev.filter((_, i) => i !== index));
-              // Re-enter summary to re-book
+              // Re-enter summary to re-process add-ons
               setStep("heat");
               setTimeout(() => setStep("summary"), 100);
             }}
             onRemovePov={() => {
-              cancelActiveOrder();
               setSelectedPov(null);
-              // Re-enter summary to re-book
+              // Re-enter summary to re-process
               setStep("heat");
               setTimeout(() => setStep("summary"), 100);
             }}
