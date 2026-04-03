@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { bmiGet } from "../data";
 
 export interface PersonData {
   personId: string;
@@ -101,9 +102,47 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         }
       });
 
-      const unique = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
+      const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
+
+      // Only show accounts that have relevant memberships (real returning racers)
+      const unique = allDetails.filter(d => d.memberships.length > 0);
 
       if (unique.length === 0) {
+        // No accounts with memberships — fall back to BMI Public API single lookup
+        try {
+          const pubResult = await bmiGet("person", { email: trimmed });
+          if (pubResult.person && pubResult.person.races > 0) {
+            const p = pubResult.person;
+            setAccounts([{
+              personId: p.personId,
+              fullName: p.fullName,
+              loginCode: pubResult.loginCode,
+              lastSeen: "",
+              races: p.races,
+              memberships: [],
+            }]);
+            setPhase("sending");
+            await fetch("/api/email/login-code", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                email: trimmed,
+                accounts: [{
+                  personId: p.personId,
+                  fullName: p.fullName,
+                  loginCode: pubResult.loginCode,
+                  lastSeen: "",
+                  races: p.races,
+                  memberships: [],
+                }],
+              }),
+            });
+            setPhase("sent");
+            setMode("code");
+            setTimeout(() => codeRef.current?.focus(), 200);
+            return;
+          }
+        } catch { /* fall through */ }
         setPhase("not-found");
         return;
       }
