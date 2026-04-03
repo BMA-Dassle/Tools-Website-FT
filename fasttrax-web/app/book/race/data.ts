@@ -331,7 +331,7 @@ export async function bookRaceHeat(
   quantity: number,
   proposal: BmiProposal,
   existingOrderId?: string | null,
-): Promise<{ rawOrderId: string; result: Record<string, unknown> }> {
+): Promise<{ rawOrderId: string; billLineId: string | null; result: Record<string, unknown> }> {
   const payload: Record<string, unknown> = {
     productId: String(product.productId),
     quantity,
@@ -370,8 +370,26 @@ export async function bookRaceHeat(
     throw new Error("No order ID returned from booking");
   }
 
-  console.log("[bookRaceHeat] orderId (raw):", rawOrderId, "(parsed would be:", result.orderId, ")");
-  return { rawOrderId, result };
+  // Extract orderItemId (bill line ID) from raw text too
+  const lineMatch = rawText.match(/"orderItemId"\s*:\s*(\d+)/);
+  const billLineId = lineMatch ? lineMatch[1] : null;
+
+  console.log("[bookRaceHeat] orderId (raw):", rawOrderId, "billLineId:", billLineId);
+  return { rawOrderId, billLineId, result };
+}
+
+/** Remove a single line item from a BMI bill without cancelling the whole order */
+export async function removeBookingLine(billLineId: string) {
+  const qs = new URLSearchParams({ endpoint: "booking/removeItem" });
+  // Use raw text to avoid precision loss on large IDs
+  const res = await fetch(`/api/bmi?${qs.toString()}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: `{"orderItemId":${billLineId}}`,
+  });
+  const data = await res.json();
+  console.log("[removeBookingLine]", billLineId, data);
+  return data;
 }
 
 export async function bmiDelete(endpoint: string) {

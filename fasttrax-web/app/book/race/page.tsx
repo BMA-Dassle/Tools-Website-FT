@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
-import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat } from "./data";
+import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine } from "./data";
 import type { PackBookingResult } from "./components/OrderSummary";
 
 /** A completed race booking for one category (adult or junior) */
@@ -12,6 +12,8 @@ interface Booking {
   proposal: BmiProposal;
   block: BmiBlock;
   blockPrice?: number;
+  /** BMI bill line ID — used to remove/swap individual races without cancelling the whole order */
+  billLineId?: string;
 }
 import type { ContactInfo } from "./components/ContactForm";
 import type { PersonData } from "./components/ReturningRacerLookup";
@@ -157,10 +159,15 @@ export default function BookRacePage() {
   }
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
-    // Book immediately to hold the spot
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     try {
-      const { rawOrderId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
+      // If replacing an existing booking for this category, remove the old line first
+      const existingIdx = bookings.findIndex(b => b.product.category === selectedProduct!.category);
+      if (existingIdx >= 0 && bookings[existingIdx].billLineId) {
+        await removeBookingLine(bookings[existingIdx].billLineId!).catch(() => {});
+      }
+
+      const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
       if (!activeOrderId) {
         setActiveOrderId(rawOrderId);
       }
@@ -171,8 +178,13 @@ export default function BookRacePage() {
         proposal,
         block,
         blockPrice,
+        billLineId: billLineId ?? undefined,
       };
-      const updatedBookings = [...bookings, booking];
+
+      // Replace existing same-category booking or append
+      const updatedBookings = existingIdx >= 0
+        ? bookings.map((b, i) => i === existingIdx ? booking : b)
+        : [...bookings, booking];
       setBookings(updatedBookings);
       setSelectedProposal(proposal);
       setSelectedBlock(block);
@@ -206,7 +218,7 @@ export default function BookRacePage() {
   async function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     try {
-      const { rawOrderId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
+      const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
       if (!activeOrderId) {
         setActiveOrderId(rawOrderId);
       }
@@ -217,10 +229,10 @@ export default function BookRacePage() {
         proposal,
         block,
         blockPrice,
+        billLineId: billLineId ?? undefined,
       };
       setBookings(prev => [...prev, booking]);
 
-      // Reset selection and go back to date step
       setSelectedProduct(null);
       setSelectedProposal(null);
       setSelectedBlock(null);
@@ -510,10 +522,15 @@ export default function BookRacePage() {
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
             onRemoveBooking={(index) => {
-              cancelActiveOrder();
+              const toRemove = bookings[index];
+              // Remove just this line from the BMI bill (not the whole order)
+              if (toRemove?.billLineId) {
+                removeBookingLine(toRemove.billLineId).catch(() => {});
+              }
               setBookings(prev => {
                 const updated = prev.filter((_, i) => i !== index);
                 if (updated.length === 0) {
+                  cancelActiveOrder();
                   setStep("date");
                 } else {
                   setStep("heat");
