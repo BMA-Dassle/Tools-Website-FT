@@ -52,8 +52,23 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         return;
       }
 
-      // Fetch details for each person (up to 10 to be reasonable)
-      const detailPromises = results.slice(0, 10).map(async (r: { localId: string }) => {
+      // Deduplicate search results by name — keep most recent per unique name
+      // Search description format: "Name phone: xxx Last seen: date Memberships: ..."
+      const byName = new Map<string, { localId: string; description: string }>();
+      for (const r of results as { localId: string; description: string }[]) {
+        const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
+        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].split(" Last seen:")[0].trim();
+        // Keep the first (most recent) entry per name
+        if (!byName.has(name)) {
+          byName.set(name, r);
+        }
+      }
+
+      // Fetch details only for unique names (max 5)
+      const uniqueEntries = [...byName.values()].slice(0, 5);
+      const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
+
+      const detailPromises = uniqueEntries.map(async (r) => {
         try {
           const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
           const p = await res.json();
@@ -62,16 +77,13 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             (b.lastSeen || "").localeCompare(a.lastSeen || "")
           );
           const loginCode = tags[0]?.tag || "";
-          // Get meaningful active membership names (filter out junk like "Default", "Testing")
-          const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
           const memberships = (p.memberships || [])
             .filter((m: { stops: string; name: string }) =>
               (!m.stops || new Date(m.stops) > new Date()) &&
-              RELEVANT_MEMBERSHIPS.some(r => m.name.toLowerCase().includes(r))
+              RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
             )
             .map((m: { name: string }) => m.name)
-            .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i); // dedupe
-          // Parse last seen from description or lastLineUp
+            .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
           const lastSeen = p.lastLineUp
             ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
             : "";
@@ -81,7 +93,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
             loginCode,
             lastSeen,
-            races: tags.length, // approximate from tag count
+            races: (p.tags || []).length,
             memberships,
           } as FoundAccount;
         } catch {
@@ -89,20 +101,12 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         }
       });
 
-      const details = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
+      const unique = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
 
-      if (details.length === 0) {
+      if (unique.length === 0) {
         setPhase("not-found");
         return;
       }
-
-      // Deduplicate by personId
-      const seen = new Set<string>();
-      const unique = details.filter(d => {
-        if (seen.has(d.personId)) return false;
-        seen.add(d.personId);
-        return true;
-      });
 
       setAccounts(unique);
 
