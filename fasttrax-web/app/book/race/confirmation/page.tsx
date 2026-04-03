@@ -64,6 +64,8 @@ export default function ConfirmationPage() {
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  /** Per-racer confirmation results */
+  const [confirmations, setConfirmations] = useState<{ billId: string; racerName: string; resNumber: string; resCode: string }[]>([]);
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -107,11 +109,29 @@ export default function ConfirmationPage() {
 
         // Confirm payment on ALL bills (multi-bill for per-person credits)
         const billIdsParam = params.get("billIds");
-        const allBillIds = billIdsParam ? billIdsParam.split(",") : [id];
+        const racerNamesParam = params.get("racerNames");
+        const allBillIds = billIdsParam ? billIdsParam.split(",") : [id!];
+        const racerNames = racerNamesParam ? racerNamesParam.split(",").map(decodeURIComponent) : [];
+        const allConfirmations: { billId: string; racerName: string; resNumber: string; resCode: string }[] = [];
+
         try {
-          for (const bid of allBillIds) {
-            // Use raw JSON to avoid Number() precision loss on large bill IDs
-            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${allBillIds.length === 1 ? amount : 0},"orderId":${bid}}`;
+          for (let i = 0; i < allBillIds.length; i++) {
+            const bid = allBillIds[i];
+            const racerName = racerNames[i] || `Racer ${i + 1}`;
+            // Determine amount: for single bill use full amount, for multi-bill check if credit
+            let billAmount = amount;
+            if (allBillIds.length > 1) {
+              // Check this bill's overview to see if it's a credit order
+              try {
+                const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bid}`);
+                const ov = await ovRes.json();
+                const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+                billAmount = cashT?.amount ?? 0;
+              } catch { billAmount = 0; }
+            }
+
+            const depositKind = billAmount === 0 ? 2 : 0;
+            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
             const qs = new URLSearchParams({ endpoint: "payment/confirm" });
             const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
               method: "POST",
@@ -119,12 +139,19 @@ export default function ConfirmationPage() {
               body: confirmBody,
             });
             const result = await confirmRes.json();
-            if (result.reservationCode) setReservationCode(result.reservationCode);
-            if (result.reservationNumber) setReservationNumber(result.reservationNumber);
+            const resNum = result.reservationNumber || "";
+            const resCode = String(result.reservationCode || `r${bid}`);
+            if (resNum) allConfirmations.push({ billId: bid, racerName: racerName || `Racer ${i + 1}`, resNumber: resNum, resCode });
+            // Keep first as primary
+            if (i === 0) {
+              if (resCode) setReservationCode(resCode);
+              if (resNum) setReservationNumber(resNum);
+            }
           }
         } catch {
-          // Non-fatal — may already be confirmed via Square webhook
+          // Non-fatal — may already be confirmed
         }
+        setConfirmations(allConfirmations);
 
         // If no overview data, build from stored details
         if (!overview?.lines?.length && details) {
@@ -217,7 +244,25 @@ export default function ConfirmationPage() {
               </p>
             </div>
 
-            {/* QR Code */}
+            {/* Per-racer confirmations */}
+            {confirmations.length > 1 ? (
+              <div className="space-y-3">
+                {confirmations.map((c, i) => (
+                  <div key={c.billId} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-white font-semibold text-sm">{c.racerName}</p>
+                      <p className="text-white/40 text-xs">Reservation {c.resNumber}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[#00E2E5] font-bold text-sm">{c.resNumber}</p>
+                      {i === 0 && <p className="text-white/30 text-[10px]">Primary</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {/* QR Code (primary reservation) */}
             {qrDataUrl && (
               <div className="flex flex-col items-center gap-3">
                 <div className="rounded-xl bg-white p-3">
@@ -225,7 +270,7 @@ export default function ConfirmationPage() {
                   <img src={qrDataUrl} alt="Reservation QR Code" width={180} height={180} />
                 </div>
                 <div className="text-center">
-                  {reservationNumber && (
+                  {reservationNumber && confirmations.length <= 1 && (
                     <p className="text-white font-bold text-lg">{reservationNumber}</p>
                   )}
                   <p className="text-white/40 text-xs">Show this QR code at check-in</p>

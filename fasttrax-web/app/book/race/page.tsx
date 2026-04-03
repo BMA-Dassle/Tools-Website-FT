@@ -225,12 +225,17 @@ export default function BookRacePage() {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
     try {
-      // Cancel old bills for this category if re-selecting
-      const oldBills = activeBills.filter(b => b.category === cat);
-      for (const ob of oldBills) {
-        await bmiDelete(`bill/${ob.billId}/cancel`).catch(() => {});
+      // Only cancel old bills if we have exactly one booking for this category
+      // (re-selecting the heat). If there are multiple (via Add Another Race), don't cancel.
+      const existingCatBookings = bookings.filter(b => b.product.category === cat);
+      if (existingCatBookings.length === 1) {
+        const oldBills = activeBills.filter(b => b.category === cat);
+        for (const ob of oldBills) {
+          await bmiDelete(`bill/${ob.billId}/cancel`).catch(() => {});
+        }
+        setActiveBills(prev => prev.filter(b => b.category !== cat));
+        setBookings(prev => prev.filter(b => b.product.category !== cat));
       }
-      setActiveBills(prev => prev.filter(b => b.category !== cat));
 
       // Book one bill per racer in this category (qty=1 each)
       const catRacers = racerType === "existing"
@@ -262,11 +267,9 @@ export default function BookRacePage() {
         bills: newBills,
       };
 
-      // Replace existing same-category booking or append
-      const existingIdx = bookings.findIndex(b => b.product.category === cat);
-      const updatedBookings = existingIdx >= 0
-        ? bookings.map((b, i) => i === existingIdx ? booking : b)
-        : [...bookings, booking];
+      // If we cancelled existing (single re-select), bookings was already cleaned.
+      // Always append the new booking.
+      const updatedBookings = [...bookings, booking];
       setBookings(updatedBookings);
       setSelectedProposal(proposal);
       setSelectedBlock(block);

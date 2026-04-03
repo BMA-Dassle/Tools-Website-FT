@@ -252,12 +252,12 @@ export default function OrderSummary({
           } catch { /* non-fatal */ }
         }
 
-        window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}`;
+        window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}`;
         return;
       }
 
       // Cash order — create Square checkout
-      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}`;
+      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}`;
 
       const res = await fetch("/api/square/checkout", {
         method: "POST",
