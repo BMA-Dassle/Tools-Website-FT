@@ -301,32 +301,35 @@ export default function BookRacePage() {
   }
 
   async function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
-    // "Add Another Race" — same logic as handleConfirmHeat but appends instead of replacing
+    // "Add Another Race" — add to EXISTING bills (same person = same bill)
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
-    const catRacers = racerType === "existing" ? verifiedRacers.filter(r => r.category === cat) : [];
-    const racerCount = cat === "adult" ? adults : juniors;
+    const existingCatBills = activeBills.filter(b => b.category === cat);
 
     try {
-      const newBills: RacerBill[] = [];
-      if (racerType === "existing" && catRacers.length > 0) {
-        for (const racer of catRacers) {
-          const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
-          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
+      const usedBills: RacerBill[] = [];
+      if (existingCatBills.length > 0) {
+        // Add to existing bills (one per racer already created)
+        for (const bill of existingCatBills) {
+          await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
+          usedBills.push(bill);
         }
       } else {
+        // No existing bills — create new (shouldn't normally happen)
+        const racerCount = cat === "adult" ? adults : juniors;
         const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
-        newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        const newBill: RacerBill = { billId: rawOrderId, racerName: "Group", category: cat };
+        usedBills.push(newBill);
+        setActiveBills(prev => [...prev, newBill]);
       }
 
-      setActiveBills(prev => [...prev, ...newBills]);
       setBookings(prev => [...prev, {
         product: selectedProduct!,
-        quantity: racerCount,
+        quantity: existingCatBills.length || (cat === "adult" ? adults : juniors),
         proposal,
         block,
         blockPrice,
-        bills: newBills,
+        bills: usedBills,
       }]);
 
       setSelectedProduct(null);
