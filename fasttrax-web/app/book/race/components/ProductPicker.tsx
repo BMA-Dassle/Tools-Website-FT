@@ -40,11 +40,25 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
         </p>
       </div>
 
-      {/* Track descriptions */}
-      {products.length > 0 && (
+      {/* Track descriptions — clickable to select track */}
+      {products.length > 0 && (() => {
+        const redProduct = products.find(p => p.track === "Red");
+        const blueProduct = products.find(p => p.track === "Blue");
+        const isRedSelected = selected?.track === "Red";
+        const isBlueSelected = selected?.track === "Blue";
+
+        return (
         <div className="space-y-4 max-w-lg mx-auto">
           <div className="grid grid-cols-2 gap-3">
-            <div className="relative rounded-xl overflow-hidden border border-red-500/30 aspect-[3/4]">
+            <button
+              onClick={() => redProduct && onSelect(redProduct)}
+              disabled={!redProduct}
+              className={`relative rounded-xl overflow-hidden border-2 aspect-[3/4] transition-all duration-200 text-left ${
+                isRedSelected
+                  ? "border-red-500 ring-2 ring-red-500/30 ring-offset-2 ring-offset-[#010A20]"
+                  : "border-red-500/30 hover:border-red-500/60"
+              } ${!redProduct ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+            >
               <Image
                 src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
                 alt="Red Track"
@@ -58,8 +72,19 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
                   Sharp turns and relentless hairpins — a technical gauntlet for drivers who thrive on control.
                 </p>
               </div>
-            </div>
-            <div className="relative rounded-xl overflow-hidden border border-blue-500/30 aspect-[3/4]">
+              {isRedSelected && (
+                <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-red-500 flex items-center justify-center text-white text-xs font-bold">✓</div>
+              )}
+            </button>
+            <button
+              onClick={() => blueProduct && onSelect(blueProduct)}
+              disabled={!blueProduct}
+              className={`relative rounded-xl overflow-hidden border-2 aspect-[3/4] transition-all duration-200 text-left ${
+                isBlueSelected
+                  ? "border-blue-500 ring-2 ring-blue-500/30 ring-offset-2 ring-offset-[#010A20]"
+                  : "border-blue-500/30 hover:border-blue-500/60"
+              } ${!blueProduct ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+            >
               <Image
                 src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg"
                 alt="Blue Track"
@@ -73,22 +98,14 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
                   Smooth banks, sweeping turns, and high-speed straights — the perfect mix of speed and precision.
                 </p>
               </div>
-            </div>
-          </div>
-          {/* Track layout */}
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold text-center mb-2">Track Layout</p>
-            <div className="relative w-full aspect-[16/9]">
-              <Image
-                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/track-layout-31pjMdMNq7mM6wW1S25qBLYNR5y5tR.png"
-                alt="FastTrax Track Layout — Red and Blue tracks"
-                fill
-                className="object-contain"
-              />
-            </div>
+              {isBlueSelected && (
+                <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">✓</div>
+              )}
+            </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {products.length === 0 && (
         <div className="text-center py-8">
