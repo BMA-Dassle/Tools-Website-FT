@@ -42,35 +42,49 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
       {/* Track descriptions */}
       {products.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
-          <div className="relative rounded-xl overflow-hidden border border-red-500/30 aspect-[3/4]">
-            <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp"
-              alt="Red Track"
-              fill
-              className="object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-red-900/90 via-red-900/40 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
-              <h3 className="font-display text-white text-lg uppercase tracking-wider mb-1">Red Track</h3>
-              <p className="text-white/70 text-[11px] leading-snug">
-                Sharp turns and relentless hairpins — a technical gauntlet for drivers who thrive on control.
-              </p>
+        <div className="space-y-4 max-w-lg mx-auto">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="relative rounded-xl overflow-hidden border border-red-500/30 aspect-[3/4]">
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
+                alt="Red Track"
+                fill
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-red-900/90 via-red-900/40 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
+                <h3 className="font-display text-white text-lg uppercase tracking-wider mb-1">Red Track</h3>
+                <p className="text-white/70 text-[11px] leading-snug">
+                  Sharp turns and relentless hairpins — a technical gauntlet for drivers who thrive on control.
+                </p>
+              </div>
+            </div>
+            <div className="relative rounded-xl overflow-hidden border border-blue-500/30 aspect-[3/4]">
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg"
+                alt="Blue Track"
+                fill
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/40 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
+                <h3 className="font-display text-white text-lg uppercase tracking-wider mb-1">Blue Track</h3>
+                <p className="text-white/70 text-[11px] leading-snug">
+                  Smooth banks, sweeping turns, and high-speed straights — the perfect mix of speed and precision.
+                </p>
+              </div>
             </div>
           </div>
-          <div className="relative rounded-xl overflow-hidden border border-blue-500/30 aspect-[3/4]">
-            <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/racing-2.webp"
-              alt="Blue Track"
-              fill
-              className="object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/40 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
-              <h3 className="font-display text-white text-lg uppercase tracking-wider mb-1">Blue Track</h3>
-              <p className="text-white/70 text-[11px] leading-snug">
-                Smooth banks, sweeping turns, and high-speed straights — the perfect mix of speed and precision.
-              </p>
+          {/* Track layout */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold text-center mb-2">Track Layout</p>
+            <div className="relative w-full aspect-[16/9]">
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/track-layout-31pjMdMNq7mM6wW1S25qBLYNR5y5tR.png"
+                alt="FastTrax Track Layout — Red and Blue tracks"
+                fill
+                className="object-contain"
+              />
             </div>
           </div>
         </div>
