@@ -105,17 +105,20 @@ export default function ConfirmationPage() {
           // Order already converted to reservation
         }
 
-        // Confirm payment
+        // Confirm payment on ALL bills (multi-bill for per-person credits)
+        const billIdsParam = params.get("billIds");
+        const allBillIds = billIdsParam ? billIdsParam.split(",") : [id];
         try {
-          const result = await bmiPost("payment/confirm", {
-            id: crypto.randomUUID(),
-            paymentTime: new Date().toISOString(),
-            amount,
-            orderId: Number(id),
-          });
-
-          if (result.reservationCode) setReservationCode(result.reservationCode);
-          if (result.reservationNumber) setReservationNumber(result.reservationNumber);
+          for (const bid of allBillIds) {
+            const result = await bmiPost("payment/confirm", {
+              id: crypto.randomUUID(),
+              paymentTime: new Date().toISOString(),
+              amount: allBillIds.length === 1 ? amount : 0, // split amount across bills or 0 for credit bills
+              orderId: Number(bid),
+            });
+            if (result.reservationCode) setReservationCode(result.reservationCode);
+            if (result.reservationNumber) setReservationNumber(result.reservationNumber);
+          }
         } catch {
           // Non-fatal — may already be confirmed via Square webhook
         }

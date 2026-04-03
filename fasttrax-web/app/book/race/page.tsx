@@ -5,6 +5,14 @@ import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, 
 import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine } from "./data";
 import type { PackBookingResult } from "./components/OrderSummary";
 
+/** A per-person bill in BMI */
+interface RacerBill {
+  billId: string;
+  personId?: string;
+  racerName: string;
+  category: "adult" | "junior";
+}
+
 /** A completed race booking for one category (adult or junior) */
 interface Booking {
   product: ClassifiedProduct;
@@ -14,6 +22,8 @@ interface Booking {
   blockPrice?: number;
   /** BMI bill line ID — used to remove/swap individual races without cancelling the whole order */
   billLineId?: string;
+  /** Which bills this booking spans (one per racer) */
+  bills?: RacerBill[];
 }
 import type { ContactInfo } from "./components/ContactForm";
 import type { PersonData } from "./components/ReturningRacerLookup";
@@ -75,8 +85,10 @@ export default function BookRacePage() {
   const [addingCategory, setAddingCategory] = useState<"adult" | "junior" | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
-  // Active BMI order ID — cancel when going back
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
+  const [activeBills, setActiveBills] = useState<RacerBill[]>([]);
+  // Convenience: primary bill ID (first bill, used for add-ons/POV/overview)
+  const activeOrderId = activeBills.length > 0 ? activeBills[0].billId : null;
 
   const contentRef = useRef<HTMLDivElement>(null);
   const nextBtnRef = useRef<HTMLDivElement>(null);
@@ -211,28 +223,47 @@ export default function BookRacePage() {
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
+    const cat = selectedProduct!.category;
     try {
-      // If replacing an existing booking for this category, remove the old line first
-      const existingIdx = bookings.findIndex(b => b.product.category === selectedProduct!.category);
-      if (existingIdx >= 0 && bookings[existingIdx].billLineId) {
-        await removeBookingLine(activeOrderId!,bookings[existingIdx].billLineId!).catch(() => {});
+      // Cancel old bills for this category if re-selecting
+      const oldBills = activeBills.filter(b => b.category === cat);
+      for (const ob of oldBills) {
+        await bmiDelete(`bill/${ob.billId}/cancel`).catch(() => {});
+      }
+      setActiveBills(prev => prev.filter(b => b.category !== cat));
+
+      // Book one bill per racer in this category (qty=1 each)
+      const catRacers = racerType === "existing"
+        ? verifiedRacers.filter(r => r.category === cat)
+        : [];
+      const racerCount = cat === "adult" ? adults : juniors;
+      const newBills: RacerBill[] = [];
+
+      if (racerType === "existing" && catRacers.length > 0) {
+        // Returning racers: each verified racer gets their own bill (for per-person credits)
+        for (const racer of catRacers) {
+          const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
+          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
+        }
+      } else {
+        // New racers: one bill for the whole group
+        const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
+        newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
       }
 
-      const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
-      if (!activeOrderId) {
-        setActiveOrderId(rawOrderId);
-      }
+      setActiveBills(prev => [...prev.filter(b => b.category !== cat), ...newBills]);
 
       const booking: Booking = {
         product: selectedProduct!,
-        quantity,
+        quantity: racerCount,
         proposal,
         block,
         blockPrice,
-        billLineId: billLineId ?? undefined,
+        bills: newBills,
       };
 
       // Replace existing same-category booking or append
+      const existingIdx = bookings.findIndex(b => b.product.category === cat);
       const updatedBookings = existingIdx >= 0
         ? bookings.map((b, i) => i === existingIdx ? booking : b)
         : [...bookings, booking];
@@ -267,22 +298,33 @@ export default function BookRacePage() {
   }
 
   async function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
+    // "Add Another Race" — same logic as handleConfirmHeat but appends instead of replacing
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
+    const cat = selectedProduct!.category;
+    const catRacers = racerType === "existing" ? verifiedRacers.filter(r => r.category === cat) : [];
+    const racerCount = cat === "adult" ? adults : juniors;
+
     try {
-      const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
-      if (!activeOrderId) {
-        setActiveOrderId(rawOrderId);
+      const newBills: RacerBill[] = [];
+      if (racerType === "existing" && catRacers.length > 0) {
+        for (const racer of catRacers) {
+          const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
+          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
+        }
+      } else {
+        const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
+        newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
       }
 
-      const booking: Booking = {
+      setActiveBills(prev => [...prev, ...newBills]);
+      setBookings(prev => [...prev, {
         product: selectedProduct!,
-        quantity,
+        quantity: racerCount,
         proposal,
         block,
         blockPrice,
-        billLineId: billLineId ?? undefined,
-      };
-      setBookings(prev => [...prev, booking]);
+        bills: newBills,
+      }]);
 
       setSelectedProduct(null);
       setSelectedProposal(null);
@@ -300,10 +342,10 @@ export default function BookRacePage() {
   }
 
   function cancelActiveOrder() {
-    if (activeOrderId) {
-      bmiDelete(`bill/${activeOrderId}/cancel`).catch(() => {});
-      setActiveOrderId(null);
+    for (const bill of activeBills) {
+      bmiDelete(`bill/${bill.billId}/cancel`).catch(() => {});
     }
+    setActiveBills([]);
   }
 
   function goToStep(s: Step) {
@@ -830,11 +872,11 @@ export default function BookRacePage() {
             date={selectedDate}
             contact={contact}
             billId={activeOrderId}
+            bills={activeBills}
             onBack={() => setStep("contact")}
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
-            additionalRacers={verifiedRacers.slice(1).map(r => ({ personId: r.personId, fullName: r.fullName }))}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
             onRemoveBooking={(index) => {

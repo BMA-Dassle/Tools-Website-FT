@@ -22,22 +22,30 @@ export interface BookingItem {
   blockPrice?: number;
 }
 
+/** One bill per racer (returning flow) or one bill for the group (new flow) */
+interface RacerBill {
+  billId: string;
+  personId?: string;
+  racerName: string;
+  category: "adult" | "junior";
+}
+
 interface OrderSummaryProps {
   /** All bookings (already booked — races held at heat selection) */
   bookings: BookingItem[];
   date: string;
   contact: ContactInfo;
   onBack: () => void;
-  /** BMI bill ID — races already booked onto this bill */
+  /** Primary bill ID (first bill — used for add-ons/POV) */
   billId: string;
+  /** All bills — one per racer for returning flow, or one for group */
+  bills: RacerBill[];
   /** For pack bookings -- order was already created during heat selection */
   packResult?: PackBookingResult;
   /** The pack product that was selected */
   packProduct?: ClassifiedProduct;
   /** Verified returning racer's BMI person ID */
   personId?: string;
-  /** Additional racers in the party (registered as project persons at payment) */
-  additionalRacers?: { personId: string; fullName: string }[];
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
   /** Selected add-on activities */
@@ -85,10 +93,10 @@ export default function OrderSummary({
   contact,
   onBack,
   billId,
+  bills,
   packResult,
   packProduct,
   personId,
-  additionalRacers = [],
   onRemoveBooking,
   addOns = [],
   pov,
@@ -120,90 +128,77 @@ export default function OrderSummary({
   }, []);
 
   async function runBookingFlow() {
-    console.log("[runBookingFlow] STARTED — all items on bill, billId:", billId);
+    console.log("[runBookingFlow] STARTED — bills:", bills.map(b => b.billId));
     setState({ status: "booking" });
     try {
-      // Everything (races, add-ons, POV) is already on the bill.
-      // Register contact + personId now to apply credits and get accurate totals.
-      const orderId = billId;
-
-      // Register contact via BMI Public API (applies credits when personId linked)
-      try {
-        await bmiPost("person/registerContactPerson", {
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          phone: contact.phone.replace(/\D/g, ""),
-          orderId,
-        });
-        // If returning racer, link personId to apply credits
-        if (personId) {
+      // Register contact on each bill + link personId for credits
+      for (const bill of bills) {
+        try {
           await bmiPost("person/registerContactPerson", {
-            personId: Number(personId),
             firstName: contact.firstName,
             lastName: contact.lastName,
             email: contact.email,
             phone: contact.phone.replace(/\D/g, ""),
-            orderId,
+            orderId: bill.billId,
           });
-        }
-      } catch { /* non-fatal */ }
-
-      let bmiTotal = total;
-      let bmiSubtotal = subtotal;
-      let bmiTax = tax;
-      let bmiLines: { name: string; quantity: number; amount: number }[] = [];
-      let isCreditOrder = false;
-      let cashOwed = total;
-      let creditApplied = 0;
-
-      try {
-        // Get overview (now with contact + credits applied)
-        const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${orderId}`);
-        let overview = await overviewRes.json();
-
-        // Extract totals
-        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
-        const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
-        const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
-
-        if (cashTotal) { bmiTotal = cashTotal.amount; cashOwed = cashTotal.amount; }
-        if (cashSub) bmiSubtotal = cashSub.amount;
-        if (cashTax) bmiTax = cashTax.amount;
-        if (creditTotal) creditApplied = Math.abs(creditTotal.amount);
-
-        if (creditTotal && (!cashTotal || cashTotal.amount === 0)) {
-          isCreditOrder = true;
-          cashOwed = 0;
-          bmiTotal = 0;
-        }
-
-        // Extract line items
-        if (overview.lines) {
-          bmiLines = overview.lines.map((l: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }) => {
-            const cashPrice = l.totalPrice?.find(p => p.depositKind === 0);
-            return { name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0 };
-          });
-        }
-      } catch {
-        // Fallback to local calculation
-        if (personId) {
-          const totalRacers = bookings.reduce((s, b) => s + b.quantity, 0);
-          creditApplied = 1;
-          const perRacer = totalRacers > 0 ? total / totalRacers : total;
-          cashOwed = Math.max(0, total - perRacer);
-          isCreditOrder = cashOwed < 0.01;
-          if (isCreditOrder) cashOwed = 0;
-        }
-        bmiLines = bookings.map(b => ({
-          name: b.product.name,
-          quantity: b.quantity,
-          amount: (b.blockPrice ?? b.product.price) * b.quantity,
-        }));
+          if (bill.personId) {
+            await bmiPost("person/registerContactPerson", {
+              personId: Number(bill.personId),
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone.replace(/\D/g, ""),
+              orderId: bill.billId,
+            });
+          }
+        } catch { /* non-fatal */ }
       }
 
-      setState({ status: "booked", orderId: orderId!, isCreditOrder, cashOwed, creditApplied, bmiTotal, bmiSubtotal, bmiTax, bmiLines });
+      // Get overview for each bill and combine totals
+      let bmiTotal = 0;
+      let bmiSubtotal = 0;
+      let bmiTax = 0;
+      let bmiLines: { name: string; quantity: number; amount: number; racer?: string }[] = [];
+      let isCreditOrder = true; // assume credit until proven otherwise
+      let cashOwed = 0;
+      let creditApplied = 0;
+
+      for (const bill of bills) {
+        try {
+          const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}`);
+          const overview = await overviewRes.json();
+
+          const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+          const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+          const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
+          const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
+
+          if (cashTotal) { bmiTotal += cashTotal.amount; cashOwed += cashTotal.amount; isCreditOrder = false; }
+          if (cashSub) bmiSubtotal += cashSub.amount;
+          if (cashTax) bmiTax += cashTax.amount;
+          if (creditTotal) creditApplied += Math.abs(creditTotal.amount);
+
+          // Extract line items with racer name
+          if (overview.lines) {
+            for (const l of overview.lines as { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }[]) {
+              const cashPrice = l.totalPrice?.find(p => p.depositKind === 0);
+              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racer: bill.racerName });
+            }
+          }
+        } catch {
+          // Fallback for this bill
+          bmiLines.push({ name: "Race", quantity: 1, amount: 0, racer: bill.racerName });
+        }
+      }
+
+      // If all bills are credit-covered
+      if (isCreditOrder && cashOwed === 0 && creditApplied > 0) {
+        bmiTotal = 0;
+      } else {
+        isCreditOrder = false;
+      }
+
+      setState({ status: "booked", orderId: billId, isCreditOrder, cashOwed, creditApplied, bmiTotal, bmiSubtotal, bmiTax, bmiLines });
     } catch (err) {
       setState({
         status: "error",
@@ -218,27 +213,14 @@ export default function OrderSummary({
 
     setState({ status: "paying" });
     try {
-      // Contact + personId already registered in runBookingFlow.
-      // Register additional racers as project persons now.
-      for (const racer of additionalRacers) {
-        try {
-          const nameParts = racer.fullName.split(" ");
-          await bmiPost("person/registerProjectPerson", {
-            personId: Number(racer.personId),
-            firstName: nameParts[0] || "",
-            lastName: nameParts.slice(1).join(" ") || "",
-            orderId,
-          });
-          console.log("[registerProjectPerson]", racer.fullName, racer.personId);
-        } catch { /* non-fatal */ }
-      }
-
       const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";
+      const allBillIds = bills.map(b => b.billId);
 
       // Store booking details in Redis + localStorage
       const bookingDetails = {
         billId: orderId,
+        billIds: allBillIds.join(","),
         amount: (isCreditOrder ? 0 : cashOwed).toFixed(2),
         race: raceName,
         name: `${contact.firstName} ${contact.lastName}`,
@@ -254,24 +236,27 @@ export default function OrderSummary({
       });
       localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
 
-      // Credit order — skip Square, confirm directly with BMI
+      // Credit order — skip Square, confirm each bill directly with BMI
       if (isCreditOrder) {
-        const confirmResult = await bmiPost("payment/confirm", {
-          id: crypto.randomUUID(),
-          paymentTime: new Date().toISOString(),
-          amount: 0,
-          orderId: Number(orderId),
-          depositKind: 2,
-        });
-        console.log("[payment/confirm credit]", confirmResult);
+        for (const bill of bills) {
+          try {
+            await bmiPost("payment/confirm", {
+              id: crypto.randomUUID(),
+              paymentTime: new Date().toISOString(),
+              amount: 0,
+              orderId: Number(bill.billId),
+              depositKind: 2,
+            });
+            console.log("[payment/confirm credit]", bill.billId, bill.racerName);
+          } catch { /* non-fatal */ }
+        }
 
-        // Go straight to confirmation page
-        window.location.href = `/book/race/confirmation?billId=${orderId}`;
+        window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}`;
         return;
       }
 
       // Cash order — create Square checkout
-      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}`;
+      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}`;
 
       const res = await fetch("/api/square/checkout", {
         method: "POST",
