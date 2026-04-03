@@ -235,15 +235,35 @@ export function filterProducts(
   racerType: RacerType,
   adultCount: number,
   juniorCount: number,
+  memberships?: string[],
 ): ClassifiedProduct[] {
+  // Determine highest qualification from memberships
+  const mems = (memberships || []).map(m => m.toLowerCase());
+  const hasQualifiedPro = mems.some(m => m.includes("qualified pro"));
+  const hasQualifiedIntermediate = mems.some(m => m.includes("qualified intermediate"));
+
   return products.filter(p => {
     // Hide race packs for now
     if (p.packType !== "none") return false;
-    if (racerType === "new" && p.tier !== "starter") return false;
-    if (racerType === "existing" && p.tier === "starter") return false;
     if (p.category === "adult" && adultCount === 0) return false;
     if (p.category === "junior" && juniorCount === 0) return false;
-    return true;
+
+    if (racerType === "new") {
+      // New racers: starter only
+      return p.tier === "starter";
+    }
+
+    // Returning racers: filter by qualification
+    if (hasQualifiedPro) {
+      // Pro: show all tiers
+      return true;
+    }
+    if (hasQualifiedIntermediate) {
+      // Intermediate: starter + intermediate
+      return p.tier === "starter" || p.tier === "intermediate";
+    }
+    // No qualifications: starter only
+    return p.tier === "starter";
   });
 }
 

@@ -12,6 +12,7 @@ export interface PersonData {
   tag: string;
   loginCode: string;
   personReference: string;
+  memberships: string[];
 }
 
 interface FoundAccount {
@@ -197,6 +198,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         tag: match.loginCode,
         loginCode: match.loginCode,
         personReference: "",
+        memberships: match.memberships,
       };
       setVerifiedPerson(person);
       setPhase("verified");
@@ -230,6 +232,14 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             tag: matchTag.tag,
             loginCode: matchTag.tag,
             personReference: "",
+            memberships: (p.memberships || [])
+              .filter((m: { stops: string; name: string }) =>
+                (!m.stops || new Date(m.stops) > new Date()) &&
+                ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"]
+                  .some(r => m.name.toLowerCase().includes(r))
+              )
+              .map((m: { name: string }) => m.name)
+              .filter((n: string, i: number, a: string[]) => a.indexOf(n) === i),
           };
           setVerifiedPerson(person);
           setPhase("verified");

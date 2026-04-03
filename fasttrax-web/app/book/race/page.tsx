@@ -280,9 +280,9 @@ export default function BookRacePage() {
     }
   }
 
-  // Filter catalog products based on racer type + party composition + current booking category
+  // Filter catalog products based on racer type + party composition + qualifications
   const filteredProducts = racerType
-    ? filterProducts(catalogProducts, racerType, adults, juniors)
+    ? filterProducts(catalogProducts, racerType, adults, juniors, verifiedPerson?.memberships)
         .filter(p => p.category === bookingCategory)
     : [];
 
