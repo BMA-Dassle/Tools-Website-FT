@@ -231,6 +231,7 @@ export default function BookRacePage() {
         ? verifiedRacers.filter(r => r.category === cat)
         : [];
       const racerCount = cat === "adult" ? adults : juniors;
+      console.log("[handleConfirmHeat]", { cat, existingBills: existingCatBills.length, catRacers: catRacers.length, allRacers: verifiedRacers.map(r => ({ name: r.fullName, cat: r.category, pid: r.personId })) });
 
       if (existingCatBills.length > 0) {
         // Bills exist — add this race to them (don't cancel, don't create new)
@@ -240,12 +241,18 @@ export default function BookRacePage() {
       } else {
         // No bills yet — create new
         const newBills: RacerBill[] = [];
-        if (racerType === "existing" && catRacers.length > 0) {
-          for (const racer of catRacers) {
+        // Returning racers: match by category, fall back to verifiedPerson if no category match
+        const racers = catRacers.length > 0
+          ? catRacers
+          : (racerType === "existing" && verifiedPerson ? [verifiedPerson] : []);
+
+        if (racers.length > 0) {
+          for (const racer of racers) {
             const { rawOrderId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
             newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
           }
         } else {
+          // New racers: one bill for the group
           const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
           newBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
         }

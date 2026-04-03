@@ -128,7 +128,7 @@ export default function OrderSummary({
   }, []);
 
   async function runBookingFlow() {
-    console.log("[runBookingFlow] STARTED — bills:", bills.map(b => b.billId));
+    console.log("[runBookingFlow] STARTED — bills:", JSON.stringify(bills.map(b => ({ billId: b.billId, personId: b.personId, racer: b.racerName }))));
     setState({ status: "booking" });
     try {
       // Register contact on each bill + link personId for credits
