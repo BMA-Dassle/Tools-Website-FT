@@ -14,10 +14,11 @@ interface PovUpsellProps {
   racerCount: number;
   onContinue: (pov: PovSelection | null) => void;
   onBack: () => void;
+  initial?: PovSelection | null;
 }
 
-export default function PovUpsell({ racerCount, onContinue, onBack }: PovUpsellProps) {
-  const [qty, setQty] = useState(0);
+export default function PovUpsell({ racerCount, onContinue, onBack, initial }: PovUpsellProps) {
+  const [qty, setQty] = useState(initial?.quantity ?? 0);
   const price = 5;
 
   return (

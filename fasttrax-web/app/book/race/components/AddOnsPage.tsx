@@ -39,6 +39,7 @@ interface AddOnsPageProps {
   bookedHeats: { start: string; stop: string; track: string | null }[]; // race heats to avoid
   onContinue: (addOns: AddOnItem[]) => void;
   onBack: () => void;
+  initialAddOns?: AddOnItem[];
 }
 
 const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
@@ -117,8 +118,14 @@ function conflictsWithRace(slotStart: string, slotStop: string, heats: { start: 
   });
 }
 
-export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, onBack }: AddOnsPageProps) {
-  const [selections, setSelections] = useState<Record<string, number>>({});
+export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, onBack, initialAddOns }: AddOnsPageProps) {
+  // Restore previous selections if navigating back
+  const [selections, setSelections] = useState<Record<string, number>>(() => {
+    if (!initialAddOns) return {};
+    const m: Record<string, number> = {};
+    for (const a of initialAddOns) { if (a.quantity > 0) m[a.id] = a.quantity; }
+    return m;
+  });
   const [timeSlots, setTimeSlots] = useState<Record<string, TimeSlot[]>>({});
   const [selectedTimes, setSelectedTimes] = useState<Record<string, number>>({}); // index into timeSlots
   const [loadingSlots, setLoadingSlots] = useState<Record<string, boolean>>({});

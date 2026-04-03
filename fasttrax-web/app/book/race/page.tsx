@@ -458,6 +458,7 @@ export default function BookRacePage() {
         {step === "pov" && (
           <PovUpsell
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
+            initial={selectedPov}
             onContinue={(pov) => {
               setSelectedPov(pov);
               setStep("addons");
@@ -472,6 +473,7 @@ export default function BookRacePage() {
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
             date={selectedDate || ""}
             bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
+            initialAddOns={selectedAddOns}
             onContinue={(addOns) => {
               setSelectedAddOns(addOns);
               if (verifiedPerson && contact) {
