@@ -888,11 +888,23 @@ export default function BookRacePage() {
             personId={verifiedPerson?.personId}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
-            onRemoveBooking={(index) => {
+            onRemoveBooking={async (index) => {
               const toRemove = bookings[index];
-              // Remove just this line from the BMI bill (not the whole order)
-              if (toRemove?.billLineId) {
-                removeBookingLine(activeOrderId!,toRemove.billLineId).catch(() => {});
+              // Cancel the bills associated with this booking
+              if (toRemove?.bills) {
+                for (const bill of toRemove.bills) {
+                  // If this bill is shared with other bookings, just remove the line
+                  const otherBookingsOnBill = bookings.filter((b, i) => i !== index && b.bills?.some(bb => bb.billId === bill.billId));
+                  if (otherBookingsOnBill.length > 0 && toRemove.billLineId) {
+                    await removeBookingLine(bill.billId, toRemove.billLineId).catch(() => {});
+                  } else {
+                    // This bill is only for this booking — cancel the whole bill
+                    await bmiDelete(`bill/${bill.billId}/cancel`).catch(() => {});
+                    setActiveBills(prev => prev.filter(b => b.billId !== bill.billId));
+                  }
+                }
+              } else if (toRemove?.billLineId && activeOrderId) {
+                await removeBookingLine(activeOrderId, toRemove.billLineId).catch(() => {});
               }
               setBookings(prev => {
                 const updated = prev.filter((_, i) => i !== index);
@@ -901,7 +913,7 @@ export default function BookRacePage() {
                   setStep("date");
                 } else {
                   setStep("heat");
-                  setTimeout(() => setStep("summary"), 100);
+                  setTimeout(() => setStep("summary"), 200);
                 }
                 return updated;
               });
