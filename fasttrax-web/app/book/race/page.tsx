@@ -673,25 +673,34 @@ export default function BookRacePage() {
               </div>
             )}
 
-            {/* Category header — always show for returning racers or mixed parties */}
-            {(adults > 0 && juniors > 0) || (racerType === "existing" && verifiedRacers.length > 0) ? (
-              <div className="text-center space-y-1">
-                <p className="text-[#00E2E5] text-sm font-semibold">
+            {/* Category banner — prominent when booking for adults vs juniors */}
+            {adults > 0 && juniors > 0 && (
+              <div className={`rounded-xl border-2 p-4 text-center ${
+                bookingCategory === "adult"
+                  ? "border-[#00E2E5]/50 bg-[#00E2E5]/10"
+                  : "border-amber-400/50 bg-amber-400/10"
+              }`}>
+                <p className={`font-display text-xl uppercase tracking-widest ${
+                  bookingCategory === "adult" ? "text-[#00E2E5]" : "text-amber-400"
+                }`}>
+                  {bookingCategory === "adult" ? "Adult Races" : "Junior Races"}
+                </p>
+                <p className="text-white/50 text-sm mt-1">
                   {bookingCategory === "adult"
-                    ? `Scheduling for ${adults} adult${adults !== 1 ? "s" : ""}`
-                    : `Scheduling for ${juniors} junior${juniors !== 1 ? "s" : ""}`}
+                    ? `Pick a race for your ${adults} adult${adults !== 1 ? " racers" : " racer"}`
+                    : `Pick a race for your ${juniors} junior${juniors !== 1 ? " racers" : " racer"}`}
                 </p>
                 {racerType === "existing" && (() => {
                   const catRacers = verifiedRacers.filter(r => r.category === bookingCategory);
                   if (catRacers.length === 0) return null;
                   return (
-                    <p className="text-white/40 text-xs">
+                    <p className="text-white/30 text-xs mt-1">
                       {catRacers.map(r => r.fullName).join(", ")}
                     </p>
                   );
                 })()}
               </div>
-            ) : null}
+            )}
 
             {catalogLoading ? (
               <div className="flex flex-col items-center justify-center gap-4 min-h-[200px]">
