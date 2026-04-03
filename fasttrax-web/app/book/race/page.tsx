@@ -232,22 +232,24 @@ export default function BookRacePage() {
         ? verifiedRacers.filter(r => r.category === cat)
         : [];
       const racerCount = cat === "adult" ? adults : juniors;
-      console.log("[handleConfirmHeat]", cat, "existingBills:", existingCatBills.length);
+      console.log("[handleConfirmHeat]", JSON.stringify({ cat, existingBills: existingCatBills.length, catRacersCount: catRacers.length, allRacersWithCats: verifiedRacers.map(r => ({ n: r.fullName?.substring(0,10), c: r.category, p: r.personId })) }));
 
       if (existingCatBills.length > 0) {
-        // Bills exist — add this race to each existing bill
+        // Bills exist for this category — add this race to them
         for (const bill of existingCatBills) {
           const { billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
-          // Store billLineId for removal later
           if (billLineId) bookingBillLineIds.push({ billId: bill.billId, lineId: billLineId });
         }
       } else if (racerType === "existing" && verifiedRacers.length > 0) {
-        // Returning racers: one bill per person (for per-person credits)
-        // Use ALL verified racers, not just category-matched ones
+        // Returning racers: one bill per person matching THIS category
+        // If category filter returns nothing, use racers without category (primary)
+        const matchingRacers = catRacers.length > 0
+          ? catRacers
+          : verifiedRacers.filter(r => !r.category || r.category === cat);
         const newBills: RacerBill[] = [];
-        for (const racer of verifiedRacers) {
+        for (const racer of (matchingRacers.length > 0 ? matchingRacers : [verifiedPerson!].filter(Boolean))) {
           const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
-          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: racer.category || cat });
+          newBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
           if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
         }
         setActiveBills(prev => [...prev, ...newBills]);
