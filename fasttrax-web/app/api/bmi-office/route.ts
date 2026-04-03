@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import https from "https";
 import { randomUUID } from "crypto";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-const OFFICE_API = "https://office-api22.sms-timing.com";
+const OFFICE_HOST = "office-api22.sms-timing.com";
 const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
 // Base64-encoded to avoid dotenv $variable expansion: JGMxbjFlbGxv = $c1n1ello
@@ -11,14 +12,35 @@ const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
 const OFFICE_PASS = Buffer.from(OFFICE_PASS_B64, "base64").toString();
 const SMS_VERSION = "6251006 202511051229";
 
-function officeHeaders(token: string) {
-  return {
-    "Authorization": `Bearer ${token}`,
-    "x-fast-version": SMS_VERSION,
-    "x-session-id": randomUUID(),
-    "Accept": "application/json, text/plain, */*",
-    "clientkey": CLIENT_KEY,
-  };
+// ── HTTPS helpers (Node fetch/undici doesn't work with this API) ────────────
+
+function httpsGet(path: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.get({ hostname: OFFICE_HOST, path, headers }, (res) => {
+      let data = "";
+      res.on("data", (c) => (data += c));
+      res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
+    });
+    req.on("error", reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error("Timeout")); });
+  });
+}
+
+function httpsPost(path: string, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      { hostname: OFFICE_HOST, path, method: "POST", headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) } },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.write(body);
+    req.end();
+  });
 }
 
 // ── Token cache ─────────────────────────────────────────────────────────────
@@ -33,29 +55,32 @@ async function getOfficeToken(): Promise<string> {
 
   const body = `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`;
   console.log(`[BMI Office auth] user=${OFFICE_USER}`);
-  const res = await fetch(`${OFFICE_API}/auth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "clientkey": CLIENT_KEY,
-      "x-fast-version": SMS_VERSION,
-    },
-    body,
-    cache: "no-store",
+  const res = await httpsPost("/auth/token", body, {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "clientkey": CLIENT_KEY,
+    "x-fast-version": SMS_VERSION,
   });
 
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    console.error(`[BMI Office auth] ${res.status}: ${errBody}`);
-    throw new Error(`Office auth failed: ${res.status} — ${errBody}`);
+  if (res.status !== 200) {
+    console.error(`[BMI Office auth] ${res.status}: ${res.body}`);
+    throw new Error(`Office auth failed: ${res.status}`);
   }
 
-  const data = await res.json();
+  const data = JSON.parse(res.body);
   cachedToken = data.access_token;
   const expiresIn = parseInt(data.expires_in || "86400", 10);
   tokenExpiry = Date.now() + expiresIn * 1000;
 
   return cachedToken!;
+}
+
+function apiHeaders(token: string): Record<string, string> {
+  return {
+    "Authorization": `Bearer ${token}`,
+    "x-fast-version": SMS_VERSION,
+    "x-session-id": randomUUID(),
+    "clientkey": CLIENT_KEY,
+  };
 }
 
 // ── GET handler ─────────────────────────────────────────────────────────────
@@ -65,7 +90,7 @@ export async function GET(req: NextRequest) {
   const action = searchParams.get("action");
 
   try {
-    let token = await getOfficeToken();
+    const token = await getOfficeToken();
 
     // Person search by email/name
     if (action === "search") {
@@ -75,34 +100,20 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Missing q parameter" }, { status: 400 });
       }
 
-      const url = `${OFFICE_API}/api/${CLIENT_KEY}/search/person?token=${encodeURIComponent(query)}&maxResults=${max}`;
-      console.log(`[BMI Office search] ${url} token_start=${token.substring(0, 20)}`);
-      const res = await fetch(url, {
-        headers: officeHeaders(token),
-        cache: "no-store",
-      });
-      let rawText = await res.text();
-      console.log(`[BMI Office search] ${res.status}: ${rawText.substring(0, 300)}`);
+      const path = `/api/${CLIENT_KEY}/search/person?token=${encodeURIComponent(query)}&maxResults=${max}`;
+      const res = await httpsGet(path, apiHeaders(token));
+      console.log(`[BMI Office search] ${res.status} (${query})`);
 
-      // If 500/401, token might be bad — clear cache and retry once
       if (res.status >= 400) {
-        console.log("[BMI Office] Clearing token cache and retrying...");
+        // Token might be stale — clear and retry
         cachedToken = null;
         tokenExpiry = 0;
-        token = await getOfficeToken();
-        const retry = await fetch(url, {
-          headers: officeHeaders(token),
-          cache: "no-store",
-        });
-        rawText = await retry.text();
-        console.log(`[BMI Office search retry] ${retry.status}: ${rawText.substring(0, 300)}`);
+        const newToken = await getOfficeToken();
+        const retry = await httpsGet(path, apiHeaders(newToken));
+        return NextResponse.json(JSON.parse(retry.body), { status: retry.status >= 400 ? 500 : 200 });
       }
 
-      try {
-        return NextResponse.json(JSON.parse(rawText), { status: 200 });
-      } catch {
-        return NextResponse.json({ error: rawText.substring(0, 200) }, { status: 500 });
-      }
+      return NextResponse.json(JSON.parse(res.body));
     }
 
     // Person details by ID
@@ -112,19 +123,12 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Missing id parameter" }, { status: 400 });
       }
 
-      const url = `${OFFICE_API}/api/${CLIENT_KEY}/person/${id}`;
-      const res = await fetch(url, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "x-fast-version": SMS_VERSION,
-        },
-        cache: "no-store",
-      });
-      const data = await res.json();
-      return NextResponse.json(data, { status: res.status });
+      const path = `/api/${CLIENT_KEY}/person/${id}`;
+      const res = await httpsGet(path, apiHeaders(token));
+      return NextResponse.json(JSON.parse(res.body), { status: res.status >= 400 ? 500 : 200 });
     }
 
-    return NextResponse.json({ error: "Unknown action. Use ?action=search&q=email or ?action=person&id=123" }, { status: 400 });
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Office API error" },
