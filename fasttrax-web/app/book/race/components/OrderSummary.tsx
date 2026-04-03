@@ -149,9 +149,10 @@ export default function OrderSummary({
             headers: { "content-type": "application/json" },
             body: regJson,
           });
-          // Link personId to apply credits
-          if (bill.personId) {
-            const regWithPerson = `{"orderId":${bill.billId},"personId":${bill.personId},` + JSON.stringify(regBody).slice(1);
+          // Link personId to apply credits (use bill's personId, or fall back to primary personId)
+          const pid = bill.personId || personId;
+          if (pid) {
+            const regWithPerson = `{"orderId":${bill.billId},"personId":${pid},` + JSON.stringify(regBody).slice(1);
             await fetch(`/api/bmi?${regQs.toString()}`, {
               method: "POST",
               headers: { "content-type": "application/json" },
