@@ -157,7 +157,7 @@ export default function OrderSummary({
 
           // Add to existing bill if not first
           if (orderId) {
-            bookPayload.orderId = orderId;
+            bookPayload.orderId = Number(orderId);
           }
 
           console.log(`[race book ${i}] payload:`, JSON.stringify(bookPayload));
@@ -191,7 +191,7 @@ export default function OrderSummary({
             productId: String(addon.id),
             quantity: addon.quantity,
             resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
-            orderId,
+            orderId: Number(orderId),
             proposal: {
               blocks: (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks.map(b => ({
                 productLineIds: b.productLineIds || [],
