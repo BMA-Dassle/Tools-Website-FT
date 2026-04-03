@@ -55,7 +55,7 @@ export default function Hero() {
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
             <BookingLink
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               className="font-[var(--font-poppins)] font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)", boxShadow: "0 0 20px rgba(228,28,29,0.4)" }}
             >

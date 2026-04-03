@@ -120,7 +120,7 @@ export default function Nav() {
           {/* Book Now + hamburger */}
           <div className="flex items-center gap-3 shrink-0">
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               target="_blank"
               rel="noopener noreferrer"
               onClick={trackBookingClick}
@@ -170,7 +170,7 @@ export default function Nav() {
               )
             )}
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               target="_blank"
               rel="noopener noreferrer"
               onClick={trackBookingClick}

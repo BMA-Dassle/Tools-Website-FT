@@ -78,7 +78,7 @@ export default function PricingPage() {
                   Required for all racers. Valid for one year. Includes your head/neck protector, a free race during your birthday month, and access to your stats in the FastTrax Racing App.
                 </p>
                 <BookingLink
-                  href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+                  href="/book/race"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105"
                   style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
@@ -107,7 +107,7 @@ export default function PricingPage() {
                   <li><strong style={{ color: "rgb(0,74,173)" }}>Shuffly</strong> — $10 per group (at FastTrax)</li>
                 </ul>
                 <BookingLink
-                  href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+                  href="/book/race"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
@@ -375,7 +375,7 @@ export default function PricingPage() {
                   <li>+ Gel Blaster Entry ($10/person)</li>
                 </ul>
                 <BookingLink
-                  href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+                  href="/book/race"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
@@ -404,7 +404,7 @@ export default function PricingPage() {
                   <li>Save on Intermediate Pricing</li>
                 </ul>
                 <BookingLink
-                  href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+                  href="/book/race"
                   className="block text-center font-[var(--font-poppins)] font-semibold uppercase text-white transition-all hover:scale-105 mt-auto"
                   style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                 >
@@ -443,7 +443,7 @@ export default function PricingPage() {
             Ready to Race?
           </h2>
           <BookingLink
-            href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+            href="/book/race"
             className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{
               backgroundColor: "rgb(228,28,29)",

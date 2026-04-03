@@ -641,7 +641,7 @@ export default function RacingPage() {
           {/* CTA */}
           <div className="text-center mt-10">
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               target="_blank"
               rel="noopener noreferrer"
               onClick={trackBookingClick}
@@ -901,7 +901,7 @@ export default function RacingPage() {
             Ready to Race?
           </h2>
           <a
-            href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+            href="/book/race"
             target="_blank"
             rel="noopener noreferrer"
             onClick={trackBookingClick}

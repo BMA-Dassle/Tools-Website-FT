@@ -667,7 +667,7 @@ export default function LeaderboardsPage() {
               every apex and every overtake as it happens.
             </p>
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               target="_blank"
               rel="noopener noreferrer"
               onClick={trackBookingClick}
@@ -986,7 +986,7 @@ export default function LeaderboardsPage() {
           </h2>
           <div className="flex flex-wrap gap-4 justify-center">
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               target="_blank"
               rel="noopener noreferrer"
               onClick={trackBookingClick}

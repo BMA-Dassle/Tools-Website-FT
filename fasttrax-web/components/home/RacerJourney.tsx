@@ -106,7 +106,7 @@ export default function RacerJourney() {
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
             <a
-              href="https://booking.bmileisure.com/headpinzftmyers/book/product-list"
+              href="/book/race"
               target="_blank"
               rel="noopener noreferrer"
               onClick={trackBookingClick}
