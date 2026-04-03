@@ -51,7 +51,7 @@ interface OrderSummaryProps {
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number }[] }
+  | { status: "booked"; orderId: number; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number }[] }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -119,11 +119,11 @@ export default function OrderSummary({
     console.log("[runBookingFlow] STARTED, effectRan:", effectRan.current);
     setState({ status: "booking" });
     try {
-      let orderId: string | null = null;
+      let orderId: number | null = null;
       let lastBookPrices: { amount: number; depositKind: number }[] | null = null;
 
       if (packResult) {
-        orderId = packResult.billId;
+        orderId = Number(packResult.billId);
       } else {
         // ── Build the bill: book each category ──────────────────────────
         for (let i = 0; i < bookings.length; i++) {
@@ -170,11 +170,11 @@ export default function OrderSummary({
           if (result.prices) lastBookPrices = result.prices;
 
           if (!orderId) {
-            orderId = String(result.orderId);
-            if (!orderId || orderId === "undefined" || orderId === "0") {
+            orderId = Number(result.orderId);
+            if (!orderId || isNaN(orderId)) {
               throw new Error("No order ID returned from booking");
             }
-            onOrderCreated?.(orderId);
+            onOrderCreated?.(String(orderId));
           }
         }
       }
@@ -194,7 +194,7 @@ export default function OrderSummary({
               productId: pov.id,
               pageId: null,
               quantity: pov.quantity,
-              billId: orderId,
+              billId: String(orderId),
               dynamicLines: null,
               sellKind: 0,
             }]),
