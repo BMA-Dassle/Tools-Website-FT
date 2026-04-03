@@ -183,30 +183,31 @@ export default function OrderSummary({
       // Order: booking/book items first (preserves orderId), then SMS sell
       // items last (sell can create a separate billId).
 
-      // Activity add-ons: use BMI booking/book (same as races) to add to existing order
+      // Activity add-ons: use SMS-Timing booking/book with billId (matches BMI hosted flow from HAR)
       console.log("[add-ons] processing", addOns.length, "add-ons, with proposal:", addOns.map(a => ({ id: a.id, name: a.name, qty: a.quantity, hasProposal: !!a.proposal })));
       for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
         try {
-          const block = (addon.proposal as { blocks: { block: Record<string, unknown>; productLineIds?: string[] }[] }).blocks[0];
           const addonPayload = {
             productId: String(addon.id),
+            pageId: "42730172",
             quantity: addon.quantity,
-            resourceId: Number((addon.block as { resourceId?: string })?.resourceId) || -1,
-            orderId,
+            billId: String(orderId),
+            dynamicLines: null,
+            sellKind: 0,
+            resourceId: String((addon.block as { resourceId?: string })?.resourceId || "-1"),
             proposal: {
-              blocks: [{
-                productLineIds: block.productLineIds || [],
-                block: {
-                  ...block.block,
-                  resourceId: Number((block.block as Record<string, unknown>).resourceId) || -1,
-                },
-              }],
-              productLineId: (addon.proposal as { productLineId?: string }).productLineId ?? null,
+              ...(addon.proposal as Record<string, unknown>),
+              selected: true,
             },
           };
           console.log("[add-on book]", addon.name, JSON.stringify(addonPayload, null, 2));
-          const result = await bmiPost("booking/book", addonPayload);
-          console.log("[add-on book result]", addon.name, JSON.stringify(result));
+          const addonRes = await fetch("/api/sms?endpoint=booking%2Fbook", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(addonPayload),
+          });
+          const addonResult = await addonRes.json();
+          console.log("[add-on book result]", addon.name, addonRes.status, JSON.stringify(addonResult));
         } catch (err) {
           console.error("[add-on book error]", addon.name, err);
         }
