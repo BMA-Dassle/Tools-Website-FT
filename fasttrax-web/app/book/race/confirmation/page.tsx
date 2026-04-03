@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import QRCode from "qrcode";
 import { bmiGet, bmiPost } from "../data";
 import { trackBookingComplete } from "@/lib/analytics";
@@ -237,146 +238,156 @@ export default function ConfirmationPage() {
   const cashTotal = order?.total.find(t => t.depositKind === 0)?.amount;
 
   return (
-    <div className="min-h-screen bg-[#000418] pt-24">
-      <div className="max-w-lg mx-auto px-4 py-12">
-
-        {loading && (
-          <div className="flex flex-col items-center justify-center gap-4 min-h-[300px]">
-            <div className="w-10 h-10 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
-            <p className="text-white/50 text-sm">Confirming your booking…</p>
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="text-center space-y-4">
-            <p className="text-red-400">{error}</p>
-            <a href="/book/race" className="text-[#00E2E5] underline text-sm">Book a race</a>
-          </div>
-        )}
-
-        {!loading && orderId && (
-          <div className="space-y-6">
-            {/* Success header */}
-            <div className="text-center space-y-3">
-              <div className="w-16 h-16 rounded-full bg-[#00E2E5]/15 border border-[#00E2E5]/40 flex items-center justify-center mx-auto text-3xl">
-                ✓
+    <div className="min-h-screen bg-[#000418]">
+      {/* Hero banner */}
+      <div className="relative overflow-hidden">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg"
+          alt="FastTrax Racing"
+          fill
+          className="object-cover object-center"
+          priority
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/60 via-[#000418]/80 to-[#000418]" />
+        <div className="relative z-10 pt-36 pb-16 px-4 text-center">
+          {loading ? (
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
+              <p className="text-white/50 text-sm">Confirming your booking...</p>
+            </div>
+          ) : error ? (
+            <div className="space-y-4">
+              <p className="text-red-400 text-lg">{error}</p>
+              <a href="/book/race" className="text-[#00E2E5] underline">Book a race</a>
+            </div>
+          ) : (
+            <>
+              <div className="w-20 h-20 rounded-full bg-[#00E2E5]/20 border-2 border-[#00E2E5]/50 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-[#00E2E5]" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
               </div>
-              <h1 className="text-3xl font-display uppercase tracking-widest text-white">
+              <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-white mb-2">
                 You&apos;re on the grid!
               </h1>
-              <p className="text-white/50 text-sm">
-                Your race is confirmed. Check your email for a receipt.
+              <p className="text-white/50 text-sm max-w-md mx-auto">
+                Your reservation is confirmed. Show your QR code at Guest Services when you arrive.
               </p>
-            </div>
+              {reservationNumber && confirmations.length <= 1 && (
+                <p className="text-[#00E2E5] font-display text-2xl uppercase tracking-wider mt-3">{reservationNumber}</p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
 
-            {/* Per-racer confirmations */}
-            {confirmations.length > 1 ? (
-              <div className="space-y-3">
-                {confirmations.map((c, i) => (
-                  <div key={c.billId} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-white font-semibold text-sm">{c.racerName}</p>
-                      <p className="text-white/40 text-xs">Reservation {c.resNumber}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[#00E2E5] font-bold text-sm">{c.resNumber}</p>
-                      {i === 0 && <p className="text-white/30 text-[10px]">Primary</p>}
+      {/* Main content */}
+      {!loading && orderId && (
+        <div className="max-w-6xl mx-auto px-4 pb-16 -mt-4">
+          {/* Per-racer confirmations */}
+          {confirmations.length > 1 && (
+            <div className="flex flex-wrap justify-center gap-3 mb-8">
+              {confirmations.map((c, i) => (
+                <div key={c.billId} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-5 py-3 flex items-center gap-4">
+                  <div>
+                    <p className="text-white font-semibold text-sm">{c.racerName}</p>
+                    <p className="text-[#00E2E5] text-xs font-bold">{c.resNumber}</p>
+                  </div>
+                  {i === 0 && <span className="text-[9px] font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Two-column layout on desktop */}
+          <div className="grid lg:grid-cols-2 gap-8">
+            {/* LEFT: QR + booking details */}
+            <div className="space-y-6">
+              {/* QR Code + Check-in time */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 flex flex-col sm:flex-row items-center gap-6">
+                {qrDataUrl && (
+                  <div className="shrink-0">
+                    <div className="rounded-xl bg-white p-3 shadow-xl shadow-[#00E2E5]/10">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={qrDataUrl} alt="Reservation QR Code" width={160} height={160} />
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : null}
-
-            {/* QR Code (primary reservation) */}
-            {qrDataUrl && (
-              <div className="flex flex-col items-center gap-3">
-                <div className="rounded-xl bg-white p-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={qrDataUrl} alt="Reservation QR Code" width={180} height={180} />
-                </div>
-                <div className="text-center">
-                  {reservationNumber && confirmations.length <= 1 && (
-                    <p className="text-white font-bold text-lg">{reservationNumber}</p>
+                )}
+                <div className="text-center sm:text-left">
+                  {start && (
+                    <>
+                      <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider mb-1">Check In By</p>
+                      <p className="text-white font-display text-3xl uppercase tracking-widest mb-2">
+                        {checkinTime(start)}
+                      </p>
+                    </>
                   )}
-                  <p className="text-white/40 text-xs">Show this QR code at check-in</p>
+                  <p className="text-white/40 text-xs">Guest Services, 2nd Floor</p>
+                  <p className="text-white/30 text-xs">30 minutes before your heat</p>
                 </div>
               </div>
-            )}
 
-            {/* Check-in time alert */}
-            {start && (
-              <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-4 text-center">
-                <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-1">Check In By</p>
-                <p className="text-white font-display text-2xl uppercase tracking-widest">
-                  {checkinTime(start)}
-                </p>
-                <p className="text-white/50 text-xs mt-1">
-                  Guest Services, 2nd Floor — 30 minutes before your heat
-                </p>
-              </div>
-            )}
-
-            {/* Booking details from order/overview */}
-            <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
-              {raceLine && (
-                <div className="p-4">
-                  <p className="text-white/40 text-xs mb-1">Race</p>
-                  <p className="text-white font-bold">{raceLine.name}</p>
-                </div>
-              )}
-              {start && (
-                <div className="p-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Date</p>
-                    <p className="text-white text-sm">{formatDate(start)}</p>
-                  </div>
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Heat time</p>
-                    <p className="text-white text-sm">{formatTime(start)}</p>
-                  </div>
-                </div>
-              )}
-              <div className="p-4 grid grid-cols-2 gap-4">
+              {/* Booking details */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] divide-y divide-white/[0.06]">
                 {raceLine && (
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Racers</p>
-                    <p className="text-white text-sm">{raceLine.quantity}</p>
+                  <div className="px-5 py-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Race</p>
+                      <p className="text-white font-bold mt-0.5">{raceLine.name}</p>
+                    </div>
+                    {raceLine.quantity > 1 && <span className="text-white/30 text-xs">x{raceLine.quantity}</span>}
                   </div>
                 )}
-                {cashTotal !== undefined && (
-                  <div>
-                    <p className="text-white/40 text-xs mb-1">Total</p>
-                    <p className="text-[#00E2E5] font-bold text-lg">${cashTotal.toFixed(2)}</p>
+                {start && (
+                  <div className="px-5 py-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Date</p>
+                      <p className="text-white text-sm mt-0.5">{formatDate(start)}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Heat</p>
+                      <p className="text-white text-sm mt-0.5">{formatTime(start)}</p>
+                    </div>
                   </div>
                 )}
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Reference</p>
+                    <p className="text-white/50 text-xs font-mono mt-0.5">{orderId}</p>
+                  </div>
+                  {cashTotal !== undefined && cashTotal > 0 && (
+                    <p className="text-[#00E2E5] font-bold text-xl">${cashTotal.toFixed(2)}</p>
+                  )}
+                  {cashTotal === 0 && (
+                    <span className="text-green-400 text-xs font-bold uppercase tracking-wider">Credit Applied</span>
+                  )}
+                </div>
               </div>
-              <div className="p-4">
-                <p className="text-white/40 text-xs mb-1">Booking reference</p>
-                <p className="text-white/70 text-sm font-mono">{orderId}</p>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <a
+                  href="/racing"
+                  className="flex-1 text-center px-5 py-3.5 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors"
+                >
+                  Racing Info
+                </a>
+                <a
+                  href="/book/race"
+                  className="flex-1 text-center px-5 py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/20"
+                >
+                  Book Another Race
+                </a>
               </div>
             </div>
 
-            {/* Racer's Journey — arrival steps */}
-            <RacerJourneySteps />
-
-            {/* Actions */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <a
-                href="/racing"
-                className="flex-1 text-center px-6 py-3 rounded-xl border border-white/20 text-white/70 hover:border-white/40 hover:text-white text-sm font-semibold transition-colors"
-              >
-                Racing info
-              </a>
-              <a
-                href="/book/race"
-                className="flex-1 text-center px-6 py-3 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/25"
-              >
-                Book another race
-              </a>
+            {/* RIGHT: Racer's Journey */}
+            <div>
+              <RacerJourneySteps />
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
