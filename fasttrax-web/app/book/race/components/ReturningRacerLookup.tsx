@@ -13,6 +13,7 @@ export interface PersonData {
   loginCode: string;
   personReference: string;
   memberships: string[];
+  category?: "adult" | "junior";
 }
 
 interface FoundAccount {

@@ -69,6 +69,10 @@ export default function BookRacePage() {
   const [selectedPov, setSelectedPov] = useState<PovSelection | null>(null);
   // Returning racer person data from BMI lookup
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
+  // All verified racers in the party (for returning racer flow)
+  const [verifiedRacers, setVerifiedRacers] = useState<PersonData[]>([]);
+  const [addingRacer, setAddingRacer] = useState(false);
+  const [addingCategory, setAddingCategory] = useState<"adult" | "junior" | null>(null);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI order ID — cancel when going back
@@ -114,6 +118,10 @@ export default function BookRacePage() {
 
   function handlePersonVerified(person: PersonData) {
     setVerifiedPerson(person);
+    // Add as first racer
+    setVerifiedRacers([person]);
+    setAdults(1);
+    setJuniors(0);
     // Pre-fill contact from verified person
     const nameParts = person.fullName.split(" ");
     setContact({
@@ -124,6 +132,38 @@ export default function BookRacePage() {
     });
     // Auto-advance to party
     setTimeout(() => setStep("party"), 300);
+  }
+
+  function handleAddRacer(person: PersonData, category: "adult" | "junior") {
+    // Don't add duplicates
+    if (verifiedRacers.some(r => r.personId === person.personId)) return;
+    const racerWithCat = { ...person, category };
+    setVerifiedRacers(prev => [...prev, racerWithCat]);
+    if (category === "junior") {
+      setJuniors(prev => prev + 1);
+    } else {
+      setAdults(prev => prev + 1);
+    }
+  }
+
+  function handleRemoveRacer(personId: string) {
+    // Can't remove the primary racer
+    if (verifiedPerson?.personId === personId) return;
+    const racer = verifiedRacers.find(r => r.personId === personId);
+    setVerifiedRacers(prev => prev.filter(r => r.personId !== personId));
+    if (racer?.category === "junior") {
+      setJuniors(prev => Math.max(0, prev - 1));
+    } else {
+      setAdults(prev => Math.max(1, prev - 1));
+    }
+  }
+
+  // Get the highest tier label for a racer's memberships
+  function getRacerTier(memberships: string[]): string {
+    const mems = memberships.map(m => m.toLowerCase());
+    if (mems.some(m => m.includes("qualified pro"))) return "Pro";
+    if (mems.some(m => m.includes("qualified intermediate"))) return "Intermediate";
+    return "Starter";
   }
 
   function handlePartyNext() {
@@ -280,9 +320,35 @@ export default function BookRacePage() {
     }
   }
 
-  // Filter catalog products based on racer type + party composition + qualifications
+  // For returning racers, use the LOWEST tier across all verified racers
+  const partyMemberships = racerType === "existing" && verifiedRacers.length > 0
+    ? (() => {
+        // Find the lowest tier in the party
+        const tiers = verifiedRacers.map(r => {
+          const mems = (r.memberships || []).map(m => m.toLowerCase());
+          if (mems.some(m => m.includes("qualified pro"))) return 2;
+          if (mems.some(m => m.includes("qualified intermediate"))) return 1;
+          return 0;
+        });
+        const lowestTier = Math.min(...tiers);
+        // Return fake memberships matching the lowest tier
+        if (lowestTier >= 2) return ["Qualified Pro"];
+        if (lowestTier >= 1) return ["Qualified Intermediate"];
+        return [];
+      })()
+    : verifiedPerson?.memberships;
+
+  const lowestTierLabel = racerType === "existing" && verifiedRacers.length > 1
+    ? (() => {
+        const tiers = verifiedRacers.map(r => getRacerTier(r.memberships || []));
+        const levels = tiers.map(t => t === "Pro" ? 2 : t === "Intermediate" ? 1 : 0);
+        const lowest = Math.min(...levels);
+        return lowest >= 2 ? null : lowest >= 1 ? "Intermediate" : "Starter";
+      })()
+    : null;
+
   const filteredProducts = racerType
-    ? filterProducts(catalogProducts, racerType, adults, juniors, verifiedPerson?.memberships)
+    ? filterProducts(catalogProducts, racerType, adults, juniors, partyMemberships)
         .filter(p => p.category === bookingCategory)
     : [];
 
@@ -348,7 +414,7 @@ export default function BookRacePage() {
         )}
 
         {/* STEP 2: Party composition */}
-        {step === "party" && (
+        {step === "party" && racerType === "new" && (
           <div className="space-y-8">
             <PartySizePicker
               adults={adults}
@@ -368,6 +434,133 @@ export default function BookRacePage() {
                   Next: Pick a Date →
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: Returning racer party — verified racer roster */}
+        {step === "party" && racerType === "existing" && (
+          <div className="space-y-6">
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-display uppercase tracking-widest text-white">Your Race Party</h2>
+              <p className="text-white/40 text-sm max-w-md mx-auto">
+                Everyone in your party needs a FastTrax account. Add racers below.
+              </p>
+            </div>
+
+            {/* Verified racers list */}
+            <div className="max-w-md mx-auto space-y-2">
+              {verifiedRacers.map((r, i) => (
+                <div key={r.personId} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-[#8652FF]/20 text-[#8652FF] text-xs font-bold flex items-center justify-center shrink-0">
+                      {i + 1}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white font-semibold text-sm truncate">
+                        {r.fullName}
+                        {i === 0 && <span className="text-white/30 text-xs ml-2">(primary)</span>}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/50">
+                          {r.category === "junior" ? "Junior" : "Adult"}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          getRacerTier(r.memberships || []) === "Pro"
+                            ? "bg-red-500/20 text-red-400"
+                            : getRacerTier(r.memberships || []) === "Intermediate"
+                            ? "bg-blue-500/20 text-blue-400"
+                            : "bg-green-500/20 text-green-400"
+                        }`}>
+                          {getRacerTier(r.memberships || [])}
+                        </span>
+                        {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
+                          <span className="text-[10px] text-green-400/60">License ✓</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {i > 0 && (
+                    <button
+                      onClick={() => handleRemoveRacer(r.personId)}
+                      className="text-red-400/40 hover:text-red-400 transition-colors p-1 shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              {/* Add racer button / inline lookup */}
+              {!addingRacer ? (
+                <button
+                  onClick={() => { setAddingRacer(true); setAddingCategory(null); }}
+                  className="w-full py-3 rounded-xl border border-dashed border-white/20 text-white/40 text-sm font-semibold hover:border-[#00E2E5]/50 hover:text-[#00E2E5] transition-colors"
+                >
+                  + Add Another Racer
+                </button>
+              ) : (
+                <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider">Add Racer</p>
+                    <button onClick={() => { setAddingRacer(false); setAddingCategory(null); }} className="text-white/30 text-xs hover:text-white/50">Cancel</button>
+                  </div>
+
+                  {/* Step 1: Pick adult or junior */}
+                  {!addingCategory && (
+                    <div className="space-y-2">
+                      <p className="text-white/50 text-xs">What type of racer?</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setAddingCategory("adult")}
+                          className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
+                        >
+                          <span className="block">Adult</span>
+                          <span className="text-white/30 text-[10px]">13+ &middot; 59&quot;+ tall</span>
+                        </button>
+                        <button
+                          onClick={() => setAddingCategory("junior")}
+                          className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
+                        >
+                          <span className="block">Junior</span>
+                          <span className="text-white/30 text-[10px]">7-13 &middot; 49&quot;+ tall</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 2: Look up the racer */}
+                  {addingCategory && (
+                    <ReturningRacerLookup
+                      onVerified={(person) => {
+                        handleAddRacer(person, addingCategory);
+                        setAddingRacer(false);
+                        setAddingCategory(null);
+                      }}
+                      onSwitchToNew={() => { setAddingRacer(false); setAddingCategory(null); }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Summary */}
+            <div className="max-w-md mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-xs text-white/40 text-center">
+              {verifiedRacers.length} racer{verifiedRacers.length !== 1 ? "s" : ""} in your party
+            </div>
+
+            <div className="flex items-center justify-between max-w-md mx-auto">
+              <button onClick={() => { setStep("experience"); setVerifiedPerson(null); setVerifiedRacers([]); }} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                ← Back
+              </button>
+              <button
+                onClick={handlePartyNext}
+                className="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+              >
+                Next: Pick a Date →
+              </button>
             </div>
           </div>
         )}
@@ -414,6 +607,13 @@ export default function BookRacePage() {
               </div>
             ) : (
               <>
+                {lowestTierLabel && racerType === "existing" && verifiedRacers.length > 1 && (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center mb-4">
+                    <p className="text-amber-400 text-xs">
+                      Showing <strong>{lowestTierLabel}</strong> and below — not everyone in your party has qualified for higher tiers.
+                    </p>
+                  </div>
+                )}
                 <ProductPicker
                   products={filteredProducts}
                   racerType={racerType}
@@ -591,6 +791,7 @@ export default function BookRacePage() {
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
+            additionalRacers={verifiedRacers.slice(1).map(r => ({ personId: r.personId, fullName: r.fullName }))}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
             onRemoveBooking={(index) => {

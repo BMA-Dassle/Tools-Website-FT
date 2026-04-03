@@ -36,6 +36,8 @@ interface OrderSummaryProps {
   packProduct?: ClassifiedProduct;
   /** Verified returning racer's BMI person ID */
   personId?: string;
+  /** Additional racers in the party (registered as project persons at payment) */
+  additionalRacers?: { personId: string; fullName: string }[];
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
   /** Selected add-on activities */
@@ -86,6 +88,7 @@ export default function OrderSummary({
   packResult,
   packProduct,
   personId,
+  additionalRacers = [],
   onRemoveBooking,
   addOns = [],
   pov,
@@ -228,6 +231,20 @@ export default function OrderSummary({
               billId: orderId,
             }),
           });
+        }
+
+        // Register additional racers as project persons
+        for (const racer of additionalRacers) {
+          try {
+            const nameParts = racer.fullName.split(" ");
+            await bmiPost("person/registerProjectPerson", {
+              personId: Number(racer.personId),
+              firstName: nameParts[0] || "",
+              lastName: nameParts.slice(1).join(" ") || "",
+              orderId,
+            });
+            console.log("[registerProjectPerson]", racer.fullName, racer.personId);
+          } catch { /* non-fatal */ }
         }
       } catch { /* non-fatal */ }
 
