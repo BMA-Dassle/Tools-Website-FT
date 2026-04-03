@@ -379,16 +379,16 @@ export async function bookRaceHeat(
 }
 
 /** Remove a single line item from a BMI bill without cancelling the whole order */
-export async function removeBookingLine(billLineId: string) {
+export async function removeBookingLine(orderId: string, billLineId: string) {
   const qs = new URLSearchParams({ endpoint: "booking/removeItem" });
   // Use raw text to avoid precision loss on large IDs
   const res = await fetch(`/api/bmi?${qs.toString()}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: `{"orderItemId":${billLineId}}`,
+    body: `{"orderId":${orderId},"orderItemId":${billLineId}}`,
   });
   const data = await res.json();
-  console.log("[removeBookingLine]", billLineId, data);
+  console.log("[removeBookingLine]", orderId, billLineId, data);
   return data;
 }
 

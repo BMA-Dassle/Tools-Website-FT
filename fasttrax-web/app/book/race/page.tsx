@@ -164,7 +164,7 @@ export default function BookRacePage() {
       // If replacing an existing booking for this category, remove the old line first
       const existingIdx = bookings.findIndex(b => b.product.category === selectedProduct!.category);
       if (existingIdx >= 0 && bookings[existingIdx].billLineId) {
-        await removeBookingLine(bookings[existingIdx].billLineId!).catch(() => {});
+        await removeBookingLine(activeOrderId!,bookings[existingIdx].billLineId!).catch(() => {});
       }
 
       const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, quantity, proposal, activeOrderId);
@@ -474,7 +474,7 @@ export default function BookRacePage() {
             onContinue={async (pov) => {
               // Remove old POV from bill if changing
               if (selectedPov?.billLineId) {
-                await removeBookingLine(selectedPov.billLineId).catch(() => {});
+                await removeBookingLine(activeOrderId!,selectedPov.billLineId).catch(() => {});
               }
               // Book POV onto bill now (if selected)
               if (pov && pov.quantity > 0 && activeOrderId) {
@@ -518,7 +518,7 @@ export default function BookRacePage() {
             onContinue={async (addOns) => {
               // Remove old add-on lines from bill
               for (const old of selectedAddOns.filter(a => a.billLineId)) {
-                await removeBookingLine(old.billLineId!).catch(() => {});
+                await removeBookingLine(activeOrderId!,old.billLineId!).catch(() => {});
               }
               // Book new add-ons onto bill
               const bookedAddOns: AddOnItem[] = [];
@@ -597,7 +597,7 @@ export default function BookRacePage() {
               const toRemove = bookings[index];
               // Remove just this line from the BMI bill (not the whole order)
               if (toRemove?.billLineId) {
-                removeBookingLine(toRemove.billLineId).catch(() => {});
+                removeBookingLine(activeOrderId!,toRemove.billLineId).catch(() => {});
               }
               setBookings(prev => {
                 const updated = prev.filter((_, i) => i !== index);
@@ -614,7 +614,7 @@ export default function BookRacePage() {
             onRemoveAddOn={(index) => {
               const toRemove = selectedAddOns[index];
               if (toRemove?.billLineId) {
-                removeBookingLine(toRemove.billLineId).catch(() => {});
+                removeBookingLine(activeOrderId!,toRemove.billLineId).catch(() => {});
               }
               setSelectedAddOns(prev => prev.filter((_, i) => i !== index));
               // Re-enter summary to refresh totals
@@ -623,7 +623,7 @@ export default function BookRacePage() {
             }}
             onRemovePov={() => {
               if (selectedPov?.billLineId) {
-                removeBookingLine(selectedPov.billLineId).catch(() => {});
+                removeBookingLine(activeOrderId!,selectedPov.billLineId).catch(() => {});
               }
               setSelectedPov(null);
               // Re-enter summary to refresh totals
