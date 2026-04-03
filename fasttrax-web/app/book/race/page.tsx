@@ -231,7 +231,7 @@ export default function BookRacePage() {
         ? verifiedRacers.filter(r => r.category === cat)
         : [];
       const racerCount = cat === "adult" ? adults : juniors;
-      console.log("[handleConfirmHeat]", JSON.stringify({ cat, existingBills: existingCatBills.length, catRacers: catRacers.length, verifiedPerson: verifiedPerson?.personId, allRacers: verifiedRacers.map(r => ({ name: r.fullName, cat: r.category, pid: r.personId })) }));
+      console.log("[handleConfirmHeat]", cat, "existingBills:", existingCatBills.length);
 
       if (existingCatBills.length > 0) {
         // Bills exist — add this race to them (don't cancel, don't create new)
