@@ -246,7 +246,7 @@ export default function OrderSummary({
 
     setState({ status: "paying" });
     try {
-      const raceName = bookings[0]?.product.name || "FastTrax Race Booking";
+      const raceName = "Deposit";
       const heatStart = bookings[0]?.block.start || "";
       const allBillIds = bills.map(b => b.billId);
 
