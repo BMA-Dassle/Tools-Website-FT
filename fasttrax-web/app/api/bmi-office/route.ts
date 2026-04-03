@@ -4,8 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 const OFFICE_API = "https://office-api22.sms-timing.com";
 const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
-const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
-const OFFICE_PASS = process.env.BMI_OFFICE_PASSWORD || "";
+const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
+// Base64-encoded to avoid dotenv $variable expansion: JGMxbjFlbGxv = $c1n1ello
+const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
+const OFFICE_PASS = Buffer.from(OFFICE_PASS_B64, "base64").toString();
 const SMS_VERSION = "6251006 202511051229";
 
 // ── Token cache ─────────────────────────────────────────────────────────────
@@ -18,7 +20,8 @@ async function getOfficeToken(): Promise<string> {
     return cachedToken;
   }
 
-  const body = `grant_type=password&username=${encodeURIComponent(OFFICE_USER)}&password=${encodeURIComponent(OFFICE_PASS)}`;
+  const body = `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`;
+  console.log(`[BMI Office auth] user=${OFFICE_USER} pass=${OFFICE_PASS} pass_length=${OFFICE_PASS.length}`);
   const res = await fetch(`${OFFICE_API}/auth/token`, {
     method: "POST",
     headers: {
@@ -31,7 +34,9 @@ async function getOfficeToken(): Promise<string> {
   });
 
   if (!res.ok) {
-    throw new Error(`Office auth failed: ${res.status}`);
+    const errBody = await res.text().catch(() => "");
+    console.error(`[BMI Office auth] ${res.status}: ${errBody}`);
+    throw new Error(`Office auth failed: ${res.status} — ${errBody}`);
   }
 
   const data = await res.json();
@@ -49,7 +54,7 @@ export async function GET(req: NextRequest) {
   const action = searchParams.get("action");
 
   try {
-    const token = await getOfficeToken();
+    let token = await getOfficeToken();
 
     // Person search by email/name
     if (action === "search") {
@@ -60,15 +65,38 @@ export async function GET(req: NextRequest) {
       }
 
       const url = `${OFFICE_API}/api/${CLIENT_KEY}/search/person?token=${encodeURIComponent(query)}&maxResults=${max}`;
+      console.log(`[BMI Office search] ${url} token_start=${token.substring(0, 20)}`);
       const res = await fetch(url, {
         headers: {
           "Authorization": `Bearer ${token}`,
           "x-fast-version": SMS_VERSION,
+          "Accept": "application/json, text/plain, */*",
+          "clientkey": CLIENT_KEY,
         },
         cache: "no-store",
       });
-      const data = await res.json();
-      return NextResponse.json(data, { status: res.status });
+      let rawText = await res.text();
+      console.log(`[BMI Office search] ${res.status}: ${rawText.substring(0, 300)}`);
+
+      // If 500/401, token might be bad — clear cache and retry once
+      if (res.status >= 400) {
+        console.log("[BMI Office] Clearing token cache and retrying...");
+        cachedToken = null;
+        tokenExpiry = 0;
+        token = await getOfficeToken();
+        const retry = await fetch(url, {
+          headers: { "Authorization": `Bearer ${token}`, "x-fast-version": SMS_VERSION },
+          cache: "no-store",
+        });
+        rawText = await retry.text();
+        console.log(`[BMI Office search retry] ${retry.status}: ${rawText.substring(0, 300)}`);
+      }
+
+      try {
+        return NextResponse.json(JSON.parse(rawText), { status: 200 });
+      } catch {
+        return NextResponse.json({ error: rawText.substring(0, 200) }, { status: 500 });
+      }
     }
 
     // Person details by ID
