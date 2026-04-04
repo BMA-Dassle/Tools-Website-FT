@@ -45,145 +45,91 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
   const [smsCode, setSmsCode] = useState("");
   const [smsError, setSmsError] = useState("");
 
+  /** Shared search + fetch person details logic for both phone and email */
+  async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
+    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=200`);
+    const results = await searchRes.json();
+    if (!Array.isArray(results) || results.length === 0) return [];
+
+    const withMemberships = (results as { localId: string; description: string }[])
+      .filter(r => r.description.includes("Memberships:"));
+    const byName = new Map<string, { localId: string; description: string }>();
+    for (const r of (withMemberships.length > 0 ? withMemberships : results) as { localId: string; description: string }[]) {
+      const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
+      const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
+      if (!byName.has(name)) byName.set(name, r);
+    }
+    const uniqueEntries = [...byName.values()].slice(0, 10);
+    const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
+
+    const detailPromises = uniqueEntries.map(async (r) => {
+      try {
+        const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
+        const p = await res.json();
+        const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
+          (b.lastSeen || "").localeCompare(a.lastSeen || "")
+        );
+        const loginCode = tags[0]?.tag || "";
+        const memberships = (p.memberships || [])
+          .filter((m: { stops: string; name: string }) =>
+            (!m.stops || new Date(m.stops) > new Date()) &&
+            RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
+          )
+          .map((m: { name: string }) => m.name)
+          .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
+        const lastSeen = p.lastLineUp
+          ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          : "";
+        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships } as FoundAccount;
+      } catch { return null; }
+    });
+    const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
+    allDetails.sort((a, b) => {
+      if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
+      if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
+      return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+    });
+    return allDetails.slice(0, 5);
+  }
+
   async function handleEmailLookup() {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !trimmed.includes("@")) return;
 
     setPhase("looking");
+    setSmsError("");
     try {
-      // Search via Office API — get up to 200 results to find accounts with memberships
-      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}&max=200`);
-      const results = await searchRes.json();
+      const foundAccounts = await searchAndFetchAccounts(trimmed);
 
-      if (!Array.isArray(results) || results.length === 0) {
-        setPhase("not-found");
-        return;
-      }
-
-      // Filter to only accounts with "Memberships:" in their description (real racers)
-      // Then deduplicate by name
-      const withMemberships = (results as { localId: string; description: string }[])
-        .filter(r => r.description.includes("Memberships:"));
-
-      const byName = new Map<string, { localId: string; description: string }>();
-      for (const r of withMemberships) {
-        const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-        if (!byName.has(name)) {
-          byName.set(name, r);
-        }
-      }
-
-      // If no accounts with memberships, also check accounts without (but dedup by name, max 5)
-      if (byName.size === 0) {
-        for (const r of results as { localId: string; description: string }[]) {
-          const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-          const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-          if (!byName.has(name)) {
-            byName.set(name, r);
-            if (byName.size >= 5) break;
-          }
-        }
-      }
-
-      const uniqueEntries = [...byName.values()].slice(0, 10);
-      const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
-
-      const detailPromises = uniqueEntries.map(async (r) => {
-        try {
-          const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
-          const p = await res.json();
-          // Get the most recent tag as login code
-          const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-            (b.lastSeen || "").localeCompare(a.lastSeen || "")
-          );
-          const loginCode = tags[0]?.tag || "";
-          const memberships = (p.memberships || [])
-            .filter((m: { stops: string; name: string }) =>
-              (!m.stops || new Date(m.stops) > new Date()) &&
-              RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
-            )
-            .map((m: { name: string }) => m.name)
-            .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
-          const lastSeen = p.lastLineUp
-            ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-            : "";
-
-          return {
-            personId: String(p.id),
-            fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
-            loginCode,
-            lastSeen,
-            races: (p.tags || []).length,
-            memberships,
-          } as FoundAccount;
-        } catch {
-          return null;
-        }
-      });
-
-      const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
-
-      // Sort: memberships first, then by latest activity
-      allDetails.sort((a, b) => {
-        if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
-        if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
-        return (b.lastSeen || "").localeCompare(a.lastSeen || "");
-      });
-      const unique = allDetails.filter(d => d.memberships.length > 0);
-
-      if (unique.length === 0) {
-        // No accounts with memberships — fall back to BMI Public API single lookup
+      if (foundAccounts.length === 0) {
+        // Fall back to BMI Public API
         try {
           const pubResult = await bmiGet("person", { email: trimmed });
           if (pubResult.person && pubResult.person.races > 0) {
             const p = pubResult.person;
-            setAccounts([{
-              personId: p.personId,
-              fullName: p.fullName,
-              loginCode: pubResult.loginCode,
-              lastSeen: "",
-              races: p.races,
-              memberships: [],
-            }]);
-            setPhase("sending");
-            await fetch("/api/email/login-code", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                email: trimmed,
-                accounts: [{
-                  personId: p.personId,
-                  fullName: p.fullName,
-                  loginCode: pubResult.loginCode,
-                  lastSeen: "",
-                  races: p.races,
-                  memberships: [],
-                }],
-              }),
+            foundAccounts.push({
+              personId: p.personId, fullName: p.fullName, loginCode: pubResult.loginCode,
+              lastSeen: "", races: p.races, memberships: [],
             });
-            setPhase("sent");
-            setMode("code");
-            setTimeout(() => codeRef.current?.focus(), 200);
-            return;
           }
         } catch { /* fall through */ }
-        setPhase("not-found");
-        return;
       }
 
-      setAccounts(unique);
+      if (foundAccounts.length === 0) { setPhase("not-found"); return; }
 
-      // Send email with all accounts
-      setPhase("sending");
-      await fetch("/api/email/login-code", {
+      setAccounts(foundAccounts);
+
+      // Send OTP email
+      const otpRes = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: trimmed, accounts: unique }),
+        body: JSON.stringify({ email: trimmed }),
       });
-      setPhase("sent");
-      setMode("code");
-      setTimeout(() => codeRef.current?.focus(), 200);
+      const otpData = await otpRes.json();
+      if (!otpData.sent) { setSmsError(otpData.error || "Failed to send code"); setPhase("input"); return; }
+
+      setPhase("sms-sent");
+      setMode("email");
     } catch {
       setPhase("not-found");
     }
@@ -267,7 +213,6 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
     }
   }
 
-  /** Phone lookup: search by phone, send SMS code, verify, show accounts */
   async function handlePhoneLookup() {
     const digits = phone.replace(/\D/g, "").replace(/^1/, "");
     if (digits.length !== 10) return;
@@ -275,64 +220,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
     setPhase("looking");
     setSmsError("");
     try {
-      // Search Office API by phone
-      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=200`);
-      const results = await searchRes.json();
-
-      if (!Array.isArray(results) || results.length === 0) {
-        setPhase("not-found");
-        return;
-      }
-
-      // Filter and dedupe (same logic as email lookup)
-      const withMemberships = (results as { localId: string; description: string }[])
-        .filter(r => r.description.includes("Memberships:"));
-      const byName = new Map<string, { localId: string; description: string }>();
-      for (const r of (withMemberships.length > 0 ? withMemberships : results) as { localId: string; description: string }[]) {
-        const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-        if (!byName.has(name)) byName.set(name, r);
-      }
-      const uniqueEntries = [...byName.values()].slice(0, 10);
-
-      // Fetch person details for each
-      const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
-      const detailPromises = uniqueEntries.map(async (r) => {
-        try {
-          const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
-          const p = await res.json();
-          const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-            (b.lastSeen || "").localeCompare(a.lastSeen || "")
-          );
-          const loginCode = tags[0]?.tag || "";
-          const memberships = (p.memberships || [])
-            .filter((m: { stops: string; name: string }) =>
-              (!m.stops || new Date(m.stops) > new Date()) &&
-              RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
-            )
-            .map((m: { name: string }) => m.name)
-            .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
-          const lastSeen = p.lastLineUp
-            ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-            : "";
-          return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships } as FoundAccount;
-        } catch { return null; }
-      });
-      const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
-      // Sort: latest activity first, then those with memberships first
-      allDetails.sort((a, b) => {
-        // Memberships first
-        if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
-        if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
-        // Then by last seen (most recent first)
-        return (b.lastSeen || "").localeCompare(a.lastSeen || "");
-      });
-      const foundAccounts = allDetails.slice(0, 5);
-
-      if (foundAccounts.length === 0) {
-        setPhase("not-found");
-        return;
-      }
+      const foundAccounts = await searchAndFetchAccounts(digits);
+      if (foundAccounts.length === 0) { setPhase("not-found"); return; }
 
       setAccounts(foundAccounts);
 
@@ -343,11 +232,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         body: JSON.stringify({ phone: digits }),
       });
       const smsData = await smsRes.json();
-      if (!smsData.sent) {
-        setSmsError(smsData.error || "Failed to send code");
-        setPhase("input");
-        return;
-      }
+      if (!smsData.sent) { setSmsError(smsData.error || "Failed to send code"); setPhase("input"); return; }
 
       setPhase("sms-sent");
     } catch {
@@ -361,27 +246,27 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
     if (!trimmed || trimmed.length !== 6) { setSmsError("Enter the 6-digit code"); return; }
 
     setSmsError("");
-    setPhase("verifying");
-    const digits = phone.replace(/\D/g, "").replace(/^1/, "");
+
+    // Determine if verifying phone or email
+    const verifyBody = mode === "phone"
+      ? { phone: phone.replace(/\D/g, "").replace(/^1/, ""), code: trimmed }
+      : { email: email.trim().toLowerCase(), code: trimmed };
 
     try {
       const res = await fetch("/api/sms-verify", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone: digits, code: trimmed }),
+        body: JSON.stringify(verifyBody),
       });
       const data = await res.json();
 
       if (data.verified) {
-        // Show account selection directly
-        setPhase("phone-verified");
+        setPhase("phone-verified"); // shared verified state — shows account list
       } else {
         setSmsError(data.error || "Incorrect code");
-        setPhase("sms-sent");
       }
     } catch {
       setSmsError("Verification failed. Please try again.");
-      setPhase("sms-sent");
     }
   }
 
@@ -452,8 +337,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
                 <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
                 Looking up accounts...
               </span>
-            ) : "Look Up My Account"}
+            ) : "Send Verification Code"}
           </button>
+          {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
           {phase === "not-found" && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-center">
               <p className="text-amber-400 text-sm font-semibold mb-1">No account found</p>
@@ -509,13 +395,13 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         </div>
       )}
 
-      {/* SMS code verification */}
-      {mode === "phone" && phase === "sms-sent" && (
+      {/* OTP code verification (both phone and email) */}
+      {(mode === "phone" || mode === "email") && phase === "sms-sent" && (
         <div className="max-w-sm mx-auto space-y-4">
           <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-4 text-center">
             <p className="text-green-400 font-semibold text-sm">Code Sent!</p>
             <p className="text-white/40 text-xs mt-1">
-              We texted a 6-digit code to {phone}
+              {mode === "phone" ? `We texted a 6-digit code to ${phone}` : `We emailed a 6-digit code to ${email}`}
             </p>
           </div>
           <input
@@ -538,7 +424,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             Verify Code
           </button>
           <div className="flex justify-between">
-            <button onClick={handlePhoneLookup} className="text-white/30 text-xs hover:text-white/50 transition-colors">
+            <button onClick={mode === "phone" ? handlePhoneLookup : handleEmailLookup} className="text-white/30 text-xs hover:text-white/50 transition-colors">
               Resend code
             </button>
             <button onClick={() => { setMode("choose"); setPhase("input"); setSmsCode(""); setSmsError(""); }} className="text-white/30 text-xs hover:text-white/50 transition-colors">
@@ -548,8 +434,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         </div>
       )}
 
-      {/* Phone verified — show accounts to select */}
-      {mode === "phone" && phase === "phone-verified" && (
+      {/* Verified — show accounts to select (works for both phone and email) */}
+      {(mode === "phone" || mode === "email") && phase === "phone-verified" && (
         <div className="max-w-sm mx-auto space-y-3">
           <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-3 text-center">
             <p className="text-green-400 font-semibold text-sm">Phone Verified!</p>
@@ -599,31 +485,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         </div>
       )}
 
-      {/* Sending email */}
-      {phase === "sending" && (
-        <div className="max-w-sm mx-auto text-center space-y-3">
-          <div className="flex items-center justify-center gap-2 py-4">
-            <span className="w-4 h-4 border-2 border-[#00E2E5]/30 border-t-[#00E2E5] rounded-full animate-spin" />
-            <p className="text-white/50 text-sm">
-              Found {accounts.length} account{accounts.length !== 1 ? "s" : ""}. Sending verification email...
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Enter code (after email lookup or direct) */}
-      {mode === "code" && (phase === "input" || phase === "sent" || phase === "verifying") && (
+      {/* Enter login code (direct — "I Have My Login Code") */}
+      {mode === "code" && (phase === "input" || phase === "verifying") && (
         <div className="max-w-sm mx-auto space-y-4">
-          {phase === "sent" && (
-            <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-4 text-center">
-              <p className="text-green-400 font-semibold text-sm">
-                {accounts.length > 1 ? `Found ${accounts.length} accounts` : "Account found"}
-              </p>
-              <p className="text-white/40 text-xs mt-1">
-                Check your email for {accounts.length > 1 ? "a list of accounts with codes" : "your verification code"}
-              </p>
-            </div>
-          )}
           <input
             ref={codeRef}
             type="text"
@@ -632,7 +496,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             onKeyDown={(e) => e.key === "Enter" && handleCodeVerify()}
             placeholder="Enter your login code"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-lg tracking-widest placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal focus:border-[#8652FF] focus:ring-1 focus:ring-[#8652FF]/30 outline-none transition-colors"
-            autoFocus={mode === "code" && phase === "input"}
+            autoFocus
           />
           {codeError && <p className="text-red-400 text-xs text-center">{codeError}</p>}
           <button
@@ -647,16 +511,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
               </span>
             ) : "Verify"}
           </button>
-          <div className="flex justify-between">
-            {email && (
-              <button onClick={handleEmailLookup} className="text-white/30 text-xs hover:text-white/50 transition-colors">
-                Resend email
-              </button>
-            )}
-            <button onClick={() => { setMode("choose"); setPhase("input"); setCode(""); setCodeError(""); }} className="text-white/30 text-xs hover:text-white/50 transition-colors ml-auto">
-              ← Start over
-            </button>
-          </div>
+          <button onClick={() => { setMode("choose"); setPhase("input"); setCode(""); setCodeError(""); }} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors">
+            ← Start over
+          </button>
         </div>
       )}
 
