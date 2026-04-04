@@ -423,63 +423,25 @@ export default function ConfirmationPage() {
                       </div>
                     </div>
 
-                    {/* Race table — all line items */}
+                    {/* Race list — names and times only, no pricing */}
                     {lines.length > 0 && (
-                      <div className="border-t border-white/[0.06]">
-                        <div className="px-4 py-1.5 bg-white/[0.02]">
-                          <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest">Items</p>
-                        </div>
-                        {lines.map((line: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[]; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
-                          const cashP = line.totalPrice?.find(p => p.depositKind === 0);
-                          const creditP = line.totalPrice?.find(p => p.depositKind === 2);
+                      <div className="border-t border-white/[0.06] px-4 py-3 space-y-1.5">
+                        {lines.map((line: { name: string; quantity: number; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
                           const lineTime = line.scheduledTime?.start || line.schedules?.[0]?.start;
                           return (
-                            <div key={li} className="px-4 py-2 flex items-center justify-between border-t border-white/[0.04]">
-                              <div className="min-w-0">
-                                <p className="text-white text-sm font-semibold">{line.name}</p>
-                                {lineTime && <p className="text-white/40 text-xs">{formatTime(lineTime)}</p>}
-                                {line.quantity > 1 && <p className="text-white/30 text-xs">x{line.quantity}</p>}
-                              </div>
-                              <div className="shrink-0 text-right">
-                                {creditP ? (
-                                  <span className="text-green-400 text-xs font-bold">Credit</span>
-                                ) : cashP ? (
-                                  <span className="text-white/70 text-sm">${cashP.amount.toFixed(2)}</span>
-                                ) : null}
-                              </div>
+                            <div key={li} className="flex items-center justify-between">
+                              <p className="text-white text-sm">{line.name}{line.quantity > 1 ? ` x${line.quantity}` : ""}</p>
+                              {lineTime && <p className="text-white/40 text-xs">{formatTime(lineTime)}</p>}
                             </div>
                           );
                         })}
-                        {/* Totals row */}
-                        <div className="px-4 py-2.5 border-t border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
-                          <div className="text-xs text-white/40">
-                            {ovSub && <span>Subtotal ${ovSub.amount.toFixed(2)}</span>}
-                            {ovTax && ovTax.amount > 0 && <span> + Tax ${ovTax.amount.toFixed(2)}</span>}
-                          </div>
-                          <div>
-                            {ovCredit && !ovTotal ? (
-                              <span className="text-green-400 font-bold text-sm">Credit Applied</span>
-                            ) : ovTotal ? (
-                              <span className="text-[#00E2E5] font-bold text-lg">${ovTotal.amount.toFixed(2)}</span>
-                            ) : cashTotal !== undefined ? (
-                              <span className="text-[#00E2E5] font-bold text-lg">${cashTotal.toFixed(2)}</span>
-                            ) : null}
-                          </div>
-                        </div>
                       </div>
                     )}
 
-                    {/* Fallback if no lines (no stored overview) */}
+                    {/* Fallback if no stored lines */}
                     {lines.length === 0 && raceLine && ci === 0 && (
-                      <div className="border-t border-white/[0.06] px-5 py-3">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-white">{raceLine.name} x{raceLine.quantity}</span>
-                          {cashTotal !== undefined && cashTotal > 0 ? (
-                            <span className="text-[#00E2E5] font-bold">${cashTotal.toFixed(2)}</span>
-                          ) : (
-                            <span className="text-green-400 text-xs font-bold">Credit</span>
-                          )}
-                        </div>
+                      <div className="border-t border-white/[0.06] px-4 py-3">
+                        <p className="text-white text-sm">{raceLine.name}{raceLine.quantity > 1 ? ` x${raceLine.quantity}` : ""}</p>
                       </div>
                     )}
                   </div>
