@@ -21,6 +21,8 @@ export interface BookingItem {
   block: BmiBlock;
   /** Real price from availability proposal (includes day/time pricing) */
   blockPrice?: number;
+  /** Racer names assigned to this heat (returning racer flow) */
+  racerNames?: string[];
 }
 
 /** One bill per racer (returning flow) or one bill for the group (new flow) */
@@ -89,7 +91,7 @@ async function addGroupMemo(
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number }[] }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racer?: string; time?: string }[] }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -188,7 +190,7 @@ export default function OrderSummary({
       let bmiTotal = 0;
       let bmiSubtotal = 0;
       let bmiTax = 0;
-      let bmiLines: { name: string; quantity: number; amount: number; racer?: string }[] = [];
+      let bmiLines: { name: string; quantity: number; amount: number; racer?: string; time?: string }[] = [];
       let isCreditOrder = true; // assume credit until proven otherwise
       let cashOwed = 0;
       let creditApplied = 0;
@@ -208,11 +210,13 @@ export default function OrderSummary({
           if (cashTax) bmiTax += cashTax.amount;
           if (creditTotal) creditApplied += Math.abs(creditTotal.amount);
 
-          // Extract line items with racer name
+          // Extract line items with racer name and scheduled time
           if (overview.lines) {
-            for (const l of overview.lines as { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[] }[]) {
-              const cashPrice = l.totalPrice?.find(p => p.depositKind === 0);
-              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racer: bill.racerName });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            for (const l of overview.lines as any[]) {
+              const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
+              const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
+              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racer: bill.racerName, time: lineTime || undefined });
             }
           }
         } catch {
@@ -557,6 +561,11 @@ export default function OrderSummary({
                       <p className="text-white/40 text-xs mt-0.5">
                         {b.block.name} &middot; {formatTime(b.block.start)}
                       </p>
+                      {b.racerNames && b.racerNames.length > 0 && (
+                        <p className="text-[#00E2E5]/60 text-xs mt-0.5">
+                          {b.racerNames.join(", ")}
+                        </p>
+                      )}
                     </div>
                     {onRemoveBooking && bookings.length > 1 && state.status === "booked" && xBtn(() => onRemoveBooking(card.bookingIdx))}
                   </div>
@@ -607,8 +616,12 @@ export default function OrderSummary({
           <>
             {state.bmiLines.map((line, i) => (
               <div key={i} className="flex justify-between text-sm">
-                <span className="text-white/60">{line.name} x {line.quantity}</span>
-                <span className="text-white">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
+                <div className="text-white/60">
+                  <span>{line.name} x {line.quantity}</span>
+                  {line.racer && <span className="text-white/30 ml-1">({line.racer})</span>}
+                  {line.time && <span className="text-white/30 ml-1">{formatTime(line.time)}</span>}
+                </div>
+                <span className="text-white shrink-0">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
               </div>
             ))}
 

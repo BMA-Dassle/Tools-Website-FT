@@ -28,6 +28,8 @@ interface Booking {
   bills?: RacerBill[];
   /** Line IDs for each race on each bill (for removal) */
   billLineIds?: { billId: string; lineId: string }[];
+  /** Racer names assigned to this heat (returning racer flow) */
+  racerNames?: string[];
 }
 import type { ContactInfo } from "./components/ContactForm";
 import type { PersonData } from "./components/ReturningRacerLookup";
@@ -324,6 +326,7 @@ export default function BookRacePage() {
         blockPrice,
         bills: createdBills.length > 0 ? createdBills : activeBills.filter(b => b.category === cat),
         billLineIds: bookingBillLineIds,
+        racerNames: selectedRacers ? selectedRacers.map(r => r.fullName) : undefined,
       };
 
       const updatedBookings = [...bookings, booking];
