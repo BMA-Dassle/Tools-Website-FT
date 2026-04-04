@@ -361,6 +361,14 @@ export default function ConfirmationPage() {
       {!loading && orderId && (
         <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 pt-6">
 
+          {/* Waiver check loading placeholder */}
+          {waiverStatus === "checking" && confirmations.some(c => c.personId) && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 mb-8 flex items-center justify-center gap-3">
+              <div className="w-5 h-5 border-2 border-white/20 border-t-green-400 rounded-full animate-spin" />
+              <p className="text-white/40 text-sm">Checking waivers...</p>
+            </div>
+          )}
+
           {/* FastTrax Express or waiver warning — front and center */}
           {waiverStatus === "all-valid" ? (
             <div className="rounded-2xl border-2 border-green-500/50 bg-gradient-to-br from-green-500/15 via-green-500/5 to-transparent p-5 sm:p-8 mb-8 shadow-[0_0_30px_rgba(34,197,94,0.15)]">
