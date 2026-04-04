@@ -137,7 +137,7 @@ const headpinzCards = [
     title: "HeadPinz Premier Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-4.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/headpinz-bowling-l7MEjKld7FsVtVvOASAbzaoBvXhBhi.jpg",
     desc: (
       <>
         <strong>The Vibe:</strong> 24 state-of-the-art lanes including VIP lounge lanes with elite lighting and service.
