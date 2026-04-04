@@ -459,26 +459,29 @@ export default function ConfirmationPage() {
                       : "border border-white/10 bg-white/[0.03]"
                   }`}
                 >
-                  {/* Name — big for check-in staff to see */}
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-white font-display text-2xl uppercase tracking-wider">{c.racerName}</h3>
-                    {c.waiverValid === true && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-green-400 border border-green-500/30 rounded-full px-2 py-0.5 bg-green-500/10 shrink-0">Waiver OK</span>
-                    )}
-                    {c.waiverValid === false && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5 bg-amber-500/10 shrink-0">Waiver Needed</span>
-                    )}
-                  </div>
-
-                  {/* Reservation + race details */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[#00E2E5] font-bold text-sm">{c.resNumber}</span>
+                  {/* Name + Race — both big */}
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <h3 className="text-white font-display text-2xl uppercase tracking-wider">{c.racerName}</h3>
+                      {c.waiverValid === true && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-green-400 border border-green-500/30 rounded-full px-2 py-0.5 bg-green-500/10 shrink-0">Waiver OK</span>
+                      )}
+                      {c.waiverValid === false && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5 bg-amber-500/10 shrink-0">Waiver Needed</span>
+                      )}
+                    </div>
                     {c.raceName && (
-                      <>
-                        <span className="text-white/20">&middot;</span>
-                        <span className="text-white/60 text-sm">{c.raceName}</span>
-                      </>
+                      <p className="text-[#00E2E5] font-display text-lg uppercase tracking-wider">{c.raceName}</p>
                     )}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-white/40 text-xs font-bold">{c.resNumber}</span>
+                      {ht && (
+                        <>
+                          <span className="text-white/20">&middot;</span>
+                          <span className="text-white/40 text-xs">{formatDate(ht)} &middot; {formatTime(ht)}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {/* QR + Arrival time side by side */}
@@ -492,17 +495,12 @@ export default function ConfirmationPage() {
                       </div>
                     )}
                     <div className="min-w-0">
-                      {ht && (
-                        <p className="text-white/50 text-sm">
-                          {formatDate(ht)} &middot; {formatTime(ht)}
-                        </p>
-                      )}
                       {arriveBy && (
-                        <div className="mt-2">
+                        <div>
                           <p className={`text-[10px] font-bold uppercase tracking-wider ${waiverStatus === "all-valid" ? "text-green-400" : "text-red-400"}`}>
                             {waiverStatus === "all-valid" ? "Be at Karting" : "Check In By"}
                           </p>
-                          <p className="text-white font-display text-2xl uppercase tracking-widest">
+                          <p className="text-white font-display text-3xl uppercase tracking-widest">
                             {arriveBy}
                           </p>
                         </div>
