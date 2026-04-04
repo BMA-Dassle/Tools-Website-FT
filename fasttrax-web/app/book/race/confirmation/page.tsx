@@ -372,16 +372,26 @@ export default function ConfirmationPage() {
                   </div>
                 )}
                 <div className="text-center sm:text-left">
+                  {reservationNumber && (
+                    <p className="text-[#00E2E5] font-bold text-lg mb-1">{reservationNumber}</p>
+                  )}
+                  {raceLine && (
+                    <p className="text-white font-semibold text-sm">
+                      {raceLine.name}{raceLine.quantity > 1 ? ` x${raceLine.quantity}` : ""}
+                    </p>
+                  )}
                   {start && (
-                    <>
-                      <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider mb-1">Check In By</p>
-                      <p className="text-white font-display text-3xl uppercase tracking-widest mb-2">
+                    <p className="text-white/50 text-xs mt-0.5">{formatDate(start)} &middot; {formatTime(start)}</p>
+                  )}
+                  {start && (
+                    <div className="mt-2">
+                      <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Check In By</p>
+                      <p className="text-white font-display text-2xl uppercase tracking-widest">
                         {checkinTime(start)}
                       </p>
-                    </>
+                      <p className="text-white/30 text-xs">Guest Services, 2nd Floor</p>
+                    </div>
                   )}
-                  <p className="text-white/40 text-xs">Guest Services, 2nd Floor</p>
-                  <p className="text-white/30 text-xs">30 minutes before your heat</p>
                 </div>
               </div>
 
