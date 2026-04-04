@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Waiver & Release of Liability – FastTrax Entertainment",
   description: "Release and Waiver of Liability, Indemnity, Confidentiality, and Credit Card Dispute Agreement for HeadPinz and FastTrax Entertainment.",
+  robots: { index: false, follow: false },
 };
 
 export default function WaiverPage() {
