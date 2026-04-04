@@ -219,7 +219,8 @@ export default function RacePacksPage() {
         body: JSON.stringify({
           billId,
           amount: total,
-          raceName: "Race Pack Deposit",
+          raceName: "Race Pack Purchase",
+          catalogObjectId: "5FINJYYPPELXTERF2THUDCPT",
           returnUrl,
           cancelUrl: `${window.location.origin}/book/race-packs`,
           buyer: {
@@ -268,8 +269,23 @@ export default function RacePacksPage() {
         </div>
       </div>
 
+      {/* Warning banner */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6 mt-4">
+        <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-4 flex items-start gap-3">
+          <svg className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <div>
+            <p className="text-amber-400 font-bold text-sm">This is NOT a race booking</p>
+            <p className="text-white/60 text-xs mt-0.5">
+              Race packs add credits to your account. You still need to <a href="/book/race" className="text-[#00E2E5] underline hover:text-white">book a race</a> separately to reserve a heat time. Credits are applied automatically at checkout.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Pack grid */}
-      <div className="max-w-4xl mx-auto px-4 pb-16 -mt-6">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16">
         {/* Column headers */}
         <div className="grid grid-cols-2 gap-4 mb-3">
           <p className="text-center text-white/30 text-[10px] font-bold uppercase tracking-widest">Monday – Thursday</p>
@@ -492,7 +508,8 @@ function PackCard({ pack, onBuy }: { pack: RacePack; onBuy: (p: RacePack) => voi
 
       <div>
         <span className="text-white font-bold text-3xl">${pack.price.toFixed(2)}</span>
-        <span className="text-white/30 text-sm ml-2">${perRace}/race</span>
+        <span className="text-white/30 text-sm ml-2 hidden sm:inline">${perRace}/race</span>
+        <p className="text-white/30 text-xs sm:hidden mt-0.5">${perRace}/race</p>
       </div>
 
       <button
