@@ -1,61 +1,27 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
+import dynamic from "next/dynamic";
+import "swagger-ui-react/swagger-ui.css";
+
+const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
 export default function ApiDocsPage() {
   const [authenticated, setAuthenticated] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
 
   function handleAuth(e: React.FormEvent) {
     e.preventDefault();
     if (!apiKey.trim()) { setError("Enter an API key"); return; }
-    // Validate by making a test call
     fetch(`/api/booking-record?billId=test`, { headers: { "x-api-key": apiKey.trim() } })
       .then(res => {
         if (res.status === 401) { setError("Invalid API key"); return; }
-        // 404 is fine — means auth passed but no record
         setAuthenticated(true);
         setError("");
       })
       .catch(() => setError("Connection failed"));
   }
-
-  useEffect(() => {
-    if (!authenticated || !containerRef.current) return;
-
-    // Load Swagger UI from CDN
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css";
-    document.head.appendChild(link);
-
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js";
-    script.onload = () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).SwaggerUIBundle({
-        url: "/api/booking-record/openapi.json",
-        dom_id: "#swagger-ui",
-        presets: [
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (window as any).SwaggerUIBundle.presets.apis,
-        ],
-        requestInterceptor: (req: { headers: Record<string, string> }) => {
-          req.headers["x-api-key"] = apiKey;
-          return req;
-        },
-        tryItOutEnabled: true,
-      });
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      document.head.removeChild(link);
-      document.body.removeChild(script);
-    };
-  }, [authenticated, apiKey]);
 
   if (!authenticated) {
     return (
@@ -82,7 +48,12 @@ export default function ApiDocsPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <div id="swagger-ui" ref={containerRef} />
+      <SwaggerUI
+        url="/api/booking-record/openapi.json"
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        requestInterceptor={((req: any) => { req.headers["x-api-key"] = apiKey; return req; }) as any}
+        tryItOutEnabled
+      />
     </div>
   );
 }
