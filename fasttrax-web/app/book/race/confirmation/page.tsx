@@ -180,6 +180,28 @@ export default function ConfirmationPage() {
 
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
+
+          // Update booking record with reservation data
+          try {
+            const primaryRes = allConfirmations[0];
+            await fetch("/api/booking-record", {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                billId: id,
+                reservationNumber: primaryRes.resNumber,
+                reservationCode: primaryRes.resCode,
+                status: "confirmed",
+                confirmedAt: new Date().toISOString(),
+                confirmations: allConfirmations.map(c => ({
+                  billId: c.billId,
+                  racerName: c.racerName,
+                  resNumber: c.resNumber,
+                  resCode: c.resCode,
+                })),
+              }),
+            });
+          } catch { /* non-fatal */ }
         }
 
         // Waiver link for new racers — get projectReference from Office API

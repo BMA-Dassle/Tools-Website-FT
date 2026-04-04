@@ -174,10 +174,10 @@ export default function OrderSummary({
             email: contact.email,
             phone: contact.phone.replace(/\D/g, ""),
           };
-          // Always include primary personId to preserve credit linkage
+          // Inject orderId and personId as raw numbers to avoid JS precision loss on large BMI IDs
           const pid = bill.personId || personId;
-          if (pid) regBody.personId = Number(pid);
-          const regJson = `{"orderId":${bill.billId},` + JSON.stringify(regBody).slice(1);
+          let regJson = `{"orderId":${bill.billId},` + JSON.stringify(regBody).slice(1);
+          if (pid) regJson = regJson.slice(0, -1) + `,"personId":${pid}}`;
           await fetch(`/api/bmi?${regQs.toString()}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -269,11 +269,17 @@ export default function OrderSummary({
         if (racer.personId) {
           try {
             const nameParts = racer.fullName.split(" ");
-            await bmiPost("person/registerProjectPerson", {
-              personId: Number(racer.personId),
+            // Use raw JSON to avoid Number() precision loss on large personId/orderId
+            const regBody = JSON.stringify({
               firstName: nameParts[0] || "",
               lastName: nameParts.slice(1).join(" ") || "",
-              orderId: primaryBillId,
+            });
+            const rawJson = `{"personId":${racer.personId},"orderId":${primaryBillId},` + regBody.slice(1);
+            const regQs = new URLSearchParams({ endpoint: "person/registerProjectPerson" });
+            await fetch(`/api/bmi?${regQs.toString()}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: rawJson,
             });
             console.log("[registerProjectPerson]", racer.fullName, racer.personId, "on bill", primaryBillId);
           } catch { /* non-fatal */ }
@@ -294,6 +300,25 @@ export default function OrderSummary({
         } catch { /* skip */ }
       }
 
+      // Build per-racer heat assignment data for check-in system
+      const racerAssignments = bookings.flatMap(b =>
+        (b.racerNames || []).map((name, idx) => {
+          const racer = verifiedRacers.find(r => r.fullName === name);
+          return {
+            racerName: name,
+            personId: racer?.personId || null,
+            product: b.product.name,
+            productId: String(b.product.productId),
+            tier: b.product.tier,
+            track: b.product.track,
+            category: b.product.category,
+            heatName: b.block.name,
+            heatStart: b.block.start,
+            heatStop: b.block.stop || null,
+          };
+        })
+      );
+
       // Store booking details + overviews in Redis + localStorage
       const bookingDetails = {
         billId: orderId,
@@ -313,6 +338,35 @@ export default function OrderSummary({
         body: JSON.stringify(bookingDetails),
       });
       localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
+
+      // Save comprehensive booking record (90-day TTL) for check-in system
+      const bookingRecord = {
+        billId: orderId,
+        billIds: allBillIds,
+        contact: {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone,
+        },
+        primaryPersonId: personId || null,
+        racers: racerAssignments,
+        isCreditOrder: state.isCreditOrder,
+        cashOwed: state.cashOwed,
+        creditApplied: state.creditApplied,
+        totalAmount: state.bmiTotal,
+        date: bookings[0]?.block.start?.split("T")[0] || null,
+        overviews: billOverviews,
+        createdAt: new Date().toISOString(),
+        status: "pending_payment",
+      };
+      try {
+        await fetch("/api/booking-record", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(bookingRecord),
+        });
+      } catch { /* non-fatal */ }
 
       // Credit order — skip Square, confirm each bill directly with BMI
       if (isCreditOrder) {
