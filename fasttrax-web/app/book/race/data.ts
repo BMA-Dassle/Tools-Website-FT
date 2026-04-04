@@ -369,13 +369,16 @@ export async function bookRaceHeat(
     },
   };
 
-  // Add personId for per-racer credit/pass application
-  if (personId) payload.personId = Number(personId);
-
-  // Inject orderId as raw number to avoid JS precision loss
-  const bodyJson = existingOrderId
-    ? `{"orderId":${existingOrderId},` + JSON.stringify(payload).slice(1)
-    : JSON.stringify(payload);
+  // Inject orderId AND personId as raw numbers to avoid JS precision loss on large IDs
+  let bodyJson = JSON.stringify(payload);
+  // Prepend orderId if adding to existing bill
+  if (existingOrderId) {
+    bodyJson = `{"orderId":${existingOrderId},` + bodyJson.slice(1);
+  }
+  // Inject personId as raw number (avoids Number() precision loss on large BMI IDs)
+  if (personId) {
+    bodyJson = bodyJson.slice(0, -1) + `,"personId":${personId}}`;
+  }
 
   const qs = new URLSearchParams({ endpoint: "booking/book" });
   const res = await fetch(`/api/bmi?${qs.toString()}`, {
@@ -384,13 +387,21 @@ export async function bookRaceHeat(
     body: bodyJson,
   });
   const rawText = await res.text();
-  const result = JSON.parse(rawText);
+  let result: Record<string, unknown>;
+  try {
+    result = JSON.parse(rawText);
+  } catch {
+    console.error("[bookRaceHeat] non-JSON response:", res.status, rawText.substring(0, 200));
+    throw new Error(`Booking API returned ${res.status}: ${rawText.substring(0, 100)}`);
+  }
   const rawOrderId = extractRawOrderId(rawText);
 
   if (result.success === false) {
-    throw new Error(result.errorMessage || "Booking failed");
+    console.error("[bookRaceHeat] API error:", result.errorMessage, "body sent:", bodyJson.substring(0, 200));
+    throw new Error(result.errorMessage as string || "Booking failed");
   }
   if (!rawOrderId) {
+    console.error("[bookRaceHeat] no orderId in response:", rawText.substring(0, 200));
     throw new Error("No order ID returned from booking");
   }
 

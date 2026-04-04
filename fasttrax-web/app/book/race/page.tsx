@@ -260,9 +260,11 @@ export default function BookRacePage() {
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
     trackBookingHeat(block.start, selectedProduct?.track ?? null);
+    console.log("[handleConfirmHeat]", { racerType, verifiedRacersCount: verifiedRacers.length, productCategory: selectedProduct?.category });
 
     // Returning racers: show racer selector before booking
     if (racerType === "existing" && verifiedRacers.length > 0) {
+      console.log("[handleConfirmHeat] showing racer selector");
       setPendingHeat({ proposal, block });
       setShowRacerSelector(true);
       return;
@@ -853,6 +855,7 @@ export default function BookRacePage() {
                   .filter(b => b.product.category === selectedProduct.category)
                   .map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))
               }
+              immediateConfirm={racerType === "existing" && verifiedRacers.length > 0}
             />
           )
         )}

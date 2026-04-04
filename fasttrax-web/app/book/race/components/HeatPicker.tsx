@@ -16,6 +16,8 @@ interface HeatPickerProps {
   confirmLabel?: string;
   /** Already-booked heats in the cart (same category) — used to block conflicts */
   bookedHeats?: { start: string; stop: string; track: string | null }[];
+  /** When true, clicking a heat card immediately calls onConfirm (no separate confirm button) */
+  immediateConfirm?: boolean;
 }
 
 function parseLocal(iso: string): Date {
@@ -37,7 +39,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [] }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,7 +187,14 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
               return (
                 <button
                   key={idx}
-                  onClick={() => !isFull && setSelectedIdx(idx)}
+                  onClick={() => {
+                    if (isFull) return;
+                    if (immediateConfirm) {
+                      onConfirm(proposal, block);
+                    } else {
+                      setSelectedIdx(idx);
+                    }
+                  }}
                   disabled={isFull}
                   className={`
                     rounded-xl border p-3 text-left transition-all duration-150
