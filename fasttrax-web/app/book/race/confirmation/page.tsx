@@ -71,6 +71,11 @@ export default function ConfirmationPage() {
   const [confirmations, setConfirmations] = useState<{ billId: string; racerName: string; resNumber: string; resCode: string }[]>([]);
   const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
   const [isNewRacer, setIsNewRacer] = useState(false);
+  /** Stored bill overviews from Redis (saved before payment) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [storedOverviews, setStoredOverviews] = useState<any[]>([]);
+  /** Per-racer QR codes */
+  const [racerQrCodes, setRacerQrCodes] = useState<Record<string, string>>({});
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -100,6 +105,11 @@ export default function ConfirmationPage() {
         }
 
         const amount = details?.amount ? parseFloat(details.amount) : 0;
+
+        // Load stored overviews if available
+        if (details?.overviews) {
+          try { setStoredOverviews(JSON.parse(details.overviews)); } catch { /* skip */ }
+        }
 
         // Try order overview (may still be available before BMI converts it)
         let overview: OrderOverview | null = null;
@@ -157,6 +167,16 @@ export default function ConfirmationPage() {
           // Non-fatal — may already be confirmed
         }
         setConfirmations(allConfirmations);
+
+        // Generate QR codes per racer
+        const qrs: Record<string, string> = {};
+        for (const c of allConfirmations) {
+          try {
+            qrs[c.billId] = await QRCode.toDataURL(c.resCode, { width: 160, margin: 1, color: { dark: "#000000", light: "#ffffff" } });
+          } catch { /* skip */ }
+        }
+        setRacerQrCodes(qrs);
+
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
         }
@@ -342,96 +362,138 @@ export default function ConfirmationPage() {
             </div>
           )}
 
-          {/* Per-racer confirmations */}
-          {confirmations.length > 1 && (
-            <div className="flex flex-wrap justify-center gap-3 mb-8">
-              {confirmations.map((c, i) => (
-                <div key={c.billId} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-5 py-3 flex items-center gap-4">
-                  <div>
-                    <p className="text-white font-semibold text-sm">{c.racerName}</p>
-                    <p className="text-[#00E2E5] text-xs font-bold">{c.resNumber}</p>
-                  </div>
-                  {i === 0 && <span className="text-[9px] font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>}
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Reservation cards — one per bill/racer */}
+          <div className="grid gap-6 mb-8">
+            {(() => {
+              // Build racer cards from confirmations + stored overviews
+              const cards = confirmations.length > 0 ? confirmations : [{
+                billId: orderId || "", racerName: "", resNumber: reservationNumber || "", resCode: reservationCode || ""
+              }];
 
-          {/* Two-column layout on desktop */}
+              return cards.map((c, ci) => {
+                const qr = racerQrCodes[c.billId] || qrDataUrl;
+                // Find stored overview for this bill
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const ov = storedOverviews.find((o: any) => o._billId === c.billId || o.id === c.billId) || (ci === 0 ? order : null);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const lines = (ov?.lines || []) as any[];
+                const firstHeat = lines.find((l: { scheduledTime?: { start: string }; schedules?: { start: string }[] }) =>
+                  l.scheduledTime?.start || l.schedules?.[0]?.start
+                );
+                const heatStart = firstHeat?.scheduledTime?.start || firstHeat?.schedules?.[0]?.start || start;
+                const ovTotal = ov?.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+                const ovCredit = ov?.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+                const ovSub = ov?.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
+                const ovTax = ov?.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
+
+                return (
+                  <div key={c.billId || ci} className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
+                    {/* Header: racer name + reservation (multi-bill only) */}
+                    {confirmations.length > 1 && (
+                      <div className="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
+                        <div>
+                          <p className="text-white font-display text-lg uppercase tracking-wider">{c.racerName}</p>
+                          <p className="text-[#00E2E5] text-xs font-bold">{c.resNumber}</p>
+                        </div>
+                        {ci === 0 && confirmations.length > 1 && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* QR + check-in info */}
+                    <div className="p-5 flex flex-col sm:flex-row items-center gap-5">
+                      {qr && (
+                        <div className="shrink-0">
+                          <div className="rounded-xl bg-white p-2.5 shadow-xl shadow-[#00E2E5]/10">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={qr} alt={`QR ${c.resNumber}`} width={130} height={130} className="w-[110px] h-[110px] sm:w-[130px] sm:h-[130px]" />
+                          </div>
+                        </div>
+                      )}
+                      <div className="text-center sm:text-left flex-1">
+                        <p className="text-[#00E2E5] font-bold text-xl">{c.resNumber || reservationNumber}</p>
+                        {heatStart && (
+                          <>
+                            <p className="text-white/50 text-sm mt-1">{formatDate(heatStart)}</p>
+                            <div className="mt-2">
+                              <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Check In By</p>
+                              <p className="text-white font-display text-2xl uppercase tracking-widest">{checkinTime(heatStart)}</p>
+                              <p className="text-white/30 text-xs">Guest Services, 2nd Floor</p>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Race table — all line items */}
+                    {lines.length > 0 && (
+                      <div className="border-t border-white/[0.06]">
+                        <div className="px-5 py-2 bg-white/[0.02]">
+                          <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Items</p>
+                        </div>
+                        {lines.map((line: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[]; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
+                          const cashP = line.totalPrice?.find(p => p.depositKind === 0);
+                          const creditP = line.totalPrice?.find(p => p.depositKind === 2);
+                          const lineTime = line.scheduledTime?.start || line.schedules?.[0]?.start;
+                          return (
+                            <div key={li} className="px-5 py-2.5 flex items-center justify-between border-t border-white/[0.04]">
+                              <div className="min-w-0">
+                                <p className="text-white text-sm font-semibold">{line.name}</p>
+                                {lineTime && <p className="text-white/40 text-xs">{formatTime(lineTime)}</p>}
+                                {line.quantity > 1 && <p className="text-white/30 text-xs">x{line.quantity}</p>}
+                              </div>
+                              <div className="shrink-0 text-right">
+                                {creditP ? (
+                                  <span className="text-green-400 text-xs font-bold">Credit</span>
+                                ) : cashP ? (
+                                  <span className="text-white/70 text-sm">${cashP.amount.toFixed(2)}</span>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {/* Totals row */}
+                        <div className="px-5 py-3 border-t border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+                          <div className="text-xs text-white/40">
+                            {ovSub && <span>Subtotal ${ovSub.amount.toFixed(2)}</span>}
+                            {ovTax && ovTax.amount > 0 && <span> + Tax ${ovTax.amount.toFixed(2)}</span>}
+                          </div>
+                          <div>
+                            {ovCredit && !ovTotal ? (
+                              <span className="text-green-400 font-bold text-sm">Credit Applied</span>
+                            ) : ovTotal ? (
+                              <span className="text-[#00E2E5] font-bold text-lg">${ovTotal.amount.toFixed(2)}</span>
+                            ) : cashTotal !== undefined ? (
+                              <span className="text-[#00E2E5] font-bold text-lg">${cashTotal.toFixed(2)}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fallback if no lines (no stored overview) */}
+                    {lines.length === 0 && raceLine && ci === 0 && (
+                      <div className="border-t border-white/[0.06] px-5 py-3">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white">{raceLine.name} x{raceLine.quantity}</span>
+                          {cashTotal !== undefined && cashTotal > 0 ? (
+                            <span className="text-[#00E2E5] font-bold">${cashTotal.toFixed(2)}</span>
+                          ) : (
+                            <span className="text-green-400 text-xs font-bold">Credit</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {/* Two-column: Journey + Actions */}
           <div className="grid lg:grid-cols-2 gap-8">
-            {/* LEFT: QR + booking details */}
-            <div className="space-y-6">
-              {/* QR Code + Check-in time */}
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 overflow-hidden">
-                {qrDataUrl && (
-                  <div className="shrink-0">
-                    <div className="rounded-xl bg-white p-2.5 shadow-xl shadow-[#00E2E5]/10">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={qrDataUrl} alt="Reservation QR Code" width={140} height={140} className="w-[120px] h-[120px] sm:w-[140px] sm:h-[140px]" />
-                    </div>
-                  </div>
-                )}
-                <div className="text-center sm:text-left">
-                  {reservationNumber && (
-                    <p className="text-[#00E2E5] font-bold text-lg mb-1">{reservationNumber}</p>
-                  )}
-                  {raceLine && (
-                    <p className="text-white font-semibold text-sm">
-                      {raceLine.name}{raceLine.quantity > 1 ? ` x${raceLine.quantity}` : ""}
-                    </p>
-                  )}
-                  {start && (
-                    <p className="text-white/50 text-xs mt-0.5">{formatDate(start)} &middot; {formatTime(start)}</p>
-                  )}
-                  {start && (
-                    <div className="mt-2">
-                      <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Check In By</p>
-                      <p className="text-white font-display text-2xl uppercase tracking-widest">
-                        {checkinTime(start)}
-                      </p>
-                      <p className="text-white/30 text-xs">Guest Services, 2nd Floor</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Booking details */}
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] divide-y divide-white/[0.06]">
-                {raceLine && (
-                  <div className="px-5 py-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Race</p>
-                      <p className="text-white font-bold mt-0.5">{raceLine.name}</p>
-                    </div>
-                    {raceLine.quantity > 1 && <span className="text-white/30 text-xs">x{raceLine.quantity}</span>}
-                  </div>
-                )}
-                {start && (
-                  <div className="px-5 py-4 grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Date</p>
-                      <p className="text-white text-sm mt-0.5">{formatDate(start)}</p>
-                    </div>
-                    <div>
-                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Heat</p>
-                      <p className="text-white text-sm mt-0.5">{formatTime(start)}</p>
-                    </div>
-                  </div>
-                )}
-                <div className="px-5 py-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Reference</p>
-                    <p className="text-white/50 text-xs font-mono mt-0.5">{orderId}</p>
-                  </div>
-                  {cashTotal !== undefined && cashTotal > 0 && (
-                    <p className="text-[#00E2E5] font-bold text-xl">${cashTotal.toFixed(2)}</p>
-                  )}
-                  {cashTotal === 0 && (
-                    <span className="text-green-400 text-xs font-bold uppercase tracking-wider">Credit Applied</span>
-                  )}
-                </div>
-              </div>
-
+            <div className="space-y-4">
               {/* Actions */}
               <div className="flex gap-3">
                 <a
@@ -449,7 +511,7 @@ export default function ConfirmationPage() {
               </div>
             </div>
 
-            {/* RIGHT: Racer's Journey */}
+            {/* Racer's Journey */}
             <div className="lg:sticky lg:top-40 lg:self-start">
               <RacerJourneySteps />
             </div>

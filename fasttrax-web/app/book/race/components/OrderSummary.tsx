@@ -269,7 +269,17 @@ export default function OrderSummary({
       const heatStart = bookings[0]?.block.start || "";
       const allBillIds = bills.map(b => b.billId);
 
-      // Store booking details in Redis + localStorage
+      // Collect bill overviews for each bill before payment
+      const billOverviews: Record<string, unknown>[] = [];
+      for (const bill of bills) {
+        try {
+          const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}`);
+          const ov = await ovRes.json();
+          billOverviews.push({ ...ov, _racerName: bill.racerName, _personId: bill.personId, _billId: bill.billId });
+        } catch { /* skip */ }
+      }
+
+      // Store booking details + overviews in Redis + localStorage
       const bookingDetails = {
         billId: orderId,
         billIds: allBillIds.join(","),
@@ -280,6 +290,7 @@ export default function OrderSummary({
         qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
         heat: heatStart,
         isCreditOrder: isCreditOrder ? "true" : "false",
+        overviews: JSON.stringify(billOverviews),
       };
       await fetch("/api/booking-store", {
         method: "POST",
