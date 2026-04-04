@@ -148,18 +148,57 @@ export default function RacePacksPage() {
     setModalPhase("paying");
 
     try {
-      // 1. Sell the pack
+      // For new customers, create their BMI person first so we have a personId for the sell call
+      const regBody: Record<string, unknown> = {
+        firstName: person.fullName.split(" ")[0] || "",
+        lastName: person.fullName.split(" ").slice(1).join(" ") || "",
+        email: person.email,
+        phone: newPerson.phone || "",
+      };
+      let linkedPersonId = person.personId;
+      if (!linkedPersonId) {
+        // Create a temp bill to register the person (BMI needs an orderId)
+        const tempSellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ProductId: Number(selectedPack.productId), PageId: Number(PAGE_ID), Quantity: 1 }),
+        });
+        const tempSellText = await tempSellRes.text();
+        const tempBillMatch = tempSellText.match(/"orderId"\s*:\s*(\d+)/);
+        const tempBillId = tempBillMatch ? tempBillMatch[1] : null;
+        if (tempBillId) {
+          // Register contact on temp bill — BMI creates the person and returns their ID
+          const tempRegJson = `{"orderId":${tempBillId},` + JSON.stringify(regBody).slice(1);
+          const regRes = await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: tempRegJson,
+          });
+          const regResult = await regRes.json();
+          if (regResult.id) linkedPersonId = String(regResult.id);
+          // Cancel the temp bill — we'll create the real one with personId
+          await fetch(`/api/bmi?endpoint=bill/${tempBillId}/cancel`, { method: "DELETE" });
+        }
+      }
+
+      // 1. Sell the pack WITH personId — this is what tells BMI to assign credits
+      const sellPayload: Record<string, unknown> = {
+        ProductId: Number(selectedPack.productId),
+        PageId: Number(PAGE_ID),
+        Quantity: 1,
+        OrderId: null,
+        ParentOrderItemId: null,
+        DynamicLines: [],
+      };
+      // Inject personId as raw number to avoid precision loss
+      let sellJson = JSON.stringify(sellPayload);
+      if (linkedPersonId) {
+        sellJson = sellJson.slice(0, -1) + `,"personId":${linkedPersonId}}`;
+      }
       const sellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ProductId: Number(selectedPack.productId),
-          PageId: Number(PAGE_ID),
-          Quantity: 1,
-          OrderId: null,
-          ParentOrderItemId: null,
-          DynamicLines: [],
-        }),
+        body: sellJson,
       });
       const sellData = await sellRes.text();
       const sell = JSON.parse(sellData);
@@ -169,15 +208,9 @@ export default function RacePacksPage() {
       const billId = billIdMatch ? billIdMatch[1] : String(sell.orderId);
       if (!billId || billId === "undefined") throw new Error("No bill ID returned");
 
-      // 2. Register contact person (with personId if returning racer)
-      const regBody: Record<string, unknown> = {
-        firstName: person.fullName.split(" ")[0] || "",
-        lastName: person.fullName.split(" ").slice(1).join(" ") || "",
-        email: person.email,
-        phone: newPerson.phone || "",
-      };
-      if (person.personId) {
-        const regJson = `{"orderId":${billId},"personId":${person.personId},` + JSON.stringify(regBody).slice(1);
+      // 2. Register contact person with personId on the real bill
+      if (linkedPersonId) {
+        const regJson = `{"orderId":${billId},"personId":${linkedPersonId},` + JSON.stringify(regBody).slice(1);
         await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
           method: "POST",
           headers: { "content-type": "application/json" },
