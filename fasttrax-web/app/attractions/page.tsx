@@ -95,7 +95,7 @@ const fasttraxCards = [
     title: "Shuffly at FastTrax",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06538.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
     desc: (
       <>
         <strong>The Vibe:</strong> A modern, high-energy take on a classic. Slide into some competitive fun with a chilled-out atmosphere. Perfect for groups between races.
@@ -111,7 +111,7 @@ const headpinzCards = [
     title: "HeadPinz Tactical Laser Tag",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-1.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     desc: (
       <>
         <strong>The Vibe:</strong> Immersive, multi-level urban combat.<br />
@@ -124,7 +124,7 @@ const headpinzCards = [
     title: "HeadPinz Gel Blaster Arena",
     color: "rgb(134,82,255)",
     borderColor: "rgba(134,82,255,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/attraction-2.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     desc: (
       <>
         <strong>The Vibe:</strong> Combat sports with <strong>Zero Mess</strong>.<br />
