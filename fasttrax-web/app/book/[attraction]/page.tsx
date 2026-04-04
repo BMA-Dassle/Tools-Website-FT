@@ -117,9 +117,9 @@ function StepIndicator({ steps, current, color }: { steps: { key: Step; label: s
 
 // ── Location Picker ─────────────────────────────────────────────────────────
 
-function LocationPicker({ config, onSelect, color }: { config: AttractionConfig; onSelect: (loc: LocationKey) => void; color: string }) {
+function LocationPicker({ config, onSelect, onBack, color }: { config: AttractionConfig; onSelect: (loc: LocationKey) => void; onBack: () => void; color: string }) {
   const locations: { key: LocationKey; name: string; address: string }[] = [
-    { key: "fasttrax", name: "FastTrax Fort Myers", address: "4500 Ford St Extension, Fort Myers" },
+    { key: "fasttrax", name: "FastTrax Fort Myers", address: "14501 Global Pkwy, Fort Myers" },
     { key: "headpinz", name: "HeadPinz Fort Myers", address: "14513 Global Pkwy, Fort Myers" },
   ];
 
@@ -153,6 +153,9 @@ function LocationPicker({ config, onSelect, color }: { config: AttractionConfig;
           </button>
         ))}
       </div>
+      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors block mx-auto">
+        ← Back to experiences
+      </button>
     </div>
   );
 }
@@ -938,12 +941,14 @@ export default function AttractionBookingPage() {
   }, [config?.slug]);
 
   // Compute products from static config (no API fetch needed — prices are fixed)
-  const products: AttractionProduct[] = config && booking.location
+  // Use effective location: booking.location, or auto-detect for single-location attractions
+  const effectiveLocation = booking.location || (config && config.location !== "both" ? config.location as LocationKey : null);
+  const products: AttractionProduct[] = config && effectiveLocation
     ? config.products
-        .filter(p => p.location === booking.location)
+        .filter(p => p.location === effectiveLocation)
         .map(p => ({
           productId: p.productId,
-          pageId: config.pageIds[booking.location!] || "",
+          pageId: config.pageIds[effectiveLocation!] || "",
           name: p.name,
           attraction: config.slug,
           location: p.location,
@@ -998,7 +1003,7 @@ export default function AttractionBookingPage() {
     if (currentIdx > 0) {
       setStep(stepList[currentIdx - 1].key);
     } else {
-      router.push("/book");
+      window.location.href = "/book";
     }
   }
 
@@ -1020,9 +1025,16 @@ export default function AttractionBookingPage() {
 
   function handleProductSelect(product: AttractionProduct) {
     setBooking(prev => ({ ...prev, product, date: null, time: null }));
-    // For per-slot attractions, quantity is always 1 — skip quantity step
     setStep(nextStepAfter("product"));
   }
+
+  // Auto-select product for single-product attractions (Gel Blaster, Laser Tag)
+  useEffect(() => {
+    if (step === "product" && products.length === 1 && !booking.product) {
+      handleProductSelect(products[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, products.length, booking.product]);
 
   function handleQuantityConfirm() {
     setStep(nextStepAfter("quantity"));
@@ -1084,7 +1096,7 @@ export default function AttractionBookingPage() {
 
           {/* Location step */}
           {step === "location" && (
-            <LocationPicker config={config} onSelect={handleLocationSelect} color={color} />
+            <LocationPicker config={config} onSelect={handleLocationSelect} onBack={goBack} color={color} />
           )}
 
           {/* Product step */}
