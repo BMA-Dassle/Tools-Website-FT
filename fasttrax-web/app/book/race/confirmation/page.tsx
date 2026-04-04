@@ -403,43 +403,42 @@ export default function ConfirmationPage() {
               </div>
             </div>
           ) : waiverStatus === "not-valid" ? (
-            <div className="mb-8 space-y-3">
-              {/* Show who needs to re-sign */}
-              {confirmations.some(c => c.waiverValid === false) && (
-                <div className="rounded-2xl border-2 border-amber-500/50 bg-amber-500/10 p-5">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
-                      <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-                    </div>
-                    <div>
-                      <p className="text-amber-400 font-bold text-sm">Waiver Action Needed</p>
-                      <p className="text-white/60 text-xs mt-1">
-                        The following racers need to complete or renew their waiver at Guest Services (2nd Floor) before racing:
-                      </p>
-                    </div>
+            /* Waiver warning banner */
+            confirmations.some(c => c.waiverValid === false) && (
+              <div className="rounded-2xl border-2 border-amber-500/50 bg-amber-500/10 p-5 mb-8">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                   </div>
-                  <div className="space-y-1.5 ml-13">
-                    {confirmations.filter(c => c.waiverValid === false).map(c => (
-                      <div key={c.billId} className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2">
-                        <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                        <span className="text-white text-sm font-semibold">{c.racerName}</span>
-                        {c.waiverExpiry && (
-                          <span className="text-amber-400/60 text-xs ml-auto">
-                            Expired {new Date(c.waiverExpiry).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                          </span>
-                        )}
-                        {!c.waiverExpiry && <span className="text-amber-400/60 text-xs ml-auto">No waiver on file</span>}
-                      </div>
-                    ))}
+                  <div>
+                    <p className="text-amber-400 font-bold text-sm">Waiver Action Needed</p>
+                    <p className="text-white/60 text-xs mt-1">
+                      The following racers need to complete or renew their waiver at Guest Services (2nd Floor) before racing:
+                    </p>
                   </div>
                 </div>
-              )}
-              <RacerJourneySteps />
-            </div>
+                <div className="space-y-1.5">
+                  {confirmations.filter(c => c.waiverValid === false).map(c => (
+                    <div key={c.billId} className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2">
+                      <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      <span className="text-white text-sm font-semibold">{c.racerName}</span>
+                      {c.waiverExpiry && (
+                        <span className="text-amber-400/60 text-xs ml-auto">
+                          Expired {new Date(c.waiverExpiry).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      )}
+                      {!c.waiverExpiry && <span className="text-amber-400/60 text-xs ml-auto">No waiver on file</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
           ) : null}
 
-          {/* Per-racer cards */}
-          <div className={`grid gap-4 mb-8 ${confirmations.length > 1 ? "sm:grid-cols-2" : "max-w-lg mx-auto"}`}>
+          {/* Two-column: racer cards (left) + journey/express (right) on desktop */}
+          <div className="grid lg:grid-cols-2 gap-8 mb-8">
+            {/* LEFT: Racer cards */}
+            <div className={`grid gap-4 ${confirmations.length > 1 && waiverStatus === "all-valid" ? "sm:grid-cols-2 lg:grid-cols-1" : ""}`}>
             {confirmations.map((c) => {
               const ht = c.heatTime || start;
               const arriveBy = waiverStatus === "all-valid" && ht ? fiveMinBefore(ht) : ht ? checkinTime(ht) : null;
@@ -525,6 +524,18 @@ export default function ConfirmationPage() {
                 </div>
               </div>
             )}
+            </div>
+
+            {/* RIGHT: Journey steps or FastTrack panel */}
+            <div className="lg:sticky lg:top-40 lg:self-start">
+              {waiverStatus === "all-valid" ? (
+                <FastTrackPanel start={start} />
+              ) : waiverStatus === "not-returning" ? (
+                <RacerJourneySteps />
+              ) : (
+                <RacerJourneySteps />
+              )}
+            </div>
           </div>
 
           {/* Track status */}
