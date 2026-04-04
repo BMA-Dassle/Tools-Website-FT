@@ -249,6 +249,22 @@ export default function OrderSummary({
     setState({ status: "paying" });
     trackBookingPayment(isCreditOrder ? "credit" : "square", cashOwed);
     try {
+      // Register each racer as a project person (participant) on their bill
+      for (const bill of bills) {
+        if (bill.personId) {
+          try {
+            const nameParts = bill.racerName.split(" ");
+            await bmiPost("person/registerProjectPerson", {
+              personId: Number(bill.personId),
+              firstName: nameParts[0] || "",
+              lastName: nameParts.slice(1).join(" ") || "",
+              orderId: bill.billId,
+            });
+            console.log("[registerProjectPerson]", bill.racerName, bill.personId, "on bill", bill.billId);
+          } catch { /* non-fatal */ }
+        }
+      }
+
       const raceName = "Deposit";
       const heatStart = bookings[0]?.block.start || "";
       const allBillIds = bills.map(b => b.billId);
@@ -295,12 +311,12 @@ export default function OrderSummary({
           await addGroupMemo(bills, resNumbers);
         }
 
-        window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}`;
+        window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
         return;
       }
 
       // Cash order — create Square checkout
-      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}`;
+      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
 
       const res = await fetch("/api/square/checkout", {
         method: "POST",

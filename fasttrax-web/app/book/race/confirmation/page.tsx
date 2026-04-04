@@ -29,6 +29,12 @@ function checkinTime(iso: string) {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
+function fiveMinBefore(iso: string) {
+  const d = parseLocal(iso);
+  d.setMinutes(d.getMinutes() - 5);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 function formatDate(iso: string) {
   return parseLocal(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
@@ -69,6 +75,8 @@ export default function ConfirmationPage() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   /** Per-racer confirmation results */
   const [confirmations, setConfirmations] = useState<{ billId: string; racerName: string; resNumber: string; resCode: string }[]>([]);
+  /** Waiver fast-track: all returning racers have valid waivers */
+  const [waiverStatus, setWaiverStatus] = useState<"checking" | "all-valid" | "not-valid" | "not-returning">("checking");
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -177,6 +185,27 @@ export default function ConfirmationPage() {
               });
             } catch { /* non-fatal */ }
           }
+        }
+
+        // Check waivers for returning racers via Pandora API
+        const personIdsParam = params.get("personIds");
+        if (personIdsParam) {
+          const personIds = personIdsParam.split(",").filter(Boolean);
+          if (personIds.length > 0) {
+            try {
+              const waiverChecks = await Promise.all(
+                personIds.map(pid => fetch(`/api/pandora?personId=${pid}`).then(r => r.json()).catch(() => ({ valid: false })))
+              );
+              const allValid = waiverChecks.length > 0 && waiverChecks.every(w => w.valid);
+              setWaiverStatus(allValid ? "all-valid" : "not-valid");
+            } catch {
+              setWaiverStatus("not-valid");
+            }
+          } else {
+            setWaiverStatus("not-returning");
+          }
+        } else {
+          setWaiverStatus("not-returning");
         }
 
         // If no overview data, build from stored details
@@ -303,6 +332,35 @@ export default function ConfirmationPage() {
           <div className="grid lg:grid-cols-2 gap-8">
             {/* LEFT: QR + booking details */}
             <div className="space-y-6">
+              {/* Fast-track banner — shown FIRST on mobile when waivers valid */}
+              {waiverStatus === "all-valid" && (
+                <div className="rounded-2xl border-2 border-green-500/50 bg-gradient-to-br from-green-500/15 via-green-500/5 to-transparent p-5 sm:p-6 lg:hidden">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    </div>
+                    <div>
+                      <p className="text-green-400 text-[10px] font-bold uppercase tracking-widest">New — FastTrax Express</p>
+                      <h3 className="text-white font-display text-lg uppercase tracking-wider mt-0.5">
+                        You&apos;re Living Life in the FastTrax!
+                      </h3>
+                    </div>
+                  </div>
+                  <p className="text-white/70 text-sm leading-relaxed mb-3">
+                    Your waivers are current — <strong className="text-green-400">skip Guest Services</strong> and head directly to the <strong className="text-white">1st Floor Karting Counter</strong>.
+                  </p>
+                  {start && (
+                    <div className="rounded-xl bg-[#000418]/60 border border-green-500/20 p-3 text-center">
+                      <p className="text-green-400 text-[10px] font-bold uppercase tracking-wider">Be at Karting Check-In</p>
+                      <p className="text-white font-display text-2xl uppercase tracking-widest">
+                        {fiveMinBefore(start)}
+                      </p>
+                      <p className="text-white/40 text-xs mt-0.5">5 minutes before your heat</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* QR Code + Check-in time */}
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 overflow-hidden">
                 {qrDataUrl && (
@@ -314,16 +372,33 @@ export default function ConfirmationPage() {
                   </div>
                 )}
                 <div className="text-center sm:text-left">
-                  {start && (
+                  {waiverStatus === "all-valid" ? (
                     <>
-                      <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider mb-1">Check In By</p>
-                      <p className="text-white font-display text-3xl uppercase tracking-widest mb-2">
-                        {checkinTime(start)}
-                      </p>
+                      {start && (
+                        <>
+                          <p className="text-green-400 text-[10px] font-bold uppercase tracking-wider mb-1">Be at Karting by</p>
+                          <p className="text-white font-display text-3xl uppercase tracking-widest mb-2">
+                            {fiveMinBefore(start)}
+                          </p>
+                        </>
+                      )}
+                      <p className="text-green-400/70 text-xs">Skip Guest Services — go straight to karting</p>
+                      <p className="text-white/30 text-xs">1st Floor Karting Counter</p>
+                    </>
+                  ) : (
+                    <>
+                      {start && (
+                        <>
+                          <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider mb-1">Check In By</p>
+                          <p className="text-white font-display text-3xl uppercase tracking-widest mb-2">
+                            {checkinTime(start)}
+                          </p>
+                        </>
+                      )}
+                      <p className="text-white/40 text-xs">Guest Services, 2nd Floor</p>
+                      <p className="text-white/30 text-xs">30 minutes before your heat</p>
                     </>
                   )}
-                  <p className="text-white/40 text-xs">Guest Services, 2nd Floor</p>
-                  <p className="text-white/30 text-xs">30 minutes before your heat</p>
                 </div>
               </div>
 
@@ -381,13 +456,111 @@ export default function ConfirmationPage() {
               </div>
             </div>
 
-            {/* RIGHT: Racer's Journey */}
+            {/* RIGHT: Fast-track or Racer's Journey */}
             <div className="lg:sticky lg:top-40 lg:self-start">
-              <RacerJourneySteps />
+              {waiverStatus === "all-valid" ? (
+                <FastTrackPanel start={start} />
+              ) : (
+                <RacerJourneySteps />
+              )}
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── FastTrack Panel — shown when all returning racers have valid waivers ─────
+
+function FastTrackPanel({ start }: { start: string | null }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border-2 border-green-500/40 bg-gradient-to-br from-green-500/10 via-green-500/5 to-[#000418] p-6 space-y-4">
+        {/* Lightning badge */}
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-green-500/20 border-2 border-green-500/40 flex items-center justify-center">
+            <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-green-400 text-[10px] font-bold uppercase tracking-widest">New — FastTrax Express</p>
+            <h2 className="text-white font-display text-xl uppercase tracking-wider">
+              Life in the FastTrax
+            </h2>
+          </div>
+        </div>
+
+        {/* Main message */}
+        <div className="rounded-xl bg-green-500/10 border border-green-500/20 p-4">
+          <p className="text-white text-sm leading-relaxed">
+            Your waivers are up to date! <strong className="text-green-400">Skip the line at Guest Services</strong> and proceed directly to the <strong className="text-white">1st Floor Karting Counter</strong> for check-in.
+          </p>
+        </div>
+
+        {/* Arrival time */}
+        {start && (
+          <div className="text-center py-3">
+            <p className="text-green-400/70 text-[10px] font-bold uppercase tracking-wider mb-1">Arrive at Karting by</p>
+            <p className="text-white font-display text-4xl uppercase tracking-widest">
+              {fiveMinBefore(start)}
+            </p>
+            <p className="text-white/40 text-xs mt-1">Just 5 minutes before your heat</p>
+          </div>
+        )}
+
+        {/* Steps */}
+        <div className="space-y-2">
+          <div className="flex items-start gap-3 rounded-xl bg-white/[0.03] p-3">
+            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
+            <div>
+              <p className="text-white font-semibold text-sm">Go Straight to Karting</p>
+              <p className="text-white/50 text-xs">1st Floor Karting Counter — no Guest Services needed</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 rounded-xl bg-white/[0.03] p-3">
+            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
+            <div>
+              <p className="text-white font-semibold text-sm">Show Your QR Code</p>
+              <p className="text-white/50 text-xs">Present it at the karting counter to get your credentials</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 rounded-xl bg-white/[0.03] p-3">
+            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
+            <div>
+              <p className="text-white font-semibold text-sm">Safety Briefing &amp; Race</p>
+              <p className="text-white/50 text-xs">Enter the safety briefing and get on the grid</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Track status still shown */}
+      <RacerJourneyTrackStatus />
+    </div>
+  );
+}
+
+function RacerJourneyTrackStatus() {
+  const trackData = useTrackStatus();
+  if (!trackData) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Live Track Status</p>
+      {trackData.tracks.map((t) => (
+        <div
+          key={t.trackName}
+          className="flex items-center justify-between px-3 py-2 rounded-lg"
+          style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
+        >
+          <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)} animate-pulse`} />
+            <span className="text-white/70 text-xs">{t.delayFormatted}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
