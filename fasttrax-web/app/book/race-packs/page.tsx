@@ -46,9 +46,10 @@ export default function RacePacksPage() {
   const [codeInput, setCodeInput] = useState("");
   const [lookupMode, setLookupMode] = useState<"email" | "code" | "new">("email");
   const [searchResults, setSearchResults] = useState<{ localId: string; description: string }[]>([]);
-  const [newPerson, setNewPerson] = useState({ firstName: "", lastName: "", email: "", phone: "" });
+  const [newPerson, setNewPerson] = useState({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
+  const [payingStatus, setPayingStatus] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
 
   function handleBuyNow(pack: RacePack) {
@@ -59,7 +60,7 @@ export default function RacePacksPage() {
     setCodeInput("");
     setError("");
     setSearchResults([]);
-    setNewPerson({ firstName: "", lastName: "", email: "", phone: "" });
+    setNewPerson({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
     setLookupMode("email");
     setModalPhase("lookup");
     setTimeout(() => emailRef.current?.focus(), 200);
@@ -130,8 +131,8 @@ export default function RacePacksPage() {
   }
 
   function handleNewPerson() {
-    if (!newPerson.firstName || !newPerson.lastName || !newPerson.email) {
-      setError("Please fill in name and email.");
+    if (!newPerson.firstName || !newPerson.lastName || !newPerson.email || !newPerson.phone || !newPerson.dob) {
+      setError("Please fill in all fields.");
       return;
     }
     setPerson({
@@ -148,50 +149,54 @@ export default function RacePacksPage() {
     setModalPhase("paying");
 
     try {
-      // For new customers, create their BMI person first so we have a personId for the sell call
-      const regBody: Record<string, unknown> = {
-        firstName: person.fullName.split(" ")[0] || "",
-        lastName: person.fullName.split(" ").slice(1).join(" ") || "",
-        email: person.email,
-        phone: newPerson.phone || "",
-      };
+      const firstName = person.fullName.split(" ")[0] || "";
+      const lastName = person.fullName.split(" ").slice(1).join(" ") || "";
+      const phone = newPerson.phone || "";
       let linkedPersonId = person.personId;
+
+      // For new customers, create person via Pandora (BMI Firebird) first
       if (!linkedPersonId) {
-        // Create a temp bill to register the person (BMI needs an orderId)
-        const tempSellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+        setPayingStatus("Creating your racer account...");
+        const createRes = await fetch("/api/pandora", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ProductId: Number(selectedPack.productId), PageId: Number(PAGE_ID), Quantity: 1 }),
+          body: JSON.stringify({ firstName, lastName, email: person.email, phone, birthdate: newPerson.dob || undefined }),
         });
-        const tempSellText = await tempSellRes.text();
-        const tempBillMatch = tempSellText.match(/"orderId"\s*:\s*(\d+)/);
-        const tempBillId = tempBillMatch ? tempBillMatch[1] : null;
-        if (tempBillId) {
-          // Register contact on temp bill — BMI creates the person and returns their ID
-          const tempRegJson = `{"orderId":${tempBillId},` + JSON.stringify(regBody).slice(1);
-          const regRes = await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: tempRegJson,
-          });
-          const regResult = await regRes.json();
-          if (regResult.id) linkedPersonId = String(regResult.id);
-          // Cancel the temp bill — we'll create the real one with personId
-          await fetch(`/api/bmi?endpoint=bill/${tempBillId}/cancel`, { method: "DELETE" });
+        const createData = await createRes.json();
+        if (createData.personId) {
+          linkedPersonId = createData.personId;
+          // Wait for person to sync from Firebird to BMI cloud (poll up to 30s)
+          setPayingStatus("Setting up your account...");
+          for (let i = 0; i < 6; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+            // Test if person is synced by attempting a sell
+            const testSell = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: `{"ProductId":${selectedPack.productId},"PageId":${PAGE_ID},"Quantity":1,"personId":${linkedPersonId}}`,
+            });
+            const testText = await testSell.text();
+            const testBillMatch = testText.match(/"orderId"\s*:\s*(\d+)/);
+            if (testBillMatch) {
+              // Person synced — cancel this test bill, we'll create the real one below
+              await fetch(`/api/bmi?endpoint=bill/${testBillMatch[1]}/cancel`, { method: "DELETE" });
+              break;
+            }
+          }
         }
       }
 
-      // 1. Sell the pack WITH personId — this is what tells BMI to assign credits
-      const sellPayload: Record<string, unknown> = {
+      setPayingStatus("Preparing your race pack...");
+
+      // 1. Sell the pack WITH personId — this tells BMI to assign credits
+      let sellJson = JSON.stringify({
         ProductId: Number(selectedPack.productId),
         PageId: Number(PAGE_ID),
         Quantity: 1,
         OrderId: null,
         ParentOrderItemId: null,
         DynamicLines: [],
-      };
-      // Inject personId as raw number to avoid precision loss
-      let sellJson = JSON.stringify(sellPayload);
+      });
       if (linkedPersonId) {
         sellJson = sellJson.slice(0, -1) + `,"personId":${linkedPersonId}}`;
       }
@@ -208,7 +213,8 @@ export default function RacePacksPage() {
       const billId = billIdMatch ? billIdMatch[1] : String(sell.orderId);
       if (!billId || billId === "undefined") throw new Error("No bill ID returned");
 
-      // 2. Register contact person with personId on the real bill
+      // 2. Register contact person with personId
+      const regBody: Record<string, unknown> = { firstName, lastName, email: person.email, phone: phone.replace(/\D/g, "") };
       if (linkedPersonId) {
         const regJson = `{"orderId":${billId},"personId":${linkedPersonId},` + JSON.stringify(regBody).slice(1);
         await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
@@ -264,6 +270,7 @@ export default function RacePacksPage() {
         }),
       });
       const squareData = await squareRes.json();
+      setPayingStatus("Redirecting to payment...");
       if (squareData.checkoutUrl) {
         trackBookingStep("Race Pack Payment", { pack: selectedPack.name, amount: total });
         window.location.href = squareData.checkoutUrl;
@@ -378,7 +385,9 @@ export default function RacePacksPage() {
             {modalPhase === "paying" && (
               <div className="flex flex-col items-center gap-4 py-8">
                 <div className="w-8 h-8 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
-                <p className="text-white/50 text-sm">Heading to payment...</p>
+                <p className="text-white/50 text-sm">
+                  {payingStatus || "Heading to payment..."}
+                </p>
               </div>
             )}
 
@@ -440,7 +449,11 @@ export default function RacePacksPage() {
                       <input value={newPerson.lastName} onChange={e => setNewPerson(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" className="bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
                     </div>
                     <input value={newPerson.email} onChange={e => setNewPerson(p => ({ ...p, email: e.target.value }))} placeholder="Email" type="email" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
-                    <input value={newPerson.phone} onChange={e => setNewPerson(p => ({ ...p, phone: e.target.value }))} placeholder="Phone (optional)" type="tel" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
+                    <input value={newPerson.phone} onChange={e => setNewPerson(p => ({ ...p, phone: e.target.value }))} placeholder="Phone" type="tel" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
+                    <div>
+                      <label className="text-white/40 text-xs mb-1 block">Date of Birth</label>
+                      <input value={newPerson.dob} onChange={e => setNewPerson(p => ({ ...p, dob: e.target.value }))} type="date" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm focus:border-[#00E2E5]/50 focus:outline-none [color-scheme:dark]" />
+                    </div>
                     <button onClick={handleNewPerson} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors">
                       Continue
                     </button>
