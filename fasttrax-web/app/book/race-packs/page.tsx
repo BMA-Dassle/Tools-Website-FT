@@ -219,7 +219,7 @@ export default function RacePacksPage() {
         body: JSON.stringify({
           billId,
           amount: total,
-          raceName: "Race Pack Purchase",
+          raceName: `${selectedPack.raceCount}-Race Pack (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`,
           catalogObjectId: "5FINJYYPPELXTERF2THUDCPT",
           returnUrl,
           cancelUrl: `${window.location.origin}/book/race-packs`,

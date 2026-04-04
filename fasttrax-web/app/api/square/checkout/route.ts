@@ -43,13 +43,14 @@ export async function POST(req: NextRequest) {
     };
 
     if (catalogObjectId) {
-      // Use order with catalog item
+      // Use order with catalog item + custom name override
       paymentLinkBody.order = {
         location_id: SQUARE_LOCATION,
         line_items: [{
           catalog_object_id: catalogObjectId,
           quantity: "1",
           item_type: "ITEM",
+          name: raceName || undefined,
           base_price_money: {
             amount: amountCents,
             currency: "USD",
