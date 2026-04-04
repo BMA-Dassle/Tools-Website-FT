@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
 import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine } from "./data";
 import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
@@ -414,9 +415,29 @@ export default function BookRacePage() {
   const partyTotal = adults + juniors;
 
   return (
-    <div className="min-h-screen bg-[#000418] pt-[180px]">
+    <div className="min-h-screen bg-[#000418]">
+      {/* Hero banner */}
+      <div className="relative overflow-hidden pt-[140px] pb-6">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
+          alt="FastTrax Racing"
+          fill
+          className="object-cover object-center"
+          priority
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/70 via-[#000418]/80 to-[#000418]" />
+        <div className="relative z-10 text-center px-4 pt-6 pb-2">
+          <h1 className="text-3xl md:text-4xl font-display uppercase tracking-widest text-white mb-2">
+            Book Your Race
+          </h1>
+          <p className="text-white/40 text-sm max-w-md mx-auto">
+            Florida&apos;s largest indoor go-kart racing experience
+          </p>
+        </div>
+      </div>
+
       {/* Sticky header: steps */}
-      <div className="sticky top-[128px] z-30">
+      <div className="sticky top-[72px] sm:top-[80px] z-30">
         <div className="border-b border-white/8 bg-[#000418]">
           {/* Step indicator */}
           <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
