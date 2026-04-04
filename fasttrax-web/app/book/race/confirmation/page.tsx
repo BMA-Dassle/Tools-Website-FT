@@ -362,8 +362,9 @@ export default function ConfirmationPage() {
             </div>
           )}
 
-          {/* Reservation cards — one per bill/racer */}
-          <div className="grid gap-6 mb-8">
+          {/* Two-column: Reservation cards (left) + Journey (right) on desktop */}
+          <div className="grid lg:grid-cols-[1fr,380px] gap-8 mb-8">
+          <div className="grid gap-6">
             {(() => {
               // Build racer cards from confirmations + stored overviews
               const cards = confirmations.length > 0 ? confirmations : [{
@@ -489,32 +490,22 @@ export default function ConfirmationPage() {
                 );
               });
             })()}
+
+            {/* Actions under cards */}
+            <div className="flex gap-3">
+              <a href="/racing" className="flex-1 text-center px-5 py-3.5 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors">
+                Racing Info
+              </a>
+              <a href="/book/race" className="flex-1 text-center px-5 py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/20">
+                Book Another Race
+              </a>
+            </div>
           </div>
 
-          {/* Two-column: Journey + Actions */}
-          <div className="grid lg:grid-cols-2 gap-8">
-            <div className="space-y-4">
-              {/* Actions */}
-              <div className="flex gap-3">
-                <a
-                  href="/racing"
-                  className="flex-1 text-center px-5 py-3.5 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors"
-                >
-                  Racing Info
-                </a>
-                <a
-                  href="/book/race"
-                  className="flex-1 text-center px-5 py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/20"
-                >
-                  Book Another Race
-                </a>
-              </div>
-            </div>
-
-            {/* Racer's Journey */}
-            <div className="lg:sticky lg:top-40 lg:self-start">
-              <RacerJourneySteps />
-            </div>
+          {/* RIGHT: Racer's Journey (sticky on desktop) */}
+          <div className="lg:sticky lg:top-40 lg:self-start">
+            <RacerJourneySteps />
+          </div>
           </div>
         </div>
       )}
