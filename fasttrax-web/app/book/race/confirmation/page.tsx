@@ -29,26 +29,8 @@ function checkinTime(iso: string) {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
-function fiveMinBefore(iso: string) {
-  const d = parseLocal(iso);
-  d.setMinutes(d.getMinutes() - 5);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-}
-
 function formatDate(iso: string) {
   return parseLocal(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-}
-
-interface RacerConfirmation {
-  billId: string;
-  racerName: string;
-  resNumber: string;
-  resCode: string;
-  personId?: string;
-  raceName?: string;
-  heatTime?: string;
-  waiverValid?: boolean;
-  waiverExpiry?: string;
 }
 
 interface Schedule {
@@ -85,12 +67,8 @@ export default function ConfirmationPage() {
   const [reservationCode, setReservationCode] = useState<string | null>(null);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  /** Per-racer confirmation results with waiver + schedule data */
-  const [confirmations, setConfirmations] = useState<RacerConfirmation[]>([]);
-  /** Waiver fast-track: all returning racers have valid waivers */
-  const [waiverStatus, setWaiverStatus] = useState<"checking" | "all-valid" | "not-valid" | "not-returning">("checking");
-  /** Per-racer QR codes */
-  const [racerQrCodes, setRacerQrCodes] = useState<Record<string, string>>({});
+  /** Per-racer confirmation results */
+  const [confirmations, setConfirmations] = useState<{ billId: string; racerName: string; resNumber: string; resCode: string }[]>([]);
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -137,34 +115,23 @@ export default function ConfirmationPage() {
         const racerNamesParam = params.get("racerNames");
         const allBillIds = billIdsParam ? billIdsParam.split(",") : [id!];
         const racerNames = racerNamesParam ? racerNamesParam.split(",").map(decodeURIComponent) : [];
-        const personIdsParam = params.get("personIds");
-        const personIds = personIdsParam ? personIdsParam.split(",") : [];
-        const allConfirmations: RacerConfirmation[] = [];
+        const allConfirmations: { billId: string; racerName: string; resNumber: string; resCode: string }[] = [];
 
         try {
           for (let i = 0; i < allBillIds.length; i++) {
             const bid = allBillIds[i];
             const racerName = racerNames[i] || `Racer ${i + 1}`;
-            const pid = personIds[i] || undefined;
-
-            // Get bill overview for race details
-            let raceName = "";
-            let heatTime = "";
+            // Determine amount: for single bill use full amount, for multi-bill check if credit
             let billAmount = amount;
-            try {
-              const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bid}`);
-              const ov = await ovRes.json();
-              if (allBillIds.length > 1) {
+            if (allBillIds.length > 1) {
+              // Check this bill's overview to see if it's a credit order
+              try {
+                const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bid}`);
+                const ov = await ovRes.json();
                 const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
                 billAmount = cashT?.amount ?? 0;
-              }
-              // Extract race name and heat time from first karting line
-              const raceLine = ov.lines?.find((l: { productGroup?: string }) => l.productGroup === "Karting" || l.productGroup === "Race");
-              if (raceLine) {
-                raceName = raceLine.name || "";
-                heatTime = raceLine.scheduledTime?.start || raceLine.schedules?.[0]?.start || "";
-              }
-            } catch { /* use defaults */ }
+              } catch { billAmount = 0; }
+            }
 
             const depositKind = billAmount === 0 ? 2 : 0;
             const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
@@ -177,18 +144,8 @@ export default function ConfirmationPage() {
             const result = await confirmRes.json();
             const resNum = result.reservationNumber || "";
             const resCode = String(result.reservationCode || `r${bid}`);
-
-            // Always add to confirmations (even if payment/confirm failed) so waiver is checked
-            allConfirmations.push({
-              billId: bid,
-              racerName: racerName || `Racer ${i + 1}`,
-              resNumber: resNum,
-              resCode,
-              personId: pid,
-              raceName,
-              heatTime,
-            });
-
+            if (resNum) allConfirmations.push({ billId: bid, racerName: racerName || `Racer ${i + 1}`, resNumber: resNum, resCode });
+            // Keep first as primary
             if (i === 0) {
               if (resCode) setReservationCode(resCode);
               if (resNum) setReservationNumber(resNum);
@@ -197,38 +154,7 @@ export default function ConfirmationPage() {
         } catch {
           // Non-fatal — may already be confirmed
         }
-
-        // Check waivers for returning racers
-        if (personIds.length > 0) {
-          const waiverChecks = await Promise.all(
-            allConfirmations.filter(c => c.personId).map(async (c) => {
-              try {
-                const res = await fetch(`/api/pandora?personId=${c.personId}`);
-                const w = await res.json();
-                c.waiverValid = w.valid;
-                c.waiverExpiry = w.waiverExpiry;
-                return w.valid;
-              } catch {
-                c.waiverValid = false;
-                return false;
-              }
-            })
-          );
-          setWaiverStatus(waiverChecks.length > 0 && waiverChecks.every(Boolean) ? "all-valid" : "not-valid");
-        } else {
-          setWaiverStatus("not-returning");
-        }
-
         setConfirmations(allConfirmations);
-
-        // Generate QR codes per racer
-        const qrs: Record<string, string> = {};
-        for (const c of allConfirmations) {
-          try {
-            qrs[c.billId] = await QRCode.toDataURL(c.resCode, { width: 160, margin: 1, color: { dark: "#000000", light: "#ffffff" } });
-          } catch { /* skip */ }
-        }
-        setRacerQrCodes(qrs);
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
         }
@@ -345,9 +271,7 @@ export default function ConfirmationPage() {
                 You&apos;re on the grid!
               </h1>
               <p className="text-white/50 text-sm max-w-md mx-auto">
-                {waiverStatus === "all-valid"
-                  ? "Your reservation is confirmed. Head straight to the 1st Floor Karting Counter!"
-                  : "Your reservation is confirmed. Show your QR code at Guest Services when you arrive."}
+                Your reservation is confirmed. Show your QR code at Guest Services when you arrive.
               </p>
               {reservationNumber && confirmations.length <= 1 && (
                 <p className="text-[#00E2E5] font-display text-2xl uppercase tracking-wider mt-3">{reservationNumber}</p>
@@ -360,308 +284,110 @@ export default function ConfirmationPage() {
       {/* Main content */}
       {!loading && orderId && (
         <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 pt-6">
-
-          {/* Waiver check loading placeholder */}
-          {waiverStatus === "checking" && confirmations.some(c => c.personId) && (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 mb-8 flex items-center justify-center gap-3">
-              <div className="w-5 h-5 border-2 border-white/20 border-t-green-400 rounded-full animate-spin" />
-              <p className="text-white/40 text-sm">Checking waivers...</p>
+          {/* Per-racer confirmations */}
+          {confirmations.length > 1 && (
+            <div className="flex flex-wrap justify-center gap-3 mb-8">
+              {confirmations.map((c, i) => (
+                <div key={c.billId} className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-5 py-3 flex items-center gap-4">
+                  <div>
+                    <p className="text-white font-semibold text-sm">{c.racerName}</p>
+                    <p className="text-[#00E2E5] text-xs font-bold">{c.resNumber}</p>
+                  </div>
+                  {i === 0 && <span className="text-[9px] font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>}
+                </div>
+              ))}
             </div>
           )}
 
-          {/* FastTrax Express or waiver warning — front and center */}
-          {waiverStatus === "all-valid" ? (
-            <div className="rounded-2xl border-2 border-green-500/50 bg-gradient-to-br from-green-500/15 via-green-500/5 to-transparent p-5 sm:p-8 mb-8 shadow-[0_0_30px_rgba(34,197,94,0.15)]">
-              <div className="flex items-start gap-4 mb-4">
-                <div className="w-14 h-14 rounded-full bg-green-500/20 border-2 border-green-500/40 flex items-center justify-center shrink-0">
-                  <svg className="w-7 h-7 text-green-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                </div>
-                <div>
-                  <p className="text-green-400 text-[10px] font-bold uppercase tracking-widest">New — FastTrax Express</p>
-                  <h2 className="text-white font-display text-2xl sm:text-3xl uppercase tracking-wider mt-1">
-                    You&apos;re Living Life in the FastTrax!
-                  </h2>
-                </div>
-              </div>
-              <p className="text-white/80 text-sm sm:text-base leading-relaxed mb-4 max-w-2xl">
-                All waivers in your party are current — <strong className="text-green-400">skip the line at Guest Services</strong> and head directly to the <strong className="text-white">1st Floor Karting Counter</strong>. Just show your QR code and you&apos;re in.
-              </p>
-              <div className="grid sm:grid-cols-3 gap-2">
-                <div className="flex items-start gap-3 rounded-xl bg-white/[0.04] p-3">
-                  <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
-                  <div>
-                    <p className="text-white font-semibold text-sm">Go to Karting</p>
-                    <p className="text-white/40 text-xs">1st Floor — skip Guest Services</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 rounded-xl bg-white/[0.04] p-3">
-                  <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
-                  <div>
-                    <p className="text-white font-semibold text-sm">Show QR Code</p>
-                    <p className="text-white/40 text-xs">Get your credentials</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 rounded-xl bg-white/[0.04] p-3">
-                  <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
-                  <div>
-                    <p className="text-white font-semibold text-sm">Safety &amp; Race</p>
-                    <p className="text-white/40 text-xs">Briefing then grid</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : waiverStatus === "not-valid" ? (
-            /* Waiver warning banner */
-            confirmations.some(c => c.waiverValid === false) && (
-              <div className="rounded-2xl border-2 border-amber-500/50 bg-amber-500/10 p-5 mb-8">
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
-                    <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-                  </div>
-                  <div>
-                    <p className="text-amber-400 font-bold text-sm">Waiver Action Needed</p>
-                    <p className="text-white/60 text-xs mt-1">
-                      The following racers need to complete or renew their waiver at Guest Services (2nd Floor) before racing:
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  {confirmations.filter(c => c.waiverValid === false).map(c => (
-                    <div key={c.billId} className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2">
-                      <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                      <span className="text-white text-sm font-semibold">{c.racerName}</span>
-                      {c.waiverExpiry && (
-                        <span className="text-amber-400/60 text-xs ml-auto">
-                          Expired {new Date(c.waiverExpiry).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
-                      )}
-                      {!c.waiverExpiry && <span className="text-amber-400/60 text-xs ml-auto">No waiver on file</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          ) : null}
-
-          {/* Two-column: racer cards (left) + journey/express (right) on desktop */}
-          <div className="grid lg:grid-cols-2 gap-8 mb-8">
-            {/* LEFT: Racer cards */}
-            <div className={`grid gap-4 ${confirmations.length > 1 && waiverStatus === "all-valid" ? "sm:grid-cols-2 lg:grid-cols-1" : ""}`}>
-            {confirmations.map((c) => {
-              const ht = c.heatTime || start;
-              const arriveBy = waiverStatus === "all-valid" && ht ? fiveMinBefore(ht) : ht ? checkinTime(ht) : null;
-              return (
-                <div
-                  key={c.billId}
-                  className={`rounded-2xl p-5 space-y-4 ${
-                    waiverStatus === "all-valid"
-                      ? "border-2 border-green-500/30 bg-green-500/[0.03] shadow-[0_0_15px_rgba(34,197,94,0.08)]"
-                      : "border border-white/10 bg-white/[0.03]"
-                  }`}
-                >
-                  {/* Name + Race — both big */}
-                  <div>
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <h3 className="text-white font-display text-2xl uppercase tracking-wider">{c.racerName}</h3>
-                      {c.waiverValid === true && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-green-400 border border-green-500/30 rounded-full px-2 py-0.5 bg-green-500/10 shrink-0">Waiver OK</span>
-                      )}
-                      {c.waiverValid === false && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5 bg-amber-500/10 shrink-0">Waiver Needed</span>
-                      )}
-                    </div>
-                    {c.raceName && (
-                      <p className="text-[#00E2E5] font-display text-lg uppercase tracking-wider">{c.raceName}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-white/40 text-xs font-bold">{c.resNumber}</span>
-                      {ht && (
-                        <>
-                          <span className="text-white/20">&middot;</span>
-                          <span className="text-white/40 text-xs">{formatDate(ht)} &middot; {formatTime(ht)}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* QR + Arrival time side by side */}
-                  <div className="flex items-center gap-5">
-                    {racerQrCodes[c.billId] && (
-                      <div className="shrink-0">
-                        <div className="rounded-lg bg-white p-2">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={racerQrCodes[c.billId]} alt={`QR ${c.resNumber}`} width={100} height={100} className="w-[80px] h-[80px] sm:w-[100px] sm:h-[100px]" />
-                        </div>
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      {arriveBy && (
-                        <div>
-                          <p className={`text-[10px] font-bold uppercase tracking-wider ${waiverStatus === "all-valid" ? "text-green-400" : "text-red-400"}`}>
-                            {waiverStatus === "all-valid" ? "Be at Karting" : "Check In By"}
-                          </p>
-                          <p className="text-white font-display text-3xl uppercase tracking-widest">
-                            {arriveBy}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Fallback: single racer without confirmations array */}
-            {confirmations.length === 0 && qrDataUrl && (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-                <div className="flex items-center gap-4">
+          {/* Two-column layout on desktop */}
+          <div className="grid lg:grid-cols-2 gap-8">
+            {/* LEFT: QR + booking details */}
+            <div className="space-y-6">
+              {/* QR Code + Check-in time */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 overflow-hidden">
+                {qrDataUrl && (
                   <div className="shrink-0">
-                    <div className="rounded-lg bg-white p-2">
+                    <div className="rounded-xl bg-white p-2.5 shadow-xl shadow-[#00E2E5]/10">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={qrDataUrl} alt="QR Code" width={100} height={100} />
+                      <img src={qrDataUrl} alt="Reservation QR Code" width={140} height={140} className="w-[120px] h-[120px] sm:w-[140px] sm:h-[140px]" />
                     </div>
                   </div>
-                  <div>
-                    {reservationNumber && <p className="text-[#00E2E5] font-bold">{reservationNumber}</p>}
-                    {raceLine && <p className="text-white text-sm font-semibold">{raceLine.name}</p>}
-                    {start && (
-                      <p className="text-white/50 text-xs mt-0.5">{formatDate(start)} &middot; {formatTime(start)}</p>
-                    )}
-                    {start && (
-                      <div className="mt-2">
-                        <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Check In By</p>
-                        <p className="text-white font-display text-xl uppercase tracking-widest">{checkinTime(start)}</p>
-                      </div>
-                    )}
-                  </div>
+                )}
+                <div className="text-center sm:text-left">
+                  {start && (
+                    <>
+                      <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider mb-1">Check In By</p>
+                      <p className="text-white font-display text-3xl uppercase tracking-widest mb-2">
+                        {checkinTime(start)}
+                      </p>
+                    </>
+                  )}
+                  <p className="text-white/40 text-xs">Guest Services, 2nd Floor</p>
+                  <p className="text-white/30 text-xs">30 minutes before your heat</p>
                 </div>
               </div>
-            )}
+
+              {/* Booking details */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] divide-y divide-white/[0.06]">
+                {raceLine && (
+                  <div className="px-5 py-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Race</p>
+                      <p className="text-white font-bold mt-0.5">{raceLine.name}</p>
+                    </div>
+                    {raceLine.quantity > 1 && <span className="text-white/30 text-xs">x{raceLine.quantity}</span>}
+                  </div>
+                )}
+                {start && (
+                  <div className="px-5 py-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Date</p>
+                      <p className="text-white text-sm mt-0.5">{formatDate(start)}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Heat</p>
+                      <p className="text-white text-sm mt-0.5">{formatTime(start)}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Reference</p>
+                    <p className="text-white/50 text-xs font-mono mt-0.5">{orderId}</p>
+                  </div>
+                  {cashTotal !== undefined && cashTotal > 0 && (
+                    <p className="text-[#00E2E5] font-bold text-xl">${cashTotal.toFixed(2)}</p>
+                  )}
+                  {cashTotal === 0 && (
+                    <span className="text-green-400 text-xs font-bold uppercase tracking-wider">Credit Applied</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <a
+                  href="/racing"
+                  className="flex-1 text-center px-5 py-3.5 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors"
+                >
+                  Racing Info
+                </a>
+                <a
+                  href="/book/race"
+                  className="flex-1 text-center px-5 py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/20"
+                >
+                  Book Another Race
+                </a>
+              </div>
             </div>
 
-            {/* RIGHT: Journey steps or FastTrack panel */}
+            {/* RIGHT: Racer's Journey */}
             <div className="lg:sticky lg:top-40 lg:self-start">
-              {waiverStatus === "all-valid" ? (
-                <FastTrackPanel start={start} />
-              ) : waiverStatus === "not-returning" ? (
-                <RacerJourneySteps />
-              ) : (
-                <RacerJourneySteps />
-              )}
+              <RacerJourneySteps />
             </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-3 max-w-md mx-auto">
-            <a
-              href="/racing"
-              className="flex-1 text-center px-5 py-3.5 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors"
-            >
-              Racing Info
-            </a>
-            <a
-              href="/book/race"
-              className="flex-1 text-center px-5 py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/20"
-            >
-              Book Another Race
-            </a>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── FastTrack Panel — shown when all returning racers have valid waivers ─────
-
-function FastTrackPanel({ start }: { start: string | null }) {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border-2 border-green-500/40 bg-gradient-to-br from-green-500/10 via-green-500/5 to-[#000418] p-6 space-y-4">
-        {/* Lightning badge */}
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-green-500/20 border-2 border-green-500/40 flex items-center justify-center">
-            <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-green-400 text-[10px] font-bold uppercase tracking-widest">New — FastTrax Express</p>
-            <h2 className="text-white font-display text-xl uppercase tracking-wider">
-              Life in the FastTrax
-            </h2>
-          </div>
-        </div>
-
-        {/* Main message */}
-        <div className="rounded-xl bg-green-500/10 border border-green-500/20 p-4">
-          <p className="text-white text-sm leading-relaxed">
-            Your waivers are up to date! <strong className="text-green-400">Skip the line at Guest Services</strong> and proceed directly to the <strong className="text-white">1st Floor Karting Counter</strong> for check-in.
-          </p>
-        </div>
-
-        {/* Arrival time */}
-        {start && (
-          <div className="text-center py-3">
-            <p className="text-green-400/70 text-[10px] font-bold uppercase tracking-wider mb-1">Arrive at Karting by</p>
-            <p className="text-white font-display text-4xl uppercase tracking-widest">
-              {fiveMinBefore(start)}
-            </p>
-            <p className="text-white/40 text-xs mt-1">Just 5 minutes before your heat</p>
-          </div>
-        )}
-
-        {/* Steps */}
-        <div className="space-y-2">
-          <div className="flex items-start gap-3 rounded-xl bg-white/[0.03] p-3">
-            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
-            <div>
-              <p className="text-white font-semibold text-sm">Go Straight to Karting</p>
-              <p className="text-white/50 text-xs">1st Floor Karting Counter — no Guest Services needed</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3 rounded-xl bg-white/[0.03] p-3">
-            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
-            <div>
-              <p className="text-white font-semibold text-sm">Show Your QR Code</p>
-              <p className="text-white/50 text-xs">Present it at the karting counter to get your credentials</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3 rounded-xl bg-white/[0.03] p-3">
-            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
-            <div>
-              <p className="text-white font-semibold text-sm">Safety Briefing &amp; Race</p>
-              <p className="text-white/50 text-xs">Enter the safety briefing and get on the grid</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Track status still shown */}
-      <RacerJourneyTrackStatus />
-    </div>
-  );
-}
-
-function RacerJourneyTrackStatus() {
-  const trackData = useTrackStatus();
-  if (!trackData) return null;
-  return (
-    <div className="space-y-1.5">
-      <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Live Track Status</p>
-      {trackData.tracks.map((t) => (
-        <div
-          key={t.trackName}
-          className="flex items-center justify-between px-3 py-2 rounded-lg"
-          style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
-        >
-          <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
-          <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)} animate-pulse`} />
-            <span className="text-white/70 text-xs">{t.delayFormatted}</span>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
