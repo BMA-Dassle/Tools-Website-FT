@@ -211,12 +211,22 @@ export default function OrderSummary({
           if (creditTotal) creditApplied += Math.abs(creditTotal.amount);
 
           // Extract line items with racer name and scheduled time
+          // Build racer name queue from bookings (lines are in booking order)
+          const racerQueue: string[] = [];
+          for (const b of bookings) {
+            if (b.racerNames) {
+              for (const name of b.racerNames) racerQueue.push(name);
+            }
+          }
+          let racerIdx = 0;
           if (overview.lines) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             for (const l of overview.lines as any[]) {
               const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
               const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
-              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racer: bill.racerName, time: lineTime || undefined });
+              const racerName = racerQueue[racerIdx] || bill.racerName;
+              racerIdx++;
+              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racer: racerName, time: lineTime || undefined });
             }
           }
         } catch {
@@ -567,7 +577,7 @@ export default function OrderSummary({
                         </p>
                       )}
                     </div>
-                    {onRemoveBooking && bookings.length > 1 && state.status === "booked" && xBtn(() => onRemoveBooking(card.bookingIdx))}
+                    {onRemoveBooking && (bookings.length > 1 || b.quantity > 1) && state.status === "booked" && xBtn(() => onRemoveBooking(card.bookingIdx))}
                   </div>
                 );
               }
