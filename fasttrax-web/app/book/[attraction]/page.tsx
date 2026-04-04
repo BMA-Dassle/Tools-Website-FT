@@ -26,7 +26,18 @@ import {
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type Step = "location" | "product" | "date" | "time" | "quantity" | "contact" | "review";
+type Step = "location" | "product" | "date" | "time" | "quantity" | "cart" | "contact" | "review";
+
+interface CartItem {
+  attraction: AttractionSlug;
+  attractionName: string;
+  product: AttractionProduct;
+  date: string;
+  time: { proposal: BmiProposal; block: BmiBlock };
+  quantity: number;
+  billLineId: string | null;
+  color: string;
+}
 
 interface BookingState {
   location: LocationKey | null;
@@ -917,7 +928,25 @@ export default function AttractionBookingPage() {
     orderId: null,
     billLineId: null,
   });
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(sessionStorage.getItem("attractionCart") || "[]"); } catch { return []; }
+  });
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Persist cart + orderId to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem("attractionCart", JSON.stringify(cartItems));
+  }, [cartItems]);
+
+  // Restore orderId from cart if returning from /book
+  useEffect(() => {
+    if (!booking.orderId && cartItems.length > 0) {
+      const storedOrderId = sessionStorage.getItem("attractionOrderId");
+      if (storedOrderId) setBooking(prev => ({ ...prev, orderId: storedOrderId }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Scroll to top only on forward step transitions (not re-renders)
   const prevStep = useRef(step);
@@ -994,6 +1023,7 @@ export default function AttractionBookingPage() {
   }
   stepList.push({ key: "date", label: "Date" });
   stepList.push({ key: "time", label: "Time" });
+  stepList.push({ key: "cart", label: "Cart" });
   stepList.push({ key: "contact", label: "Details" });
   stepList.push({ key: "review", label: "Pay" });
 
@@ -1045,9 +1075,39 @@ export default function AttractionBookingPage() {
     setStep(nextStepAfter("date"));
   }
 
-  function handleTimeConfirm(proposal: BmiProposal, block: BmiBlock) {
+  async function handleTimeConfirm(proposal: BmiProposal, block: BmiBlock) {
+    if (!booking.product || !config) return;
     setBooking(prev => ({ ...prev, time: { proposal, block } }));
-    setStep(nextStepAfter("time"));
+
+    try {
+      // Book the attraction in BMI
+      const { rawOrderId, billLineId } = await bookAttractionSlot(
+        booking.product.productId,
+        booking.quantity,
+        proposal,
+        booking.orderId,
+      );
+      const newOrderId = booking.orderId || rawOrderId;
+      setBooking(prev => ({ ...prev, orderId: newOrderId, billLineId }));
+      sessionStorage.setItem("attractionOrderId", newOrderId);
+
+      // Add to cart
+      setCartItems(prev => [...prev, {
+        attraction: config.slug,
+        attractionName: config.shortName,
+        product: booking.product!,
+        date: booking.date!,
+        time: { proposal, block },
+        quantity: booking.quantity,
+        billLineId,
+        color: config.color,
+      }]);
+
+      setStep("cart");
+    } catch (err) {
+      console.error("[handleTimeConfirm] booking failed:", err);
+      alert("Failed to reserve. Please try again.");
+    }
   }
 
   function handleContactSubmit(contact: ContactInfo) {
@@ -1144,6 +1204,96 @@ export default function AttractionBookingPage() {
               onBack={goBack}
               color={color}
             />
+          )}
+
+          {/* Cart step — shows what's been booked, offers to add more */}
+          {step === "cart" && (
+            <div className="space-y-6 max-w-lg mx-auto">
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-green-500/20 border-2 border-green-500/50 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-7 h-7 text-green-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Added to Cart!</h2>
+                <p className="text-white/50 text-sm">Your spot is reserved. Add more or continue to checkout.</p>
+              </div>
+
+              {/* Cart items */}
+              <div className="space-y-2">
+                {cartItems.map((item, i) => (
+                  <div key={i} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+                          <span className="text-white font-semibold text-sm">{item.attractionName}</span>
+                        </div>
+                        <p className="text-white/40 text-xs mt-1">
+                          {item.product.name} &middot; {formatTime(item.time.block.start)}
+                          {item.quantity > 1 && ` &middot; ${item.quantity} ${item.product.bookingMode === "per-person" ? "people" : "tables"}`}
+                        </p>
+                        <p className="text-white/30 text-xs">{formatDate(item.date)}</p>
+                      </div>
+                      <span className="text-white font-bold">${(item.product.price * item.quantity).toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Subtotal */}
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-white/60">Subtotal</span>
+                  <span className="text-white font-bold">${cartItems.reduce((s, item) => s + item.product.price * item.quantity, 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-white/60">Tax</span>
+                  <span className="text-white">${calculateTax(cartItems.reduce((s, item) => s + item.product.price * item.quantity, 0)).toFixed(2)}</span>
+                </div>
+                <div className="border-t border-white/10 mt-2 pt-2 flex justify-between font-bold">
+                  <span className="text-white">Total</span>
+                  <span style={{ color }}>${calculateTotal(cartItems.reduce((s, item) => s + item.product.price * item.quantity, 0)).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="space-y-3">
+                <button
+                  onClick={() => setStep(nextStepAfter("cart"))}
+                  className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg"
+                  style={{ backgroundColor: color }}
+                >
+                  Continue to Checkout →
+                </button>
+                <a
+                  href="/book"
+                  className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center block"
+                >
+                  + Add Another Activity
+                </a>
+              </div>
+
+              {/* Cross-sell cards */}
+              <div>
+                <p className="text-white/30 text-xs uppercase tracking-wider mb-3">Add to your visit</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {ATTRACTION_LIST
+                    .filter(a => a.slug !== config.slug && a.slug !== "racing")
+                    .slice(0, 4)
+                    .map(a => (
+                      <a
+                        key={a.slug}
+                        href={a.slug === "racing" ? "/book/race" : `/book/${a.slug}`}
+                        className="rounded-lg border border-white/10 bg-white/[0.03] p-3 hover:border-white/20 hover:bg-white/[0.06] transition-all text-center"
+                      >
+                        <p className="text-white font-semibold text-xs">{a.shortName}</p>
+                        <p className="text-white/30 text-[10px] mt-0.5">{a.durationLabel}</p>
+                      </a>
+                    ))}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Contact step */}
