@@ -73,7 +73,7 @@ const racingFaqs = [
   {
     question: "How do I qualify for faster karts at FastTrax?",
     answer:
-      "All racers start in Starter tier. To unlock Adult Intermediate, you need a lap time of 41.5s on the Blue Track or 47s on the Red Track. For Adult Pro, you need 32.25s (Blue) or 37.25s (Red) in Intermediate. Junior Intermediate requires a 1:15 lap in Junior Starter, and Junior Pro requires a 45s lap in Junior Intermediate. You cannot skip levels.",
+      "All racers start in Starter tier. To unlock Adult Intermediate, you need a lap time of 41s on the Blue Track or 46s on the Red Track. For Adult Pro, you need 32.5s (Blue) or 37s (Red) in Intermediate. Junior Intermediate requires a 1:15 lap in Junior Starter, and Junior Pro requires a 45s lap in Junior Intermediate. You cannot skip levels.",
   },
   {
     question: "Is FastTrax better than outdoor go-kart tracks?",

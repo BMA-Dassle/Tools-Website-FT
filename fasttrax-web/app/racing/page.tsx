@@ -59,7 +59,7 @@ export default function RacingPage() {
                 color: "rgb(0,74,173)",
                 border: "rgba(0,74,173,0.59)",
                 age: "16+ / 59\u201d+",
-                qual: "Lap time of 41.5s (Blue) or 47s (Red) in Starter",
+                qual: "Lap time of 41s (Blue) or 46s (Red) in Starter",
                 desc: "For serious drivers. High-speed karts, competitive lap tracking, challenging layout.",
               },
               {
@@ -67,7 +67,7 @@ export default function RacingPage() {
                 color: "rgb(134,82,255)",
                 border: "rgba(134,82,255,0.59)",
                 age: "16+ / 59\u201d+",
-                qual: "Lap time of 32.25s (Blue) or 37.25s (Red) in Intermediate",
+                qual: "Lap time of 32.5s (Blue) or 37s (Red) in Intermediate",
                 desc: "Ultimate test of skill and speed. Fastest karts, precision timing, most demanding config.",
               },
               {
