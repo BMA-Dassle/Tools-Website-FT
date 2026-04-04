@@ -325,7 +325,7 @@ export default function ConfirmationPage() {
                 </div>
               </div>
               <p className="text-white/80 text-sm leading-relaxed mb-4 max-w-2xl">
-                <strong className="text-red-400">All racers must complete a waiver before racing.</strong> This includes every person in your party — adults and minors. Without a completed waiver, you will not be able to race.
+                <strong className="text-red-400">Every racer must complete their own waiver before racing.</strong> Each person in your party needs to sign individually. Parents or guardians must register themselves first, then add any minors to their waiver.
               </p>
               <a
                 href={waiverUrl}
@@ -338,7 +338,7 @@ export default function ConfirmationPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
               </a>
-              <p className="text-white/40 text-xs mt-3">Opens in a new tab. One person can sign for the entire party including minors.</p>
+              <p className="text-white/40 text-xs mt-3">Opens in a new tab. Each adult signs their own waiver. Parents: register yourself first, then add your minors.</p>
             </div>
           )}
 
