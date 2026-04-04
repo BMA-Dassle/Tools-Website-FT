@@ -67,7 +67,8 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
   }).length;
 
   return (
-    <div className="max-w-md mx-auto space-y-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+    <div className="max-w-md w-full rounded-2xl border border-white/10 bg-[#000418] p-6 space-y-3 shadow-2xl max-h-[85vh] overflow-y-auto">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-white font-display text-lg uppercase tracking-wider">Who&apos;s Racing?</h3>
@@ -175,6 +176,7 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
           Add {selectedRacers.length} Racer{selectedRacers.length !== 1 ? "s" : ""} to Heat
         </button>
       </div>
+    </div>
     </div>
   );
 }
