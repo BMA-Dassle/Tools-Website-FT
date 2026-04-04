@@ -44,7 +44,11 @@ export default function RacePacksPage() {
   const [person, setPerson] = useState<FoundPerson | null>(null);
   const [emailInput, setEmailInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
-  const [lookupMode, setLookupMode] = useState<"email" | "code" | "new">("email");
+  const [lookupMode, setLookupMode] = useState<"phone" | "email" | "code" | "new">("phone");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [smsCode, setSmsCode] = useState("");
+  const [smsError, setSmsError] = useState("");
+  const [smsSent, setSmsSent] = useState(false);
   const [searchResults, setSearchResults] = useState<{ localId: string; description: string }[]>([]);
   const [newPerson, setNewPerson] = useState({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
   const [error, setError] = useState("");
@@ -61,7 +65,11 @@ export default function RacePacksPage() {
     setError("");
     setSearchResults([]);
     setNewPerson({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
-    setLookupMode("email");
+    setLookupMode("phone");
+    setPhoneInput("");
+    setSmsCode("");
+    setSmsError("");
+    setSmsSent(false);
     setModalPhase("lookup");
     setTimeout(() => emailRef.current?.focus(), 200);
   }
@@ -127,6 +135,79 @@ export default function RacePacksPage() {
     } catch {
       setError("Verification failed.");
       setModalPhase("lookup");
+    }
+  }
+
+  function formatPhoneInput(value: string) {
+    const digits = value.replace(/\D/g, "").slice(0, 10);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+
+  async function handlePhoneSearch() {
+    const digits = phoneInput.replace(/\D/g, "").replace(/^1/, "");
+    if (digits.length !== 10) return;
+    setError("");
+    setSmsError("");
+    setModalPhase("looking");
+
+    try {
+      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=50`);
+      const results = await res.json();
+      if (!Array.isArray(results) || results.length === 0) {
+        setError("No accounts found with that phone number.");
+        setModalPhase("lookup");
+        return;
+      }
+      const withMem = results.filter((r: { description: string }) => r.description.includes("Memberships:"));
+      const byName = new Map<string, { localId: string; description: string }>();
+      for (const r of (withMem.length > 0 ? withMem : results) as { localId: string; description: string }[]) {
+        const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
+        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
+        if (!byName.has(name)) byName.set(name, r);
+      }
+      setSearchResults([...byName.values()].slice(0, 5));
+
+      // Send SMS code
+      const smsRes = await fetch("/api/sms-verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone: digits }),
+      });
+      const smsData = await smsRes.json();
+      if (!smsData.sent) {
+        setError(smsData.error || "Failed to send code");
+        setModalPhase("lookup");
+        return;
+      }
+      setSmsSent(true);
+      setModalPhase("lookup");
+    } catch {
+      setError("Search failed. Please try again.");
+      setModalPhase("lookup");
+    }
+  }
+
+  async function handleSmsVerify() {
+    const trimmed = smsCode.trim();
+    if (!trimmed || trimmed.length !== 6) { setSmsError("Enter the 6-digit code"); return; }
+    setSmsError("");
+    const digits = phoneInput.replace(/\D/g, "").replace(/^1/, "");
+    try {
+      const res = await fetch("/api/sms-verify", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone: digits, code: trimmed }),
+      });
+      const data = await res.json();
+      if (data.verified) {
+        setModalPhase("found");
+      } else {
+        setSmsError(data.error || "Incorrect code");
+      }
+    } catch {
+      setSmsError("Verification failed");
     }
   }
 
@@ -398,16 +479,67 @@ export default function RacePacksPage() {
 
                 {/* Mode tabs */}
                 <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-                  {(["email", "code", "new"] as const).map(m => (
+                  {(["phone", "email", "code", "new"] as const).map(m => (
                     <button
                       key={m}
-                      onClick={() => { setLookupMode(m); setError(""); }}
+                      onClick={() => { setLookupMode(m); setError(""); setSmsError(""); }}
                       className={`flex-1 py-2 rounded-md text-xs font-semibold transition-colors ${lookupMode === m ? "bg-[#00E2E5] text-[#000418]" : "text-white/40 hover:text-white/60"}`}
                     >
-                      {m === "email" ? "Email" : m === "code" ? "Code" : "New"}
+                      {m === "phone" ? "Phone" : m === "email" ? "Email" : m === "code" ? "Code" : "New"}
                     </button>
                   ))}
                 </div>
+
+                {lookupMode === "phone" && !smsSent && (
+                  <div className="space-y-3">
+                    <input
+                      type="tel"
+                      value={phoneInput}
+                      onChange={e => setPhoneInput(formatPhoneInput(e.target.value))}
+                      onKeyDown={e => e.key === "Enter" && handlePhoneSearch()}
+                      placeholder="(239) 555-1234"
+                      className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 placeholder:tracking-normal focus:border-[#00E2E5]/50 focus:outline-none"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handlePhoneSearch}
+                      disabled={phoneInput.replace(/\D/g, "").length !== 10}
+                      className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors disabled:opacity-40"
+                    >
+                      Send Verification Code
+                    </button>
+                  </div>
+                )}
+
+                {lookupMode === "phone" && smsSent && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-3 text-center">
+                      <p className="text-green-400 font-semibold text-xs">Code sent to {phoneInput}</p>
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={smsCode}
+                      onChange={e => { setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setSmsError(""); }}
+                      onKeyDown={e => e.key === "Enter" && handleSmsVerify()}
+                      placeholder="000000"
+                      className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.4em] font-mono placeholder:text-white/20 focus:border-[#00E2E5]/50 focus:outline-none"
+                      autoFocus
+                    />
+                    {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
+                    <button
+                      onClick={handleSmsVerify}
+                      disabled={smsCode.length !== 6}
+                      className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors disabled:opacity-40"
+                    >
+                      Verify Code
+                    </button>
+                    <button onClick={() => { setSmsSent(false); setSmsCode(""); }} className="w-full text-white/30 text-xs hover:text-white/50 py-1">
+                      Resend code
+                    </button>
+                  </div>
+                )}
 
                 {lookupMode === "email" && (
                   <div className="space-y-3">
