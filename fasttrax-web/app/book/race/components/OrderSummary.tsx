@@ -45,8 +45,10 @@ interface OrderSummaryProps {
   packResult?: PackBookingResult;
   /** The pack product that was selected */
   packProduct?: ClassifiedProduct;
-  /** Verified returning racer's BMI person ID */
+  /** Verified returning racer's BMI person ID (primary) */
   personId?: string;
+  /** All verified racers in the party (for registerProjectPerson on single bill) */
+  verifiedRacers?: { personId: string; fullName: string }[];
   /** Callback to remove a booking item — goes back to heat selection */
   onRemoveBooking?: (index: number) => void;
   /** Selected add-on activities */
@@ -123,6 +125,7 @@ export default function OrderSummary({
   packResult,
   packProduct,
   personId,
+  verifiedRacers = [],
   onRemoveBooking,
   addOns = [],
   pov,
@@ -158,8 +161,9 @@ export default function OrderSummary({
     console.log("[runBookingFlow] STARTED — bills:", JSON.stringify(bills.map(b => ({ billId: b.billId, personId: b.personId, racer: b.racerName }))));
     setState({ status: "booking" });
     try {
-      // Register contact on each bill + link personId for credits
-      // Use raw JSON to avoid Number() precision loss on large billIds
+      // Register contact on bill — MUST include personId if available
+      // to avoid wiping credit linkages set during booking/book
+      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson" });
       for (const bill of bills) {
         try {
           const regBody: Record<string, unknown> = {
@@ -168,24 +172,15 @@ export default function OrderSummary({
             email: contact.email,
             phone: contact.phone.replace(/\D/g, ""),
           };
-          // Register contact (without personId first)
+          // Always include primary personId to preserve credit linkage
+          const pid = bill.personId || personId;
+          if (pid) regBody.personId = Number(pid);
           const regJson = `{"orderId":${bill.billId},` + JSON.stringify(regBody).slice(1);
-          const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson" });
           await fetch(`/api/bmi?${regQs.toString()}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: regJson,
           });
-          // Link personId to apply credits (use bill's personId, or fall back to primary personId)
-          const pid = bill.personId || personId;
-          if (pid) {
-            const regWithPerson = `{"orderId":${bill.billId},"personId":${pid},` + JSON.stringify(regBody).slice(1);
-            await fetch(`/api/bmi?${regQs.toString()}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: regWithPerson,
-            });
-          }
         } catch { /* non-fatal */ }
       }
 
@@ -249,18 +244,23 @@ export default function OrderSummary({
     setState({ status: "paying" });
     trackBookingPayment(isCreditOrder ? "credit" : "square", cashOwed);
     try {
-      // Register each racer as a project person (participant) on their bill
-      for (const bill of bills) {
-        if (bill.personId) {
+      // Register each verified racer as a project person (participant) on the bill
+      // With single-bill flow, all racers go on the same bill
+      const primaryBillId = bills[0]?.billId || billId;
+      const racersToRegister = verifiedRacers.length > 0
+        ? verifiedRacers
+        : bills.filter(b => b.personId).map(b => ({ personId: b.personId!, fullName: b.racerName }));
+      for (const racer of racersToRegister) {
+        if (racer.personId) {
           try {
-            const nameParts = bill.racerName.split(" ");
+            const nameParts = racer.fullName.split(" ");
             await bmiPost("person/registerProjectPerson", {
-              personId: Number(bill.personId),
+              personId: Number(racer.personId),
               firstName: nameParts[0] || "",
               lastName: nameParts.slice(1).join(" ") || "",
-              orderId: bill.billId,
+              orderId: primaryBillId,
             });
-            console.log("[registerProjectPerson]", bill.racerName, bill.personId, "on bill", bill.billId);
+            console.log("[registerProjectPerson]", racer.fullName, racer.personId, "on bill", primaryBillId);
           } catch { /* non-fatal */ }
         }
       }

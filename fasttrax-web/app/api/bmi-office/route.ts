@@ -148,6 +148,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body));
     }
 
+    // Deposit history — check credit balance for a person
+    if (action === "deposits") {
+      const personId = searchParams.get("personId") || "";
+      if (!personId) {
+        return NextResponse.json({ error: "Missing personId parameter" }, { status: 400 });
+      }
+      // Default: look back 2 years
+      const now = new Date();
+      const from = searchParams.get("from") || new Date(now.getFullYear() - 2, now.getMonth(), now.getDate()).toISOString().split(".")[0];
+      const until = searchParams.get("until") || now.toISOString().split(".")[0];
+
+      const path = `/api/${CLIENT_KEY}/deposit/history?personId=${personId}&from=${encodeURIComponent(from)}&until=${encodeURIComponent(until)}`;
+      const res = await httpsGet(path, apiHeaders(token));
+      if (res.status >= 400) {
+        cachedToken = null;
+        tokenExpiry = 0;
+        const newToken = await getOfficeToken();
+        const retry = await httpsGet(path, apiHeaders(newToken));
+        return NextResponse.json(JSON.parse(retry.body), { status: retry.status >= 400 ? 500 : 200 });
+      }
+      return NextResponse.json(JSON.parse(res.body));
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json(

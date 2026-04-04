@@ -43,6 +43,7 @@ import AddOnsPage from "./components/AddOnsPage";
 import type { AddOnItem } from "./components/AddOnsPage";
 import PovUpsell from "./components/PovUpsell";
 import type { PovSelection } from "./components/PovUpsell";
+import RacerSelector from "./components/RacerSelector";
 import OrderSummary from "./components/OrderSummary";
 import FloatingCart from "./components/FloatingCart";
 
@@ -87,6 +88,9 @@ export default function BookRacePage() {
   const [verifiedRacers, setVerifiedRacers] = useState<PersonData[]>([]);
   const [addingRacer, setAddingRacer] = useState(false);
   const [addingCategory, setAddingCategory] = useState<"adult" | "junior" | null>(null);
+  // Racer selector: pending heat waiting for racer selection (returning racers only)
+  const [pendingHeat, setPendingHeat] = useState<{ proposal: BmiProposal; block: BmiBlock } | null>(null);
+  const [showRacerSelector, setShowRacerSelector] = useState(false);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
@@ -122,6 +126,25 @@ export default function BookRacePage() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
+  /** Fetch credit/deposit balances for a racer and update their PersonData */
+  async function fetchRacerCredits(person: PersonData): Promise<PersonData> {
+    try {
+      const res = await fetch(`/api/bmi-office?action=deposits&personId=${person.personId}`);
+      if (!res.ok) return person;
+      const deposits: { depositKind: string; balance: number }[] = await res.json();
+      const racingCredits = deposits.filter(d =>
+        d.balance > 0 && (d.depositKind.toLowerCase().includes("credit") || d.depositKind.toLowerCase().includes("pass"))
+      );
+      return {
+        ...person,
+        hasCredits: racingCredits.length > 0,
+        creditBalances: racingCredits.map(d => ({ kind: d.depositKind, balance: d.balance })),
+      };
+    } catch {
+      return person;
+    }
+  }
+
   function handleExperienceSelect(type: RacerType) {
     trackBookingExperience(type);
     setRacerType(type);
@@ -144,6 +167,10 @@ export default function BookRacePage() {
       lastName: nameParts.slice(1).join(" ") || "",
       email: person.email,
       phone: "",
+    });
+    // Fetch credits in background (non-blocking)
+    fetchRacerCredits(person).then(updated => {
+      setVerifiedRacers(prev => prev.map(r => r.personId === updated.personId ? { ...r, hasCredits: updated.hasCredits, creditBalances: updated.creditBalances } : r));
     });
     // Go to party step — will show category choice for primary
     setTimeout(() => setStep("party"), 300);
@@ -170,6 +197,10 @@ export default function BookRacePage() {
     } else {
       setAdults(prev => prev + 1);
     }
+    // Fetch credits in background (non-blocking)
+    fetchRacerCredits(person).then(updated => {
+      setVerifiedRacers(prev => prev.map(r => r.personId === updated.personId ? { ...r, hasCredits: updated.hasCredits, creditBalances: updated.creditBalances } : r));
+    });
   }
 
   function handleRemoveRacer(personId: string) {
@@ -229,45 +260,58 @@ export default function BookRacePage() {
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
     trackBookingHeat(block.start, selectedProduct?.track ?? null);
+
+    // Returning racers: show racer selector before booking
+    if (racerType === "existing" && verifiedRacers.length > 0) {
+      setPendingHeat({ proposal, block });
+      setShowRacerSelector(true);
+      return;
+    }
+
+    // New racers: book immediately as group (unchanged)
+    await bookHeatForRacers(proposal, block, null);
+  }
+
+  /** Book a heat for selected racers (or as group for new racers) */
+  async function bookHeatForRacers(proposal: BmiProposal, block: BmiBlock, selectedRacers: PersonData[] | null) {
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
     const bookingBillLineIds: { billId: string; lineId: string }[] = [];
+    const racerCount = selectedRacers ? selectedRacers.length : (cat === "adult" ? adults : juniors);
+
     try {
-      // Check if we already have bills for this category
-      const existingCatBills = activeBills.filter(b => b.category === cat);
-      const catRacers = racerType === "existing"
-        ? verifiedRacers.filter(r => r.category === cat)
-        : [];
-      const racerCount = cat === "adult" ? adults : juniors;
-      console.log("[handleConfirmHeat]", JSON.stringify({ cat, existingBills: existingCatBills.length, catRacersCount: catRacers.length, allRacersWithCats: verifiedRacers.map(r => ({ n: r.fullName?.substring(0,10), c: r.category, p: r.personId })) }));
-
       let createdBills: RacerBill[] = [];
+      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : null;
 
-      if (existingCatBills.length > 0) {
-        // Bills exist for this category — add this race to them
-        createdBills = existingCatBills;
-        for (const bill of existingCatBills) {
-          const { billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
-          if (billLineId) bookingBillLineIds.push({ billId: bill.billId, lineId: billLineId });
+      if (selectedRacers && selectedRacers.length > 0) {
+        // Returning racers: book each racer individually with personId, all on one bill
+        let orderId = existingBillId;
+        for (const racer of selectedRacers) {
+          const { rawOrderId, billLineId } = await bookRaceHeat(
+            selectedProduct!, 1, proposal, orderId, racer.personId
+          );
+          if (!orderId) {
+            // First racer created the bill — reuse for the rest
+            orderId = rawOrderId;
+            createdBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
+          }
+          if (billLineId) bookingBillLineIds.push({ billId: orderId, lineId: billLineId });
         }
-      } else if (racerType === "existing" && verifiedRacers.length > 0) {
-        // Returning racers: one bill per person matching THIS category
-        const matchingRacers = catRacers.length > 0
-          ? catRacers
-          : verifiedRacers.filter(r => !r.category || r.category === cat);
-        const racersToBook = matchingRacers.length > 0 ? matchingRacers : [verifiedPerson!].filter(Boolean);
-        for (const racer of racersToBook) {
-          const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, 1, proposal, null);
-          createdBills.push({ billId: rawOrderId, personId: racer.personId, racerName: racer.fullName, category: cat });
-          if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
+        // Only add to activeBills if we created a new bill
+        if (!existingBillId && createdBills.length > 0) {
+          setActiveBills(prev => [...prev, ...createdBills]);
         }
-        setActiveBills(prev => [...prev, ...createdBills]);
+        console.log("[bookHeatForRacers] returning racers:", selectedRacers.map(r => r.fullName).join(", "), "on bill:", orderId);
       } else {
-        // New racers: one bill for the group
-        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
-        createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+        // New racers: one bill for the group (unchanged)
+        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, existingBillId);
+        if (!existingBillId) {
+          createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
+          setActiveBills(prev => [...prev, ...createdBills]);
+        } else {
+          createdBills = activeBills.filter(b => b.category === cat);
+        }
         if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
-        setActiveBills(prev => [...prev, ...createdBills]);
       }
 
       const booking: Booking = {
@@ -276,12 +320,10 @@ export default function BookRacePage() {
         proposal,
         block,
         blockPrice,
-        bills: createdBills, // set from local tracking above
+        bills: createdBills.length > 0 ? createdBills : activeBills.filter(b => b.category === cat),
         billLineIds: bookingBillLineIds,
       };
 
-      // If we cancelled existing (single re-select), bookings was already cleaned.
-      // Always append the new booking.
       const updatedBookings = [...bookings, booking];
       setBookings(updatedBookings);
       setSelectedProposal(proposal);
@@ -308,43 +350,46 @@ export default function BookRacePage() {
         setStep("pov");
       }
     } catch (err) {
-      console.error("[handleConfirmHeat] booking failed:", err);
+      console.error("[bookHeatForRacers] booking failed:", err);
       alert("Failed to reserve heat. Please try again.");
     }
   }
 
+  /** Called when racer selector confirms which racers to add */
+  function handleRacerSelectorConfirm(selectedRacers: PersonData[]) {
+    if (!pendingHeat) return;
+    setShowRacerSelector(false);
+    bookHeatForRacers(pendingHeat.proposal, pendingHeat.block, selectedRacers);
+    setPendingHeat(null);
+  }
+
   async function handleAddAnother(proposal: BmiProposal, block: BmiBlock) {
-    // "Add Another Race" — add to EXISTING bills (same person = same bill)
+    // "Add Another Race" — for returning racers, show racer selector
+    if (racerType === "existing" && verifiedRacers.length > 0) {
+      setPendingHeat({ proposal, block });
+      setShowRacerSelector(true);
+      return;
+    }
+
+    // New racers: add to existing bill as group
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
-    const existingCatBills = activeBills.filter(b => b.category === cat);
-    console.log("[handleAddAnother]", { cat, existingCatBills: existingCatBills.map(b => b.billId), totalBills: activeBills.length });
+    const existingBillId = activeBills.length > 0 ? activeBills[0].billId : null;
 
     try {
-      const usedBills: RacerBill[] = [];
-      if (existingCatBills.length > 0) {
-        // Add to existing bills (one per racer already created)
-        for (const bill of existingCatBills) {
-          console.log("[handleAddAnother] booking on existing bill:", bill.billId);
-          await bookRaceHeat(selectedProduct!, 1, proposal, bill.billId);
-          usedBills.push(bill);
-        }
-      } else {
-        // No existing bills — create new (shouldn't normally happen)
-        const racerCount = cat === "adult" ? adults : juniors;
-        const { rawOrderId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, null);
-        const newBill: RacerBill = { billId: rawOrderId, racerName: "Group", category: cat };
-        usedBills.push(newBill);
-        setActiveBills(prev => [...prev, newBill]);
-      }
+      const racerCount = cat === "adult" ? adults : juniors;
+      const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, existingBillId);
+      const usedBills = existingBillId ? activeBills : [{ billId: rawOrderId, racerName: "Group", category: cat } as RacerBill];
+      if (!existingBillId) setActiveBills(prev => [...prev, ...usedBills]);
 
       setBookings(prev => [...prev, {
         product: selectedProduct!,
-        quantity: existingCatBills.length || (cat === "adult" ? adults : juniors),
+        quantity: racerCount,
         proposal,
         block,
         blockPrice,
         bills: usedBills,
+        billLineIds: billLineId ? [{ billId: rawOrderId, lineId: billLineId }] : [],
       }]);
 
       setSelectedProduct(null);
@@ -395,15 +440,17 @@ export default function BookRacePage() {
     if (racerType !== "existing") return undefined;
     const catRacers = verifiedRacers.filter(r => r.category === cat);
     if (catRacers.length === 0) return verifiedPerson?.memberships;
+    // Use the HIGHEST tier in the group so all race types show.
+    // The RacerSelector handles per-racer qualification gating.
     const tiers = catRacers.map(r => {
       const mems = (r.memberships || []).map(m => m.toLowerCase());
       if (mems.some(m => m.includes("qualified pro"))) return 2;
       if (mems.some(m => m.includes("qualified intermediate"))) return 1;
       return 0;
     });
-    const lowestTier = Math.min(...tiers);
-    if (lowestTier >= 2) return ["Qualified Pro"];
-    if (lowestTier >= 1) return ["Qualified Intermediate"];
+    const highestTier = Math.max(...tiers);
+    if (highestTier >= 2) return ["Qualified Pro"];
+    if (highestTier >= 1) return ["Qualified Intermediate"];
     return [];
   }
 
@@ -582,6 +629,16 @@ export default function BookRacePage() {
                           <span className="text-[10px] text-green-400/60">License ✓</span>
                         )}
                       </div>
+                      {/* Credit balances */}
+                      {r.hasCredits && r.creditBalances && r.creditBalances.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {r.creditBalances.map((cb, ci) => (
+                            <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
+                              {cb.kind.replace("Credit - ", "").replace("Race ", "")}: {cb.balance}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {i > 0 && (
@@ -800,6 +857,17 @@ export default function BookRacePage() {
           )
         )}
 
+        {/* Racer Selector overlay — shown after heat selected for returning racers */}
+        {showRacerSelector && pendingHeat && selectedProduct && (
+          <RacerSelector
+            racers={verifiedRacers.filter(r => r.category === selectedProduct.category)}
+            raceTier={selectedProduct.tier}
+            alreadyBookedPersonIds={[]}
+            onConfirm={handleRacerSelectorConfirm}
+            onCancel={() => { setShowRacerSelector(false); setPendingHeat(null); }}
+          />
+        )}
+
         {/* STEP 6: Contact info */}
         {/* STEP 6: Add-ons upsell */}
         {/* STEP 6: POV Camera upsell */}
@@ -930,6 +998,7 @@ export default function BookRacePage() {
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
+            verifiedRacers={verifiedRacers.filter(r => r.personId).map(r => ({ personId: r.personId, fullName: r.fullName }))}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
             onRemoveBooking={async (index) => {

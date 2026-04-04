@@ -351,6 +351,7 @@ export async function bookRaceHeat(
   quantity: number,
   proposal: BmiProposal,
   existingOrderId?: string | null,
+  personId?: string | null,
 ): Promise<{ rawOrderId: string; billLineId: string | null; result: Record<string, unknown> }> {
   const payload: Record<string, unknown> = {
     productId: String(product.productId),
@@ -367,6 +368,9 @@ export async function bookRaceHeat(
       productLineId: proposal.productLineId ?? null,
     },
   };
+
+  // Add personId for per-racer credit/pass application
+  if (personId) payload.personId = Number(personId);
 
   // Inject orderId as raw number to avoid JS precision loss
   const bodyJson = existingOrderId

@@ -14,6 +14,8 @@ export interface PersonData {
   personReference: string;
   memberships: string[];
   category?: "adult" | "junior";
+  hasCredits?: boolean;
+  creditBalances?: { kind: string; balance: number }[];
 }
 
 interface FoundAccount {
