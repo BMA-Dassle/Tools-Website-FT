@@ -124,7 +124,12 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
 
       const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
 
-      // Only show accounts that have relevant memberships (real returning racers)
+      // Sort: memberships first, then by latest activity
+      allDetails.sort((a, b) => {
+        if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
+        if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
+        return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+      });
       const unique = allDetails.filter(d => d.memberships.length > 0);
 
       if (unique.length === 0) {
@@ -271,7 +276,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
     setSmsError("");
     try {
       // Search Office API by phone
-      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=50`);
+      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=200`);
       const results = await searchRes.json();
 
       if (!Array.isArray(results) || results.length === 0) {
@@ -314,8 +319,15 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         } catch { return null; }
       });
       const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
-      const withMems = allDetails.filter(d => d.memberships.length > 0);
-      const foundAccounts = withMems.length > 0 ? withMems : allDetails.slice(0, 5);
+      // Sort: latest activity first, then those with memberships first
+      allDetails.sort((a, b) => {
+        // Memberships first
+        if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
+        if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
+        // Then by last seen (most recent first)
+        return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+      });
+      const foundAccounts = allDetails.slice(0, 5);
 
       if (foundAccounts.length === 0) {
         setPhase("not-found");

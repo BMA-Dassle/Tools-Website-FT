@@ -81,7 +81,7 @@ export default function RacePacksPage() {
     setModalPhase("looking");
 
     try {
-      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}&max=50`);
+      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}&max=200`);
       const results = await res.json();
       if (!Array.isArray(results) || results.length === 0) {
         setError("No accounts found. Try a login code or enter as new person.");
@@ -153,7 +153,7 @@ export default function RacePacksPage() {
     setModalPhase("looking");
 
     try {
-      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=50`);
+      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=200`);
       const results = await res.json();
       if (!Array.isArray(results) || results.length === 0) {
         setError("No accounts found with that phone number.");
