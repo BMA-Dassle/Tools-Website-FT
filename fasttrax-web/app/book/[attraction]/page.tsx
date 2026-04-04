@@ -10,7 +10,6 @@ import type { ContactInfo } from "@/app/book/race/components/ContactForm";
 import {
   ATTRACTIONS,
   ATTRACTION_LIST,
-  classifyAttractionProducts,
   bookAttractionSlot,
   bmiGet,
   calculateTax,
@@ -915,8 +914,6 @@ export default function AttractionBookingPage() {
     orderId: null,
     billLineId: null,
   });
-  const [products, setProducts] = useState<AttractionProduct[]>([]);
-  const [productsLoading, setProductsLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top only on forward step transitions (not re-renders)
@@ -928,34 +925,37 @@ export default function AttractionBookingPage() {
     }
   }, [step]);
 
-  // No useEffect needed — initial step and location set from config at render time
-
-  // Fetch products when we have a location (and date for availability)
-  const fetchProducts = useCallback(async (location: LocationKey, date?: string) => {
-    if (!config) return;
-    setProductsLoading(true);
-    try {
-      const pageId = config.pageIds[location];
-      if (!pageId) { setProducts([]); return; }
-      const isoDate = date ? `${date}T00:00:00.000Z` : `${new Date().toISOString().split("T")[0]}T00:00:00.000Z`;
-      const pages: BmiPage[] = await bmiGet("page", { date: isoDate });
-      const classified = classifyAttractionProducts(pages, config.slug as AttractionSlug);
-      // Filter to the selected location
-      const locationProducts = classified.filter(p => p.location === location);
-      setProducts(locationProducts);
-    } catch {
-      setProducts([]);
-    } finally {
-      setProductsLoading(false);
-    }
-  }, [config]);
-
-  // Auto-fetch products when location set and step is product
+  // Set initial step and location when config becomes available (useParams may be async)
   useEffect(() => {
-    if (step === "product" && booking.location) {
-      fetchProducts(booking.location);
+    if (!config) return;
+    if (config.location === "both") {
+      setStep("location");
+    } else {
+      setBooking(prev => ({ ...prev, location: config.location as LocationKey }));
+      setStep("product");
     }
-  }, [step, booking.location, fetchProducts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.slug]);
+
+  // Compute products from static config (no API fetch needed — prices are fixed)
+  const products: AttractionProduct[] = config && booking.location
+    ? config.products
+        .filter(p => p.location === booking.location)
+        .map(p => ({
+          productId: p.productId,
+          pageId: config.pageIds[booking.location!] || "",
+          name: p.name,
+          attraction: config.slug,
+          location: p.location,
+          price: p.price,
+          bookingMode: config.bookingMode,
+          maxAmount: p.maxPerBooking,
+          durationMin: p.durationMin,
+          isCombo: p.isCombo,
+          raw: {} as AttractionProduct["raw"],
+        } as AttractionProduct))
+    : [];
+  const productsLoading = false;
 
   // 404 for invalid slugs
   if (!config) {

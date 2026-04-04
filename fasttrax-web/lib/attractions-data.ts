@@ -9,6 +9,16 @@ export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly
 export type BookingMode = "per-person" | "per-slot";
 export type LocationKey = "fasttrax" | "headpinz";
 
+export interface AttractionProductDef {
+  productId: string;
+  name: string;
+  price: number;
+  location: LocationKey;
+  durationMin: number;
+  isCombo: boolean;
+  maxPerBooking: number;
+}
+
 export interface AttractionConfig {
   slug: AttractionSlug;
   name: string;
@@ -26,6 +36,8 @@ export interface AttractionConfig {
   building: string;
   /** Duration label */
   durationLabel?: string;
+  /** Static product definitions — no API fetch needed */
+  products: AttractionProductDef[];
 }
 
 // ── Attraction Configs ────────────────────────────────────────────────────────
@@ -45,6 +57,9 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     description: "High-tech gel blaster battles in an immersive glowing arena",
     building: "HeadPinz Fort Myers",
     durationLabel: "15 min session",
+    products: [
+      { productId: "8976680", name: "Gel Blaster Session", price: 12, location: "headpinz", durationMin: 15, isCombo: false, maxPerBooking: 16 },
+    ],
   },
   "laser-tag": {
     slug: "laser-tag",
@@ -60,6 +75,9 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     description: "Multi-level laser tag with haptic vests and immersive lighting",
     building: "HeadPinz Fort Myers",
     durationLabel: "15 min session",
+    products: [
+      { productId: "8976685", name: "Laser Tag Session", price: 10, location: "headpinz", durationMin: 15, isCombo: false, maxPerBooking: 17 },
+    ],
   },
   "duck-pin": {
     slug: "duck-pin",
@@ -75,6 +93,10 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     description: "Modern duckpin bowling — smaller pins, lighter balls, nonstop fun",
     building: "FastTrax Fort Myers",
     durationLabel: "30 min or 1 hour",
+    products: [
+      { productId: "24711034", name: "Duck Pin - 30 Minutes", price: 17.50, location: "fasttrax", durationMin: 30, isCombo: false, maxPerBooking: 6 },
+      { productId: "23345635", name: "Duck Pin - 1 Hour", price: 35, location: "fasttrax", durationMin: 60, isCombo: false, maxPerBooking: 6 },
+    ],
   },
   shuffly: {
     slug: "shuffly",
@@ -90,6 +112,14 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     description: "AR-powered shuffleboard with dynamic LED lighting and automatic scoring",
     building: "FastTrax & HeadPinz",
     durationLabel: "30 min or 1 hour",
+    products: [
+      { productId: "24709515", name: "Shuffly - 30 Minutes", price: 17.50, location: "fasttrax", durationMin: 30, isCombo: false, maxPerBooking: 10 },
+      { productId: "24731238", name: "Shuffly 1HR + Beer Bucket", price: 40, location: "fasttrax", durationMin: 60, isCombo: true, maxPerBooking: 10 },
+      { productId: "25769498", name: "Shuffly 1HR + Pizza", price: 40, location: "fasttrax", durationMin: 60, isCombo: true, maxPerBooking: 10 },
+      { productId: "24709632", name: "Shuffly - 30 Minutes", price: 17.50, location: "headpinz", durationMin: 30, isCombo: false, maxPerBooking: 10 },
+      { productId: "25609182", name: "Shuffly 1HR + Beer Bucket", price: 40, location: "headpinz", durationMin: 60, isCombo: true, maxPerBooking: 10 },
+      { productId: "25769534", name: "Shuffly 1HR + Pizza", price: 40, location: "headpinz", durationMin: 60, isCombo: true, maxPerBooking: 10 },
+    ],
   },
   racing: {
     slug: "racing",
@@ -105,6 +135,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     description: "Florida's largest indoor go-kart racing on 3 unique tracks",
     building: "FastTrax Fort Myers",
     durationLabel: "3-race mega pack",
+    products: [],
   },
 };
 
