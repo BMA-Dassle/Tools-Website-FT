@@ -89,7 +89,7 @@ const fasttraxCards = [
         <strong>The Perk:</strong> <strong>No rental shoes required.</strong> Walk in and bowl.
       </>
     ),
-    cta: { label: "RESERVE A LANE", href: "https://booking.bmileisure.com/headpinzftmyers?pageId=24909243", color: "rgb(0,74,173)" },
+    cta: { label: "RESERVE A LANE", href: "/book/duck-pin", color: "rgb(0,74,173)" },
   },
   {
     title: "Shuffly at FastTrax",
@@ -101,7 +101,7 @@ const fasttraxCards = [
         <strong>The Vibe:</strong> A modern, high-energy take on a classic. Slide into some competitive fun with a chilled-out atmosphere. Perfect for groups between races.
       </>
     ),
-    cta: { label: "BOOK SHUFFLY", href: "https://booking.bmileisure.com/headpinzftmyers?pageId=24908598", color: "rgb(228,28,29)" },
+    cta: { label: "BOOK SHUFFLY", href: "/book/shuffly", color: "rgb(228,28,29)" },
   },
 ];
 
@@ -118,7 +118,7 @@ const headpinzCards = [
         <strong>The Gear:</strong> Haptic vests and precision sensors for objective-based missions.
       </>
     ),
-    cta: { label: "JOIN THE MISSION", href: "https://booking.bmileisure.com/headpinzftmyers?pageId=24909729", color: "rgb(228,28,29)" },
+    cta: { label: "JOIN THE MISSION", href: "/book/laser-tag", color: "rgb(228,28,29)" },
   },
   {
     title: "HeadPinz Gel Blaster Arena",
@@ -131,7 +131,7 @@ const headpinzCards = [
         <strong>The Tech:</strong> Eco-friendly &ldquo;Gellets&rdquo; that evaporate on impact.
       </>
     ),
-    cta: { label: "BOOK GEL BLASTER", href: "https://booking.bmileisure.com/headpinzftmyers?pageId=24909729", color: "rgb(134,82,255)" },
+    cta: { label: "BOOK GEL BLASTER", href: "/book/gel-blaster", color: "rgb(134,82,255)" },
   },
   {
     title: "HeadPinz Premier Bowling",
