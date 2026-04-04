@@ -12,6 +12,7 @@ const quickLinks = [
   { label: "Pricing", href: "/pricing" },
   { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
+  { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
   { label: "Careers", href: "https://bowlandheadpinzfasttrax.applytojob.com/apply" },
 ];
 

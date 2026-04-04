@@ -29,6 +29,7 @@ const links = [
   { label: "Pricing", href: "/pricing" },
   { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
+  { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
   { label: "Waiver", href: "https://kiosk.bmileisure.com/headpinzftmyers" },
 ];
 

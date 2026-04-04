@@ -475,6 +475,30 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* ── Section: Gift Cards ── */}
+      <section style={{ backgroundColor: "#000418", padding: "clamp(48px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-4xl mx-auto text-center">
+          <h2
+            className="font-[var(--font-anton)] italic uppercase text-white"
+            style={{ fontSize: "clamp(28px, 6vw, 48px)", lineHeight: "1.1", letterSpacing: "2px", textShadow: glowShadow }}
+          >
+            Give the Gift of Speed
+          </h2>
+          <p className="font-[var(--font-poppins)] mt-3 max-w-lg mx-auto" style={{ color: "rgba(245,236,238,0.5)", fontSize: "15px" }}>
+            FastTrax gift cards are perfect for birthdays, holidays, or just because. Available in any amount — use them for racing, add-ons, dining, and more.
+          </p>
+          <a
+            href="https://squareup.com/gift/2Z728TECCNWSE/order"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 mt-8"
+            style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
+          >
+            Buy a Gift Card
+          </a>
+        </div>
+      </section>
+
       {/* ── Section: Bottom CTA ── */}
       <section
         className="relative overflow-hidden"
