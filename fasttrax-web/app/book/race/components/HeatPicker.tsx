@@ -81,8 +81,11 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
       const allProposals: BmiProposal[] = [];
       const seen = new Set<string>();
 
-      // Fetch in 2-hour jumps to cover the full day (3 PM - midnight)
-      const startHours = [15, 17, 19, 21, 23];
+      // Fetch in 2-hour jumps; weekends open at 11am, weekdays at 3pm
+      const dayOfWeek = new Date(dateOnly).getDay(); // 0=Sun, 6=Sat
+      const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
+        ? [11, 13, 15, 17, 19, 21, 23]
+        : [15, 17, 19, 21, 23];
       for (const hour of startHours) {
         const h = String(hour).padStart(2, "0");
         const batch = await fetchHeatsFrom(`${dateOnly}T${h}:00:00`);
