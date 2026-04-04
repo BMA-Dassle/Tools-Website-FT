@@ -201,14 +201,15 @@ export default function OrderSummary({
           const overview = await overviewRes.json();
 
           const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-          const creditTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 2);
+          // Sum ALL credit entries (BMI may return multiple credit types as separate dk=2 entries)
+          const creditTotals = (overview.total || []).filter((t: { depositKind: number }) => t.depositKind === 2);
           const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
           const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
 
           if (cashTotal) { bmiTotal += cashTotal.amount; cashOwed += cashTotal.amount; isCreditOrder = false; }
           if (cashSub) bmiSubtotal += cashSub.amount;
           if (cashTax) bmiTax += cashTax.amount;
-          if (creditTotal) creditApplied += Math.abs(creditTotal.amount);
+          for (const ct of creditTotals) creditApplied += Math.abs(ct.amount);
 
           // Extract line items with racer name and scheduled time
           // Build racer name queue from bookings (lines are in booking order)
