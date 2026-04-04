@@ -902,9 +902,11 @@ export default function AttractionBookingPage() {
   const slug = params.attraction as string;
   const config = ATTRACTIONS[slug] as AttractionConfig | undefined;
 
-  const [step, setStep] = useState<Step>("location");
+  const initialStep = config?.location === "both" ? "location" : "product";
+  const initialLocation = config && config.location !== "both" ? config.location as LocationKey : null;
+  const [step, setStep] = useState<Step>(initialStep);
   const [booking, setBooking] = useState<BookingState>({
-    location: null,
+    location: initialLocation,
     product: null,
     date: null,
     time: null,
@@ -926,17 +928,7 @@ export default function AttractionBookingPage() {
     }
   }, [step]);
 
-  // Determine initial step based on config
-  useEffect(() => {
-    if (!config) return;
-    if (config.location === "both") {
-      setStep("location");
-    } else {
-      // Auto-set location and skip to product
-      setBooking(prev => ({ ...prev, location: config.location as LocationKey }));
-      setStep("product");
-    }
-  }, [config]);
+  // No useEffect needed — initial step and location set from config at render time
 
   // Fetch products when we have a location (and date for availability)
   const fetchProducts = useCallback(async (location: LocationKey, date?: string) => {
@@ -1003,7 +995,11 @@ export default function AttractionBookingPage() {
   // Navigation helpers
   function goBack() {
     const currentIdx = stepList.findIndex(s => s.key === step);
-    if (currentIdx > 0) setStep(stepList[currentIdx - 1].key);
+    if (currentIdx > 0) {
+      setStep(stepList[currentIdx - 1].key);
+    } else {
+      router.push("/book");
+    }
   }
 
   function goNext() {
@@ -1097,7 +1093,7 @@ export default function AttractionBookingPage() {
               products={products}
               loading={productsLoading}
               onSelect={handleProductSelect}
-              onBack={config.location === "both" ? goBack : () => router.push("/book")}
+              onBack={goBack}
               color={color}
               attractionName={config.name}
             />
