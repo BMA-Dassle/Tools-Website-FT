@@ -841,7 +841,7 @@ export default function LeaderboardsPage() {
               {
                 num: "2",
                 title: "Daily Top 10",
-                desc: "Check the \u2018Daily\u2019 tab to see if you\u2019ve cracked today\u2019s leaderboard. The top times of the day are featured on the big screens at Nemo\u2019s Brickyard Bistro.",
+                desc: "Check the \u2018Daily\u2019 tab to see if you\u2019ve cracked today\u2019s leaderboard. The top times of the day are featured on the big screens at Nemo\u2019s Trackside Bistro.",
                 borderColor: "rgba(0,74,173,0.59)",
                 titleColor: "rgb(0,74,173)",
               },

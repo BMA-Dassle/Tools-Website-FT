@@ -24,7 +24,7 @@ const howItWorks = [
     step: 2,
     title: "Choose Food & Beverage",
     color: "rgb(0,74,173)",
-    desc: "From brick-oven pizza buffets to filet mignon, plus full bar packages. Catering by Nemo\u2019s Brickyard Bistro.",
+    desc: "From brick-oven pizza buffets to filet mignon, plus full bar packages. Catering by Nemo\u2019s Trackside Bistro.",
   },
   {
     step: 3,
@@ -173,7 +173,7 @@ const faqs = [
   },
   {
     q: "Can we bring outside food or decorations?",
-    a: "All food and beverage is provided by Nemo\u2019s Brickyard Bistro, our on-site restaurant. Custom decorations and branding may be arranged with your event coordinator.",
+    a: "All food and beverage is provided by Nemo\u2019s Trackside Bistro, our on-site restaurant. Custom decorations and branding may be arranged with your event coordinator.",
   },
   {
     q: "Is there a deposit required?",
@@ -467,7 +467,7 @@ export default function GroupEventsPage() {
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowRed }}
           >
-            Catering by Nemo&apos;s Brickyard Bistro
+            Catering by Nemo&apos;s Trackside Bistro
           </h2>
 
           <div className="flex flex-col lg:flex-row gap-10 items-start">

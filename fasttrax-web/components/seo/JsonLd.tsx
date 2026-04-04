@@ -5,7 +5,7 @@ export function LocalBusinessJsonLd() {
     name: "FastTrax Entertainment",
     alternateName: ["FastTrax", "FastTrax Fort Myers", "FastTrax Racing"],
     description:
-      "Florida's largest indoor go-kart racing destination featuring high-performance electric karts on multi-level tracks, 50+ arcade games, duckpin bowling, shuffleboard & Nemo's Brickyard Bistro trackside dining. 63,000 sq ft of entertainment.",
+      "Florida's largest indoor go-kart racing destination featuring high-performance electric karts on multi-level tracks, 50+ arcade games, duckpin bowling, shuffleboard & Nemo's Trackside Bistro trackside dining. 63,000 sq ft of entertainment.",
     url: "https://fasttraxent.com",
     telephone: "+1-239-204-4227",
     address: {
@@ -104,7 +104,7 @@ export function RestaurantJsonLd() {
   const schema = {
     "@context": "https://schema.org",
     "@type": "Restaurant",
-    name: "Nemo's Brickyard Bistro",
+    name: "Nemo's Trackside Bistro",
     description:
       "Authentic wood-fired brick oven pizza, craft cocktails, and trackside dining inside FastTrax Fort Myers. Watch live go-kart racing while you eat.",
     url: "https://fasttraxent.com/menu",

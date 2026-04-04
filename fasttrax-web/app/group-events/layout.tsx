@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Group Events, Birthday Parties & Corporate Team Building – FastTrax Fort Myers",
   description:
-    "Host unforgettable corporate events, birthday parties, team outings & private racing at FastTrax. Groups of 14 to 1,000+ with VIP amenities, catering by Nemo's Brickyard Bistro, and dedicated event coordinators. The best team building in Fort Myers — better than Topgolf or Dave & Buster's.",
+    "Host unforgettable corporate events, birthday parties, team outings & private racing at FastTrax. Groups of 14 to 1,000+ with VIP amenities, catering by Nemo's Trackside Bistro, and dedicated event coordinators. The best team building in Fort Myers — better than Topgolf or Dave & Buster's.",
   keywords: [
     "birthday party Fort Myers",
     "kids birthday party Fort Myers",

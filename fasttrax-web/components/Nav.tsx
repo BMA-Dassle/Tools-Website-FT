@@ -27,7 +27,7 @@ const links = [
   { label: "Attractions", href: "/attractions" },
   { label: "Group Events", href: "/group-events" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Nemo's Brickyard", href: "/menu" },
+  { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
   { label: "Waiver", href: "https://kiosk.bmileisure.com/headpinzftmyers" },
 ];

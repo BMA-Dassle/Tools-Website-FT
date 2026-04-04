@@ -4,9 +4,9 @@ import Image from "next/image";
 import { RestaurantJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
-  title: "Nemo's Brickyard Bistro – Brick Oven Pizza & Trackside Dining | FastTrax Fort Myers",
+  title: "Nemo's Trackside Bistro – Brick Oven Pizza & Trackside Dining | FastTrax Fort Myers",
   description:
-    "Authentic wood-fired brick oven pizza, craft cocktails, beer & trackside dining at Nemo's Brickyard Bistro inside FastTrax Fort Myers. Watch live racing while you eat. Live entertainment Fri & Sat. The best restaurant and sports bar near Gulf Coast Town Center.",
+    "Authentic wood-fired brick oven pizza, craft cocktails, beer & trackside dining at Nemo's Trackside Bistro inside FastTrax Fort Myers. Watch live racing while you eat. The best restaurant and sports bar near Gulf Coast Town Center.",
   keywords: [
     "restaurant Fort Myers",
     "pizza Fort Myers",
@@ -14,9 +14,9 @@ export const metadata: Metadata = {
     "sports bar Fort Myers",
     "restaurants near Gulf Coast Town Center",
     "dining Fort Myers",
-    "Nemos Brickyard Bistro",
+    "Nemos Trackside Bistro",
     "trackside dining",
-    "live entertainment Fort Myers",
+    
     "best pizza Fort Myers",
     "family restaurant Fort Myers",
     "bar and grill Fort Myers",
@@ -26,9 +26,9 @@ export const metadata: Metadata = {
     "craft cocktails Fort Myers",
   ],
   openGraph: {
-    title: "Nemo's Brickyard Bistro – Pizza & Trackside Dining | FastTrax Fort Myers",
+    title: "Nemo's Trackside Bistro – Pizza & Trackside Dining | FastTrax Fort Myers",
     description:
-      "Wood-fired brick oven pizza, craft drinks & trackside dining. Watch live go-kart racing while you eat. Live entertainment Fri & Sat nights.",
+      "Wood-fired brick oven pizza, craft drinks & trackside dining. Watch live go-kart racing from your table.",
     type: "website",
     url: "https://fasttraxent.com/menu",
   },
@@ -44,7 +44,7 @@ export default function MenuPage() {
     <>
       <RestaurantJsonLd />
       <SubpageHero
-        title="Nemo's Brickyard Bistro"
+        title="Nemo's Trackside Bistro"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-hero.webp"
       />
 
@@ -84,7 +84,7 @@ export default function MenuPage() {
           <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "clamp(250px, 50vw, 400px)" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-interior.webp"
-              alt="Nemo's Brickyard Bistro"
+              alt="Nemo's Trackside Bistro"
               fill
               className="object-cover"
               sizes="(max-width: 1024px) 100vw, 50vw"
@@ -118,14 +118,14 @@ export default function MenuPage() {
         </div>
       </section>
 
-      {/* ── Section: Friday & Saturday Night Entertainment ── */}
+      {/* ── Section: Trackside Dining Experience ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-[var(--font-anton)] italic uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
-            Friday &amp; Saturday Night Entertainment
+            Trackside Dining Experience
           </h2>
 
           <div className="flex flex-col lg:flex-row gap-8 items-stretch">
@@ -156,7 +156,7 @@ export default function MenuPage() {
                   The Experience
                 </h3>
                 <p className="font-[var(--font-poppins)]" style={{ color: "rgb(245,236,238)", fontSize: "18px", lineHeight: "1.5" }}>
-                  Nemo&apos;s is now officially open for Friday &amp; Saturday Night Entertainment. Join us every weekend for live local music, social sets, and a vibrant atmosphere.
+                  Nemo&apos;s Trackside Bistro is your pit stop for incredible food and an unbeatable view. Watch the racing action from our trackside dining area while enjoying handcrafted brick oven pizza and fresh cocktails.
                 </p>
               </div>
 
@@ -182,84 +182,7 @@ export default function MenuPage() {
         </div>
       </section>
 
-      {/* ── Section: To-Go & Mobile Ordering ── */}
-      <section className="relative overflow-hidden">
-        <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
-          alt="Background"
-          fill
-          className="object-cover"
-          sizes="100vw"
-        />
-        <div className="absolute inset-0 bg-[#000418]/85" />
-        <div className="relative z-10 max-w-7xl mx-auto" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
-          <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
-          >
-            To-Go &amp; Mobile Ordering
-          </h2>
-          <div className="flex flex-col sm:flex-row gap-6 justify-center max-w-5xl mx-auto">
-            {[
-              {
-                num: "1",
-                title: "The Journey",
-                desc: "Don\u2019t miss a second of the action. Our seamless ordering system allows you to fuel up on your terms.",
-                borderColor: "rgba(228,28,29,0.59)",
-                titleColor: "rgb(228,28,29)",
-                badgeBg: "rgb(228,28,29)",
-              },
-              {
-                num: "2",
-                title: "Race & Eat",
-                desc: "Order your artisan pizza via the FastTrax Racing App while you wait for your heat. We\u2019ll have it hot and ready the moment you step off the track.",
-                borderColor: "rgba(0,74,173,0.59)",
-                titleColor: "rgb(0,74,173)",
-                badgeBg: "rgb(0,74,173)",
-              },
-              {
-                num: "3",
-                title: "Curbside Pickup",
-                desc: "Bringing the Italian flair home? Use our online portal for quick and easy curbside pickup for the whole family.",
-                borderColor: "rgba(134,82,255,0.63)",
-                titleColor: "rgb(134,82,255)",
-                badgeBg: "rgb(134,82,255)",
-              },
-            ].map((step) => (
-              <div
-                key={step.num}
-                className="flex-1 flex flex-col"
-                style={{
-                  backgroundColor: "rgba(7,16,39,0.5)",
-                  border: `1.78px dashed ${step.borderColor}`,
-                  borderRadius: "8px",
-                  padding: "20px",
-                  textAlign: "center",
-                }}
-              >
-                <div
-                  className="font-[var(--font-anton)] text-white mx-auto mb-3 flex items-center justify-center"
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "50%",
-                    backgroundColor: step.badgeBg,
-                    fontSize: "24px",
-                  }}
-                >
-                  {step.num}
-                </div>
-                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: step.titleColor, fontSize: "24px", letterSpacing: "1.2px" }}>
-                  {step.title}
-                </h3>
-                <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}>
-                  {step.desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Mobile ordering section removed — no app exists */}
 
       {/* ── Section: Upcoming Events & Watch Parties ── */}
       <section id="events" className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
@@ -274,7 +197,7 @@ export default function MenuPage() {
             className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
             style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
-            Check out what&apos;s happening at Nemo&apos;s Brickyard Bistro.
+            Check out what&apos;s happening at Nemo&apos;s Trackside Bistro.
           </p>
 
           {/* Event Cards - Vertical Full-Width Layout */}

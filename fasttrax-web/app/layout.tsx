@@ -45,7 +45,7 @@ export const metadata: Metadata = {
     template: "%s | FastTrax Entertainment",
   },
   description:
-    "63,000 sq ft of high-performance electric go-kart racing, arcade gaming, duckpin bowling, shuffleboard & trackside dining at Nemo's Brickyard Bistro. Fort Myers' #1 indoor entertainment destination. Better than Dave & Buster's, Topgolf & outdoor go-karts. Open late — rain or shine.",
+    "63,000 sq ft of high-performance electric go-kart racing, arcade gaming, duckpin bowling, shuffleboard & trackside dining at Nemo's Trackside Bistro. Fort Myers' #1 indoor entertainment destination. Better than Dave & Buster's, Topgolf & outdoor go-karts. Open late — rain or shine.",
   keywords: [
     "FastTrax Fort Myers",
     "indoor go kart racing Fort Myers",

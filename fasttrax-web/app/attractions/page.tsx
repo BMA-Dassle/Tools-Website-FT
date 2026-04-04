@@ -60,7 +60,7 @@ const fasttraxCards = [
     desc: (
       <>
         <strong>The Tech:</strong> <strong>Biz-Karts EcoVolt GT</strong> karts on a <strong>360Karting</strong> multi-level structure.<br />
-        <strong>The Experience:</strong> Florida&apos;s longest indoor multi-level circuit. Featuring instant torque and smart crash detection that only slows karts within 75ft of a wreck.
+        <strong>The Experience: </strong>Florida&apos;s longest indoor multi-level circuit. Featuring instant torque and smart crash detection that only slows karts within 75ft of a wreck.
       </>
     ),
     cta: { label: "GO TO RACING PAGE", href: "/racing", color: "rgb(228,28,29)" },
@@ -73,7 +73,7 @@ const fasttraxCards = [
     desc: (
       <>
         <strong>The Experience:</strong> 50+ of the latest arcade titles, VR simulators, and &ldquo;The Winner&apos;s Circle&rdquo; prize center.<br />
-        <strong>The Tech:</strong> Seamless tap-to-play Game Card system.
+        <strong>The Tech:</strong> Load any amount onto a Game Card at our kiosks and play.
       </>
     ),
     cta: { label: "LOAD A GAME CARD", href: "/pricing", color: "rgb(134,82,255)" },
@@ -328,7 +328,7 @@ export default function AttractionsPage() {
         </div>
       </section>
 
-      {/* ── Section: Dining - Nemo's Brickyard Bistro ── */}
+      {/* ── Section: Dining - Nemo's Trackside Bistro ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
@@ -336,7 +336,7 @@ export default function AttractionsPage() {
               className="font-[var(--font-anton)] italic uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
-              Dining: Nemo&apos;s Brickyard Bistro
+              Dining: Nemo&apos;s Trackside Bistro
             </h2>
             <p
               className="font-[var(--font-poppins)] mb-6"
@@ -355,7 +355,7 @@ export default function AttractionsPage() {
           <div className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "3/2" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00294.webp"
-              alt="Nemo's Brickyard Bistro dining"
+              alt="Nemo's Trackside Bistro dining"
               fill
               className="object-cover"
               sizes="(max-width: 768px) 100vw, 50vw"

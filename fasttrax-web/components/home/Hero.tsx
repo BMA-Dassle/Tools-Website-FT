@@ -42,7 +42,7 @@ export default function Hero() {
               className="font-[var(--font-anton)] italic uppercase leading-[0.9]"
               style={{ fontSize: "clamp(2.2rem, 5.5vw, 5rem)", color: "rgb(228,28,29)", textShadow: "0 0 40px rgba(228,28,29,0.5)" }}
             >
-              FASTRAX
+              FASTTRAX
             </h1>
           </div>
 

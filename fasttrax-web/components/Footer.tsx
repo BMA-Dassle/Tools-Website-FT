@@ -10,7 +10,7 @@ const quickLinks = [
   { label: "Racer's Journey", href: "/racing" },
   { label: "Group Events", href: "/group-events" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Nemo's Brickyard", href: "/menu" },
+  { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
   { label: "Careers", href: "https://bowlandheadpinzfasttrax.applytojob.com/apply" },
 ];

@@ -35,7 +35,7 @@ const row1 = [
 
 const row2 = [
   {
-    title: "NEMO'S BRICKYARD BISTRO",
+    title: "NEMO'S TRACKSIDE BISTRO",
     desc: "Full-service dining and trackside lounge. Watch the action while you dine in style.",
     cta: "VIEW THE MENU",
     ctaBg: "rgb(0,74,173)",
