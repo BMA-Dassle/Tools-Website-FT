@@ -316,9 +316,7 @@ export default function ConfirmationPage() {
               <p className="text-white/50 text-sm max-w-md mx-auto">
                 Your reservation is confirmed. Show your QR code at Guest Services when you arrive.
               </p>
-              {reservationNumber && confirmations.length <= 1 && (
-                <p className="text-[#00E2E5] font-display text-2xl uppercase tracking-wider mt-3">{reservationNumber}</p>
-              )}
+              {/* Reservation number shown on the card, not here */}
             </>
           )}
         </div>
@@ -326,7 +324,7 @@ export default function ConfirmationPage() {
 
       {/* Main content */}
       {!loading && orderId && (
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 pt-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
 
           {/* Waiver banner — new racers only */}
           {isNewRacer && waiverUrl && (
@@ -363,8 +361,8 @@ export default function ConfirmationPage() {
           )}
 
           {/* Two-column: Reservation cards (left) + Journey (right) on desktop */}
-          <div className="grid lg:grid-cols-[1fr,380px] gap-8 mb-8">
-          <div className="grid gap-6">
+          <div className="grid lg:grid-cols-2 gap-8 mb-8">
+          <div className="space-y-6">
             {(() => {
               // Build racer cards from confirmations + stored overviews
               const cards = confirmations.length > 0 ? confirmations : [{
@@ -403,26 +401,24 @@ export default function ConfirmationPage() {
                     )}
 
                     {/* QR + check-in info */}
-                    <div className="p-5 flex flex-col sm:flex-row items-center gap-5">
+                    <div className="p-4 flex items-center gap-4">
                       {qr && (
                         <div className="shrink-0">
-                          <div className="rounded-xl bg-white p-2.5 shadow-xl shadow-[#00E2E5]/10">
+                          <div className="rounded-lg bg-white p-1.5">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={qr} alt={`QR ${c.resNumber}`} width={130} height={130} className="w-[110px] h-[110px] sm:w-[130px] sm:h-[130px]" />
+                            <img src={qr} alt={`QR ${c.resNumber}`} width={90} height={90} className="w-[80px] h-[80px]" />
                           </div>
                         </div>
                       )}
-                      <div className="text-center sm:text-left flex-1">
-                        <p className="text-[#00E2E5] font-bold text-xl">{c.resNumber || reservationNumber}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[#00E2E5] font-bold text-lg">{c.resNumber || reservationNumber}</p>
+                        {heatStart && <p className="text-white/50 text-xs">{formatDate(heatStart)}</p>}
                         {heatStart && (
-                          <>
-                            <p className="text-white/50 text-sm mt-1">{formatDate(heatStart)}</p>
-                            <div className="mt-2">
-                              <p className="text-red-400 text-[10px] font-bold uppercase tracking-wider">Check In By</p>
-                              <p className="text-white font-display text-2xl uppercase tracking-widest">{checkinTime(heatStart)}</p>
-                              <p className="text-white/30 text-xs">Guest Services, 2nd Floor</p>
-                            </div>
-                          </>
+                          <div className="mt-1.5">
+                            <p className="text-red-400 text-[9px] font-bold uppercase tracking-wider">Check In By</p>
+                            <p className="text-white font-display text-xl uppercase tracking-widest">{checkinTime(heatStart)}</p>
+                            <p className="text-white/30 text-[10px]">Guest Services, 2nd Floor</p>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -430,15 +426,15 @@ export default function ConfirmationPage() {
                     {/* Race table — all line items */}
                     {lines.length > 0 && (
                       <div className="border-t border-white/[0.06]">
-                        <div className="px-5 py-2 bg-white/[0.02]">
-                          <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Items</p>
+                        <div className="px-4 py-1.5 bg-white/[0.02]">
+                          <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest">Items</p>
                         </div>
                         {lines.map((line: { name: string; quantity: number; totalPrice?: { amount: number; depositKind: number }[]; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
                           const cashP = line.totalPrice?.find(p => p.depositKind === 0);
                           const creditP = line.totalPrice?.find(p => p.depositKind === 2);
                           const lineTime = line.scheduledTime?.start || line.schedules?.[0]?.start;
                           return (
-                            <div key={li} className="px-5 py-2.5 flex items-center justify-between border-t border-white/[0.04]">
+                            <div key={li} className="px-4 py-2 flex items-center justify-between border-t border-white/[0.04]">
                               <div className="min-w-0">
                                 <p className="text-white text-sm font-semibold">{line.name}</p>
                                 {lineTime && <p className="text-white/40 text-xs">{formatTime(lineTime)}</p>}
@@ -455,7 +451,7 @@ export default function ConfirmationPage() {
                           );
                         })}
                         {/* Totals row */}
-                        <div className="px-5 py-3 border-t border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+                        <div className="px-4 py-2.5 border-t border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
                           <div className="text-xs text-white/40">
                             {ovSub && <span>Subtotal ${ovSub.amount.toFixed(2)}</span>}
                             {ovTax && ovTax.amount > 0 && <span> + Tax ${ovTax.amount.toFixed(2)}</span>}
