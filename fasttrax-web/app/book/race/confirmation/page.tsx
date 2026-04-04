@@ -69,6 +69,8 @@ export default function ConfirmationPage() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   /** Per-racer confirmation results */
   const [confirmations, setConfirmations] = useState<{ billId: string; racerName: string; resNumber: string; resCode: string }[]>([]);
+  const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
+  const [isNewRacer, setIsNewRacer] = useState(false);
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -157,6 +159,27 @@ export default function ConfirmationPage() {
         setConfirmations(allConfirmations);
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
+        }
+
+        // Waiver link for new racers — get projectReference from Office API
+        const personIdsParam = params.get("personIds");
+        const isReturning = personIdsParam && personIdsParam.split(",").filter(Boolean).length > 0;
+        setIsNewRacer(!isReturning);
+
+        if (!isReturning && id) {
+          try {
+            // Get projectId from bill overview
+            const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}`);
+            const ov = await ovRes.json();
+            const projectId = ov.id || id;
+
+            // Get projectReference from Office API
+            const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
+            const proj = await projRes.json();
+            if (proj.projectReference) {
+              setWaiverUrl(`https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`);
+            }
+          } catch { /* non-fatal */ }
         }
 
         // Add memo to each bill listing related reservations in the group
@@ -284,6 +307,41 @@ export default function ConfirmationPage() {
       {/* Main content */}
       {!loading && orderId && (
         <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 pt-6">
+
+          {/* Waiver banner — new racers only */}
+          {isNewRacer && waiverUrl && (
+            <div className="rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">
+                  <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-red-400 text-xs font-bold uppercase tracking-widest">Action Required</p>
+                  <h2 className="text-white font-display text-xl sm:text-2xl uppercase tracking-wider mt-1">
+                    Complete Your Waiver
+                  </h2>
+                </div>
+              </div>
+              <p className="text-white/80 text-sm leading-relaxed mb-4 max-w-2xl">
+                <strong className="text-red-400">All racers must complete a waiver before racing.</strong> This includes every person in your party — adults and minors. Without a completed waiver, you will not be able to race.
+              </p>
+              <a
+                href={waiverUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-base bg-red-500 text-white hover:bg-red-400 transition-colors shadow-lg shadow-red-500/30"
+              >
+                Complete Waiver Now
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+              <p className="text-white/40 text-xs mt-3">Opens in a new tab. One person can sign for the entire party including minors.</p>
+            </div>
+          )}
+
           {/* Per-racer confirmations */}
           {confirmations.length > 1 && (
             <div className="flex flex-wrap justify-center gap-3 mb-8">

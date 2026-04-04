@@ -128,6 +128,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body), { status: res.status >= 400 ? 500 : 200 });
     }
 
+    // Project details by ID (returns projectReference for waiver link)
+    if (action === "project") {
+      const id = searchParams.get("id") || "";
+      if (!id) {
+        return NextResponse.json({ error: "Missing id parameter" }, { status: 400 });
+      }
+
+      const path = `/api/${CLIENT_KEY}/project/${id}`;
+      const res = await httpsGet(path, apiHeaders(token));
+      if (res.status >= 400) {
+        // Token might be stale
+        cachedToken = null;
+        tokenExpiry = 0;
+        const newToken = await getOfficeToken();
+        const retry = await httpsGet(path, apiHeaders(newToken));
+        return NextResponse.json(JSON.parse(retry.body), { status: retry.status >= 400 ? 500 : 200 });
+      }
+      return NextResponse.json(JSON.parse(res.body));
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json(
