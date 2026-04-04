@@ -451,22 +451,30 @@ export default function ConfirmationPage() {
                       : "border border-white/10 bg-white/[0.03]"
                   }`}
                 >
-                  {/* Header: name + reservation */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-white font-bold text-sm">{c.racerName}</p>
-                      <p className="text-[#00E2E5] text-xs font-bold">{c.resNumber}</p>
-                    </div>
+                  {/* Name — big for check-in staff to see */}
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-white font-display text-2xl uppercase tracking-wider">{c.racerName}</h3>
                     {c.waiverValid === true && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-green-400 border border-green-500/30 rounded-full px-2 py-0.5 bg-green-500/10">Waiver OK</span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-green-400 border border-green-500/30 rounded-full px-2 py-0.5 bg-green-500/10 shrink-0">Waiver OK</span>
                     )}
                     {c.waiverValid === false && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5 bg-amber-500/10">Waiver Needed</span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5 bg-amber-500/10 shrink-0">Waiver Needed</span>
                     )}
                   </div>
 
-                  {/* QR + Race info side by side */}
-                  <div className="flex items-center gap-4">
+                  {/* Reservation + race details */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#00E2E5] font-bold text-sm">{c.resNumber}</span>
+                    {c.raceName && (
+                      <>
+                        <span className="text-white/20">&middot;</span>
+                        <span className="text-white/60 text-sm">{c.raceName}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* QR + Arrival time side by side */}
+                  <div className="flex items-center gap-5">
                     {racerQrCodes[c.billId] && (
                       <div className="shrink-0">
                         <div className="rounded-lg bg-white p-2">
@@ -476,9 +484,8 @@ export default function ConfirmationPage() {
                       </div>
                     )}
                     <div className="min-w-0">
-                      {c.raceName && <p className="text-white text-sm font-semibold truncate">{c.raceName}</p>}
                       {ht && (
-                        <p className="text-white/50 text-xs mt-0.5">
+                        <p className="text-white/50 text-sm">
                           {formatDate(ht)} &middot; {formatTime(ht)}
                         </p>
                       )}
@@ -487,7 +494,7 @@ export default function ConfirmationPage() {
                           <p className={`text-[10px] font-bold uppercase tracking-wider ${waiverStatus === "all-valid" ? "text-green-400" : "text-red-400"}`}>
                             {waiverStatus === "all-valid" ? "Be at Karting" : "Check In By"}
                           </p>
-                          <p className="text-white font-display text-xl uppercase tracking-widest">
+                          <p className="text-white font-display text-2xl uppercase tracking-widest">
                             {arriveBy}
                           </p>
                         </div>
