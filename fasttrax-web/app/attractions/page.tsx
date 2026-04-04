@@ -82,7 +82,7 @@ const fasttraxCards = [
     title: "FastTrax Duckpin Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
     desc: (
       <>
         <strong>The Vibe:</strong> Faster, social bowling with boutique lounge seating.<br />
