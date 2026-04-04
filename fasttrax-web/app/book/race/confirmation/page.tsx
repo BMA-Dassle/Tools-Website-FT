@@ -538,11 +538,6 @@ export default function ConfirmationPage() {
             </div>
           </div>
 
-          {/* Track status */}
-          <div className="max-w-md mx-auto mb-8">
-            <RacerJourneyTrackStatus />
-          </div>
-
           {/* Actions */}
           <div className="flex gap-3 max-w-md mx-auto">
             <a
