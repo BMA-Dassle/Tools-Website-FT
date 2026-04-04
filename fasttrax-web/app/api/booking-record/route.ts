@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 
 const TTL = 60 * 60 * 24 * 90; // 90 days
+const API_KEY = process.env.BOOKING_API_KEY || "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4";
+
+/** Validate API key for external access. Internal calls (from our own app) skip auth. */
+function requireAuth(req: NextRequest): NextResponse | null {
+  const referer = req.headers.get("referer") || "";
+  const origin = req.headers.get("origin") || "";
+  const host = req.headers.get("host") || "";
+  // Allow internal calls from our own app (same origin)
+  if (referer.includes(host) || origin.includes(host)) return null;
+  // External calls require API key
+  const key = req.headers.get("x-api-key") || new URL(req.url).searchParams.get("apiKey");
+  if (!key || key !== API_KEY) {
+    return NextResponse.json({ error: "Unauthorized — provide x-api-key header" }, { status: 401 });
+  }
+  return null;
+}
 
 /**
  * Comprehensive booking record storage for check-in system.
@@ -94,6 +110,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const authErr = requireAuth(req);
+  if (authErr) return authErr;
+
   try {
     const { searchParams } = new URL(req.url);
     const billId = searchParams.get("billId");
