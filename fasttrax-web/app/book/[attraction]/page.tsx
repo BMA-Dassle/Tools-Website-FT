@@ -917,9 +917,13 @@ export default function AttractionBookingPage() {
   const [productsLoading, setProductsLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to top on step change
+  // Scroll to top only on forward step transitions (not re-renders)
+  const prevStep = useRef(step);
   useEffect(() => {
-    contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (step !== prevStep.current) {
+      prevStep.current = step;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }, [step]);
 
   // Determine initial step based on config
