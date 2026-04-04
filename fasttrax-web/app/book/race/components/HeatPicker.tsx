@@ -82,7 +82,10 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
       const seen = new Set<string>();
 
       // Fetch in 2-hour jumps; weekends open at 11am, weekdays at 3pm
-      const dayOfWeek = new Date(dateOnly).getDay(); // 0=Sun, 6=Sat
+      // Parse date parts manually to avoid UTC timezone shift (new Date("YYYY-MM-DD") is UTC midnight,
+      // which becomes previous day in US timezones)
+      const [y, m, d] = dateOnly.split("-").map(Number);
+      const dayOfWeek = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
       const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
         ? [11, 13, 15, 17, 19, 21, 23]
         : [15, 17, 19, 21, 23];

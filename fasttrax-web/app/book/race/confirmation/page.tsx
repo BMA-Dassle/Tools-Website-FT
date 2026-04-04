@@ -71,6 +71,7 @@ export default function ConfirmationPage() {
   const [confirmations, setConfirmations] = useState<{ billId: string; racerName: string; resNumber: string; resCode: string }[]>([]);
   const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
   const [isNewRacer, setIsNewRacer] = useState(false);
+  const [fullscreenQr, setFullscreenQr] = useState<{ src: string; resNumber: string } | null>(null);
   /** Stored bill overviews from Redis (saved before payment) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [storedOverviews, setStoredOverviews] = useState<any[]>([]);
@@ -278,7 +279,6 @@ export default function ConfirmationPage() {
     || order?.scheduleDays?.[0]?.schedules?.[0]?.start
     || order?.date
     || null;
-  const cashTotal = order?.total.find(t => t.depositKind === 0)?.amount;
 
   return (
     <div className="min-h-screen bg-[#000418]">
@@ -360,8 +360,9 @@ export default function ConfirmationPage() {
             </div>
           )}
 
-          {/* Two-column: Reservation cards (left) + Journey (right) on desktop */}
-          <div className="grid lg:grid-cols-2 gap-8 mb-8">
+          {/* Layout: single reservation = full-width card then two-col journey below.
+              Multiple = cards left, journey right */}
+          <div className={`${confirmations.length > 1 ? "grid lg:grid-cols-2 gap-8" : ""} mb-8`}>
           <div className="space-y-6">
             {(() => {
               // Build racer cards from confirmations + stored overviews
@@ -371,7 +372,7 @@ export default function ConfirmationPage() {
 
               return cards.map((c, ci) => {
                 const qr = racerQrCodes[c.billId] || qrDataUrl;
-                // Find stored overview for this bill
+                // Find stored overview for this bill to get heat time
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const ov = storedOverviews.find((o: any) => o._billId === c.billId || o.id === c.billId) || (ci === 0 ? order : null);
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -380,10 +381,6 @@ export default function ConfirmationPage() {
                   l.scheduledTime?.start || l.schedules?.[0]?.start
                 );
                 const heatStart = firstHeat?.scheduledTime?.start || firstHeat?.schedules?.[0]?.start || start;
-                const ovTotal = ov?.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-                const ovCredit = ov?.total?.find((t: { depositKind: number }) => t.depositKind === 2);
-                const ovSub = ov?.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
-                const ovTax = ov?.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
 
                 return (
                   <div key={c.billId || ci} className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
@@ -392,7 +389,6 @@ export default function ConfirmationPage() {
                       <div className="px-5 py-3 border-b border-white/[0.06] flex items-center justify-between bg-white/[0.02]">
                         <div>
                           <p className="text-white font-display text-lg uppercase tracking-wider">{c.racerName}</p>
-                          <p className="text-[#00E2E5] text-xs font-bold">{c.resNumber}</p>
                         </div>
                         {ci === 0 && confirmations.length > 1 && (
                           <span className="text-[9px] font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>
@@ -401,29 +397,30 @@ export default function ConfirmationPage() {
                     )}
 
                     {/* QR + check-in info */}
-                    <div className="p-4 flex items-center gap-4">
+                    <div className={`p-4 sm:p-5 flex items-center gap-4 sm:gap-6 ${confirmations.length <= 1 ? "sm:p-8 sm:gap-8" : ""}`}>
                       {qr && (
-                        <div className="shrink-0">
-                          <div className="rounded-lg bg-white p-1.5">
+                        <button className="shrink-0 cursor-pointer" onClick={() => setFullscreenQr({ src: qr, resNumber: c.resNumber || reservationNumber || "" })}>
+                          <div className="rounded-lg bg-white p-1.5 sm:p-2 hover:shadow-lg hover:shadow-[#00E2E5]/20 transition-shadow">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={qr} alt={`QR ${c.resNumber}`} width={90} height={90} className="w-[80px] h-[80px]" />
+                            <img src={qr} alt={`QR ${c.resNumber}`} width={140} height={140} className={`${confirmations.length <= 1 ? "w-[120px] h-[120px] sm:w-[160px] sm:h-[160px]" : "w-[80px] h-[80px]"}`} />
                           </div>
-                        </div>
+                          <p className="text-white/20 text-[9px] text-center mt-1">Tap to enlarge</p>
+                        </button>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="text-[#00E2E5] font-bold text-lg">{c.resNumber || reservationNumber}</p>
-                        {heatStart && <p className="text-white/50 text-xs">{formatDate(heatStart)}</p>}
+                        <p className={`text-[#00E2E5] font-bold ${confirmations.length <= 1 ? "text-2xl sm:text-3xl" : "text-lg"}`}>{c.resNumber || reservationNumber}</p>
+                        {heatStart && <p className={`text-white/50 ${confirmations.length <= 1 ? "text-sm mt-1" : "text-xs"}`}>{formatDate(heatStart)}</p>}
                         {heatStart && (
-                          <div className="mt-1.5">
+                          <div className={`${confirmations.length <= 1 ? "mt-3" : "mt-1.5"}`}>
                             <p className="text-red-400 text-[9px] font-bold uppercase tracking-wider">Check In By</p>
-                            <p className="text-white font-display text-xl uppercase tracking-widest">{checkinTime(heatStart)}</p>
+                            <p className={`text-white font-display uppercase tracking-widest ${confirmations.length <= 1 ? "text-3xl sm:text-4xl" : "text-xl"}`}>{checkinTime(heatStart)}</p>
                             <p className="text-white/30 text-[10px]">Guest Services, 2nd Floor</p>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Race list — names and times only, no pricing */}
+                    {/* Race list — names and times */}
                     {lines.length > 0 && (
                       <div className="border-t border-white/[0.06] px-4 py-3 space-y-1.5">
                         {lines.map((line: { name: string; quantity: number; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
@@ -449,21 +446,36 @@ export default function ConfirmationPage() {
               });
             })()}
 
-            {/* Actions under cards */}
-            <div className="flex gap-3">
-              <a href="/racing" className="flex-1 text-center px-5 py-3.5 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors">
-                Racing Info
-              </a>
-              <a href="/book/race" className="flex-1 text-center px-5 py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/20">
-                Book Another Race
-              </a>
-            </div>
           </div>
 
-          {/* RIGHT: Racer's Journey (sticky on desktop) */}
-          <div className="lg:sticky lg:top-40 lg:self-start">
-            <RacerJourneySteps />
+          {/* RIGHT: Racer's Journey (only in grid for multi-bill) */}
+          {confirmations.length > 1 && (
+            <div className="lg:sticky lg:top-40 lg:self-start">
+              <RacerJourneySteps />
+            </div>
+          )}
           </div>
+
+          {/* Journey below for single reservation */}
+          {confirmations.length <= 1 && (
+            <div className="max-w-2xl mx-auto mb-8">
+              <RacerJourneySteps />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fullscreen QR modal */}
+      {fullscreenQr && (
+        <div
+          className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center"
+          onClick={() => setFullscreenQr(null)}
+        >
+          <div className="text-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={fullscreenQr.src} alt="QR Code" className="w-[280px] h-[280px] sm:w-[350px] sm:h-[350px] mx-auto" />
+            <p className="text-black font-bold text-3xl mt-6">{fullscreenQr.resNumber}</p>
+            <p className="text-gray-500 text-sm mt-2">Tap anywhere to close</p>
           </div>
         </div>
       )}
