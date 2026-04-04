@@ -1120,7 +1120,7 @@ export default function AttractionBookingPage() {
       <Nav />
 
       {/* Hero */}
-      <section className="relative pt-24 sm:pt-28 pb-4 px-4">
+      <section className="relative pt-32 sm:pt-36 pb-4 px-4">
         <div className="absolute inset-0 overflow-hidden">
           <Image
             src={config.heroImage}
