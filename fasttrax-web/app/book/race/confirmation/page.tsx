@@ -178,17 +178,16 @@ export default function ConfirmationPage() {
             const resNum = result.reservationNumber || "";
             const resCode = String(result.reservationCode || `r${bid}`);
 
-            if (resNum) {
-              allConfirmations.push({
-                billId: bid,
-                racerName: racerName || `Racer ${i + 1}`,
-                resNumber: resNum,
-                resCode,
-                personId: pid,
-                raceName,
-                heatTime,
-              });
-            }
+            // Always add to confirmations (even if payment/confirm failed) so waiver is checked
+            allConfirmations.push({
+              billId: bid,
+              racerName: racerName || `Racer ${i + 1}`,
+              resNumber: resNum,
+              resCode,
+              personId: pid,
+              raceName,
+              heatTime,
+            });
 
             if (i === 0) {
               if (resCode) setReservationCode(resCode);
