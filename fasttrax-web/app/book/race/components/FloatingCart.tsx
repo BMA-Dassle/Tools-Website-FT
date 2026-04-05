@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface CartItem {
   name: string;
@@ -8,6 +8,7 @@ interface CartItem {
   time: string;
   date: string;
   price?: number;
+  isAttraction?: boolean;
 }
 
 interface FloatingCartProps {
@@ -33,10 +34,30 @@ function formatDate(iso: string): string {
 
 export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCartProps) {
   const [open, setOpen] = useState(false);
+  const [attractionItems, setAttractionItems] = useState<CartItem[]>([]);
 
-  if (items.length === 0) return null;
+  // Load attraction items from sessionStorage (shared bill)
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem("attractionCart");
+      if (!stored) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parsed: any[] = JSON.parse(stored);
+      setAttractionItems(parsed.map(a => ({
+        name: `${a.attractionName}: ${a.product?.name || ""}`,
+        quantity: a.quantity || 1,
+        time: a.time?.block?.start || "",
+        date: a.date || "",
+        price: (a.product?.price || 0) * (a.quantity || 1),
+        isAttraction: true,
+      })));
+    } catch { /* ignore */ }
+  }, []);
 
-  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+  const allItems = [...attractionItems, ...items];
+  if (allItems.length === 0) return null;
+
+  const totalQty = allItems.reduce((s, i) => s + i.quantity, 0);
 
   return (
     <div className="fixed bottom-20 right-4 z-40 md:bottom-8 md:right-24">
@@ -45,26 +66,28 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
         <div className="absolute bottom-16 right-0 w-72 rounded-xl border border-white/15 bg-[#0a0e1a]/95 backdrop-blur-lg shadow-2xl shadow-black/50 overflow-hidden mb-2">
           <div className="p-3 border-b border-white/10">
             <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider">
-              Your Races ({items.length})
+              Your Cart ({allItems.length})
             </p>
           </div>
           <div className="max-h-48 overflow-y-auto">
-            {items.map((item, i) => (
+            {allItems.map((item, i) => (
               <div key={i} className="p-3 border-b border-white/5 last:border-0">
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-white text-sm font-semibold">{item.name}</p>
-                    <p className="text-white/40 text-xs">{formatDate(item.time)} · {formatTime(item.time)}</p>
+                    {item.time && <p className="text-white/40 text-xs">{formatDate(item.time)} · {formatTime(item.time)}</p>}
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-white/50 text-xs">{item.quantity} racer{item.quantity !== 1 ? "s" : ""}</span>
-                      {item.price !== undefined && (
-                        <span className="text-[#00E2E5] text-xs">${(item.price * item.quantity).toFixed(2)}</span>
+                      <span className="text-white/50 text-xs">
+                        {item.isAttraction ? `${item.quantity} ${item.quantity !== 1 ? "people" : "person"}` : `${item.quantity} racer${item.quantity !== 1 ? "s" : ""}`}
+                      </span>
+                      {item.price !== undefined && item.price > 0 && (
+                        <span className="text-[#00E2E5] text-xs">${item.isAttraction ? item.price.toFixed(2) : (item.price * item.quantity).toFixed(2)}</span>
                       )}
                     </div>
                   </div>
-                  {onRemove && (
+                  {onRemove && !item.isAttraction && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); onRemove(i); }}
+                      onClick={(e) => { e.stopPropagation(); onRemove(i - attractionItems.length); }}
                       className="text-red-400/50 hover:text-red-400 transition-colors p-1"
                       title="Remove"
                     >
