@@ -97,6 +97,7 @@ export default function BookRacePage() {
   const [linkedFetching, setLinkedFetching] = useState(false);
   const [showLinkedModal, setShowLinkedModal] = useState(false);
   const [linkedLoading, setLinkedLoading] = useState(false);
+  const [linkedSelected, setLinkedSelected] = useState<{ id: string; name: string; age: number | null } | null>(null);
   // Racer selector: pending heat waiting for racer selection (returning racers only)
   const [pendingHeat, setPendingHeat] = useState<{ proposal: BmiProposal; block: BmiBlock } | null>(null);
   const [showRacerSelector, setShowRacerSelector] = useState(false);
@@ -1214,7 +1215,7 @@ export default function BookRacePage() {
       {showLinkedModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowLinkedModal(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowLinkedModal(false); setLinkedSelected(null); } }}
         >
           <div className="max-w-md w-full rounded-2xl border border-white/10 bg-[#000418] p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between">
@@ -1222,64 +1223,100 @@ export default function BookRacePage() {
                 <h3 className="text-white font-display text-lg uppercase tracking-wider">Linked Racers</h3>
                 <p className="text-white/40 text-xs">Family members on the same account</p>
               </div>
-              <button onClick={() => setShowLinkedModal(false)} className="text-white/30 hover:text-white/60 text-sm">Close</button>
+              <button onClick={() => { setShowLinkedModal(false); setLinkedSelected(null); }} className="text-white/30 hover:text-white/60 text-sm">Close</button>
             </div>
 
-            {linkedPersons.length === 0 && (
-              <p className="text-white/40 text-sm text-center py-4">No linked racers found.</p>
+            {/* Step 1: Pick a person */}
+            {!linkedSelected && (
+              <>
+                {linkedPersons.length === 0 && (
+                  <p className="text-white/40 text-sm text-center py-4">No linked racers found.</p>
+                )}
+                {linkedPersons.map(lp => {
+                  const alreadyAdded = verifiedRacers.some(r => r.personId === lp.id);
+                  return (
+                    <div key={lp.id} className={`rounded-xl border p-4 ${alreadyAdded ? "border-green-500/30 bg-green-500/5" : "border-white/10 bg-white/5"}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-white font-semibold text-sm">{lp.firstName} {lp.lastName}</p>
+                        {alreadyAdded ? (
+                          <span className="text-green-400 text-xs font-bold">Added ✓</span>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              setLinkedLoading(true);
+                              // Fetch age from Office API
+                              try {
+                                const searchRes = await fetch(`/api/bmi-office?action=search&q=${lp.id}&max=5`);
+                                const results = await searchRes.json();
+                                let age: number | null = null;
+                                if (Array.isArray(results) && results.length > 0) {
+                                  const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
+                                  const p = await detailRes.json();
+                                  if (p.birthDate) {
+                                    age = Math.floor((Date.now() - new Date(p.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+                                  }
+                                }
+                                setLinkedSelected({ id: lp.id, name: `${lp.firstName} ${lp.lastName}`, age });
+                              } catch {
+                                setLinkedSelected({ id: lp.id, name: `${lp.firstName} ${lp.lastName}`, age: null });
+                              } finally {
+                                setLinkedLoading(false);
+                              }
+                            }}
+                            disabled={linkedLoading}
+                            className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[#8652FF]/20 text-[#8652FF] hover:bg-[#8652FF]/30 transition-colors disabled:opacity-40"
+                          >
+                            Link
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {linkedLoading && (
+                  <div className="flex items-center justify-center gap-2 py-2">
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-[#8652FF] rounded-full animate-spin" />
+                    <span className="text-white/40 text-xs">Loading racer details...</span>
+                  </div>
+                )}
+              </>
             )}
 
-            {linkedPersons.map(lp => {
-              const alreadyAdded = verifiedRacers.some(r => r.personId === lp.id);
-              const age = lp.birthdate ? Math.floor((Date.now() - new Date(lp.birthdate).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
-              const suggestedCategory = age !== null && age < 13 ? "junior" : "adult";
-
+            {/* Step 2: Pick category */}
+            {linkedSelected && (() => {
+              const isUnder13 = linkedSelected.age !== null && linkedSelected.age < 13;
+              const is13OrOver = linkedSelected.age !== null && linkedSelected.age >= 13;
               return (
-                <div key={lp.id} className={`rounded-xl border p-4 ${alreadyAdded ? "border-green-500/30 bg-green-500/5" : "border-white/10 bg-white/5"}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-white font-semibold text-sm">{lp.firstName} {lp.lastName}</p>
-                      {age !== null && (
-                        <p className="text-white/40 text-xs mt-0.5">Age: {age} · {suggestedCategory === "junior" ? "Junior" : "Adult"}</p>
-                      )}
-                    </div>
-                    {alreadyAdded ? (
-                      <span className="text-green-400 text-xs font-bold">Added ✓</span>
-                    ) : (() => {
-                      const isUnder13 = age !== null && age < 13;
-                      const is13OrOver = age !== null && age >= 13;
-                      return (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleAddLinkedRacer(lp.id, "adult")}
-                            disabled={linkedLoading || isUnder13}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isUnder13 ? "bg-white/5 text-white/20 cursor-not-allowed" : "bg-white/10 text-white/70 hover:bg-[#00E2E5]/20 hover:text-[#00E2E5] disabled:opacity-40"}`}
-                            title={isUnder13 ? "Must be 13+ for adult racing" : ""}
-                          >
-                            Adult
-                          </button>
-                          <button
-                            onClick={() => handleAddLinkedRacer(lp.id, "junior")}
-                            disabled={linkedLoading || is13OrOver}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${is13OrOver ? "bg-white/5 text-white/20 cursor-not-allowed" : "bg-white/10 text-white/70 hover:bg-[#8652FF]/20 hover:text-[#8652FF] disabled:opacity-40"}`}
-                            title={is13OrOver ? "Junior is for ages 7-12" : ""}
-                          >
-                            Junior
-                          </button>
-                        </div>
-                      );
-                    })()}
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-[#8652FF]/30 bg-[#8652FF]/5 p-3 text-center">
+                    <p className="text-white font-semibold text-sm">{linkedSelected.name}</p>
+                    {linkedSelected.age !== null && <p className="text-white/40 text-xs">Age: {linkedSelected.age}</p>}
                   </div>
+                  <p className="text-white/50 text-xs">Select racer type:</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => { handleAddLinkedRacer(linkedSelected.id, "adult"); setLinkedSelected(null); }}
+                      disabled={linkedLoading || isUnder13}
+                      className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${isUnder13 ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#00E2E5]/50"}`}
+                    >
+                      <span className="block">Adult</span>
+                      <span className={`text-[10px] ${isUnder13 ? "text-white/10" : "text-white/30"}`}>13+ · 59&quot;+ tall</span>
+                    </button>
+                    <button
+                      onClick={() => { handleAddLinkedRacer(linkedSelected.id, "junior"); setLinkedSelected(null); }}
+                      disabled={linkedLoading || is13OrOver}
+                      className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${is13OrOver ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#8652FF]/50"}`}
+                    >
+                      <span className="block">Junior</span>
+                      <span className={`text-[10px] ${is13OrOver ? "text-white/10" : "text-white/30"}`}>7-12 · 49&quot;+ tall</span>
+                    </button>
+                  </div>
+                  <button onClick={() => setLinkedSelected(null)} className="text-white/30 text-xs hover:text-white/50 transition-colors block mx-auto">
+                    ← Back to list
+                  </button>
                 </div>
               );
-            })}
-
-            {linkedLoading && (
-              <div className="flex items-center justify-center gap-2 py-2">
-                <div className="w-4 h-4 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
-                <span className="text-white/40 text-xs">Loading racer details...</span>
-              </div>
-            )}
+            })()}
           </div>
         </div>
       )}
