@@ -297,25 +297,13 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                       className="object-cover"
                       sizes="(max-width: 640px) 100vw, 160px"
                     />
-                    <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                    <div className="absolute top-2 left-2">
                       <span
                         className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
                         style={{ backgroundColor: addon.color }}
                       >
                         {addon.shortName}
                       </span>
-                      {addon.discountLabel && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-400 text-black">
-                          {addon.discountLabel}
-                        </span>
-                      )}
-                      {addon.location === "headpinz" && (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={HEADPINZ_LOGO} alt="HeadPinz" className="h-3.5 w-auto" />
-                          <span className="text-[9px] text-white/80 font-semibold">Next Door</span>
-                        </span>
-                      )}
                     </div>
                   </div>
                 )}
@@ -328,13 +316,17 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                       <span className="text-[#00E2E5] font-bold text-sm shrink-0">{priceLabel}</span>
                     </div>
                     <p className="text-white/40 text-xs mt-1 leading-relaxed">{addon.description}</p>
-                    {addon.saveLabel && (
-                      <p className="text-yellow-400 text-[10px] font-bold mt-1.5 flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        {addon.saveLabel}
-                      </p>
+                    {(addon.discountLabel || addon.saveLabel) && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        {addon.discountLabel && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-400/15 text-yellow-400 border border-yellow-400/30">
+                            {addon.discountLabel}
+                          </span>
+                        )}
+                        {addon.saveLabel && (
+                          <span className="text-yellow-400/70 text-[10px]">{addon.saveLabel}</span>
+                        )}
+                      </div>
                     )}
                     {addon.location === "headpinz" && (
                       <p className="text-amber-400/80 text-[10px] font-semibold mt-1 flex items-center gap-1">
