@@ -204,34 +204,31 @@ export default function ConfirmationPage() {
           } catch { /* non-fatal */ }
         }
 
-        // Link racers to reservation schedule (fire-and-forget, non-fatal)
-        if (allConfirmations.length > 0) {
+        // Link racers to reservation schedule (returning racers only, fire-and-forget)
+        const pidsParam = params.get("personIds");
+        const hasReturningRacers = pidsParam && pidsParam.split(",").filter(Boolean).length > 0;
+        if (allConfirmations.length > 0 && hasReturningRacers) {
           try {
             const primaryRes = allConfirmations[0];
-            // Build racer list from stored overviews or confirmations
-            const racerList = allConfirmations.map(c => ({
-              racerName: c.racerName,
-              personId: "",
-            }));
-            // Try to get richer data from booking record
-            try {
-              const recordRes = await fetch(`/api/booking-record?billId=${id}`);
-              if (recordRes.ok) {
-                const record = await recordRes.json();
-                if (record.racers && Array.isArray(record.racers)) {
-                  await fetch("/api/pandora/schedule", {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: record.racers }),
-                  });
-                }
+            const recordRes = await fetch(`/api/booking-record?billId=${id}`);
+            if (recordRes.ok) {
+              const record = await recordRes.json();
+              if (record.racers && Array.isArray(record.racers) && record.racers.some((r: { personId: string }) => r.personId)) {
+                fetch("/api/pandora/schedule", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: record.racers }),
+                }).then(async (schedRes) => {
+                  if (schedRes.ok) {
+                    // Mark FastLane = true in booking record
+                    fetch("/api/booking-record", {
+                      method: "PATCH",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ billId: id, fastLane: true }),
+                    }).catch(() => {});
+                  }
+                }).catch(() => {});
               }
-            } catch { /* fallback: just use names */
-              await fetch("/api/pandora/schedule", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: racerList }),
-              });
             }
           } catch { /* non-fatal */ }
         }
