@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(
-      `${PANDORA_URL}/bmi/person/${LOCATION_ID}/${personId}?picture=false`,
+      `${PANDORA_URL}/bmi/person/${LOCATION_ID}/${personId}?picture=false&allRelated=true`,
       {
         headers: { "Authorization": `Bearer ${API_KEY}` },
         cache: "no-store",
