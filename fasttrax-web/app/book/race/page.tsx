@@ -1228,24 +1228,30 @@ export default function BookRacePage() {
                     </div>
                     {alreadyAdded ? (
                       <span className="text-green-400 text-xs font-bold">Added ✓</span>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleAddLinkedRacer(lp.id, "adult")}
-                          disabled={linkedLoading}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white/70 hover:bg-[#00E2E5]/20 hover:text-[#00E2E5] transition-colors disabled:opacity-40"
-                        >
-                          Adult
-                        </button>
-                        <button
-                          onClick={() => handleAddLinkedRacer(lp.id, "junior")}
-                          disabled={linkedLoading}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white/70 hover:bg-[#8652FF]/20 hover:text-[#8652FF] transition-colors disabled:opacity-40"
-                        >
-                          Junior
-                        </button>
-                      </div>
-                    )}
+                    ) : (() => {
+                      const isUnder13 = age !== null && age < 13;
+                      const is13OrOver = age !== null && age >= 13;
+                      return (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleAddLinkedRacer(lp.id, "adult")}
+                            disabled={linkedLoading || isUnder13}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isUnder13 ? "bg-white/5 text-white/20 cursor-not-allowed" : "bg-white/10 text-white/70 hover:bg-[#00E2E5]/20 hover:text-[#00E2E5] disabled:opacity-40"}`}
+                            title={isUnder13 ? "Must be 13+ for adult racing" : ""}
+                          >
+                            Adult
+                          </button>
+                          <button
+                            onClick={() => handleAddLinkedRacer(lp.id, "junior")}
+                            disabled={linkedLoading || is13OrOver}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${is13OrOver ? "bg-white/5 text-white/20 cursor-not-allowed" : "bg-white/10 text-white/70 hover:bg-[#8652FF]/20 hover:text-[#8652FF] disabled:opacity-40"}`}
+                            title={is13OrOver ? "Junior is for ages 7-12" : ""}
+                          >
+                            Junior
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               );
