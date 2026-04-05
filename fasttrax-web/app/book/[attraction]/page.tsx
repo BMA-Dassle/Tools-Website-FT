@@ -1284,13 +1284,13 @@ export default function AttractionBookingPage() {
 
               {/* Actions */}
               <div className="space-y-3">
-                <button
-                  onClick={() => setStep(nextStepAfter("cart"))}
-                  className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg"
+                <a
+                  href="/book/checkout"
+                  className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg text-center block"
                   style={{ backgroundColor: color }}
                 >
                   Continue to Checkout →
-                </button>
+                </a>
                 <a
                   href="/book"
                   className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center block"

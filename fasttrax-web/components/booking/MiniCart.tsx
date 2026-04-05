@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 
-interface CartItem {
+interface StoredCartItem {
   attractionName: string;
   product: { name: string; price: number; bookingMode: string };
   date: string;
@@ -20,86 +20,120 @@ function formatTime(iso: string) {
   return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
+function formatDate(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
 /**
- * Floating mini cart — reads from sessionStorage, shows on any booking page
- * when there are items in the cart.
+ * Unified floating cart — reads from sessionStorage, matches racing FloatingCart style.
+ * Shows on /book landing page and /book/[attraction] flows.
  */
 export default function MiniCart() {
-  const [items, setItems] = useState<CartItem[]>([]);
+  const [items, setItems] = useState<StoredCartItem[]>([]);
   const [open, setOpen] = useState(false);
 
+  // Poll sessionStorage for cart items
   useEffect(() => {
-    const stored = sessionStorage.getItem("attractionCart");
-    if (stored) {
-      try { setItems(JSON.parse(stored)); } catch { /* ignore */ }
+    function loadCart() {
+      try {
+        const stored = sessionStorage.getItem("attractionCart");
+        const parsed: StoredCartItem[] = stored ? JSON.parse(stored) : [];
+        setItems(parsed);
+      } catch { setItems([]); }
     }
-    // Listen for storage changes (from other pages)
-    const handler = () => {
-      const updated = sessionStorage.getItem("attractionCart");
-      if (updated) try { setItems(JSON.parse(updated)); } catch { /* ignore */ }
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
+    loadCart();
+    const interval = setInterval(loadCart, 1500);
+    return () => clearInterval(interval);
   }, []);
 
-  // Also poll sessionStorage every 2s (storage events don't fire same-tab)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const stored = sessionStorage.getItem("attractionCart");
-      try {
-        const parsed = stored ? JSON.parse(stored) : [];
-        if (JSON.stringify(parsed) !== JSON.stringify(items)) setItems(parsed);
-      } catch { /* ignore */ }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [items]);
+  function handleRemove(index: number) {
+    const item = items[index];
+    // Remove bill line from BMI if we have the billLineId
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const billLineId = (item as any).billLineId;
+    const orderId = sessionStorage.getItem("attractionOrderId");
+    if (billLineId && orderId) {
+      fetch(`/api/bmi?endpoint=booking%2FremoveItem`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: `{"orderId":${orderId},"orderItemId":${billLineId}}`,
+      }).catch(() => { /* non-fatal */ });
+    }
+    const updated = items.filter((_, i) => i !== index);
+    setItems(updated);
+    sessionStorage.setItem("attractionCart", JSON.stringify(updated));
+    // If cart is empty, clean up orderId too
+    if (updated.length === 0) {
+      sessionStorage.removeItem("attractionOrderId");
+    }
+  }
 
   if (items.length === 0) return null;
 
-  const subtotal = items.reduce((s, item) => s + item.product.price * item.quantity, 0);
-  const itemCount = items.length;
+  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
   return (
-    <>
-      {/* Floating cart button */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="fixed bottom-6 right-6 z-40 bg-[#00E2E5] text-[#000418] rounded-full px-5 py-3 font-bold text-sm shadow-lg shadow-[#00E2E5]/25 flex items-center gap-2 hover:bg-white transition-colors"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
-        </svg>
-        {itemCount} item{itemCount !== 1 ? "s" : ""} · ${subtotal.toFixed(2)}
-      </button>
-
-      {/* Expanded cart panel */}
+    <div className="fixed bottom-20 right-4 z-40 md:bottom-8 md:right-24">
+      {/* Expanded cart */}
       {open && (
-        <div className="fixed bottom-20 right-6 z-40 w-80 max-h-[60vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#000418]/95 backdrop-blur-xl shadow-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-white font-bold text-sm">Your Cart</h3>
-            <button onClick={() => setOpen(false)} className="text-white/30 hover:text-white/60 text-xs">Close</button>
+        <div className="absolute bottom-16 right-0 w-72 rounded-xl border border-white/15 bg-[#0a0e1a]/95 backdrop-blur-lg shadow-2xl shadow-black/50 overflow-hidden mb-2">
+          <div className="p-3 border-b border-white/10">
+            <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider">
+              Your Cart ({items.length})
+            </p>
           </div>
-
-          {items.map((item, i) => (
-            <div key={i} className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                <span className="text-white font-semibold text-xs">{item.attractionName}</span>
+          <div className="max-h-48 overflow-y-auto">
+            {items.map((item, i) => (
+              <div key={i} className="p-3 border-b border-white/5 last:border-0">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-white text-sm font-semibold">{item.attractionName}: {item.product.name}</p>
+                    <p className="text-white/40 text-xs">
+                      {formatDate(item.date)} · {formatTime(item.time.block.start)}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-white/50 text-xs">
+                        {item.quantity} {item.product.bookingMode === "per-person" ? `person${item.quantity !== 1 ? "s" : ""}` : `table${item.quantity !== 1 ? "s" : ""}`}
+                      </span>
+                      <span className="text-[#00E2E5] text-xs">${(item.product.price * item.quantity).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRemove(i); }}
+                    className="text-red-400/50 hover:text-red-400 transition-colors p-1 shrink-0"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <p className="text-white/40 text-[10px] mt-1">
-                {item.product.name} · {formatTime(item.time.block.start)}
-                {item.quantity > 1 && ` · ${item.quantity} ${item.product.bookingMode === "per-person" ? "ppl" : "tables"}`}
-              </p>
-              <p className="text-white/50 text-[10px] font-semibold mt-0.5">${(item.product.price * item.quantity).toFixed(2)}</p>
-            </div>
-          ))}
-
-          <div className="border-t border-white/10 pt-2 flex justify-between text-sm">
-            <span className="text-white/60">Subtotal</span>
-            <span className="text-white font-bold">${subtotal.toFixed(2)}</span>
+            ))}
+          </div>
+          <div className="p-3 border-t border-white/10">
+            <a
+              href="/book/checkout"
+              className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
+            >
+              Checkout →
+            </a>
           </div>
         </div>
       )}
-    </>
+
+      {/* Cart button — matches racing FloatingCart style */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="relative w-14 h-14 rounded-full bg-[#00E2E5] text-[#000418] shadow-lg shadow-[#00E2E5]/30 hover:bg-white transition-colors flex items-center justify-center"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+        </svg>
+        <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+          {totalQty}
+        </span>
+      </button>
+    </div>
   );
 }
