@@ -39,7 +39,23 @@ export default function CheckoutConfirmation() {
           body: confirmBody,
         });
         const result = await confirmRes.json();
-        if (result.reservationNumber) setResNumber(result.reservationNumber);
+        if (result.reservationNumber) {
+          setResNumber(result.reservationNumber);
+          // Link participants to schedule (fire-and-forget)
+          try {
+            const recordRes = await fetch(`/api/booking-record?billId=${billId}`);
+            if (recordRes.ok) {
+              const record = await recordRes.json();
+              if (record.racers && Array.isArray(record.racers) && record.racers.length > 0) {
+                fetch("/api/pandora/schedule", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ resNumber: result.reservationNumber, racers: record.racers }),
+                }).catch(() => {});
+              }
+            }
+          } catch { /* non-fatal */ }
+        }
 
         // Clean up
         sessionStorage.removeItem("attractionCart");
