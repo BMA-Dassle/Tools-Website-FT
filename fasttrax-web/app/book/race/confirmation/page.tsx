@@ -214,6 +214,8 @@ export default function ConfirmationPage() {
             if (recordRes.ok) {
               const record = await recordRes.json();
               if (record.racers && Array.isArray(record.racers) && record.racers.some((r: { personId: string }) => r.personId)) {
+                // Delay to let Pandora sync the reservation from BMI
+                await new Promise(r => setTimeout(r, 8000));
                 fetch("/api/pandora/schedule", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
