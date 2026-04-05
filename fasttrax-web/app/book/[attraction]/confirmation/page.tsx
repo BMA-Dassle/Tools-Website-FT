@@ -92,6 +92,11 @@ export default function AttractionConfirmationPage() {
       const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${billId}`);
       const overview: OrderOverview = await overviewRes.json();
 
+      // Clean up cart
+      sessionStorage.removeItem("attractionCart");
+      sessionStorage.removeItem("attractionOrderId");
+      sessionStorage.removeItem("checkoutReturnPath");
+
       setState({ status: "confirmed", resNumber: String(resNumber), order: overview });
     } catch (err) {
       // If payment/confirm fails (e.g. already confirmed), try to just get the overview

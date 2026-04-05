@@ -266,6 +266,9 @@ export default function ConfirmationPage() {
 
         // Clean up
         localStorage.removeItem(`booking_${id}`);
+        sessionStorage.removeItem("attractionCart");
+        sessionStorage.removeItem("attractionOrderId");
+        sessionStorage.removeItem("checkoutReturnPath");
 
         if (!reservationCode) setReservationCode(`r${id}`);
 
