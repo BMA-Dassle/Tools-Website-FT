@@ -47,7 +47,7 @@ import PovUpsell from "./components/PovUpsell";
 import type { PovSelection } from "./components/PovUpsell";
 import RacerSelector from "./components/RacerSelector";
 import OrderSummary from "./components/OrderSummary";
-import FloatingCart from "./components/FloatingCart";
+import MiniCart from "@/components/booking/MiniCart";
 
 type Step = "experience" | "party" | "date" | "product" | "heat" | "addons" | "pov" | "contact" | "summary";
 
@@ -115,6 +115,29 @@ export default function BookRacePage() {
   useEffect(() => {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
+
+  // Sync racing bookings to sessionStorage so the unified MiniCart can display them
+  useEffect(() => {
+    const existingCart: unknown[] = (() => {
+      try { return JSON.parse(sessionStorage.getItem("attractionCart") || "[]"); } catch { return []; }
+    })();
+    // Remove old racing items (re-sync)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nonRacing = existingCart.filter((item: any) => item.attraction !== "racing");
+    // Add current racing items
+    const racingItems = bookings.map(b => ({
+      attraction: "racing",
+      attractionName: "Racing",
+      product: { name: b.product.name, price: b.blockPrice || 0, bookingMode: "per-person" },
+      date: b.block.start.split("T")[0],
+      time: { block: { start: b.block.start } },
+      quantity: b.quantity,
+      billLineId: b.billLineIds?.[0]?.lineId || null,
+      color: "#E41C1D",
+      racerNames: b.racerNames,
+    }));
+    sessionStorage.setItem("attractionCart", JSON.stringify([...nonRacing, ...racingItems]));
+  }, [bookings]);
 
   // Fetch product catalog when date is selected
   const fetchCatalog = useCallback(async (date: string) => {
@@ -1078,56 +1101,8 @@ export default function BookRacePage() {
         <p className="text-white/10 text-[10px] text-center mt-12">BMI Public API</p>
       </div>
 
-      {/* Floating cart */}
-      {step !== "summary" && (
-        <FloatingCart
-          items={[
-            ...bookings.map(b => ({
-              name: b.product.name,
-              quantity: b.quantity,
-              time: b.block.start,
-              date: b.block.start,
-              price: b.blockPrice,
-            })),
-            ...(selectedPov && selectedPov.quantity > 0 ? [{
-              name: "POV Video Footage",
-              quantity: selectedPov.quantity,
-              time: "",
-              date: "",
-              price: selectedPov.price,
-            }] : []),
-            ...selectedAddOns.filter(a => a.quantity > 0).map(a => ({
-              name: a.shortName,
-              quantity: a.quantity,
-              time: a.selectedTime || "",
-              date: a.selectedTime || "",
-              price: a.price,
-            })),
-          ].sort((a, b) => (a.time || "z").localeCompare(b.time || "z"))}
-          onCheckout={() => {
-            if (contact) {
-              setStep("summary");
-            } else {
-              setStep("contact");
-            }
-          }}
-          onRemove={(index) => {
-            // Only remove race bookings (first N items), not add-ons
-            if (index < bookings.length) {
-              setBookings(prev => prev.filter((_, i) => i !== index));
-            } else {
-              const addOnIdx = index - bookings.length;
-              const povCount = (selectedPov && selectedPov.quantity > 0) ? 1 : 0;
-              if (addOnIdx < povCount) {
-                setSelectedPov(null);
-              } else {
-                const aoIdx = addOnIdx - povCount;
-                setSelectedAddOns(prev => prev.filter((_, i) => i !== aoIdx));
-              }
-            }
-          }}
-        />
-      )}
+      {/* Unified floating cart */}
+      {step !== "summary" && <MiniCart />}
     </div>
   );
 }
