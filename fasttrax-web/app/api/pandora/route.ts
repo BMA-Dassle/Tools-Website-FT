@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
       personId,
       firstName: person.firstName,
       lastName: person.lastName,
+      birthdate: person.birthdate || null,
       waiverExpiry: person.waiverExpiry,
       lastVisit: person.lastVisit,
       related: person.related || [],
