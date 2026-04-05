@@ -656,7 +656,7 @@ function QuantityPicker({
 type ReviewState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; total: number; subtotal: number; tax: number; lines: { name: string; quantity: number; amount: number }[] }
+  | { status: "booked"; orderId: string; total: number; subtotal: number; tax: number; lines: { name: string; quantity: number; amount: number; credit?: number; time?: string | null }[]; creditsApplied?: number }
   | { status: "paying" }
   | { status: "error"; message: string };
 
@@ -684,19 +684,16 @@ function ReviewStep({
   }, []);
 
   async function runBooking() {
-    if (!booking.product || !booking.time || !booking.date) return;
+    if (!booking.orderId) {
+      setState({ status: "error", message: "No booking found" });
+      return;
+    }
     setState({ status: "booking" });
 
     try {
-      // 1. Book the slot in BMI
-      const { rawOrderId, billLineId } = await bookAttractionSlot(
-        booking.product.productId,
-        booking.quantity,
-        booking.time.proposal,
-        booking.orderId,
-      );
+      const orderId = booking.orderId;
 
-      // 2. Register contact person on the bill
+      // 1. Register contact person on the bill
       const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson" });
       const regBody = JSON.stringify({
         firstName: contact.firstName,
@@ -704,37 +701,48 @@ function ReviewStep({
         email: contact.email,
         phone: contact.phone.replace(/\D/g, ""),
       });
-      const rawRegJson = `{"orderId":${rawOrderId},` + regBody.slice(1);
+      const rawRegJson = `{"orderId":${orderId},` + regBody.slice(1);
       await fetch(`/api/bmi?${regQs.toString()}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: rawRegJson,
       });
 
-      // 3. Get bill overview for real pricing
-      const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${rawOrderId}`);
+      // 2. Get bill overview — shows ALL items on the bill (attractions + races)
+      const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${orderId}`);
       const overview = await overviewRes.json();
 
       const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+      const creditTotals = (overview.total || []).filter((t: { depositKind: number }) => t.depositKind === 2);
+      const totalCredits = creditTotals.reduce((s: number, t: { amount: number }) => s + Math.abs(t.amount), 0);
       const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
       const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lines = (overview.lines || []).map((l: any) => {
         const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
-        return { name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0 };
+        const creditPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 2);
+        const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
+        return {
+          name: l.name,
+          quantity: l.quantity,
+          amount: cashPrice?.amount ?? 0,
+          credit: creditPrice ? Math.abs(creditPrice.amount) : 0,
+          time: lineTime || null,
+        };
       });
 
       setState({
         status: "booked",
-        orderId: rawOrderId,
+        orderId,
         total: cashTotal?.amount ?? 0,
         subtotal: cashSub?.amount ?? 0,
         tax: cashTax?.amount ?? 0,
         lines,
+        creditsApplied: totalCredits,
       });
     } catch (err) {
-      setState({ status: "error", message: err instanceof Error ? err.message : "Booking failed" });
+      setState({ status: "error", message: err instanceof Error ? err.message : "Failed to load order" });
     }
   }
 
@@ -856,14 +864,16 @@ function ReviewStep({
             </div>
           </div>
 
-          {/* Items */}
+          {/* Items — all items from the bill (attractions + races if shared) */}
           {lines.map((line, i) => (
-            <div key={i} className="flex items-center justify-between py-1">
+            <div key={i} className="flex items-center justify-between py-1.5">
               <div>
-                <p className="text-white text-sm">{line.name}</p>
-                {line.quantity > 1 && <p className="text-white/40 text-xs">Qty: {line.quantity}</p>}
+                <p className="text-white text-sm">{line.name}{line.quantity > 1 ? ` x${line.quantity}` : ""}</p>
+                {line.time && <p className="text-white/30 text-xs">{formatTime(line.time)}</p>}
               </div>
-              <p className="text-white font-semibold text-sm">${line.amount.toFixed(2)}</p>
+              <p className="text-white font-semibold text-sm">
+                {line.credit && line.credit > 0 ? <span className="text-green-400">Credit</span> : `$${line.amount.toFixed(2)}`}
+              </p>
             </div>
           ))}
         </div>
@@ -878,10 +888,23 @@ function ReviewStep({
             <span className="text-white/50">Tax</span>
             <span className="text-white">${bmiTax.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-base font-bold pt-2 border-t border-white/8">
-            <span className="text-white">Total</span>
-            <span style={{ color }}>${bmiTotal.toFixed(2)}</span>
-          </div>
+          {state.creditsApplied && state.creditsApplied > 0 ? (
+            <>
+              <div className="flex justify-between text-sm">
+                <span className="text-green-400">Credits Applied</span>
+                <span className="text-green-400">-{state.creditsApplied} credit{state.creditsApplied !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="flex justify-between text-base font-bold pt-2 border-t border-white/8">
+                <span className="text-white">Amount Due</span>
+                <span style={{ color }}>${bmiTotal.toFixed(2)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between text-base font-bold pt-2 border-t border-white/8">
+              <span className="text-white">Total</span>
+              <span style={{ color }}>${bmiTotal.toFixed(2)}</span>
+            </div>
+          )}
         </div>
       </div>
 
