@@ -224,9 +224,20 @@ export default function CheckoutPage() {
       <Nav />
 
       <div className="max-w-lg mx-auto px-4 pt-32 sm:pt-36 pb-16">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-2">Checkout</h1>
-          <p className="text-white/40 text-sm">Review your order and complete payment.</p>
+        <div className="mb-8">
+          <button
+            onClick={() => {
+              const returnPath = sessionStorage.getItem("checkoutReturnPath") || "/book";
+              window.location.href = returnPath;
+            }}
+            className="text-white/40 hover:text-white/70 text-sm mb-4 transition-colors"
+          >
+            ← Back
+          </button>
+          <div className="text-center">
+            <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-2">Checkout</h1>
+            <p className="text-white/40 text-sm">Review your order and complete payment.</p>
+          </div>
         </div>
 
         {state.status === "loading" && (
@@ -260,7 +271,10 @@ export default function CheckoutPage() {
                 </div>
               </div>
             )}
-            <ContactForm initial={contact} onSubmit={handleContactSubmit} onBack={() => window.history.back()} />
+            <ContactForm initial={contact} onSubmit={handleContactSubmit} onBack={() => {
+              const returnPath = sessionStorage.getItem("checkoutReturnPath") || "/book";
+              window.location.href = returnPath;
+            }} />
           </div>
         )}
 

@@ -1286,6 +1286,7 @@ export default function AttractionBookingPage() {
               <div className="space-y-3">
                 <a
                   href="/book/checkout"
+                  onClick={() => sessionStorage.setItem("checkoutReturnPath", `/book/${config.slug}`)}
                   className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg text-center block"
                   style={{ backgroundColor: color }}
                 >
