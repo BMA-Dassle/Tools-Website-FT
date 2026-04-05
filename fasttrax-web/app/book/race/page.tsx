@@ -92,6 +92,7 @@ export default function BookRacePage() {
   const [addingCategory, setAddingCategory] = useState<"adult" | "junior" | null>(null);
   // Linked racers (family members from Pandora)
   const [linkedPersons, setLinkedPersons] = useState<{ id: string; firstName: string; lastName: string; birthdate: string | null }[]>([]);
+  const [linkedFetching, setLinkedFetching] = useState(false);
   const [showLinkedModal, setShowLinkedModal] = useState(false);
   const [linkedLoading, setLinkedLoading] = useState(false);
   // Racer selector: pending heat waiting for racer selection (returning racers only)
@@ -208,6 +209,7 @@ export default function BookRacePage() {
       setVerifiedRacers(prev => prev.map(r => r.personId === updated.personId ? { ...r, hasCredits: updated.hasCredits, creditBalances: updated.creditBalances } : r));
     });
     // Fetch related persons from Pandora (family members)
+    setLinkedFetching(true);
     fetch(`/api/pandora?personId=${person.personId}&picture=false`).then(async res => {
       if (!res.ok) return;
       const data = await res.json();
@@ -223,7 +225,8 @@ export default function BookRacePage() {
         } catch { return null; }
       }));
       setLinkedPersons(related.filter((p): p is { id: string; firstName: string; lastName: string; birthdate: string | null } => p !== null));
-    }).catch(() => { /* non-fatal */ });
+      setLinkedFetching(false);
+    }).catch(() => { setLinkedFetching(false); });
     // Go to party step — will show category choice for primary
     setTimeout(() => setStep("party"), 300);
   }
@@ -760,21 +763,29 @@ export default function BookRacePage() {
 
               {/* Add racer buttons */}
               {!addingRacer ? (
-                <div className="flex gap-2">
-                  {linkedPersons.length > 0 && (
-                    <button
-                      onClick={() => setShowLinkedModal(true)}
-                      className="flex-1 py-3 rounded-xl border border-dashed border-[#8652FF]/40 text-[#8652FF]/70 text-sm font-semibold hover:border-[#8652FF]/70 hover:text-[#8652FF] transition-colors"
-                    >
-                      + Linked Racer
-                    </button>
+                <div className="space-y-2">
+                  {linkedFetching && (
+                    <div className="flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-[#8652FF]/20">
+                      <div className="w-3.5 h-3.5 border-2 border-[#8652FF]/20 border-t-[#8652FF] rounded-full animate-spin" />
+                      <span className="text-[#8652FF]/50 text-xs font-semibold">Loading linked racers...</span>
+                    </div>
                   )}
-                  <button
-                    onClick={() => { setAddingRacer(true); setAddingCategory(null); }}
-                    className={`${linkedPersons.length > 0 ? "flex-1" : "w-full"} py-3 rounded-xl border border-dashed border-white/20 text-white/40 text-sm font-semibold hover:border-[#00E2E5]/50 hover:text-[#00E2E5] transition-colors`}
-                  >
-                    + Add Racer
-                  </button>
+                  <div className="flex gap-2">
+                    {linkedPersons.length > 0 && (
+                      <button
+                        onClick={() => setShowLinkedModal(true)}
+                        className="flex-1 py-3 rounded-xl border border-dashed border-[#8652FF]/40 text-[#8652FF]/70 text-sm font-semibold hover:border-[#8652FF]/70 hover:text-[#8652FF] transition-colors"
+                      >
+                        + Linked Racer ({linkedPersons.length})
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setAddingRacer(true); setAddingCategory(null); }}
+                      className={`${linkedPersons.length > 0 ? "flex-1" : "w-full"} py-3 rounded-xl border border-dashed border-white/20 text-white/40 text-sm font-semibold hover:border-[#00E2E5]/50 hover:text-[#00E2E5] transition-colors`}
+                    >
+                      + Add Racer
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-4 space-y-3">
