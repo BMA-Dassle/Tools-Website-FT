@@ -43,7 +43,7 @@ interface AddOnsPageProps {
   initialAddOns?: AddOnItem[];
 }
 
-const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
+const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabel?: string })[] = [
   {
     id: "27488020",
     name: "FastTrax Shuffly 1 Hour Combo",
@@ -55,6 +55,8 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
     maxPerGroup: 10,
     color: "#E53935",
     location: "fasttrax",
+    discountLabel: "OVER 50% OFF",
+    saveLabel: "Save now — not available in-center",
   },
   {
     id: "23345635",
@@ -78,6 +80,8 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
     perPerson: true,
     color: "#39FF14",
     location: "headpinz",
+    discountLabel: "15%+ OFF",
+    saveLabel: "Save now — not available in-center",
   },
   {
     id: "8976685",
@@ -89,6 +93,8 @@ const ADD_ONS: Omit<AddOnItem, "quantity">[] = [
     perPerson: true,
     color: "#E53935",
     location: "headpinz",
+    discountLabel: "15%+ OFF",
+    saveLabel: "Save now — not available in-center",
   },
 ];
 
@@ -300,6 +306,11 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                       >
                         {addon.shortName}
                       </span>
+                      {addon.discountLabel && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-400 text-black">
+                          {addon.discountLabel}
+                        </span>
+                      )}
                       {addon.location === "headpinz" && (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -319,6 +330,14 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                       <span className="text-[#00E2E5] font-bold text-sm shrink-0">{priceLabel}</span>
                     </div>
                     <p className="text-white/40 text-xs mt-1 leading-relaxed">{addon.description}</p>
+                    {addon.saveLabel && (
+                      <p className="text-yellow-400 text-[10px] font-bold mt-1.5 flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {addon.saveLabel}
+                      </p>
+                    )}
                     {addon.location === "headpinz" && (
                       <p className="text-amber-400/80 text-[10px] font-semibold mt-1 flex items-center gap-1">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
