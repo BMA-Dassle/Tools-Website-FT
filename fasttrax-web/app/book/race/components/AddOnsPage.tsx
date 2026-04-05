@@ -93,8 +93,6 @@ const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabe
     perPerson: true,
     color: "#E53935",
     location: "headpinz",
-    discountLabel: "15%+ OFF",
-    saveLabel: "Save now — not available in-center",
   },
 ];
 
