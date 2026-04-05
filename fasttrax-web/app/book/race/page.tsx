@@ -90,6 +90,10 @@ export default function BookRacePage() {
   const [verifiedRacers, setVerifiedRacers] = useState<PersonData[]>([]);
   const [addingRacer, setAddingRacer] = useState(false);
   const [addingCategory, setAddingCategory] = useState<"adult" | "junior" | null>(null);
+  // Linked racers (family members from Pandora)
+  const [linkedPersons, setLinkedPersons] = useState<{ id: string; firstName: string; lastName: string; birthdate: string | null }[]>([]);
+  const [showLinkedModal, setShowLinkedModal] = useState(false);
+  const [linkedLoading, setLinkedLoading] = useState(false);
   // Racer selector: pending heat waiting for racer selection (returning racers only)
   const [pendingHeat, setPendingHeat] = useState<{ proposal: BmiProposal; block: BmiBlock } | null>(null);
   const [showRacerSelector, setShowRacerSelector] = useState(false);
@@ -203,8 +207,72 @@ export default function BookRacePage() {
     fetchRacerCredits(person).then(updated => {
       setVerifiedRacers(prev => prev.map(r => r.personId === updated.personId ? { ...r, hasCredits: updated.hasCredits, creditBalances: updated.creditBalances } : r));
     });
+    // Fetch related persons from Pandora (family members)
+    fetch(`/api/pandora?personId=${person.personId}&picture=false`).then(async res => {
+      if (!res.ok) return;
+      const data = await res.json();
+      const relatedIds: string[] = data.related || [];
+      if (relatedIds.length === 0) return;
+      // Fetch each related person's details
+      const related = await Promise.all(relatedIds.map(async (rid: string) => {
+        try {
+          const r = await fetch(`/api/pandora?personId=${rid}&picture=false`);
+          if (!r.ok) return null;
+          const p = await r.json();
+          return { id: rid, firstName: p.firstName || "", lastName: p.lastName || "", birthdate: p.birthdate || null };
+        } catch { return null; }
+      }));
+      setLinkedPersons(related.filter((p): p is { id: string; firstName: string; lastName: string; birthdate: string | null } => p !== null));
+    }).catch(() => { /* non-fatal */ });
     // Go to party step — will show category choice for primary
     setTimeout(() => setStep("party"), 300);
+  }
+
+  async function handleAddLinkedRacer(pandoraId: string, category: "adult" | "junior") {
+    // Look up the person in Office API using their Pandora/BMI ID
+    setLinkedLoading(true);
+    try {
+      const searchRes = await fetch(`/api/bmi-office?action=search&q=${pandoraId}&max=5`);
+      const results = await searchRes.json();
+      if (!Array.isArray(results) || results.length === 0) {
+        alert("Could not find this person's racing account.");
+        setLinkedLoading(false);
+        return;
+      }
+      // Get person details
+      const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
+      const p = await detailRes.json();
+      const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
+      const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
+        (b.lastSeen || "").localeCompare(a.lastSeen || "")
+      );
+      const memberships = (p.memberships || [])
+        .filter((m: { stops: string; name: string }) =>
+          (!m.stops || new Date(m.stops) > new Date()) &&
+          RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
+        )
+        .map((m: { name: string }) => m.name)
+        .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
+
+      const person: PersonData = {
+        personId: String(p.id),
+        fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
+        email: (p.addresses?.[0]?.email) || "",
+        races: (p.tags || []).length,
+        maxExpiry: null,
+        tag: tags[0]?.tag || "",
+        loginCode: tags[0]?.tag || "",
+        personReference: "",
+        memberships,
+      };
+
+      handleAddRacer(person, category);
+      setShowLinkedModal(false);
+    } catch {
+      alert("Failed to load racer details.");
+    } finally {
+      setLinkedLoading(false);
+    }
   }
 
   function handlePrimaryCategorySelect(cat: "adult" | "junior") {
@@ -690,14 +758,24 @@ export default function BookRacePage() {
                 </div>
               ))}
 
-              {/* Add racer button / inline lookup */}
+              {/* Add racer buttons */}
               {!addingRacer ? (
-                <button
-                  onClick={() => { setAddingRacer(true); setAddingCategory(null); }}
-                  className="w-full py-3 rounded-xl border border-dashed border-white/20 text-white/40 text-sm font-semibold hover:border-[#00E2E5]/50 hover:text-[#00E2E5] transition-colors"
-                >
-                  + Add Another Racer
-                </button>
+                <div className="flex gap-2">
+                  {linkedPersons.length > 0 && (
+                    <button
+                      onClick={() => setShowLinkedModal(true)}
+                      className="flex-1 py-3 rounded-xl border border-dashed border-[#8652FF]/40 text-[#8652FF]/70 text-sm font-semibold hover:border-[#8652FF]/70 hover:text-[#8652FF] transition-colors"
+                    >
+                      + Linked Racer
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setAddingRacer(true); setAddingCategory(null); }}
+                    className={`${linkedPersons.length > 0 ? "flex-1" : "w-full"} py-3 rounded-xl border border-dashed border-white/20 text-white/40 text-sm font-semibold hover:border-[#00E2E5]/50 hover:text-[#00E2E5] transition-colors`}
+                  >
+                    + Add Racer
+                  </button>
+                </div>
               ) : (
                 <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -1103,6 +1181,74 @@ export default function BookRacePage() {
 
       {/* Unified floating cart */}
       {step !== "summary" && <MiniCart />}
+
+      {/* Linked Racer Modal */}
+      {showLinkedModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowLinkedModal(false); }}
+        >
+          <div className="max-w-md w-full rounded-2xl border border-white/10 bg-[#000418] p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-display text-lg uppercase tracking-wider">Linked Racers</h3>
+                <p className="text-white/40 text-xs">Family members on the same account</p>
+              </div>
+              <button onClick={() => setShowLinkedModal(false)} className="text-white/30 hover:text-white/60 text-sm">Close</button>
+            </div>
+
+            {linkedPersons.length === 0 && (
+              <p className="text-white/40 text-sm text-center py-4">No linked racers found.</p>
+            )}
+
+            {linkedPersons.map(lp => {
+              const alreadyAdded = verifiedRacers.some(r => r.personId === lp.id);
+              const age = lp.birthdate ? Math.floor((Date.now() - new Date(lp.birthdate).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
+              const suggestedCategory = age !== null && age < 13 ? "junior" : "adult";
+
+              return (
+                <div key={lp.id} className={`rounded-xl border p-4 ${alreadyAdded ? "border-green-500/30 bg-green-500/5" : "border-white/10 bg-white/5"}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-white font-semibold text-sm">{lp.firstName} {lp.lastName}</p>
+                      {age !== null && (
+                        <p className="text-white/40 text-xs mt-0.5">Age: {age} · {suggestedCategory === "junior" ? "Junior" : "Adult"}</p>
+                      )}
+                    </div>
+                    {alreadyAdded ? (
+                      <span className="text-green-400 text-xs font-bold">Added ✓</span>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleAddLinkedRacer(lp.id, "adult")}
+                          disabled={linkedLoading}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white/70 hover:bg-[#00E2E5]/20 hover:text-[#00E2E5] transition-colors disabled:opacity-40"
+                        >
+                          Adult
+                        </button>
+                        <button
+                          onClick={() => handleAddLinkedRacer(lp.id, "junior")}
+                          disabled={linkedLoading}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white/70 hover:bg-[#8652FF]/20 hover:text-[#8652FF] transition-colors disabled:opacity-40"
+                        >
+                          Junior
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {linkedLoading && (
+              <div className="flex items-center justify-center gap-2 py-2">
+                <div className="w-4 h-4 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
+                <span className="text-white/40 text-xs">Loading racer details...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
