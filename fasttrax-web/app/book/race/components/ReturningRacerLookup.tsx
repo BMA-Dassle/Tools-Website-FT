@@ -14,6 +14,7 @@ export interface PersonData {
   personReference: string;
   memberships: string[];
   category?: "adult" | "junior";
+  birthDate?: string | null;
   hasCredits?: boolean;
   creditBalances?: { kind: string; balance: number }[];
 }
@@ -25,6 +26,7 @@ interface FoundAccount {
   lastSeen: string;
   races: number;
   memberships: string[];
+  birthDate?: string | null;
 }
 
 interface Props {
@@ -80,7 +82,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         const lastSeen = p.lastLineUp
           ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
           : "";
-        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships } as FoundAccount;
+        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships, birthDate: p.birthDate || null } as FoundAccount;
       } catch { return null; }
     });
     const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
@@ -156,6 +158,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         loginCode: match.loginCode,
         personReference: "",
         memberships: match.memberships,
+        birthDate: match.birthDate || null,
       };
       setVerifiedPerson(person);
       setPhase("verified");
@@ -197,6 +200,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
               )
               .map((m: { name: string }) => m.name)
               .filter((n: string, i: number, a: string[]) => a.indexOf(n) === i),
+            birthDate: p.birthDate || null,
           };
           setVerifiedPerson(person);
           setPhase("verified");
@@ -455,6 +459,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
                   loginCode: a.loginCode,
                   personReference: "",
                   memberships: a.memberships,
+                  birthDate: a.birthDate || null,
                 };
                 setVerifiedPerson(person);
                 setPhase("verified");

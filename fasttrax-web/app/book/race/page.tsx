@@ -90,6 +90,8 @@ export default function BookRacePage() {
   const [verifiedRacers, setVerifiedRacers] = useState<PersonData[]>([]);
   const [addingRacer, setAddingRacer] = useState(false);
   const [addingCategory, setAddingCategory] = useState<"adult" | "junior" | null>(null);
+  const [addingFoundPerson, setAddingFoundPerson] = useState<PersonData | null>(null);
+  const [addingAge, setAddingAge] = useState<number | null>(null);
   // Linked racers (family members from Pandora)
   const [linkedPersons, setLinkedPersons] = useState<{ id: string; firstName: string; lastName: string; birthdate: string | null }[]>([]);
   const [linkedFetching, setLinkedFetching] = useState(false);
@@ -780,7 +782,7 @@ export default function BookRacePage() {
                       </button>
                     )}
                     <button
-                      onClick={() => { setAddingRacer(true); setAddingCategory(null); }}
+                      onClick={() => { setAddingRacer(true); setAddingCategory(null); setAddingFoundPerson(null); setAddingAge(null); }}
                       className={`${linkedPersons.length > 0 ? "flex-1" : "w-full"} py-3 rounded-xl border border-dashed border-white/20 text-white/40 text-sm font-semibold hover:border-[#00E2E5]/50 hover:text-[#00E2E5] transition-colors`}
                     >
                       + Add Racer
@@ -794,40 +796,55 @@ export default function BookRacePage() {
                     <button onClick={() => { setAddingRacer(false); setAddingCategory(null); }} className="text-white/30 text-xs hover:text-white/50">Cancel</button>
                   </div>
 
-                  {/* Step 1: Pick adult or junior */}
-                  {!addingCategory && (
-                    <div className="space-y-2">
-                      <p className="text-white/50 text-xs">What type of racer?</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => setAddingCategory("adult")}
-                          className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
-                        >
-                          <span className="block">Adult</span>
-                          <span className="text-white/30 text-[10px]">13+ &middot; 59&quot;+ tall</span>
-                        </button>
-                        <button
-                          onClick={() => setAddingCategory("junior")}
-                          className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
-                        >
-                          <span className="block">Junior</span>
-                          <span className="text-white/30 text-[10px]">7-13 &middot; 49&quot;+ tall</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Step 2: Look up the racer */}
-                  {addingCategory && (
+                  {/* Step 1: Look up the racer */}
+                  {!addingFoundPerson && (
                     <ReturningRacerLookup
                       onVerified={(person) => {
-                        handleAddRacer(person, addingCategory);
-                        setAddingRacer(false);
-                        setAddingCategory(null);
+                        setAddingFoundPerson(person);
+                        // Calculate age from birthDate (from Office API)
+                        if (person.birthDate) {
+                          const age = Math.floor((Date.now() - new Date(person.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+                          setAddingAge(age);
+                        } else {
+                          setAddingAge(null);
+                        }
                       }}
-                      onSwitchToNew={() => { setAddingRacer(false); setAddingCategory(null); }}
+                      onSwitchToNew={() => { setAddingRacer(false); setAddingCategory(null); setAddingFoundPerson(null); }}
                     />
                   )}
+
+                  {/* Step 2: Pick category based on age */}
+                  {addingFoundPerson && !addingCategory && (() => {
+                    const isUnder13 = addingAge !== null && addingAge < 13;
+                    const is13OrOver = addingAge !== null && addingAge >= 13;
+                    return (
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-center">
+                          <p className="text-green-400 text-sm font-semibold">{addingFoundPerson.fullName}</p>
+                          {addingAge !== null && <p className="text-white/40 text-xs">Age: {addingAge}</p>}
+                        </div>
+                        <p className="text-white/50 text-xs">Select racer type:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => { handleAddRacer(addingFoundPerson, "adult"); setAddingRacer(false); setAddingCategory(null); setAddingFoundPerson(null); }}
+                            disabled={isUnder13}
+                            className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${isUnder13 ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#00E2E5]/50"}`}
+                          >
+                            <span className="block">Adult</span>
+                            <span className={`text-[10px] ${isUnder13 ? "text-white/10" : "text-white/30"}`}>13+ · 59&quot;+ tall</span>
+                          </button>
+                          <button
+                            onClick={() => { handleAddRacer(addingFoundPerson, "junior"); setAddingRacer(false); setAddingCategory(null); setAddingFoundPerson(null); }}
+                            disabled={is13OrOver}
+                            className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${is13OrOver ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#8652FF]/50"}`}
+                          >
+                            <span className="block">Junior</span>
+                            <span className={`text-[10px] ${is13OrOver ? "text-white/10" : "text-white/30"}`}>7-12 · 49&quot;+ tall</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
