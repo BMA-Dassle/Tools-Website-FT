@@ -4,7 +4,7 @@ import { FAQJsonLd } from "@/components/seo/JsonLd";
 export const metadata: Metadata = {
   title: "Indoor Go-Kart Racing & Qualifications – FastTrax Fort Myers",
   description:
-    "Race high-performance EcoVolt GT electric karts on Florida's largest indoor multi-level track. Adult, Junior & Mini karts ages 3+. Starter to Pro qualification system. 63,000 sq ft in Fort Myers. Better than outdoor go-karts — rain or shine. Book your heat now.",
+    "Race high-performance EcoVolt GT electric karts on Florida's largest indoor multi-level track. Adult, Junior & Mini karts ages 4+. Starter to Pro qualification system. 63,000 sq ft in Fort Myers. Better than outdoor go-karts — rain or shine. Book your heat now.",
   keywords: [
     "indoor go kart racing Fort Myers",
     "go karts Fort Myers",
@@ -48,12 +48,12 @@ const racingFaqs = [
   {
     question: "How much does go-kart racing cost at FastTrax?",
     answer:
-      "Adult kart racing starts at $20.99 per heat (Mon-Thu) and $26.99 (Fri-Sun). Junior karts are $15.99-$19.99. Mini karts for ages 3-6 are $9.99-$14.99. A one-time $4.99 Racing License (valid for one year) is required for all racers.",
+      "Adult kart racing starts at $20.99 per heat (Mon-Thu) and $26.99 (Fri-Sun). Junior karts are $15.99-$19.99. Mini karts for ages 4-6 are $9.99-$14.99. A one-time $4.99 Racing License (valid for one year) is required for all racers.",
   },
   {
     question: "What age do you have to be to race at FastTrax?",
     answer:
-      "FastTrax has karts for racers as young as 3 years old. Mini Karts are for ages 3-6. Junior Karts are for ages 7-13 (49\" to 70\" tall). Adult Karts are for ages 13+ (must be at least 59\" tall).",
+      "FastTrax has karts for racers as young as 4 years old. Mini Karts are for ages 4-6. Junior Karts are for ages 7-13 (49\" to 70\" tall). Adult Karts are for ages 13+ (must be at least 59\" tall).",
   },
   {
     question: "How fast do the go-karts go at FastTrax?",
@@ -108,7 +108,7 @@ const racingFaqs = [
   {
     question: "Can toddlers and small kids race at FastTrax?",
     answer:
-      "Yes! FastTrax has Mini Karts specifically designed for children ages 3-6. There's no minimum height requirement for Mini Karts. They feature adjustable pedals and seats, speed-controlled settings, and close at 10:00 PM daily. Mini Karts are available on Mega Track Tuesdays too.",
+      "Yes! FastTrax has Mini Karts specifically designed for children ages 4-6. There's no minimum height requirement for Mini Karts. They feature adjustable pedals and seats, speed-controlled settings, and close at 10:00 PM daily. Mini Karts are available on Mega Track Tuesdays too.",
   },
   {
     question: "What are the best things to do in Fort Myers when it rains?",

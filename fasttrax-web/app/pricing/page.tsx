@@ -185,7 +185,7 @@ export default function PricingPage() {
                 </tr>
                 <tr style={{ backgroundColor: "rgba(7,16,39,0.6)" }}>
                   <td className="px-5 py-4 font-[var(--font-poppins)]" style={{ fontSize: "16px", color: "rgb(255,255,255)" }}>
-                    Mini Karts (Ages 3-6)
+                    Mini Karts (Ages 4-6)
                   </td>
                   <td className="px-5 py-4 font-[var(--font-poppins)]" style={{ fontSize: "16px", color: "rgb(255,255,255)" }}>$9.99</td>
                   <td className="px-5 py-4 font-[var(--font-poppins)]" style={{ fontSize: "16px", color: "rgb(255,255,255)" }}>$14.99</td>

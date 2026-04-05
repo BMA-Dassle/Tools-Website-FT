@@ -196,7 +196,7 @@ export default function RacingPage() {
                 color: "rgb(134,82,255)",
                 border: "rgba(134,82,255,0.59)",
                 items: [
-                  { label: "Ages", value: "3\u20136" },
+                  { label: "Ages", value: "4\u20136" },
                   { label: "Height", value: "No minimum" },
                   { label: "Hours", value: "Close at 10:00 PM daily" },
                 ],
@@ -389,7 +389,7 @@ export default function RacingPage() {
               },
               {
                 title: "The Machine (Biz-Karts EcoVolt GT)",
-                desc: "Biz-Karts is a premier electric kart manufacturer delivering high-performance, zero-emission racing machines. The EcoVolt GT features 10.5 kW brushless motors with instant torque, an F1-style digital steering display, smart LED halo lighting, and adjustable pedals and seats for racers ages 3+.",
+                desc: "Biz-Karts is a premier electric kart manufacturer delivering high-performance, zero-emission racing machines. The EcoVolt GT features 10.5 kW brushless motors with instant torque, an F1-style digital steering display, smart LED halo lighting, and adjustable pedals and seats for racers ages 4+.",
                 borderColor: "rgb(0,74,173)",
                 logo: "https://bizkarts.com/wp-content/uploads/2023/02/logo-dark.svg",
               },
