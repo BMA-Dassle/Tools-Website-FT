@@ -96,7 +96,13 @@ export default function BookRacePage() {
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
-  const [activeBills, setActiveBills] = useState<RacerBill[]>([]);
+  // Check sessionStorage for existing bill from attractions flow (multi-activity cart)
+  const [activeBills, setActiveBills] = useState<RacerBill[]>(() => {
+    if (typeof window === "undefined") return [];
+    const existingOrderId = sessionStorage.getItem("attractionOrderId");
+    if (existingOrderId) return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
+    return [];
+  });
   // Convenience: primary bill ID (first bill, used for add-ons/POV/overview)
   const activeOrderId = activeBills.length > 0 ? activeBills[0].billId : null;
 
@@ -304,6 +310,7 @@ export default function BookRacePage() {
         // Only add to activeBills if we created a new bill
         if (!existingBillId && createdBills.length > 0) {
           setActiveBills(prev => [...prev, ...createdBills]);
+          sessionStorage.setItem("attractionOrderId", createdBills[0].billId);
         }
         console.log("[bookHeatForRacers] returning racers:", selectedRacers.map(r => r.fullName).join(", "), "on bill:", orderId);
       } else {
@@ -312,6 +319,7 @@ export default function BookRacePage() {
         if (!existingBillId) {
           createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
           setActiveBills(prev => [...prev, ...createdBills]);
+          sessionStorage.setItem("attractionOrderId", rawOrderId);
         } else {
           createdBills = activeBills.filter(b => b.category === cat);
         }

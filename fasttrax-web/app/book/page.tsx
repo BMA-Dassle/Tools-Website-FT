@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import Nav from "@/components/Nav";
+import MiniCart from "@/components/booking/MiniCart";
 import { ATTRACTION_LIST } from "@/lib/attractions-data";
 import type { AttractionConfig } from "@/lib/attractions-data";
 
@@ -96,6 +97,7 @@ export default function BookLandingPage() {
   return (
     <div className="min-h-screen bg-[#000418]">
       <Nav />
+      <MiniCart />
 
       {/* Hero */}
       <section className="pt-28 sm:pt-36 pb-8 sm:pb-12 px-4">

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import Nav from "@/components/Nav";
+import MiniCart from "@/components/booking/MiniCart";
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
 import {
@@ -1118,6 +1119,7 @@ export default function AttractionBookingPage() {
   return (
     <div className="min-h-screen bg-[#000418]">
       <Nav />
+      <MiniCart />
 
       {/* Hero */}
       <section className="relative pt-32 sm:pt-36 pb-4 px-4">
