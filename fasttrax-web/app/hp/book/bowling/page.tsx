@@ -866,7 +866,31 @@ export default function BowlingBookingPage() {
         } else {
           sessionStorage.removeItem("qamf_bmi_addons");
         }
-        window.location.href = result.ApprovePayment.Url;
+
+        // Prefill buyer info on the Square payment page
+        let paymentUrl = result.ApprovePayment.Url;
+        try {
+          const nameParts = guestName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+          const updateRes = await fetch("/api/square/update-redirect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              squareUrl: paymentUrl,
+              billId: reservationKey,
+              buyerOnly: true,
+              buyer: { email: guestEmail, phone: guestPhone, firstName, lastName },
+            }),
+          });
+          if (updateRes.ok) {
+            const updated = await updateRes.json();
+            if (updated.url) paymentUrl = updated.url;
+          }
+        } catch {
+          // If prefill fails, still redirect to original URL
+        }
+        window.location.href = paymentUrl;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
