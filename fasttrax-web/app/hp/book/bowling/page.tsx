@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type Step = "location" | "players" | "lane-type" | "date" | "offer" | "extras" | "review" | "details";
+type Step = "location" | "players" | "date" | "lane-type" | "offer" | "extras" | "review" | "details";
 type LaneType = "regular" | "vip" | "oldtime";
 
 interface OpenDate {
@@ -289,7 +289,7 @@ export default function BowlingBookingPage() {
     setStep("players");
   }
 
-  async function fetchDates() {
+  async function fetchDatesAndGoToDate() {
     setLoading(true);
     setError("");
     try {
@@ -343,11 +343,7 @@ export default function BowlingBookingPage() {
 
   /* ── Step: Players → fetch offers ────────────────────────────── */
 
-  async function goToLaneType() {
-    setStep("lane-type");
-  }
-
-  async function fetchOffers() {
+  async function fetchOffersAndGoToLaneType() {
     setLoading(true);
     setError("");
     try {
@@ -356,7 +352,7 @@ export default function BowlingBookingPage() {
         `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&players=1-${playerCount}&page=1&itemsPerPage=50`
       );
       setAllOffers(Array.isArray(data) ? data : []);
-      setStep("offer");
+      setStep("lane-type");
     } catch { setError("Failed to load packages"); }
     finally { setLoading(false); }
   }
@@ -529,8 +525,8 @@ export default function BowlingBookingPage() {
 
   /* ── Navigation ──────────────────────────────────────────────── */
 
-  const allSteps: Step[] = ["location", "players", "lane-type", "date", "offer", "extras", "review", "details"];
-  const stepLabels = ["Location", "Party", "Type", "Date", "Package", "Extras", "Review", "Pay"];
+  const allSteps: Step[] = ["location", "players", "date", "lane-type", "offer", "extras", "review", "details"];
+  const stepLabels = ["Location", "Party", "Date", "Type", "Package", "Extras", "Review", "Pay"];
   const stepIndex = allSteps.indexOf(step);
 
   function goBack() {
@@ -730,7 +726,7 @@ export default function BowlingBookingPage() {
 
                 {selectedTime && (
                   <button
-                    onClick={fetchOffers}
+                    onClick={fetchOffersAndGoToLaneType}
                     className="w-full mt-6 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
                     style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
                   >
@@ -759,7 +755,7 @@ export default function BowlingBookingPage() {
                 className="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white cursor-pointer transition-all hover:scale-105"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>+</button>
             </div>
-            <button onClick={goToLaneType}
+            <button onClick={fetchDatesAndGoToDate}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Continue</button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
@@ -776,7 +772,7 @@ export default function BowlingBookingPage() {
                 return (
                   <button
                     key={lt.key}
-                    onClick={() => { setLaneType(lt.key); fetchDates(); }}
+                    onClick={() => { setLaneType(lt.key); setStep("offer"); }}
                     disabled={count === 0}
                     className="w-full rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${lt.accent}35` }}
