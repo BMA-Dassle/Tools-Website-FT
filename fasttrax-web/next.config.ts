@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com https://headpinz.com https://www.kidsbowlfree.com https://resourcespubqamfuse.blob.core.windows.net https://bowlerqamfuse.blob.core.windows.net https://*.3cx.com https://*.3cx.us https://360karting.com https://bizkarts.com https://bmileisure.com",
-            "connect-src 'self' https://modules-api22.sms-timing.com wss://webserver22.sms-timing.com:10015 https://tools-track-status.vercel.app https://*.3cx.us https://*.3cx.com https://va.vercel-scripts.com https://vitals.vercel-insights.com https://qcloud.qubicaamf.com https://resourcespubqamfuse.blob.core.windows.net https://bma-webres.azurewebsites.net",
+            "connect-src 'self' https://modules-api22.sms-timing.com wss://webserver22.sms-timing.com:10015 https://tools-track-status.vercel.app https://*.3cx.us https://*.3cx.com https://va.vercel-scripts.com https://vitals.vercel-insights.com https://qcloud.qubicaamf.com https://resourcespubqamfuse.blob.core.windows.net",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com",
             "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
             "object-src 'none'",

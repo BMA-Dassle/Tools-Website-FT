@@ -41,7 +41,7 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
       const formattedTime = `${y}-${m}-${d}T${h}:${min}`;
 
       const res = await fetch(
-        `https://bma-webres.azurewebsites.net/api/offers/${centerCode}?datetime=${formattedTime}&players=1-6&page=1&itemsPerPage=50`
+        `/api/qamf/centers/${centerCode}/offers-availability?systemId=${centerCode}&datetime=${formattedTime}&players=1-6&page=1&itemsPerPage=50`
       );
       const offers = await res.json();
 
