@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import { trackBowlingStep } from "@/lib/analytics";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -329,6 +330,20 @@ function formatTimeStr(t: string): string {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+/** Find the next available time for a lane type after the selected time */
+function getNextAvailableTime(offers: Offer[], laneTypeKey: string, selTime: string, selDate?: string): string | null {
+  const allTimes: string[] = [];
+  for (const offer of offers) {
+    if (classifyOffer(offer.Name) !== laneTypeKey) continue;
+    if (selDate && isDayOfferHidden(offer.Name, selTime, selDate)) continue;
+    for (const t of getAvailableTimes(offer)) {
+      if (t > selTime) allTimes.push(t);
+    }
+  }
+  allTimes.sort();
+  return allTimes.length > 0 ? allTimes[0] : null;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -558,6 +573,7 @@ export default function BowlingBookingPage() {
     setSelectedExtras(new Map());
     setCartSummary(null);
     setSessionToken("");
+    trackBowlingStep("Date & Time Selected", { date: selectedDate, time: selectedTime });
     setStep("lane-type");
     setError("");
   }
@@ -584,6 +600,7 @@ export default function BowlingBookingPage() {
     setCenterId(loc.id);
     setCenterName(loc.name);
     setHasOldTime(loc.hasOldTime);
+    trackBowlingStep("Location Selected", { location: loc.name });
     setStep("players");
   }
 
@@ -595,6 +612,7 @@ export default function BowlingBookingPage() {
       const end = new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
       const data = await qamf(`centers/${centerId}/opening-times/bookforlater/range?fromDate=${today}&toDate=${end}`);
       setOpenDates((data.Dates || []).filter((d: OpenDate) => d.IsOpen));
+      trackBowlingStep("Party Set", { players: playerCount });
       setStep("date");
     } catch { setError("Failed to load dates"); }
     finally { setLoading(false); }
@@ -687,6 +705,7 @@ export default function BowlingBookingPage() {
       ]);
       setShoes(shoesData.Shoes || []);
       setExtras(Array.isArray(extrasData) ? extrasData : []);
+      trackBowlingStep("Package Selected", { offer: offer.Name, tariff: tariff.Name, price: tariff.Price, laneType });
       setStep("extras");
       // Show VIP upgrade modal if regular and not already shown
       if (classifyOffer(offer.Name) === "regular" && !vipUpgradeShown) {
@@ -742,6 +761,7 @@ export default function BowlingBookingPage() {
         }),
       });
       setCartSummary(summary);
+      trackBowlingStep("Extras & Review", { total: summary.Total, addons: getBmiAddons().length });
       setStep("review");
     } catch { setError("Failed to calculate total"); }
     finally { setLoading(false); }
@@ -869,6 +889,7 @@ export default function BowlingBookingPage() {
         }
 
         // Show full-screen loading while we prep payment
+        trackBowlingStep("Payment Started", { total: cartSummary?.Total || 0, location: centerName });
         setRedirectingToPayment(true);
         let paymentUrl = result.ApprovePayment.Url;
         try {
@@ -1153,13 +1174,24 @@ export default function BowlingBookingPage() {
             <div className="space-y-4">
               {getLaneTypes(centerId).map(lt => {
                 const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime, selectedDate).length > 0).length;
+                const nextTime = count === 0 ? getNextAvailableTime(allOffers, lt.key, selectedTime, selectedDate) : null;
+                const isSoldOut = count === 0 && !nextTime;
                 return (
                   <button
                     key={lt.key}
-                    onClick={() => { setLaneType(lt.key); setStep("offer"); }}
-                    disabled={count === 0}
-                    className={`w-full rounded-lg overflow-hidden text-left transition-all cursor-pointer ${count === 0 ? "opacity-50 cursor-default" : "hover:scale-[1.01]"}`}
-                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${count === 0 ? "rgba(253,91,86,0.3)" : lt.accent + "35"}` }}
+                    onClick={() => {
+                      if (count > 0) {
+                        setLaneType(lt.key); trackBowlingStep("Lane Type Selected", { type: lt.label }); setStep("offer");
+                      } else if (nextTime) {
+                        setSelectedTime(nextTime);
+                        setLaneType(lt.key);
+                        trackBowlingStep("Lane Type Selected (time switch)", { type: lt.label, from: selectedTime, to: nextTime });
+                        setStep("offer");
+                      }
+                    }}
+                    disabled={isSoldOut}
+                    className={`w-full rounded-lg overflow-hidden text-left transition-all cursor-pointer ${isSoldOut ? "opacity-50 cursor-default" : "hover:scale-[1.01]"}`}
+                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${isSoldOut ? "rgba(253,91,86,0.3)" : lt.accent + "35"}` }}
                   >
                     <div className="flex flex-col sm:flex-row">
                       {/* Video/image side */}
@@ -1188,9 +1220,14 @@ export default function BowlingBookingPage() {
                           <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
                             {lt.label}
                           </h3>
-                          {count === 0 && (
+                          {count === 0 && !nextTime && (
                             <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(253,91,86,0.2)", color: coral, border: `1px solid ${coral}40` }}>
                               Sold Out
+                            </span>
+                          )}
+                          {count === 0 && nextTime && (
+                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(255,215,0,0.15)", color: gold, border: `1px solid rgba(255,215,0,0.3)` }}>
+                              Next: {formatTimeStr(nextTime)}
                             </span>
                           )}
                         </div>
@@ -1207,8 +1244,12 @@ export default function BowlingBookingPage() {
                           </div>
                         )}
 
-                        <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: count === 0 ? coral : lt.accent }}>
-                          {count === 0 ? "Not available at this time" : `${count} package${count !== 1 ? "s" : ""} available \u2192`}
+                        <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: isSoldOut ? coral : nextTime ? gold : lt.accent }}>
+                          {isSoldOut
+                            ? "Not available today"
+                            : nextTime
+                              ? `Sold out at ${formatTimeStr(selectedTime)} — Switch to ${formatTimeStr(nextTime)} \u2192`
+                              : `${count} package${count !== 1 ? "s" : ""} available \u2192`}
                         </span>
                       </div>
                     </div>

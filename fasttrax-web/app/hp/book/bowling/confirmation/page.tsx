@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { trackBowlingStep } from "@/lib/analytics";
 
 const API = "/api/qamf";
 const coral = "#fd5b56";
