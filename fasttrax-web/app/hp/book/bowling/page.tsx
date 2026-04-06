@@ -209,8 +209,22 @@ function isWithinOneHour(itemTime: string, selectedTime: string): boolean {
   return Math.abs(timeToMinutes(itemTime) - timeToMinutes(selectedTime)) <= 60;
 }
 
+/** Check if a "Day" offer should be hidden based on time + day of week */
+function isDayOfferHidden(offerName: string, selTime: string, selDate: string): boolean {
+  if (!offerName.toLowerCase().includes("day")) return false;
+  const hour = timeToMinutes(selTime) / 60;
+  if (hour < 18) return false; // Before 6 PM — show day offers
+  // After 6 PM — hide day offers on weekdays (Mon-Fri)
+  const [y, m, d] = selDate.split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
+  return dow >= 1 && dow <= 5; // Hide on weekdays after 6 PM
+}
+
 /** Filter offer items to only those within 1 hour of selected time */
-function filterOfferItems(offer: Offer, selTime: string): OfferItem[] {
+function filterOfferItems(offer: Offer, selTime: string, selDate?: string): OfferItem[] {
+  // Hide "Day" offers after 6 PM on weekdays
+  if (selDate && isDayOfferHidden(offer.Name, selTime, selDate)) return [];
+
   return (offer.Items || []).filter(item => {
     // Item available at its listed time and within 1 hour
     if (!item.Reason && item.Remaining > 0 && isWithinOneHour(item.Time, selTime)) return true;
@@ -1088,7 +1102,7 @@ export default function BowlingBookingPage() {
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
             <div className="space-y-4">
               {getLaneTypes(centerId).map(lt => {
-                const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime).length > 0).length;
+                const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime, selectedDate).length > 0).length;
                 return (
                   <button
                     key={lt.key}
@@ -1241,7 +1255,7 @@ export default function BowlingBookingPage() {
                 );
               }).filter(Boolean)}
             </div>
-            {filteredOffers.filter(o => filterOfferItems(o, selectedTime).length > 0).length === 0 && (
+            {filteredOffers.filter(o => filterOfferItems(o, selectedTime, selectedDate).length > 0).length === 0 && (
               <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available within an hour of {formatTimeStr(selectedTime)}. Try a different time.</p>
             )}
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
