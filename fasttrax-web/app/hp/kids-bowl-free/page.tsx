@@ -57,7 +57,7 @@ export default function KidsBowlFreePage() {
         >
           <div className="relative mb-6" style={{ width: "clamp(80px, 15vw, 120px)", height: "clamp(80px, 15vw, 120px)" }}>
             <Image
-              src={`${BLOB}/images/headpinz/kbf-logo.png`}
+              src={`https://www.kidsbowlfree.com/img/kbf-logo-23.png`}
               alt="Kids Bowl Free"
               fill
               className="object-contain"

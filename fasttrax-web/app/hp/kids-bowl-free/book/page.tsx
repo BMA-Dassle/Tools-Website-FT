@@ -51,7 +51,7 @@ export default function KBFBookPage() {
         style={{ paddingTop: "clamp(120px, 18vw, 180px)", paddingBottom: "clamp(40px, 6vw, 60px)" }}
       >
         <div className="relative mb-4" style={{ width: "80px", height: "80px" }}>
-          <Image src={`${BLOB}/images/headpinz/kbf-logo.png`} alt="Kids Bowl Free" fill className="object-contain" sizes="80px" unoptimized />
+          <Image src={`https://www.kidsbowlfree.com/img/kbf-logo-23.png`} alt="Kids Bowl Free" fill className="object-contain" sizes="80px" unoptimized />
         </div>
 
         <h1

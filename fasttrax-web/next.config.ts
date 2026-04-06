@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "headpinz.com",
       },
+      {
+        protocol: "https",
+        hostname: "www.kidsbowlfree.com",
+      },
     ],
   },
   headers: async () => [
@@ -39,7 +43,7 @@ const nextConfig: NextConfig = {
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://downloads-global.3cx.com https://va.vercel-scripts.com",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
-            "img-src 'self' data: blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com https://headpinz.com https://*.3cx.com https://*.3cx.us https://360karting.com https://bizkarts.com https://bmileisure.com",
+            "img-src 'self' data: blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com https://headpinz.com https://www.kidsbowlfree.com https://*.3cx.com https://*.3cx.us https://360karting.com https://bizkarts.com https://bmileisure.com",
             "connect-src 'self' https://modules-api22.sms-timing.com wss://webserver22.sms-timing.com:10015 https://tools-track-status.vercel.app https://*.3cx.us https://*.3cx.com https://va.vercel-scripts.com https://vitals.vercel-insights.com",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com",
             "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
