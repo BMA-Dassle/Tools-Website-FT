@@ -7,6 +7,7 @@ interface LaneStatus {
   name: string;
   remaining: number | string;
   isAvailable: boolean;
+  hasAlternative?: boolean; // true when showing "X at Y:YY" next-available
 }
 
 const CENTER_CODES: Record<string, number> = {
@@ -72,14 +73,19 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
             minute: "2-digit",
             hour12: true,
           });
-          status = { name, remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`, isAvailable: false };
+          status = { name, remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`, isAvailable: false, hasAlternative: true };
+        } else if (firstItem.Remaining > 0) {
+          status = { name, remaining: firstItem.Remaining, isAvailable: true };
         } else {
-          status = { name, remaining: firstItem.Remaining, isAvailable: firstItem.Remaining > 0 };
+          // 0 lanes, no alternatives — skip this offer entirely so we don't show "0 Lanes"
+          continue;
         }
 
         const existing = bestByType.get(name);
-        if (!existing || (!existing.isAvailable && status.isAvailable) ||
-            (existing.isAvailable === status.isAvailable && typeof status.remaining === "number" && typeof existing.remaining === "number" && status.remaining > existing.remaining)) {
+        // Priority: available now > next-available-at-time > nothing
+        if (!existing || (!existing.isAvailable && status.isAvailable)) {
+          bestByType.set(name, status);
+        } else if (existing.isAvailable === status.isAvailable && typeof status.remaining === "number" && typeof existing.remaining === "number" && status.remaining > existing.remaining) {
           bestByType.set(name, status);
         }
       }
