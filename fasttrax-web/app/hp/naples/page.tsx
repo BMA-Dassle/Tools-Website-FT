@@ -56,8 +56,8 @@ const attractions = [
     description: "Immersive, multi-level space-themed combat. Haptic vests and precision sensors for objective-based missions.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     price: "$8.50/person",
-    cta: "Join the Mission",
-    ctaHref: "/hp/book/laser-tag",
+    cta: "Coming Soon!",
+    ctaHref: "#",
     external: false,
     badge: null,
     accent: "#E41C1D",
@@ -69,8 +69,8 @@ const attractions = [
     description: "State-of-the-art blasters with haptic vests. Eco-friendly Gellets evaporate on impact. All the action, none of the cleanup.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     price: "$12/person",
-    cta: "Book Gel Blasters",
-    ctaHref: "/hp/book/gel-blaster",
+    cta: "Coming Soon!",
+    ctaHref: "#",
     external: false,
     badge: null,
     accent: "#9b51e0",
@@ -345,23 +345,13 @@ export default function NaplesPage() {
                 <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed flex-1 mb-4">
                   {a.description}
                 </p>
-                {a.external ? (
-                  <BookingLink
-                    href={a.ctaHref}
-                    className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
-                    style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
-                  >
-                    {a.cta}
-                  </BookingLink>
-                ) : (
-                  <Link
-                    href={a.ctaHref}
-                    className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
-                    style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
-                  >
-                    {a.cta}
-                  </Link>
-                )}
+                <Link
+                  href={a.ctaHref}
+                  className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+                  style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
+                >
+                  {a.cta}
+                </Link>
               </div>
             </div>
           ))}

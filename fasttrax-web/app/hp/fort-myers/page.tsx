@@ -374,23 +374,13 @@ export default function FortMyersPage() {
                 <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed flex-1 mb-4">
                   {a.description}
                 </p>
-                {a.external ? (
-                  <BookingLink
-                    href={a.ctaHref}
-                    className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
-                    style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
-                  >
-                    {a.cta}
-                  </BookingLink>
-                ) : (
-                  <Link
-                    href={a.ctaHref}
-                    className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
-                    style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
-                  >
-                    {a.cta}
-                  </Link>
-                )}
+                <Link
+                  href={a.ctaHref}
+                  className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+                  style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
+                >
+                  {a.cta}
+                </Link>
               </div>
             </div>
           ))}

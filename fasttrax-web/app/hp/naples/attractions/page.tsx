@@ -64,8 +64,8 @@ const attractions = [
     pricing: "$8.50/person",
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    cta: "Book Laser Tag",
-    ctaHref: "/hp/book/laser-tag",
+    cta: "Coming Soon!",
+    ctaHref: "#",
     external: false,
     badge: null,
     accent: "#E41C1D",
@@ -80,8 +80,8 @@ const attractions = [
     pricing: "$12/person",
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
-    cta: "Book Gel Blasters",
-    ctaHref: "/hp/book/gel-blaster",
+    cta: "Coming Soon!",
+    ctaHref: "#",
     external: false,
     badge: null,
     accent: "#9b51e0",
