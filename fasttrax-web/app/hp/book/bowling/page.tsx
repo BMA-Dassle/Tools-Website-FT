@@ -807,7 +807,7 @@ export default function BowlingBookingPage() {
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {LANE_TYPES.filter(lt => !lt.fmOnly || hasOldTime).map(lt => {
-                const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key).length;
+                const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime).length > 0).length;
                 return (
                   <button
                     key={lt.key}
