@@ -45,40 +45,48 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
       );
       const offers = await res.json();
 
-      // Collect best status per lane type (VIP vs Regular), picking the one with availability now
+      // Classify offers same as booking page: regular, vip, oldtime
+      function classifyOffer(name: string): string {
+        const n = name.toLowerCase();
+        if (n.includes("old time") || n.includes("pinboyz")) return "oldtime";
+        if (n.includes("vip")) return "vip";
+        return "regular";
+      }
+      const labels: Record<string, string> = { regular: "Regular Lanes", vip: "VIP Lanes", oldtime: "Old Time Lanes" };
+
       const bestByType = new Map<string, LaneStatus>();
 
       for (const offer of offers) {
-        if (offer.Name && offer.Name.includes("Time Bowling")) {
-          const isVip = offer.Name.includes("VIP");
-          const name = isVip ? "VIP Lanes" : "Regular Lanes";
-          const firstItem = offer.Items?.[0];
-          if (!firstItem) continue;
+        if (!offer.Name) continue;
+        const type = classifyOffer(offer.Name);
+        const name = labels[type];
+        const firstItem = offer.Items?.[0];
+        if (!firstItem) continue;
 
-          let status: LaneStatus;
-          if (firstItem.Remaining === 0 && firstItem.Alternatives?.length > 0) {
-            const alt = firstItem.Alternatives[0];
-            const timeParts = alt.Time.split(":").map(Number);
-            const timeStr = new Date(0, 0, 0, timeParts[0], timeParts[1]).toLocaleTimeString("en-US", {
-              hour: "numeric",
-              minute: "2-digit",
-              hour12: true,
-            });
-            status = { name, remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`, isAvailable: false };
-          } else {
-            status = { name, remaining: firstItem.Remaining, isAvailable: firstItem.Remaining > 0 };
-          }
+        let status: LaneStatus;
+        if (firstItem.Remaining === 0 && firstItem.Alternatives?.length > 0) {
+          const alt = firstItem.Alternatives[0];
+          const timeParts = alt.Time.split(":").map(Number);
+          const timeStr = new Date(0, 0, 0, timeParts[0], timeParts[1]).toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+          status = { name, remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`, isAvailable: false };
+        } else {
+          status = { name, remaining: firstItem.Remaining, isAvailable: firstItem.Remaining > 0 };
+        }
 
-          const existing = bestByType.get(name);
-          // Prefer the entry that has lanes available now, or the one with more lanes
-          if (!existing || (!existing.isAvailable && status.isAvailable) ||
-              (existing.isAvailable === status.isAvailable && typeof status.remaining === "number" && typeof existing.remaining === "number" && status.remaining > existing.remaining)) {
-            bestByType.set(name, status);
-          }
+        const existing = bestByType.get(name);
+        if (!existing || (!existing.isAvailable && status.isAvailable) ||
+            (existing.isAvailable === status.isAvailable && typeof status.remaining === "number" && typeof existing.remaining === "number" && status.remaining > existing.remaining)) {
+          bestByType.set(name, status);
         }
       }
 
-      const results = [...bestByType.values()];
+      // Order: Regular, VIP, Old Time
+      const order = ["Regular Lanes", "VIP Lanes", "Old Time Lanes"];
+      const results = order.map(name => bestByType.get(name)).filter((s): s is LaneStatus => !!s);
 
       setLanes(results);
       setBookingUrl(
