@@ -6,7 +6,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type Step = "location" | "date" | "players" | "offer" | "extras" | "review" | "details";
+type Step = "location" | "date" | "players" | "lane-type" | "offer" | "extras" | "review" | "details";
+type LaneType = "regular" | "vip" | "oldtime";
 
 interface OpenDate {
   Date: string;
@@ -15,12 +16,14 @@ interface OpenDate {
   EndBookingTime: string | null;
 }
 
-interface Tariff {
-  Id: number;
-  Name: string;
-  Price: number;
-  Duration: string;
-  PlayerType: { Id: number; Name: string };
+interface OfferItem {
+  ItemId: number;
+  Time: string;
+  Total: number;
+  Remaining: number;
+  Lanes: number;
+  Reason?: string;
+  Alternatives?: { DateTime: string; Time: string; Total: number; Remaining: number }[];
 }
 
 interface Offer {
@@ -28,31 +31,13 @@ interface Offer {
   Name: string;
   Description: string;
   ImageUrl: string;
-  Tariffs: Tariff[];
+  Tariffs: { Id: number; Name: string; Price: number; Duration: string }[];
+  Items: OfferItem[];
 }
 
-interface ShoeOption {
-  Name: string;
-  Price: number;
-  PriceKeyId: number;
-  PlayerTypeId: number;
-}
-
-interface Extra {
-  Id: number;
-  Name: string;
-  Price: number;
-  ImageUrl: string;
-  Description: string;
-  ItemType: string;
-}
-
-interface CartSummary {
-  TotalWithoutTaxes: number;
-  TotalItems: number;
-  AddedTaxes: number;
-  TotalWithTaxes: number;
-}
+interface ShoeOption { Name: string; Price: number; PriceKeyId: number; PlayerTypeId: number }
+interface Extra { Id: number; Name: string; Price: number; ImageUrl: string; Description: string; ItemType: string }
+interface CartSummary { TotalWithoutTaxes: number; TotalItems: number; AddedTaxes: number; TotalWithTaxes: number }
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -60,8 +45,14 @@ interface CartSummary {
 
 const API = "/api/qamf";
 const LOCATIONS = [
-  { id: "9172", name: "HeadPinz Fort Myers", address: "14513 Global Pkwy, Fort Myers" },
-  { id: "3148", name: "HeadPinz Naples", address: "8525 Radio Ln, Naples" },
+  { id: "9172", name: "HeadPinz Fort Myers", address: "14513 Global Pkwy, Fort Myers", hasOldTime: true },
+  { id: "3148", name: "HeadPinz Naples", address: "8525 Radio Ln, Naples", hasOldTime: false },
+];
+
+const LANE_TYPES: { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean }[] = [
+  { key: "regular", label: "Regular Lanes", desc: "24 classic bowling lanes with cosmic glow", accent: "#fd5b56" },
+  { key: "vip", label: "VIP Lanes", desc: "Private VIP suite with NeoVerse + HyperBowling", accent: "#FFD700" },
+  { key: "oldtime", label: "Old Time Lanes", desc: "Pinboyz retro duckpin bowling experience", accent: "#00E2E5", fmOnly: true },
 ];
 
 const coral = "#fd5b56";
@@ -80,21 +71,32 @@ async function qamf(path: string, options?: RequestInit) {
   return JSON.parse(text);
 }
 
-function formatDate(d: string) {
-  const [y, m, day] = d.split("-").map(Number);
-  return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+function stripHtml(html: string) { return html.replace(/<[^>]*>/g, "").trim(); }
+
+function classifyOffer(name: string): LaneType {
+  const n = name.toLowerCase();
+  if (n.includes("old time") || n.includes("pinboyz")) return "oldtime";
+  if (n.includes("vip")) return "vip";
+  return "regular";
 }
 
-function formatTime(iso: string) {
-  const t = iso.split("T")[1];
-  if (!t) return iso;
+function getAvailableTimes(offer: Offer): string[] {
+  const times: string[] = [];
+  for (const item of offer.Items || []) {
+    if (!item.Reason && item.Remaining > 0) {
+      times.push(item.Time);
+    }
+    for (const alt of item.Alternatives || []) {
+      if (alt.Remaining > 0) times.push(alt.Time);
+    }
+  }
+  return [...new Set(times)].sort();
+}
+
+function formatTimeStr(t: string): string {
   const [h, m] = t.split(":").map(Number);
   const ampm = h >= 12 ? "PM" : "AM";
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
-}
-
-function stripHtml(html: string) {
-  return html.replace(/<[^>]*>/g, "").trim();
 }
 
 /* ------------------------------------------------------------------ */
@@ -109,21 +111,27 @@ export default function BowlingBookingPage() {
   // Booking state
   const [centerId, setCenterId] = useState("");
   const [centerName, setCenterName] = useState("");
+  const [hasOldTime, setHasOldTime] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [playerCount, setPlayerCount] = useState(2);
+  const [laneType, setLaneType] = useState<LaneType>("regular");
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
-  const [selectedTariff, setSelectedTariff] = useState<Tariff | null>(null);
+  const [selectedTariff, setSelectedTariff] = useState<{ Id: number; Name: string; Price: number; Duration: string } | null>(null);
   const [reservationKey, setReservationKey] = useState("");
 
-  // Data from API
+  // Calendar state
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+
+  // API data
   const [openDates, setOpenDates] = useState<OpenDate[]>([]);
-  const [offers, setOffers] = useState<Offer[]>([]);
+  const [allOffers, setAllOffers] = useState<Offer[]>([]);
   const [shoes, setShoes] = useState<ShoeOption[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
   const [cartSummary, setCartSummary] = useState<CartSummary | null>(null);
 
-  // Cart selections
+  // Extras selections
   const [wantShoes, setWantShoes] = useState(true);
   const [selectedExtras, setSelectedExtras] = useState<Map<number, number>>(new Map());
 
@@ -132,25 +140,25 @@ export default function BowlingBookingPage() {
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
 
-  // Keep-alive timer
+  // Keep-alive
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
-
   const startKeepAlive = useCallback((key: string, cid: string) => {
     if (keepAliveRef.current) clearInterval(keepAliveRef.current);
     keepAliveRef.current = setInterval(() => {
       qamf(`centers/${cid}/reservations/${key}/lifetime`, { method: "PATCH" }).catch(() => {});
-    }, 120000); // every 2 min
+    }, 120000);
   }, []);
+  useEffect(() => () => { if (keepAliveRef.current) clearInterval(keepAliveRef.current); }, []);
 
-  useEffect(() => {
-    return () => { if (keepAliveRef.current) clearInterval(keepAliveRef.current); };
-  }, []);
+  // Filtered offers by lane type
+  const filteredOffers = allOffers.filter(o => classifyOffer(o.Name) === laneType);
 
-  /* ── Step handlers ───────────────────────────────────────────── */
+  /* ── Step: Location ──────────────────────────────────────────── */
 
   async function selectLocation(loc: typeof LOCATIONS[0]) {
     setCenterId(loc.id);
     setCenterName(loc.name);
+    setHasOldTime(loc.hasOldTime);
     setLoading(true);
     setError("");
     try {
@@ -159,48 +167,75 @@ export default function BowlingBookingPage() {
       const data = await qamf(`centers/${loc.id}/opening-times/bookforlater/range?fromDate=${today}&toDate=${end}`);
       setOpenDates((data.Dates || []).filter((d: OpenDate) => d.IsOpen));
       setStep("date");
-    } catch {
-      setError("Failed to load dates");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to load dates"); }
+    finally { setLoading(false); }
   }
 
-  async function selectDate(date: string, startTime: string) {
+  /* ── Step: Date + Time ───────────────────────────────────────── */
+
+  const openDateSet = new Set(openDates.map(d => d.Date));
+
+  function getOpenDate(dateStr: string): OpenDate | undefined {
+    return openDates.find(d => d.Date === dateStr);
+  }
+
+  function selectDateAndTime(date: string, time: string) {
     setSelectedDate(date);
-    setSelectedTime(startTime);
+    setSelectedTime(time);
     setStep("players");
   }
 
-  async function selectPlayers() {
-    setLoading(true);
-    setError("");
-    try {
-      const dt = selectedTime || `${selectedDate}T12:00`;
-      const data = await qamf(
-        `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&players=1-${playerCount}&page=1&itemsPerPage=50`
-      );
-      setOffers(Array.isArray(data) ? data : []);
-      setStep("offer");
-    } catch {
-      setError("Failed to load offers");
-    } finally {
-      setLoading(false);
+  // Generate time slots for selected date
+  const selectedOpenDate = selectedDate ? getOpenDate(selectedDate) : null;
+  const timeSlots: string[] = [];
+  if (selectedOpenDate?.StartBookingTime && selectedOpenDate?.EndBookingTime) {
+    const start = selectedOpenDate.StartBookingTime.split("T")[1];
+    const end = selectedOpenDate.EndBookingTime.split("T")[1];
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh] = end.split(":").map(Number);
+    for (let h = sh; h <= Math.min(eh, 23); h++) {
+      for (const m of [0, 30]) {
+        if (h === sh && m < sm) continue;
+        timeSlots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+      }
     }
   }
 
-  async function selectOffer(offer: Offer, tariff: Tariff) {
+  // Calendar rendering
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const monthName = new Date(calYear, calMonth).toLocaleString("en-US", { month: "long", year: "numeric" });
+
+  /* ── Step: Players → fetch offers ────────────────────────────── */
+
+  async function fetchOffers() {
+    setLoading(true);
+    setError("");
+    try {
+      const dt = `${selectedDate}T${selectedTime}`;
+      const data = await qamf(
+        `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&players=1-${playerCount}&page=1&itemsPerPage=50`
+      );
+      setAllOffers(Array.isArray(data) ? data : []);
+      setStep("lane-type");
+    } catch { setError("Failed to load packages"); }
+    finally { setLoading(false); }
+  }
+
+  /* ── Step: Select offer → create reservation ─────────────────── */
+
+  async function selectOffer(offer: Offer, tariff: { Id: number; Name: string; Price: number; Duration: string }) {
     setSelectedOffer(offer);
     setSelectedTariff(tariff);
     setLoading(true);
     setError("");
     try {
-      // Create temp reservation
+      const dt = `${selectedDate}T${selectedTime}`;
       const reservation = await qamf(`centers/${centerId}/reservations/temporary-request/book-for-later`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          DateFrom: selectedTime || `${selectedDate}T12:00`,
+          DateFrom: dt,
           WebOfferId: offer.OfferId,
           WebOfferTariffId: tariff.Id,
           PlayersList: [{ TypeId: 1, Number: playerCount }],
@@ -209,21 +244,19 @@ export default function BowlingBookingPage() {
       setReservationKey(reservation.ReservationKey);
       startKeepAlive(reservation.ReservationKey, centerId);
 
-      // Fetch shoes and extras in parallel
-      const dt = encodeURIComponent(selectedTime || `${selectedDate}T12:00`);
+      const dte = encodeURIComponent(dt);
       const [shoesData, extrasData] = await Promise.all([
-        qamf(`centers/${centerId}/offers/${offer.OfferId}/shoes-socks-offer?systemId=${centerId}&datetime=${dt}`).catch(() => ({ Shoes: [] })),
-        qamf(`centers/${centerId}/offers/extras?systemId=${centerId}&datetime=${dt}&offerId=${offer.OfferId}&page=1&itemsPerPage=50`).catch(() => []),
+        qamf(`centers/${centerId}/offers/${offer.OfferId}/shoes-socks-offer?systemId=${centerId}&datetime=${dte}`).catch(() => ({ Shoes: [] })),
+        qamf(`centers/${centerId}/offers/extras?systemId=${centerId}&datetime=${dte}&offerId=${offer.OfferId}&page=1&itemsPerPage=50`).catch(() => []),
       ]);
       setShoes(shoesData.Shoes || []);
       setExtras(Array.isArray(extrasData) ? extrasData : []);
       setStep("extras");
-    } catch {
-      setError("Failed to create reservation");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to create reservation"); }
+    finally { setLoading(false); }
   }
+
+  /* ── Step: Review cart ───────────────────────────────────────── */
 
   async function goToReview() {
     setLoading(true);
@@ -243,7 +276,7 @@ export default function BowlingBookingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          Time: selectedTime || `${selectedDate}T12:00`,
+          Time: `${selectedDate}T${selectedTime}`,
           Items: { Extra: extraItems, FoodAndBeverage: [], Shoes: shoeItems },
           Bumpers: [],
           OfferId: selectedOffer!.OfferId,
@@ -254,18 +287,14 @@ export default function BowlingBookingPage() {
       });
       setCartSummary(summary);
       setStep("review");
-    } catch {
-      setError("Failed to calculate total");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to calculate total"); }
+    finally { setLoading(false); }
   }
 
+  /* ── Step: Submit booking ────────────────────────────────────── */
+
   async function submitBooking() {
-    if (!guestName || !guestEmail || !guestPhone) {
-      setError("Please fill in all fields");
-      return;
-    }
+    if (!guestName || !guestEmail || !guestPhone) { setError("Please fill in all fields"); return; }
     setLoading(true);
     setError("");
     try {
@@ -278,7 +307,6 @@ export default function BowlingBookingPage() {
           const ex = extras.find(e => e.Id === id);
           return { PriceKeyId: id, Quantity: qty, UnitPrice: ex?.Price || 0, Note: "" };
         });
-
       const cartItems = [
         { Name: selectedOffer!.Name, Quantity: 1, UnitPrice: selectedTariff!.Price, IsOffer: true },
         ...shoeItems.map(s => ({ Name: "Bowling Shoes", Quantity: s.Quantity, UnitPrice: s.UnitPrice, IsOffer: false })),
@@ -287,66 +315,39 @@ export default function BowlingBookingPage() {
           return { Name: ex?.Name || "Extra", Quantity: e.Quantity, UnitPrice: e.UnitPrice, IsOffer: false };
         }),
       ];
-
       const returnUrl = `${window.location.origin}/hp/book/bowling/confirmation?key=${reservationKey}&center=${centerId}`;
-
       const result = await qamf(`centers/${centerId}/reservations/${reservationKey}/guest/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          GuestDetails: {
-            Email: guestEmail,
-            PhoneNumber: guestPhone.replace(/\D/g, ""),
-            ReferentName: guestName,
-          },
-          Cart: {
-            ReturnUrl: returnUrl,
-            Items: cartItems,
-          },
+          GuestDetails: { Email: guestEmail, PhoneNumber: guestPhone.replace(/\D/g, ""), ReferentName: guestName },
+          Cart: { ReturnUrl: returnUrl, Items: cartItems },
         }),
       });
-
       if (result.NeedPayment && result.ApprovePayment?.Url) {
-        // Store reservation info for confirmation page
         sessionStorage.setItem("qamf_reservation", JSON.stringify({
-          key: reservationKey,
-          centerId,
-          centerName,
-          operationId: result.OperationId,
-          offer: selectedOffer?.Name,
-          date: selectedDate,
-          time: selectedTime,
-          players: playerCount,
+          key: reservationKey, centerId, centerName, operationId: result.OperationId,
+          offer: selectedOffer?.Name, date: selectedDate, time: selectedTime, players: playerCount,
         }));
-        // Redirect to Square payment
         window.location.href = result.ApprovePayment.Url;
       }
-    } catch {
-      setError("Failed to submit booking");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to submit booking"); }
+    finally { setLoading(false); }
   }
 
-  /* ── Render helpers ──────────────────────────────────────────── */
+  /* ── Navigation ──────────────────────────────────────────────── */
 
-  const stepIndex = ["location", "date", "players", "offer", "extras", "review", "details"].indexOf(step);
-  const stepLabels = ["Location", "Date", "Bowlers", "Package", "Extras", "Review", "Pay"];
+  const allSteps: Step[] = ["location", "date", "players", "lane-type", "offer", "extras", "review", "details"];
+  const stepLabels = ["Location", "Date", "Bowlers", "Type", "Package", "Extras", "Review", "Pay"];
+  const stepIndex = allSteps.indexOf(step);
 
   function goBack() {
-    const steps: Step[] = ["location", "date", "players", "offer", "extras", "review", "details"];
-    const idx = steps.indexOf(step);
-    if (idx > 0) setStep(steps[idx - 1]);
-    setError("");
+    if (stepIndex > 0) { setStep(allSteps[stepIndex - 1]); setError(""); }
   }
 
   function toggleExtra(id: number) {
     const next = new Map(selectedExtras);
-    if (next.has(id) && next.get(id)! > 0) {
-      next.delete(id);
-    } else {
-      next.set(id, 1);
-    }
+    next.has(id) && next.get(id)! > 0 ? next.delete(id) : next.set(id, 1);
     setSelectedExtras(next);
   }
 
@@ -354,30 +355,18 @@ export default function BowlingBookingPage() {
 
   return (
     <div className="min-h-screen bg-[#0a1628]">
-      {/* Header */}
+      {/* Header + Progress */}
       <section className="pt-28 pb-6 px-4 text-center">
-        <h1
-          className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-          style={{ fontSize: "clamp(24px, 5vw, 40px)", textShadow: `0 0 30px ${coral}30` }}
-        >
+        <h1 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 40px)", textShadow: `0 0 30px ${coral}30` }}>
           Book Bowling
         </h1>
-        {centerName && (
-          <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-1">{centerName}</p>
-        )}
+        {centerName && <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-1">{centerName}</p>}
 
-        {/* Progress bar */}
-        <div className="max-w-md mx-auto mt-6 flex items-center gap-1">
+        <div className="max-w-lg mx-auto mt-6 flex items-center gap-1">
           {stepLabels.map((label, i) => (
             <div key={label} className="flex-1 text-center">
-              <div
-                className="h-1 rounded-full mb-1 transition-all"
-                style={{ backgroundColor: i <= stepIndex ? coral : "rgba(255,255,255,0.1)" }}
-              />
-              <span
-                className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider"
-                style={{ color: i <= stepIndex ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.2)" }}
-              >
+              <div className="h-1 rounded-full mb-1 transition-all" style={{ backgroundColor: i <= stepIndex ? coral : "rgba(255,255,255,0.1)" }} />
+              <span className="font-[var(--font-hp-body)] text-[9px] uppercase tracking-wider" style={{ color: i <= stepIndex ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.2)" }}>
                 {label}
               </span>
             </div>
@@ -385,7 +374,6 @@ export default function BowlingBookingPage() {
         </div>
       </section>
 
-      {/* Error */}
       {error && (
         <div className="max-w-lg mx-auto px-4 mb-4">
           <div className="bg-[#fd5b56]/10 border border-[#fd5b56]/30 rounded-lg px-4 py-3 text-center">
@@ -394,25 +382,21 @@ export default function BowlingBookingPage() {
         </div>
       )}
 
-      {/* Loading */}
       {loading && (
         <div className="text-center py-12">
           <div className="inline-block w-8 h-8 border-2 border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
         </div>
       )}
 
-      {/* Steps */}
-      <section className="max-w-lg mx-auto px-4 pb-20">
+      <section className="max-w-lg mx-auto px-4 pb-24">
+
         {/* ── LOCATION ── */}
         {step === "location" && !loading && (
           <div className="space-y-3">
             {LOCATIONS.map(loc => (
-              <button
-                key={loc.id}
-                onClick={() => selectLocation(loc)}
+              <button key={loc.id} onClick={() => selectLocation(loc)}
                 className="w-full rounded-lg p-5 text-left transition-all hover:scale-[1.01] cursor-pointer"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}
-              >
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>
                 <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider">{loc.name}</h3>
                 <p className="font-[var(--font-hp-body)] text-white/50 text-sm">{loc.address}</p>
               </button>
@@ -420,25 +404,89 @@ export default function BowlingBookingPage() {
           </div>
         )}
 
-        {/* ── DATE ── */}
+        {/* ── DATE + TIME (Calendar) ── */}
         {step === "date" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Select a Date</h2>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[60vh] overflow-y-auto pr-1">
-              {openDates.slice(0, 28).map(d => (
-                <button
-                  key={d.Date}
-                  onClick={() => selectDate(d.Date, d.StartBookingTime || `${d.Date}T12:00`)}
-                  className="rounded-lg p-3 text-center transition-all hover:scale-[1.02] cursor-pointer"
-                  style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}25` }}
-                >
-                  <span className="font-[var(--font-hp-body)] text-white text-sm font-bold block">{formatDate(d.Date)}</span>
-                  {d.StartBookingTime && (
-                    <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{formatTime(d.StartBookingTime)}</span>
-                  )}
-                </button>
+            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Select Date &amp; Time</h2>
+
+            {/* Month navigation */}
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
+                className="text-white/50 hover:text-white p-2 cursor-pointer">&larr;</button>
+              <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{monthName}</span>
+              <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); }}
+                className="text-white/50 hover:text-white p-2 cursor-pointer">&rarr;</button>
+            </div>
+
+            {/* Day headers */}
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+                <div key={d} className="text-center font-[var(--font-hp-body)] text-white/30 text-xs py-1">{d}</div>
               ))}
             </div>
+
+            {/* Calendar grid */}
+            <div className="grid grid-cols-7 gap-1 mb-6">
+              {Array.from({ length: firstDay }).map((_, i) => <div key={`pad-${i}`} />)}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1;
+                const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const isOpen = openDateSet.has(dateStr);
+                const isSelected = dateStr === selectedDate;
+                return (
+                  <button
+                    key={day}
+                    disabled={!isOpen}
+                    onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); }}
+                    className="aspect-square rounded-lg flex items-center justify-center text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer disabled:cursor-default disabled:opacity-20"
+                    style={{
+                      backgroundColor: isSelected ? coral : isOpen ? "rgba(7,16,39,0.5)" : "transparent",
+                      border: isSelected ? `2px solid ${coral}` : isOpen ? "1px solid rgba(255,255,255,0.1)" : "none",
+                      color: isSelected ? "#fff" : isOpen ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Time picker */}
+            {selectedDate && (
+              <div>
+                <h3 className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3 text-center">Select a Time</h3>
+                <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                  {timeSlots.map(t => {
+                    const isSelected = t === selectedTime;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => setSelectedTime(t)}
+                        className="rounded-lg py-2.5 text-center text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
+                        style={{
+                          backgroundColor: isSelected ? gold : "rgba(7,16,39,0.5)",
+                          color: isSelected ? "#0a1628" : "rgba(255,255,255,0.7)",
+                          border: isSelected ? `2px solid ${gold}` : "1px solid rgba(255,255,255,0.1)",
+                        }}
+                      >
+                        {formatTimeStr(t)}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selectedTime && (
+                  <button
+                    onClick={() => setStep("players")}
+                    className="w-full mt-6 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                    style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
+                  >
+                    Continue
+                  </button>
+                )}
+              </div>
+            )}
+
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
         )}
@@ -449,30 +497,46 @@ export default function BowlingBookingPage() {
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2">How Many Bowlers?</h2>
             <p className="font-[var(--font-hp-body)] text-white/40 text-sm mb-6">Up to 6 per lane</p>
             <div className="flex items-center justify-center gap-6 mb-8">
-              <button
-                onClick={() => setPlayerCount(Math.max(1, playerCount - 1))}
+              <button onClick={() => setPlayerCount(Math.max(1, playerCount - 1))}
                 className="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white cursor-pointer transition-all hover:scale-105"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}
-              >
-                -
-              </button>
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>-</button>
               <span className="font-[var(--font-hp-display)] text-white text-5xl" style={{ color: gold }}>{playerCount}</span>
-              <button
-                onClick={() => setPlayerCount(Math.min(24, playerCount + 1))}
+              <button onClick={() => setPlayerCount(Math.min(24, playerCount + 1))}
                 className="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white cursor-pointer transition-all hover:scale-105"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}
-              >
-                +
-              </button>
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>+</button>
             </div>
-            <button
-              onClick={selectPlayers}
+            <button onClick={fetchOffers}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
-            >
-              Continue
-            </button>
+              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Continue</button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+          </div>
+        )}
+
+        {/* ── LANE TYPE ── */}
+        {step === "lane-type" && !loading && (
+          <div>
+            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
+            <div className="space-y-3">
+              {LANE_TYPES.filter(lt => !lt.fmOnly || hasOldTime).map(lt => {
+                const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key).length;
+                return (
+                  <button
+                    key={lt.key}
+                    onClick={() => { setLaneType(lt.key); setStep("offer"); }}
+                    disabled={count === 0}
+                    className="w-full rounded-lg p-5 text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${lt.accent}35` }}
+                  >
+                    <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
+                      {lt.label}
+                    </h3>
+                    <p className="font-[var(--font-hp-body)] text-white/50 text-sm">{lt.desc}</p>
+                    <p className="font-[var(--font-hp-body)] text-xs mt-1" style={{ color: lt.accent }}>{count} package{count !== 1 ? "s" : ""} available</p>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
         )}
 
@@ -481,30 +545,19 @@ export default function BowlingBookingPage() {
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose a Package</h2>
             <div className="space-y-3">
-              {offers.map(offer => (
-                <div
-                  key={offer.OfferId}
-                  className="rounded-lg overflow-hidden"
-                  style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
-                >
+              {filteredOffers.map(offer => (
+                <div key={offer.OfferId} className="rounded-lg overflow-hidden" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}>
                   <div className="p-4">
                     <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
-                    {offer.Description && (
-                      <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>
-                    )}
+                    {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
                     <div className="space-y-2">
-                      {offer.Tariffs?.map(tariff => (
-                        <button
-                          key={tariff.Id}
-                          onClick={() => selectOffer(offer, tariff)}
+                      {(offer.Tariffs || []).map(tariff => (
+                        <button key={tariff.Id} onClick={() => selectOffer(offer, tariff)}
                           className="w-full flex items-center justify-between rounded-lg p-3 cursor-pointer transition-all hover:bg-white/5"
-                          style={{ border: `1px solid rgba(255,255,255,0.1)` }}
-                        >
+                          style={{ border: "1px solid rgba(255,255,255,0.1)" }}>
                           <div className="text-left">
                             <span className="font-[var(--font-hp-body)] text-white text-sm font-bold">{tariff.Name}</span>
-                            {tariff.Duration && (
-                              <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-2">{tariff.Duration}</span>
-                            )}
+                            {tariff.Duration && <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-2">{tariff.Duration}</span>}
                           </div>
                           <span className="font-[var(--font-hp-display)] text-lg" style={{ color: gold }}>${tariff.Price}</span>
                         </button>
@@ -513,6 +566,9 @@ export default function BowlingBookingPage() {
                   </div>
                 </div>
               ))}
+              {filteredOffers.length === 0 && (
+                <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available for this time and lane type.</p>
+              )}
             </div>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
@@ -522,67 +578,43 @@ export default function BowlingBookingPage() {
         {step === "extras" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Add Extras</h2>
-
-            {/* Shoes */}
             {shoes.length > 0 && (
-              <div
-                className="rounded-lg p-4 mb-4"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${cyan}25` }}
-              >
+              <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${cyan}25` }}>
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">Bowling Shoes</h3>
                     <p className="font-[var(--font-hp-body)] text-white/40 text-xs">${shoes[0].Price}/person</p>
                   </div>
-                  <button
-                    onClick={() => setWantShoes(!wantShoes)}
-                    className="w-12 h-7 rounded-full transition-all cursor-pointer"
-                    style={{ backgroundColor: wantShoes ? coral : "rgba(255,255,255,0.1)" }}
-                  >
-                    <div
-                      className="w-5 h-5 rounded-full bg-white transition-all"
-                      style={{ marginLeft: wantShoes ? "26px" : "2px" }}
-                    />
+                  <button onClick={() => setWantShoes(!wantShoes)}
+                    className="w-12 h-7 rounded-full transition-all cursor-pointer" style={{ backgroundColor: wantShoes ? coral : "rgba(255,255,255,0.1)" }}>
+                    <div className="w-5 h-5 rounded-full bg-white transition-all" style={{ marginLeft: wantShoes ? "26px" : "2px" }} />
                   </button>
                 </div>
               </div>
             )}
-
-            {/* Other extras */}
             {extras.length > 0 && (
               <div className="space-y-2 mb-6">
                 {extras.map(ex => {
-                  const isSelected = selectedExtras.has(ex.Id) && selectedExtras.get(ex.Id)! > 0;
+                  const isSel = selectedExtras.has(ex.Id) && selectedExtras.get(ex.Id)! > 0;
                   return (
-                    <button
-                      key={ex.Id}
-                      onClick={() => toggleExtra(ex.Id)}
+                    <button key={ex.Id} onClick={() => toggleExtra(ex.Id)}
                       className="w-full rounded-lg p-4 text-left transition-all cursor-pointer"
-                      style={{
-                        backgroundColor: isSelected ? `${coral}10` : "rgba(7,16,39,0.5)",
-                        border: `1.78px dashed ${isSelected ? coral : "rgba(255,255,255,0.1)"}`,
-                      }}
-                    >
+                      style={{ backgroundColor: isSel ? `${coral}10` : "rgba(7,16,39,0.5)", border: `1.78px dashed ${isSel ? coral : "rgba(255,255,255,0.1)"}` }}>
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">{ex.Name}</h3>
                           {ex.Description && <p className="font-[var(--font-hp-body)] text-white/40 text-xs">{stripHtml(ex.Description)}</p>}
                         </div>
-                        <span className="font-[var(--font-hp-display)] text-base" style={{ color: isSelected ? coral : gold }}>${ex.Price}</span>
+                        <span className="font-[var(--font-hp-display)] text-base" style={{ color: isSel ? coral : gold }}>${ex.Price}</span>
                       </div>
                     </button>
                   );
                 })}
               </div>
             )}
-
-            <button
-              onClick={goToReview}
+            <button onClick={goToReview}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
-            >
-              Review Order
-            </button>
+              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Review Order</button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
@@ -591,47 +623,28 @@ export default function BowlingBookingPage() {
         {step === "review" && !loading && cartSummary && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Order Summary</h2>
-
-            <div
-              className="rounded-lg p-5 mb-6"
-              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}
-            >
+            <div className="rounded-lg p-5 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}>
               <div className="space-y-2 mb-4 pb-4 border-b border-white/10">
                 <div className="flex justify-between">
                   <span className="font-[var(--font-hp-body)] text-white text-sm">{selectedOffer?.Name}</span>
                   <span className="font-[var(--font-hp-body)] text-white text-sm">${selectedTariff?.Price}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="font-[var(--font-hp-body)] text-white/50 text-xs">{formatDate(selectedDate)} &bull; {playerCount} bowlers</span>
-                </div>
+                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                  {new Date(calYear, calMonth, parseInt(selectedDate.split("-")[2])).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at {formatTimeStr(selectedTime)} &bull; {playerCount} bowlers
+                </p>
               </div>
-
               <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
-                <div className="flex justify-between">
-                  <span className="font-[var(--font-hp-body)] text-white/60 text-sm">Subtotal</span>
-                  <span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.TotalItems.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-[var(--font-hp-body)] text-white/60 text-sm">Tax</span>
-                  <span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.AddedTaxes.toFixed(2)}</span>
-                </div>
+                <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Subtotal</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.TotalItems.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Tax</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.AddedTaxes.toFixed(2)}</span></div>
               </div>
-
               <div className="flex justify-between">
                 <span className="font-[var(--font-hp-body)] text-white font-bold">Total</span>
-                <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>
-                  ${cartSummary.TotalWithTaxes?.toFixed(2) || cartSummary.TotalWithoutTaxes?.toFixed(2)}
-                </span>
+                <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>${(cartSummary.TotalWithTaxes || cartSummary.TotalWithoutTaxes).toFixed(2)}</span>
               </div>
             </div>
-
-            <button
-              onClick={() => setStep("details")}
+            <button onClick={() => setStep("details")}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
-            >
-              Continue to Payment
-            </button>
+              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Continue to Payment</button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
@@ -640,37 +653,17 @@ export default function BowlingBookingPage() {
         {step === "details" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Your Details</h2>
-
             <div className="space-y-3 mb-6">
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={guestName}
-                onChange={e => setGuestName(e.target.value)}
-                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors"
-              />
-              <input
-                type="email"
-                placeholder="Email"
-                value={guestEmail}
-                onChange={e => setGuestEmail(e.target.value)}
-                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors"
-              />
-              <input
-                type="tel"
-                placeholder="Phone Number"
-                value={guestPhone}
-                onChange={e => setGuestPhone(e.target.value)}
-                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors"
-              />
+              <input type="text" placeholder="Full Name" value={guestName} onChange={e => setGuestName(e.target.value)}
+                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
+              <input type="email" placeholder="Email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)}
+                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
+              <input type="tel" placeholder="Phone Number" value={guestPhone} onChange={e => setGuestPhone(e.target.value)}
+                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
             </div>
-
-            <button
-              onClick={submitBooking}
-              disabled={loading}
+            <button onClick={submitBooking} disabled={loading}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
-              style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
-            >
+              style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}>
               {loading ? "Processing..." : "Pay & Confirm"}
             </button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
