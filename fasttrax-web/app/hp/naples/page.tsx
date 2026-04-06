@@ -605,6 +605,49 @@ export default function NaplesPage() {
                 )}
               </div>
             ))}
+
+            {/* Nemo's Happy Hour */}
+            <Link
+              href="/hp/menu#happy-hour"
+              className="rounded-lg p-6 transition-all duration-300 hover:scale-[1.01] flex flex-col justify-center"
+              style={{ backgroundColor: "rgba(255,215,0,0.06)", border: "1.78px dashed rgba(255,215,0,0.35)" }}
+            >
+              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                Nemo&apos;s Happy Hour
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-3">
+                Every Day &bull; Open &ndash; 6PM
+              </p>
+              <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">$0.99 wings &bull; $10 flatbreads</p>
+              <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">$1-$2 off drinks</p>
+              <span className="font-[var(--font-hp-body)] text-xs font-semibold" style={{ color: "#FFD700" }}>
+                View Happy Hour Menu &rarr;
+              </span>
+            </Link>
+
+            {/* Free Wing Friday */}
+            <Link
+              href="/hp/menu#free-wing-friday"
+              className="rounded-lg p-6 transition-all duration-300 hover:scale-[1.01] flex flex-col justify-center relative overflow-hidden"
+              style={{ backgroundColor: "rgba(253,91,86,0.06)", border: "1.78px dashed rgba(253,91,86,0.35)" }}
+            >
+              <div className="absolute top-3 right-3">
+                <span className="text-[8px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-2 py-0.5 rounded-full animate-pulse">New!</span>
+              </div>
+              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                Free Wing Friday
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-3">
+                Every Friday &bull; 4 &ndash; 6PM
+              </p>
+              <p className="font-[var(--font-hp-body)] text-white/80 text-sm mb-1">
+                <strong className="text-[#fd5b56]">5 FREE Wings</strong> with any purchase
+              </p>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-3">HeadPinz Rewards required</p>
+              <span className="font-[var(--font-hp-body)] text-xs font-semibold text-[#fd5b56]">
+                Learn More &rarr;
+              </span>
+            </Link>
           </div>
 
         </div>
@@ -660,7 +703,7 @@ export default function NaplesPage() {
                 signature mocktails.
               </p>
               <Link
-                href="/menu"
+                href="/hp/menu"
                 className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
                 style={{ boxShadow: "0 0 20px rgba(253,91,86,0.3)" }}
               >

@@ -189,7 +189,7 @@ function getCategoryForSection(name: string): string {
 /* ------------------------------------------------------------------ */
 
 export default function MenuPage() {
-  const [activeCategory, setActiveCategory] = useState("All");
+  const [activeCategory, setActiveCategory] = useState("Wings");
   const [showHappyHourPdf, setShowHappyHourPdf] = useState(false);
 
   const filtered = activeCategory === "All"
@@ -248,7 +248,7 @@ export default function MenuPage() {
       </section>
 
       {/* ====== FREE WING FRIDAY ====== */}
-      <section style={{ padding: "clamp(32px, 6vw, 56px) clamp(16px, 4vw, 32px) 0" }}>
+      <section id="free-wing-friday" style={{ padding: "clamp(32px, 6vw, 56px) clamp(16px, 4vw, 32px) 0", scrollMarginTop: "120px" }}>
         <div className="max-w-5xl mx-auto">
           <div
             className="rounded-2xl overflow-hidden relative"
@@ -308,7 +308,7 @@ export default function MenuPage() {
       </section>
 
       {/* ====== HAPPY HOUR ====== */}
-      <section style={{ padding: "clamp(24px, 4vw, 40px) clamp(16px, 4vw, 32px)" }}>
+      <section id="happy-hour" style={{ padding: "clamp(24px, 4vw, 40px) clamp(16px, 4vw, 32px)", scrollMarginTop: "120px" }}>
         <div
           className="max-w-5xl mx-auto rounded-2xl p-6 md:p-8"
           style={{ backgroundColor: "rgba(255,215,0,0.05)", border: `1.78px dashed rgba(255,215,0,0.3)` }}
