@@ -398,13 +398,15 @@ export default function BowlingBookingPage() {
 
   /* ── Step: Select offer → create reservation ─────────────────── */
 
-  async function selectOffer(offer: Offer, tariff: { Id: number; Name: string; Price: number; Duration: string }) {
+  async function selectOffer(offer: Offer, tariff: { Id: number; Name: string; Price: number; Duration: string }, overrideTime?: string) {
+    const useTime = overrideTime || selectedTime;
+    if (overrideTime) setSelectedTime(overrideTime);
     setSelectedOffer(offer);
     setSelectedTariff(tariff);
     setLoading(true);
     setError("");
     try {
-      const dt = `${selectedDate}T${selectedTime}`;
+      const dt = `${selectedDate}T${useTime}`;
       const reservation = await qamf(`centers/${centerId}/reservations/temporary-request/book-for-later`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1100,9 +1102,8 @@ export default function BowlingBookingPage() {
               <button
                 onClick={() => {
                   const { offer, tariff, newTime } = pendingOffer;
-                  setSelectedTime(newTime);
                   setPendingOffer(null);
-                  selectOffer(offer, tariff);
+                  selectOffer(offer, tariff, newTime);
                 }}
                 className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
                 style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
