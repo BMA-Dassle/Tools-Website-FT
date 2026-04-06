@@ -163,6 +163,9 @@ export default function BowlingBookingPage() {
   const [centerName, setCenterName] = useState("");
   const [hasOldTime, setHasOldTime] = useState(false);
 
+  // Reset session on mount (hard refresh = clean state)
+  useEffect(() => { _sessionToken = ""; }, []);
+
   // Auto-detect location from query param or referrer
   useEffect(() => {
     const locParam = searchParams.get("location");
@@ -186,6 +189,8 @@ export default function BowlingBookingPage() {
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [selectedTariff, setSelectedTariff] = useState<{ Id: number; Name: string; Price: number; Duration: string } | null>(null);
   const [reservationKey, setReservationKey] = useState("");
+  const [reservationCreatedAt, setReservationCreatedAt] = useState<number>(0);
+  const [countdown, setCountdown] = useState("");
 
   // Calendar state
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
@@ -206,6 +211,40 @@ export default function BowlingBookingPage() {
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
+
+  // Countdown timer for reservation hold
+  useEffect(() => {
+    if (!reservationCreatedAt) { setCountdown(""); return; }
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - reservationCreatedAt) / 1000);
+      const remaining = 10 * 60 - elapsed; // 10 min TTL
+      if (remaining <= 0) {
+        setCountdown("Expired");
+        clearInterval(interval);
+        return;
+      }
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      setCountdown(`${m}:${String(s).padStart(2, "0")}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [reservationCreatedAt]);
+
+  // Clear reservation function
+  function clearReservation() {
+    if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+    setReservationKey("");
+    setReservationCreatedAt(0);
+    setSelectedOffer(null);
+    setSelectedTariff(null);
+    setShoes([]);
+    setExtras([]);
+    setSelectedExtras(new Map());
+    setCartSummary(null);
+    _sessionToken = "";
+    setStep("lane-type");
+    setError("");
+  }
 
   // Refs
   const timePickerRef = useRef<HTMLDivElement>(null);
@@ -316,6 +355,7 @@ export default function BowlingBookingPage() {
         }),
       });
       setReservationKey(reservation.ReservationKey);
+      setReservationCreatedAt(Date.now());
       startKeepAlive(reservation.ReservationKey, centerId);
 
       const dte = encodeURIComponent(dt);
@@ -511,6 +551,42 @@ export default function BowlingBookingPage() {
       {loading && (
         <div className="text-center py-12">
           <div className="inline-block w-8 h-8 border-2 border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* Reservation hold bar */}
+      {reservationKey && countdown && (
+        <div className="max-w-3xl mx-auto px-4 mb-4">
+          <div
+            className="flex items-center justify-between rounded-lg px-4 py-3"
+            style={{
+              backgroundColor: countdown === "Expired" ? "rgba(253,91,86,0.15)" : "rgba(255,215,0,0.1)",
+              border: `1px solid ${countdown === "Expired" ? "rgba(253,91,86,0.3)" : "rgba(255,215,0,0.25)"}`,
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: countdown === "Expired" ? coral : gold, animation: countdown !== "Expired" ? "pulse 2s infinite" : "none" }}
+              />
+              <div>
+                <p className="font-[var(--font-hp-body)] text-white text-sm font-bold">
+                  {countdown === "Expired" ? "Reservation expired" : "Lane held"}
+                </p>
+                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                  {countdown === "Expired"
+                    ? "Please start over to get a new reservation"
+                    : `${selectedOffer?.Name || "Package"} \u2022 ${countdown} remaining`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={clearReservation}
+              className="font-[var(--font-hp-body)] text-white/40 hover:text-white text-xs uppercase tracking-wider cursor-pointer transition-colors px-3 py-1.5 rounded-full border border-white/10 hover:border-white/30"
+            >
+              {countdown === "Expired" ? "Start Over" : "Clear"}
+            </button>
+          </div>
         </div>
       )}
 
