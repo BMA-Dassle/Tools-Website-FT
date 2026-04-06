@@ -49,6 +49,20 @@ export function middleware(request: NextRequest) {
     if (redirect) {
       return NextResponse.redirect(`https://headpinz.com${redirect}`, 301);
     }
+
+    // /review → Google Business Profile review (Fort Myers default, /review/naples for Naples)
+    if (pathname.toLowerCase() === "/review") {
+      return NextResponse.redirect(
+        "https://search.google.com/local/writereview?placeid=ChIJw7rUvBSl3YgRZnV1tR0aK9s",
+        302
+      );
+    }
+    if (pathname.toLowerCase() === "/review/naples") {
+      return NextResponse.redirect(
+        "https://search.google.com/local/writereview?placeid=ChIJq6qqNOSi3YgREP2LHBrr1g4",
+        302
+      );
+    }
   }
 
   // HeadPinz domain: rewrite to /hp prefix (unless already there or it's a shared route)
