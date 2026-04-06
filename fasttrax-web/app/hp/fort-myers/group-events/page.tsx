@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 
-/* ── HeadPinz brand tokens ────────────────────────────── */
+/* -- HeadPinz brand tokens -------------------------------- */
 
 const coral = "#fd5b56";
 const purple = "#9b51e0";
@@ -13,7 +13,7 @@ const bg = "#0a0518";
 const glowCoral = "rgba(253,91,86,0.4) 0px 0px 30px";
 const glowPurple = "rgba(155,81,224,0.4) 0px 0px 30px";
 
-/* ── Data ─────────────────────────────────────────────── */
+/* -- Data ------------------------------------------------- */
 
 const howItWorks = [
   {
@@ -26,44 +26,44 @@ const howItWorks = [
     step: 2,
     title: "Plan Food & Drinks",
     color: purple,
-    desc: "Pizza packages, wing platters, and full bar service by Nemo\u2019s. Catering built for groups of any size.",
+    desc: "Buffet packages, wing platters, and full bar service by Nemo\u2019s. Catering built for groups of any size.",
   },
   {
     step: 3,
     title: "Pick Activities",
     color: blue,
-    desc: "Bowling, laser tag, gel blasters, arcade, HyperBowling \u2014 build the ultimate event lineup.",
+    desc: "Bowling, laser tag, axe throwing, arcade, HyperBowling \u2014 build the ultimate event lineup.",
   },
 ];
 
 const eventSpaces = [
   {
-    title: "Private Bowling Lanes",
-    capacity: "Up to 144 Guests (24 Lanes)",
+    title: "Classic Bowling Lanes",
+    capacity: "Up to 6 per lane, shoes included",
     color: coral,
     img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
-    desc: "Reserve a block of lanes for your group with glow-bowl lighting, cosmic effects, and shoe rental included. Up to 6 guests per lane.",
+    desc: "Reserve a block of lanes for your group with glow-bowl lighting, cosmic effects, and shoe rental included.",
   },
   {
-    title: "VIP Pinz Club",
-    capacity: "Exclusive Lounge Area",
+    title: "VIP Bowling",
+    capacity: "Dedicated VIP Lounge & Bar",
     color: purple,
     img: "https://headpinz.com/wp-content/uploads/2024/02/neoverse.jpg",
-    desc: "Elevated experience with VIP lanes, HyperBowling, NeoVerse immersive walls, and dedicated bar service. Premium atmosphere for corporate events and celebrations.",
+    desc: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included.",
   },
   {
-    title: "NEXUS Arena",
-    capacity: "Up to 34 Per Session",
+    title: "VIP Pinz Exclusive",
+    capacity: "Up to 80 guests (48 bowl at once)",
     color: blue,
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    desc: "Two-story laser tag arena and state-of-the-art gel blaster combat. Immersive, high-energy team activities perfect for group competition.",
+    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp",
+    desc: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling. Holds up to 80 people.",
   },
   {
-    title: "Full Facility Buyout",
-    capacity: "500+ Guests",
+    title: "Pinboyz Lanes",
+    capacity: "4 Vintage Lanes, Private Lounge",
     color: coral,
-    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp",
-    desc: "The entire 50,000+ sq ft venue is yours. All lanes, all attractions, all bars. The ultimate private event for large groups and corporate retreats.",
+    img: "https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4755-2048x1365-1-1024x683.webp",
+    desc: "4 vintage lanes, separate sound system, private lounge & bar with dedicated server, vintage 1908 pool table.",
   },
 ];
 
@@ -73,48 +73,198 @@ const activities = [
     subtitle: "Glow Bowl & Cosmic",
     color: coral,
     img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
-    desc: "24 state-of-the-art lanes with cosmic glow effects. Reserve lanes for your group with shoes included.",
+    desc: "State-of-the-art lanes with cosmic glow effects. Reserve lanes for your group with shoes included.",
   },
   {
     title: "NEXUS Laser Tag",
-    subtitle: "$10/person",
+    subtitle: "$9/person",
     color: purple,
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions for up to 34 players.",
+    desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions.",
   },
   {
-    title: "NEXUS Gel Blasters",
-    subtitle: "$12/person",
+    title: "Axe Throwing",
+    subtitle: "18+ Only",
     color: blue,
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
-    desc: "State-of-the-art blasters with haptic vests. Eco-friendly Gellets evaporate on impact \u2014 all the action, zero cleanup.",
+    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp",
+    desc: "$60 weekdays, $90 weekends. A unique team-building activity for your adult group events.",
   },
   {
-    title: "Arcade",
-    subtitle: "40+ Games",
+    title: "Arcade / Game Zone",
+    subtitle: "Cards $5\u2013$20",
     color: coral,
     img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp",
-    desc: "The latest titles, VR simulators, and a prize center. Load any amount onto a Game Card at our kiosks.",
+    desc: "The latest titles, VR simulators, and a prize center. Timed or redemption game cards available.",
   },
   {
     title: "HyperBowling",
     subtitle: "VIP Exclusive",
     color: purple,
     img: "https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg",
-    desc: "LED-integrated bumper targets turn every throw into a scoring challenge. Dynamic gameplay meets physical skill. Available in VIP lanes.",
+    desc: "LED-integrated bumper targets turn every throw into a scoring challenge. Available in VIP lanes.",
   },
 ];
 
-const bowlingPricing = [
-  { pkg: "Regular Lanes", lanes: "Per Lane", monThu: "$36", friSun: "$57", note: "1.5 hours, up to 6 per lane, shoes included" },
-  { pkg: "VIP Lanes", lanes: "Per Lane", monThu: "$57", friSun: "$79.50", note: "1.5 hours, up to 6 per lane, shoes included" },
+/* -- Bowling pricing tables ------------------------------- */
+
+const classicBowling = {
+  title: "Classic Bowling",
+  subtitle: "Per lane, up to 6 people, shoes & balls included",
+  color: coral,
+  rows: [
+    { period: "Mon\u2013Fri before 5pm", h15: "$70.50", h2: "$82.50", h3: "$106.50" },
+    { period: "Mon\u2013Thu after 5pm", h15: "$82.50", h2: "$97.50", h3: "$127.50" },
+    { period: "Fri 5pm \u2013 Sun Close", h15: "$98.50", h2: "$117.00", h3: "$155.00" },
+  ],
+};
+
+const vipBowling = {
+  title: "VIP Bowling",
+  subtitle: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included",
+  color: purple,
+  rows: [
+    { period: "Mon\u2013Fri before 5pm", h15: "$111.00", h2: "$133.00", h3: "$177.00" },
+    { period: "Mon\u2013Thu after 5pm", h15: "$115.00", h2: "$138.00", h3: "$184.00" },
+    { period: "Fri 5pm \u2013 Sun Close", h15: "$139.00", h2: "$168.00", h3: "$226.00" },
+  ],
+};
+
+const vipPinzExclusive = {
+  title: "VIP Pinz Exclusive",
+  subtitle: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling \u2014 holds up to 80 people, 48 can bowl at once",
+  color: blue,
+  rows: [
+    { period: "Mon\u2013Fri before 5pm", h15: "$888", h2: "$1,064", h3: "$1,416" },
+    { period: "Mon\u2013Thu after 5pm", h15: "$920", h2: "$1,104", h3: "$1,472" },
+    { period: "Fri 5pm \u2013 Sun Close", h15: "$1,112", h2: "$1,344", h3: "$1,808" },
+  ],
+};
+
+const bowlingTables = [classicBowling, vipBowling, vipPinzExclusive];
+
+/* -- Add-on activities ------------------------------------ */
+
+const addOnActivities = [
+  { name: "Laser Tag", price: "$9/person" },
+  { name: "Pool Tables", price: "$15/hour" },
+  { name: "Axe Throwing (18+)", price: "$60 weekdays / $90 weekends" },
+  { name: "Ping Pong", price: "$9 before 5pm / $13 after 5pm" },
+  { name: "Game Zone Cards", price: "$5 / $10 / $20" },
 ];
 
-const activityPricing = [
-  { name: "Laser Tag", price: "$10/person", note: "Per session" },
-  { name: "Gel Blasters", price: "$12/person", note: "Per session" },
-  { name: "Arcade", price: "Game Cards Available", note: "Load any amount" },
+/* -- Buffet packages -------------------------------------- */
+
+const buffetPackages = [
+  {
+    name: "Taco Bar",
+    price: "$28/person",
+    desc: "Shrimp, mojo pork, marinated chicken, seasoned beef (choice of 3 proteins). Rice, tortillas, Pico, sour cream, cheeses, lettuce, guacamole, chips & salsa.",
+  },
+  {
+    name: "Fajita Bar",
+    price: "$29/person",
+    desc: "Seasoned steak & chicken fajita bar with sauteed peppers & onions, cilantro rice, Pico de Gallo, shredded Mexican cheese, sour cream, jalapenos, shredded lettuce. Flour tortillas.",
+  },
+  {
+    name: "Italian Spread",
+    price: "$27/person",
+    desc: "Slow cooked Italian meatballs in seasoned marinara, sausage with peppers & onions, shrimp scampi. Linguini & garlic breadsticks, house or Caesar salad.",
+  },
+  {
+    name: "Farm 2 Table",
+    price: "$31/person",
+    desc: "Mini burgers topped with lettuce & tomato, mini-BBQ pulled pork, grilled chicken sliders. French fries, Cole slaw, BBQ baked beans.",
+  },
+  {
+    name: "Specialty Pizza Buffet",
+    price: "$21/person",
+    desc: "Cheese, pepperoni + any 2 specialty pizzas (meat lovers, supreme, veggie, buffalo chicken). Tossed house or Caesar salad, garlic bread.",
+  },
+  {
+    name: "Pizza Buffet",
+    price: "$16/person",
+    desc: '16" cheese and pepperoni pizzas.',
+  },
+  {
+    name: "Nacho Bar \u2014 Chicken",
+    price: "$25/person",
+    desc: "Marinated chicken with chips, queso, Pico, corn & bean salsa, lettuce, sour cream, chives & jalapenos.",
+  },
+  {
+    name: "Nacho Bar \u2014 Mojo Pork",
+    price: "$21/person",
+    desc: "Mojo pork with chips, queso, Pico, corn & bean salsa, lettuce, sour cream, chives & jalapenos.",
+  },
+  {
+    name: "Nacho Bar \u2014 Chili",
+    price: "$21/person",
+    desc: "Chili with chips, queso, Pico, corn & bean salsa, lettuce, sour cream, chives & jalapenos.",
+  },
 ];
+
+/* -- Extra Frames (a la carte) ---------------------------- */
+
+const extraFrames = [
+  { name: "Roasted Pork Platter", price: "$210", note: "Serves 12\u201315" },
+  { name: "Churrasco Steak Platter", price: "$279", note: "Serves 12\u201315" },
+  { name: "Meatball Platter (50)", price: "$45", note: "" },
+  { name: "Meatball Platter (100)", price: "$75", note: "" },
+  { name: "Spinach Artichoke Dip", price: "$60", note: "" },
+  { name: "Chicken Teriyaki Potstickers", price: "$35", note: "30 pieces" },
+  { name: "15 Mini Sliders", price: "$52", note: "Mini burgers, cubans, chicken, or mojo pork" },
+  { name: "Nemo\u2019s Famous Chicken Wings", price: "Market Price", note: "20/50/100 count, Ranch or Blue Cheese" },
+  { name: 'Cheese Pizza (16")', price: "$16", note: "" },
+  { name: 'Pepperoni Pizza (16")', price: "$18", note: "" },
+  { name: 'Veggie Pizza (16")', price: "$19", note: "" },
+  { name: 'Buffalo Chicken Pizza (16")', price: "$19", note: "" },
+  { name: 'Meat Lover Pizza (16")', price: "$20", note: "" },
+  { name: 'Supreme Pizza (16")', price: "$21", note: "" },
+  { name: 'BBQ Chicken Pizza (16")', price: "$19", note: "" },
+  { name: "Chafer of Salad", price: "$45", note: "House or Caesar, serves 25" },
+  { name: "Fruit Tray (Small)", price: "$85", note: "Serves 25" },
+  { name: "Fruit Tray (Large)", price: "$160", note: "Serves 50" },
+  { name: "Veggie Tray (Small)", price: "$85", note: "Serves 25" },
+  { name: "Veggie Tray (Large)", price: "$160", note: "Serves 50" },
+  { name: "Chips & Salsa", price: "$35", note: "" },
+  { name: "Queso & Chips", price: "$60", note: "" },
+  { name: "Guacamole & Chips", price: "$60", note: "" },
+  { name: "Chicken Tenders", price: "$75", note: "20 pieces with 2 sauces" },
+  { name: "Boneless Wings (Small)", price: "$45", note: "2.5 lb" },
+  { name: "Boneless Wings (Large)", price: "$80", note: "5 lb" },
+  { name: "Mac & Cheese Bites", price: "$50", note: "45 count" },
+  { name: "Mini Empanadas", price: "$50", note: "30 count" },
+  { name: "Fried Mozzarella Sticks", price: "$50", note: "30 count" },
+  { name: "Loaded Fries", price: "$60", note: "5 lbs" },
+  { name: "Fries", price: "$30", note: "5 lbs" },
+  { name: "Coconut Shrimp", price: "$68", note: "30 pieces" },
+  { name: "Brownies (Small)", price: "$75", note: "Serves 25" },
+  { name: "Brownies (Large)", price: "$125", note: "Serves 50" },
+  { name: "Cookies (Small)", price: "$75", note: "Serves 25" },
+  { name: "Cookies (Large)", price: "$125", note: "Serves 50" },
+];
+
+/* -- Beverages -------------------------------------------- */
+
+const beverages = [
+  { category: "Non-Alcoholic", items: [
+    { name: "Soda Pitchers", price: "$7" },
+    { name: "Unlimited Soda, Coffee & Tea", price: "$4/guest" },
+  ]},
+  { category: "Beer", items: [
+    { name: "Domestic Pitcher", price: "$14.50" },
+    { name: "Craft Pitcher", price: "$23" },
+    { name: "Import Pitcher", price: "$23" },
+    { name: "Domestic Bucket (5 bottles)", price: "$18" },
+    { name: "Craft/Import Bucket (5 bottles)", price: "$24.50" },
+  ]},
+  { category: "Drink Tickets", items: [
+    { name: "Well Liquor / Domestic Beer / House Wine", price: "$5 each" },
+    { name: "Call Liquor / Import / Domestic Beer / Wine", price: "$7 each" },
+    { name: "Any Liquor / Craft / Import / Domestic / Wine", price: "$9 each" },
+  ]},
+];
+
+/* -- FAQs ------------------------------------------------- */
 
 const faqs = [
   {
@@ -123,11 +273,11 @@ const faqs = [
   },
   {
     q: "What is the minimum group size?",
-    a: "Group event packages are available for groups of 10 or more. Your event coordinator will tailor the package to your group size and needs.",
+    a: "Group event packages are available for groups of 10 or more. Buffet catering requires a minimum of 25 people.",
   },
   {
     q: "Can we bring outside food?",
-    a: "All food and beverage is provided by Nemo\u2019s, our on-site restaurant and bar. Custom catering packages are available for groups of any size.",
+    a: "All food and beverage is provided by Nemo\u2019s, our on-site restaurant and bar. Custom catering packages are available for groups of any size. Food orders must be placed 72 hours in advance.",
   },
   {
     q: "Is a deposit required?",
@@ -135,15 +285,15 @@ const faqs = [
   },
   {
     q: "What about non-bowlers in our group?",
-    a: "No problem! We offer laser tag, gel blasters, arcade games, HyperBowling, NeoVerse, and a full-service restaurant and bar. There\u2019s something for everyone.",
+    a: "No problem! We offer laser tag, axe throwing, ping pong, pool tables, arcade games, HyperBowling, and a full-service restaurant and bar. There\u2019s something for everyone.",
   },
   {
     q: "Do you accommodate dietary restrictions?",
     a: "Absolutely. Our catering team can accommodate most dietary needs including vegetarian, vegan, gluten-free, and common allergies. Please note them in your event request.",
   },
   {
-    q: "What are the age requirements for laser tag and gel blasters?",
-    a: "Laser tag is available for ages 6 and up. Gel blasters require a minimum age of 10. All participants must complete a waiver.",
+    q: "Do you have a corporate meeting room?",
+    a: "Yes! Our meeting room is available for $100/hour with A/V equipment included. Perfect for presentations before team activities.",
   },
   {
     q: "Do you offer birthday party packages?",
@@ -151,11 +301,55 @@ const faqs = [
   },
 ];
 
-/* ── Component ─────────────────────────────────────────── */
+/* -- Reusable bowling price table component --------------- */
+
+function BowlingPriceTable({ table }: { table: typeof classicBowling }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden mb-8">
+      <div className="px-5 py-4 border-b border-white/10" style={{ backgroundColor: `${table.color}15` }}>
+        <h3
+          className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+          style={{ fontSize: "clamp(18px, 3vw, 24px)", letterSpacing: "0.5px" }}
+        >
+          {table.title}
+        </h3>
+        <p className="font-[var(--font-hp-body)] text-white/50 text-xs mt-1">{table.subtitle}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left font-[var(--font-hp-body)] text-sm" style={{ minWidth: "520px" }}>
+          <thead>
+            <tr style={{ backgroundColor: `${table.color}88` }}>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Time Period</th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">1.5 Hours</th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">2 Hours</th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">3 Hours</th>
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((r, i) => (
+              <tr
+                key={r.period}
+                style={{ backgroundColor: i % 2 === 0 ? "rgba(10,5,24,0.6)" : "rgba(10,5,24,0.3)" }}
+              >
+                <td className="px-4 py-3 text-white/80 font-medium">{r.period}</td>
+                <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h15}</td>
+                <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h2}</td>
+                <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h3}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* -- Component -------------------------------------------- */
 
 export default function HeadPinzGroupEventsPage() {
   const [showForm, setShowForm] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [extrasOpen, setExtrasOpen] = useState(false);
 
   return (
     <>
@@ -221,7 +415,7 @@ export default function HeadPinzGroupEventsPage() {
               className="font-[var(--font-hp-body)] text-white/80 mb-8"
               style={{ fontSize: "clamp(15px, 2vw, 18px)", lineHeight: "1.6", maxWidth: "640px" }}
             >
-              Two locations. Over 50,000 sq ft each. From intimate gatherings of 10 to full
+              Over 50,000 sq ft of entertainment. From intimate gatherings of 10 to full
               facility buyouts for 500+, HeadPinz has the space, the activities, and the
               catering to make your event legendary.
             </p>
@@ -233,13 +427,13 @@ export default function HeadPinzGroupEventsPage() {
               >
                 Request a Quote
               </button>
-              <button
-                onClick={() => setShowForm(true)}
-                className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
+              <a
+                href="tel:+12393022155"
+                className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
                 style={{ backgroundColor: purple, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
-                Download Event Guide
-              </button>
+                Call (239) 302-2155
+              </a>
             </div>
           </div>
           <div className="flex-1 relative w-full aspect-[4/3] rounded-2xl overflow-hidden">
@@ -432,46 +626,47 @@ export default function HeadPinzGroupEventsPage() {
             Bowling Event Pricing
           </h2>
           <p className="font-[var(--font-hp-body)] text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
-            All prices per lane. 1.5-hour sessions. Shoe rental included. Up to 6 guests per lane.
+            All prices plus sales tax. Prices subject to change.
           </p>
 
-          <div className="overflow-x-auto mb-6">
-            <table className="w-full text-left font-[var(--font-hp-body)] text-sm" style={{ minWidth: "480px" }}>
-              <thead>
-                <tr style={{ backgroundColor: "rgba(253,91,86,0.7)" }}>
-                  <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Package</th>
-                  <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Lanes</th>
-                  <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Mon&ndash;Thu</th>
-                  <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Fri&ndash;Sun</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bowlingPricing.map((r, i) => (
-                  <tr
-                    key={r.pkg}
-                    style={{ backgroundColor: i % 2 === 0 ? "rgba(10,5,24,0.6)" : "rgba(10,5,24,0.3)" }}
-                  >
-                    <td className="px-4 py-3 text-white font-semibold">{r.pkg}</td>
-                    <td className="px-4 py-3 text-white/70">{r.lanes}</td>
-                    <td className="px-4 py-3 font-semibold" style={{ color: coral }}>
-                      {r.monThu}
-                    </td>
-                    <td className="px-4 py-3 font-semibold" style={{ color: coral }}>
-                      {r.friSun}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {bowlingTables.map((table) => (
+            <BowlingPriceTable key={table.title} table={table} />
+          ))}
+
+          {/* Pinboyz Lanes -- flat rate, separate card */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden mb-8">
+            <div className="px-5 py-4 border-b border-white/10" style={{ backgroundColor: `${coral}15` }}>
+              <h3
+                className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+                style={{ fontSize: "clamp(18px, 3vw, 24px)", letterSpacing: "0.5px" }}
+              >
+                Pinboyz Lanes
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/50 text-xs mt-1">
+                4 vintage lanes, separate sound system, private lounge & bar with dedicated server, vintage 1908 pool table
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5">
+              {[
+                { duration: "2 Hours", price: "$800" },
+                { duration: "3 Hours", price: "$1,200" },
+                { duration: "Additional Hour", price: "$400" },
+              ].map((item) => (
+                <div key={item.duration} className="text-center rounded-xl bg-white/[0.03] border border-white/5 p-4">
+                  <p className="font-[var(--font-hp-body)] text-white/60 text-xs uppercase tracking-wider mb-1">{item.duration}</p>
+                  <p className="font-[var(--font-hp-hero)] font-black text-2xl" style={{ color: coral }}>{item.price}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <p className="font-[var(--font-hp-body)] text-white/40 text-center text-xs">
-            Shoe rental included &middot; Up to 6 guests per lane &middot; Pricing may vary during holidays and special events
+            All prices plus sales tax &middot; Prices subject to change
           </p>
         </div>
       </section>
 
-      {/* ====== 7. ACTIVITY PRICING ====== */}
+      {/* ====== 7. ADD-ON ACTIVITIES + SPECIALS ====== */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-[#0a0518] via-[#12082a] to-[#0a0518]" />
         <div
@@ -488,31 +683,63 @@ export default function HeadPinzGroupEventsPage() {
               textShadow: glowCoral,
             }}
           >
-            Activity Pricing
+            Add-On Activities
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
-            {activityPricing.map((a) => (
+
+          {/* Add-on grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+            {addOnActivities.map((a) => (
               <div
                 key={a.name}
-                className="text-center rounded-2xl border border-white/10 bg-white/[0.03] p-6"
+                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col items-center text-center"
               >
-                <h3
-                  className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-2"
-                  style={{ fontSize: "18px" }}
-                >
+                <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-2" style={{ fontSize: "16px" }}>
                   {a.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] font-bold text-2xl mb-2" style={{ color: coral }}>
+                <p className="font-[var(--font-hp-body)] font-bold text-lg" style={{ color: coral }}>
                   {a.price}
                 </p>
-                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">{a.note}</p>
               </div>
             ))}
+          </div>
+
+          {/* Game Zone Party + Meeting Room + Full Buyout */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-white/10 p-5 text-center" style={{ backgroundColor: `${purple}15` }}>
+              <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
+                Game Zone Party
+              </h3>
+              <p className="font-[var(--font-hp-hero)] font-black text-2xl mb-2" style={{ color: purple }}>$22/person</p>
+              <p className="font-[var(--font-hp-body)] text-white/50 text-xs leading-relaxed">
+                1 round of Laser Tag + 1-hour unlimited Game Zone (not valid on photo, redemption, merchandise, or coin pushers)
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 p-5 text-center" style={{ backgroundColor: `${blue}15` }}>
+              <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
+                Corporate Meeting Room
+              </h3>
+              <p className="font-[var(--font-hp-hero)] font-black text-2xl mb-2" style={{ color: blue }}>$100/hour</p>
+              <p className="font-[var(--font-hp-body)] text-white/50 text-xs leading-relaxed">
+                A/V equipment included. Perfect for presentations before team activities.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 p-5 text-center" style={{ backgroundColor: `${coral}15` }}>
+              <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
+                Full Venue Buyout
+              </h3>
+              <p className="font-[var(--font-hp-hero)] font-black text-lg mb-2" style={{ color: coral }}>Contact Event Planner</p>
+              <p className="font-[var(--font-hp-body)] text-white/50 text-xs leading-relaxed">
+                Call{" "}
+                <a href="tel:+12393022155" className="underline" style={{ color: coral }}>
+                  (239) 302-2155
+                </a>
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ====== 8. CATERING BY NEMO'S ====== */}
+      {/* ====== 8. BUFFET PACKAGES ====== */}
       <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <Image
           src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_5.webp"
@@ -522,8 +749,8 @@ export default function HeadPinzGroupEventsPage() {
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0 bg-[#0a0518]/88" />
-        <div className="relative z-10 max-w-4xl mx-auto px-6 lg:px-8">
+        <div className="absolute inset-0 bg-[#0a0518]/90" />
+        <div className="relative z-10 max-w-6xl mx-auto px-6 lg:px-8">
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
             style={{
@@ -534,48 +761,131 @@ export default function HeadPinzGroupEventsPage() {
               textShadow: glowPurple,
             }}
           >
-            Catering by Nemo&apos;s
+            Buffet Packages
           </h2>
           <p
-            className="font-[var(--font-hp-body)] text-white/70 text-center mx-auto mb-10"
-            style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "600px", lineHeight: "1.6" }}
+            className="font-[var(--font-hp-body)] text-white/60 text-center mx-auto mb-10"
+            style={{ fontSize: "clamp(13px, 2vw, 16px)", maxWidth: "600px", lineHeight: "1.5" }}
           >
-            Fresh-made pizza packages, jumbo wing platters, appetizer trays, and full bar
-            service. Our catering team builds custom menus for groups of every size.
+            25 person minimum &middot; 1-hour service &middot; Soda, tea, coffee & water included
+            <br />
+            Food orders required 72 hours in advance
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
-            {[
-              { title: "Pizza Packages", desc: "Party-sized pizza trays with a variety of specialty and classic options.", color: coral },
-              { title: "Wing & Appetizer Platters", desc: "Famous jumbo wings, mozzarella sticks, pretzel bites, and more.", color: purple },
-              { title: "Bar Packages", desc: "Well, call, and premium drink ticket packages. Craft beer and cocktails available.", color: blue },
-            ].map((item) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
+            {buffetPackages.map((pkg) => (
               <div
-                key={item.title}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-center"
+                key={pkg.name}
+                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col"
               >
-                <h3
-                  className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-2"
-                  style={{ fontSize: "16px" }}
-                >
-                  {item.title}
-                </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
-                  {item.desc}
+                <div className="flex items-baseline justify-between mb-3">
+                  <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "16px" }}>
+                    {pkg.name}
+                  </h3>
+                  <span className="font-[var(--font-hp-body)] font-bold text-sm ml-2 flex-shrink-0" style={{ color: coral }}>
+                    {pkg.price}
+                  </span>
+                </div>
+                <p className="font-[var(--font-hp-body)] text-white/50 text-xs leading-relaxed flex-1">
+                  {pkg.desc}
                 </p>
               </div>
             ))}
           </div>
 
-          <div className="text-center">
+          {/* Extra Frames -- collapsible accordion */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden mb-6">
             <button
-              onClick={() => setShowForm(true)}
-              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
-              style={{ backgroundColor: purple, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+              onClick={() => setExtrasOpen(!extrasOpen)}
+              className="w-full flex items-center justify-between px-5 py-4 cursor-pointer"
             >
-              View Full Menu
+              <div>
+                <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white text-left" style={{ fontSize: "18px" }}>
+                  Extra Frames &mdash; A La Carte Items
+                </h3>
+                <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-1 text-left">
+                  Platters, appetizers, pizzas, desserts & more
+                </p>
+              </div>
+              <svg
+                className="w-6 h-6 flex-shrink-0 transition-transform ml-4"
+                style={{
+                  color: coral,
+                  transform: extrasOpen ? "rotate(180deg)" : "rotate(0deg)",
+                }}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
             </button>
+            <div
+              className="overflow-hidden transition-all duration-500"
+              style={{
+                maxHeight: extrasOpen ? "3000px" : "0px",
+                opacity: extrasOpen ? 1 : 0,
+              }}
+            >
+              <div className="border-t border-white/10 overflow-x-auto">
+                <table className="w-full text-left font-[var(--font-hp-body)] text-sm" style={{ minWidth: "480px" }}>
+                  <thead>
+                    <tr style={{ backgroundColor: "rgba(155,81,224,0.5)" }}>
+                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Item</th>
+                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Price</th>
+                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extraFrames.map((item, i) => (
+                      <tr
+                        key={item.name}
+                        style={{ backgroundColor: i % 2 === 0 ? "rgba(10,5,24,0.6)" : "rgba(10,5,24,0.3)" }}
+                      >
+                        <td className="px-4 py-2.5 text-white/80">{item.name}</td>
+                        <td className="px-4 py-2.5 font-semibold" style={{ color: purple }}>{item.price}</td>
+                        <td className="px-4 py-2.5 text-white/40 text-xs">{item.note}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
+
+          {/* Beverages */}
+          <h3
+            className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center mt-12 mb-6"
+            style={{ fontSize: "clamp(22px, 5vw, 36px)", textShadow: glowCoral }}
+          >
+            Beverages
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
+            {beverages.map((cat) => (
+              <div key={cat.category} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <h4
+                  className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-4"
+                  style={{ fontSize: "14px", letterSpacing: "1px" }}
+                >
+                  {cat.category}
+                </h4>
+                <div className="space-y-3">
+                  {cat.items.map((item) => (
+                    <div key={item.name} className="flex justify-between items-baseline gap-2">
+                      <span className="font-[var(--font-hp-body)] text-white/60 text-xs leading-snug">{item.name}</span>
+                      <span className="font-[var(--font-hp-body)] font-bold text-xs flex-shrink-0" style={{ color: coral }}>
+                        {item.price}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="font-[var(--font-hp-body)] text-white/30 text-center text-xs">
+            All liquor single pour only. Shots and beer buckets not included in drink tickets.
+          </p>
         </div>
       </section>
 
