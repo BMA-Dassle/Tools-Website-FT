@@ -19,6 +19,8 @@ interface OpenDate {
 
 interface OfferItem {
   ItemId: number;
+  Quantity: number;
+  QuantityType: string;
   Time: string;
   Total: number;
   Remaining: number;
@@ -95,6 +97,17 @@ async function qamf(path: string, options?: RequestInit) {
 }
 
 function stripHtml(html: string) { return html.replace(/<[^>]*>/g, "").trim(); }
+
+function isPerPerson(name: string): boolean {
+  const n = name.toLowerCase();
+  return n.includes("fun 4") || n.includes("fun4");
+}
+
+function formatDuration(qty: number, qtyType: string): string {
+  if (qtyType === "Minutes") return `${qty} min`;
+  if (qtyType === "Games") return `${qty} game${qty > 1 ? "s" : ""}`;
+  return `${qty}`;
+}
 
 function classifyOffer(name: string): LaneType {
   const n = name.toLowerCase();
@@ -325,12 +338,17 @@ export default function BowlingBookingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           Time: `${selectedDate}T${selectedTime}`,
-          Items: { Extra: extraItems, FoodAndBeverage: [], Shoes: shoeItems },
-          Bumpers: [],
-          OfferId: selectedOffer!.OfferId,
-          TariffId: selectedTariff!.Id,
-          NumberOfPlayers: playerCount,
-          ReservationKey: reservationKey,
+          Items: {
+            Extra: extraItems,
+            FoodAndBeverage: [],
+            ShoesSocks: shoeItems,
+            WebOffer: {
+              Id: selectedOffer!.OfferId,
+              UnitPrice: selectedTariff!.Price,
+              WebOfferTariffId: selectedTariff!.Id,
+            },
+          },
+          Players: [{ TypeId: 1, Number: playerCount }],
         }),
       });
       setCartSummary(summary);
@@ -642,35 +660,88 @@ export default function BowlingBookingPage() {
         {step === "offer" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose a Package</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredOffers.map(offer => {
-                // Get price from first available item
+                const perPerson = isPerPerson(offer.Name);
+                const hasMultipleItems = (offer.Items?.length || 0) > 1;
                 const firstItem = offer.Items?.[0];
-                const price = firstItem?.Total || 0;
-                const laneCount = firstItem?.Lanes || 1;
+                const basePrice = firstItem?.Total || 0;
+                const perPersonPrice = perPerson && playerCount > 0 ? basePrice / playerCount : 0;
 
                 return (
-                  <button
+                  <div
                     key={offer.OfferId}
-                    onClick={() => selectOffer(offer, { Id: offer.OfferId, Name: offer.Name, Price: price, Duration: "" })}
-                    className="rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer"
+                    className="rounded-lg overflow-hidden"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
                   >
                     {offer.ImageUrl && (
-                      <div className="relative h-28 overflow-hidden">
+                      <div className="relative h-32 overflow-hidden">
                         <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/80" />
+                        <span className="absolute top-2 right-2 font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
+                          style={{ backgroundColor: perPerson ? `${coral}90` : `${gold}90`, color: "#fff" }}>
+                          {perPerson ? "Per Person" : "Per Lane"}
+                        </span>
                       </div>
                     )}
                     <div className="p-4">
                       <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
                       {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
-                      <div className="flex items-baseline justify-between">
-                        <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>${price.toFixed(2)}</span>
-                        <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{laneCount} lane &bull; {playerCount} bowlers</span>
+
+                      {/* Duration/price options */}
+                      <div className="space-y-2">
+                        {(offer.Items || []).filter(item => !item.Reason || item.Remaining > 0).map(item => (
+                          <button
+                            key={item.ItemId}
+                            onClick={() => selectOffer(offer, { Id: item.ItemId, Name: offer.Name, Price: item.Total, Duration: formatDuration(item.Quantity, item.QuantityType) })}
+                            className="w-full flex items-center justify-between rounded-lg p-3 cursor-pointer transition-all hover:bg-white/5"
+                            style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+                          >
+                            <div className="text-left">
+                              {hasMultipleItems && (
+                                <span className="font-[var(--font-hp-body)] text-white text-sm font-bold">{formatDuration(item.Quantity, item.QuantityType)}</span>
+                              )}
+                              {!hasMultipleItems && item.Quantity > 0 && (
+                                <span className="font-[var(--font-hp-body)] text-white/50 text-xs">{formatDuration(item.Quantity, item.QuantityType)}</span>
+                              )}
+                              {item.Remaining > 0 && (
+                                <span className="font-[var(--font-hp-body)] text-white/30 text-xs ml-2">{item.Remaining} lanes left</span>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="font-[var(--font-hp-display)] text-lg" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
+                              {perPerson && (
+                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">${perPersonPrice.toFixed(2)}/person</span>
+                              )}
+                              {!perPerson && (
+                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">per lane</span>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                        {/* Show alternatives if main items unavailable */}
+                        {offer.Items?.every(i => i.Reason && i.Remaining === 0) && offer.Items?.[0]?.Alternatives?.length > 0 && (
+                          <div>
+                            <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-2">Not available at selected time. Try:</p>
+                            {offer.Items[0].Alternatives.filter(a => a.Remaining > 0).slice(0, 3).map(alt => (
+                              <button
+                                key={alt.Time}
+                                onClick={() => {
+                                  setSelectedTime(alt.Time);
+                                  selectOffer(offer, { Id: offer.OfferId, Name: offer.Name, Price: alt.Total, Duration: "" });
+                                }}
+                                className="w-full flex items-center justify-between rounded-lg p-2 mb-1 cursor-pointer transition-all hover:bg-white/5"
+                                style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                              >
+                                <span className="font-[var(--font-hp-body)] text-white text-sm">{formatTimeStr(alt.Time)}</span>
+                                <span className="font-[var(--font-hp-display)] text-base" style={{ color: gold }}>${alt.Total.toFixed(2)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
