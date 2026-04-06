@@ -633,25 +633,37 @@ export default function BowlingBookingPage() {
     setStep("players");
   }
 
-  // Generate time slots for selected date
+  // Generate time slots for selected date (15-min increments)
   const selectedOpenDate = selectedDate ? getOpenDate(selectedDate) : null;
   const timeSlots: string[] = [];
   if (selectedOpenDate?.StartBookingTime && selectedOpenDate?.EndBookingTime) {
     const start = selectedOpenDate.StartBookingTime.split("T")[1];
     const end = selectedOpenDate.EndBookingTime.split("T")[1];
     const [sh, sm] = start.split(":").map(Number);
-    let [eh] = end.split(":").map(Number);
-    // If end is midnight (00:00) or next day, treat as 23:30
-    if (eh === 0) eh = 23;
-    // If end is before start (crosses midnight), go to 23
-    if (eh < sh) eh = 23;
+    let [eh, em] = end.split(":").map(Number);
+    // If end is midnight (00:00) or next day, treat as 23:45
+    if (eh === 0) { eh = 23; em = 45; }
+    if (eh < sh) { eh = 23; em = 45; }
     for (let h = sh; h <= eh; h++) {
-      for (const m of [0, 30]) {
+      for (const m of [0, 15, 30, 45]) {
         if (h === sh && m < sm) continue;
+        if (h === eh && m > em) continue;
         timeSlots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
       }
     }
   }
+
+  // For same-day bookings, filter out times that are less than 15 min from now
+  const todayStr = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`; })();
+  const isToday = selectedDate === todayStr;
+  const filteredTimeSlots = isToday
+    ? timeSlots.filter(t => {
+        const now = new Date();
+        const [h, m] = t.split(":").map(Number);
+        const slotDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+        return slotDate.getTime() > now.getTime() + 15 * 60000; // at least 15 min from now
+      })
+    : timeSlots;
 
   // Calendar rendering
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -1145,34 +1157,91 @@ export default function BowlingBookingPage() {
               })}
             </div>
 
-            {/* Time picker */}
+            {/* Time picker — hour + minute selectors */}
             {selectedDate && (
               <div ref={timePickerRef}>
                 <h3 className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3 text-center">Select a Time</h3>
-                <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                  {timeSlots.map(t => {
-                    const isSelected = t === selectedTime;
-                    return (
-                      <button
-                        key={t}
-                        onClick={() => setSelectedTime(t)}
-                        className="rounded-lg py-2.5 text-center text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
-                        style={{
-                          backgroundColor: isSelected ? gold : "rgba(7,16,39,0.5)",
-                          color: isSelected ? "#0a1628" : "rgba(255,255,255,0.7)",
-                          border: isSelected ? `2px solid ${gold}` : "1px solid rgba(255,255,255,0.1)",
-                        }}
-                      >
-                        {formatTimeStr(t)}
-                      </button>
-                    );
-                  })}
-                </div>
+                {filteredTimeSlots.length === 0 ? (
+                  <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-4">
+                    {isToday ? "No more times available today. Try tomorrow." : "No times available for this date."}
+                  </p>
+                ) : (() => {
+                  // Group available times by hour
+                  const hours = [...new Set(filteredTimeSlots.map(t => t.split(":")[0]))];
+                  const selectedHour = selectedTime ? selectedTime.split(":")[0] : "";
+                  const minutesForHour = selectedHour ? filteredTimeSlots.filter(t => t.startsWith(selectedHour + ":")) : [];
+                  return (
+                    <>
+                      {/* Hour selector */}
+                      <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Hour</p>
+                      <div className="flex flex-wrap justify-center gap-2 mb-4">
+                        {hours.map(h => {
+                          const hr = parseInt(h, 10);
+                          const ampm = hr >= 12 ? "PM" : "AM";
+                          const display = `${hr % 12 || 12} ${ampm}`;
+                          const isActive = h === selectedHour;
+                          return (
+                            <button
+                              key={h}
+                              onClick={() => {
+                                // Auto-select the first available minute for this hour
+                                const firstSlot = filteredTimeSlots.find(t => t.startsWith(h + ":"));
+                                if (firstSlot) setSelectedTime(firstSlot);
+                              }}
+                              className="rounded-lg px-4 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
+                              style={{
+                                backgroundColor: isActive ? gold : "rgba(7,16,39,0.5)",
+                                color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
+                                border: isActive ? `2px solid ${gold}` : "1px solid rgba(255,255,255,0.1)",
+                              }}
+                            >
+                              {display}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Minute selector — only shows after hour is picked */}
+                      {selectedHour && minutesForHour.length > 1 && (
+                        <>
+                          <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Minutes</p>
+                          <div className="flex justify-center gap-2 mb-4">
+                            {minutesForHour.map(t => {
+                              const min = t.split(":")[1];
+                              const isActive = t === selectedTime;
+                              return (
+                                <button
+                                  key={t}
+                                  onClick={() => setSelectedTime(t)}
+                                  className="rounded-lg px-5 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
+                                  style={{
+                                    backgroundColor: isActive ? cyan : "rgba(7,16,39,0.5)",
+                                    color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
+                                    border: isActive ? `2px solid ${cyan}` : "1px solid rgba(255,255,255,0.1)",
+                                  }}
+                                >
+                                  :{min}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Selected time display */}
+                      {selectedTime && (
+                        <p className="font-[var(--font-hp-display)] text-center text-2xl mb-4" style={{ color: gold }}>
+                          {formatTimeStr(selectedTime)}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {selectedTime && (
                   <button
                     onClick={fetchOffersAndGoToLaneType}
-                    className="w-full mt-6 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                    className="w-full mt-2 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
                     style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
                   >
                     See Available Packages
