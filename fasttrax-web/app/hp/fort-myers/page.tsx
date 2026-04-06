@@ -167,44 +167,44 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a0518]">
-      {/* ====== HERO — Full-bleed venue photo ====== */}
+      {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 800px)" }}>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
-          alt="HeadPinz Fort Myers bowling action"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          priority
-          quality={90}
-          unoptimized
-        />
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+          poster="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
+        >
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero.mp4" type="video/mp4" />
+        </video>
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a0518]" />
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(500px, 80vh, 800px)" }}>
           {/* Logo */}
-          <div className="relative mb-4" style={{ width: "clamp(160px, 30vw, 300px)", height: "clamp(48px, 9vw, 90px)" }}>
+          <div className="relative mb-4" style={{ width: "clamp(140px, 25vw, 240px)", height: "clamp(42px, 7vw, 72px)" }}>
             <Image
               src="https://headpinz.com/wp-content/uploads/2023/10/BOWL_HP_logo_Text.webp"
               alt="HeadPinz"
               fill
               className="object-contain"
-              sizes="300px"
+              sizes="240px"
               priority
               unoptimized
             />
           </div>
 
           <h1
-            className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(32px, 7vw, 72px)", lineHeight: "1.1", letterSpacing: "4px", marginBottom: "12px" }}
+            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            style={{ fontSize: "clamp(36px, 8vw, 80px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "12px" }}
           >
             Fort Myers
           </h1>
 
           <p
             className="font-[var(--font-hp-body)] text-white/70 uppercase tracking-widest"
-            style={{ fontSize: "clamp(12px, 2vw, 16px)", marginBottom: "20px", letterSpacing: "3px" }}
+            style={{ fontSize: "clamp(11px, 1.8vw, 15px)", marginBottom: "20px", letterSpacing: "3px" }}
           >
             Bowling &bull; Laser Tag &bull; Gel Blasters &bull; Arcade &bull; Dining
           </p>
