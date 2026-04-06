@@ -561,17 +561,6 @@ export default function LeagueStandingsPage() {
                 <StatCard label="Fastest Lap" value={fastestLap ? formatLapTime(fastestLap) : "--"} accent="#E41C1D" />
               </div>
 
-              {/* Sort controls */}
-              <div className="flex items-center gap-2 mb-4 flex-wrap">
-                <span
-                  className="font-[var(--font-poppins)]"
-                  style={{ fontSize: "12px", color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.5px" }}
-                >
-                  Sort by:
-                </span>
-                <SortBtn label="Points" field="points" active={sortField} onClick={setSortField} />
-                <SortBtn label="Best Lap" field="bestLap" active={sortField} onClick={setSortField} />
-              </div>
 
               {/* Standings Table */}
               <div
