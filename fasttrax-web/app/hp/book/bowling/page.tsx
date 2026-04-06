@@ -364,32 +364,72 @@ export default function BowlingBookingPage() {
     setLoading(true);
     setError("");
     try {
-      const shoeItems = wantShoes && shoes.length > 0
-        ? shoes.map(s => ({ PriceKeyId: s.PriceKeyId, Quantity: playerCount, UnitPrice: s.Price }))
-        : [];
-      const extraItems = Array.from(selectedExtras.entries())
-        .filter(([, qty]) => qty > 0)
-        .map(([id, qty]) => {
-          const ex = extras.find(e => e.Id === id);
-          return { PriceKeyId: id, Quantity: qty, UnitPrice: ex?.Price || 0, Note: "" };
+      // Build cart items in QAMF format with Type + PriceKeyId
+      const cartItems: { Name: string; Type: string; PriceKeyId: number; Quantity: number; UnitPrice: number; Modifiers?: never[] }[] = [];
+
+      // WebOffer (the bowling package)
+      cartItems.push({
+        Name: selectedOffer!.Name,
+        Type: "WebOffer",
+        PriceKeyId: selectedOffer!.OfferId,
+        Quantity: 1,
+        UnitPrice: selectedTariff!.Price,
+      });
+
+      // Shoes
+      if (wantShoes && shoes.length > 0) {
+        shoes.forEach(s => {
+          cartItems.push({
+            Name: s.Name || "Bowling Shoes",
+            Type: "ShoesSocks",
+            PriceKeyId: s.PriceKeyId,
+            Quantity: playerCount,
+            UnitPrice: s.Price,
+          });
         });
-      const cartItems = [
-        { Name: selectedOffer!.Name, Quantity: 1, UnitPrice: selectedTariff!.Price, IsOffer: true },
-        ...shoeItems.map(s => ({ Name: "Bowling Shoes", Quantity: s.Quantity, UnitPrice: s.UnitPrice, IsOffer: false })),
-        ...extraItems.map(e => {
-          const ex = extras.find(x => x.Id === e.PriceKeyId);
-          return { Name: ex?.Name || "Extra", Quantity: e.Quantity, UnitPrice: e.UnitPrice, IsOffer: false };
-        }),
-      ];
+      }
+
+      // Extras
+      selectedExtras.forEach((qty, id) => {
+        if (qty > 0) {
+          const ex = extras.find(e => e.Id === id);
+          cartItems.push({
+            Name: ex?.Name || "Extra",
+            Type: "Extras",
+            PriceKeyId: id,
+            Quantity: qty,
+            UnitPrice: ex?.Price || 0,
+          });
+        }
+      });
+
       const returnUrl = `${window.location.origin}/hp/book/bowling/confirmation?key=${reservationKey}&center=${centerId}`;
+
       const result = await qamf(`centers/${centerId}/reservations/${reservationKey}/guest/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          GuestDetails: { Email: guestEmail, PhoneNumber: guestPhone.replace(/\D/g, ""), ReferentName: guestName },
-          Cart: { ReturnUrl: returnUrl, Items: cartItems },
+          GuestDetails: {
+            Email: guestEmail,
+            PhoneNumber: guestPhone.replace(/\D/g, ""),
+            ReferentName: guestName,
+          },
+          Cart: {
+            ReturnUrl: returnUrl,
+            Items: cartItems,
+            Summary: cartSummary ? {
+              AddedTaxes: cartSummary.AddedTaxes,
+              Deposit: cartSummary.TotalWithTaxes || cartSummary.TotalWithoutTaxes,
+              Fee: 0,
+              Total: cartSummary.TotalWithTaxes || cartSummary.TotalWithoutTaxes,
+              TotalItems: cartSummary.TotalItems,
+              AutoGratuity: 0,
+              TotalWithoutTaxes: cartSummary.TotalWithoutTaxes,
+            } : undefined,
+          },
         }),
       });
+
       if (result.NeedPayment && result.ApprovePayment?.Url) {
         sessionStorage.setItem("qamf_reservation", JSON.stringify({
           key: reservationKey, centerId, centerName, operationId: result.OperationId,
