@@ -9,7 +9,7 @@ export default function BirthdaysLayout({
   return (
     <>
       <HeadPinzNav />
-      <div className="pt-16 lg:pt-20">{children}</div>
+      <div>{children}</div>
       <HeadPinzFooter />
     </>
   );
