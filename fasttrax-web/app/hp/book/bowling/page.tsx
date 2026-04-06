@@ -96,6 +96,62 @@ const coral = "#fd5b56";
 const gold = "#FFD700";
 const cyan = "#00E2E5";
 
+/* BMI Add-on products (HeadPinz Fort Myers only) */
+const BMI_ADDONS_PAGE = "43370985";
+const BMI_ADDONS = [
+  {
+    productId: "43370936",
+    name: "Nexus Gel Blaster Arena",
+    shortName: "Gel Blasters",
+    desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
+    price: 12,
+    perPerson: true,
+    image: `${BLOB}/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg`,
+    accent: "#39FF14",
+  },
+  {
+    productId: "43370955",
+    name: "Nexus Laser Tag Arena",
+    shortName: "Laser Tag",
+    desc: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena.",
+    price: 10,
+    perPerson: true,
+    image: `${BLOB}/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg`,
+    accent: "#E41C1D",
+  },
+  {
+    productId: "43370974",
+    name: "Shuffly Shuffleboard",
+    shortName: "Shuffly",
+    desc: "Premium LED shuffleboard tables. Perfect for groups between bowling sessions.",
+    price: 10,
+    perPerson: false,
+    maxPerGroup: 8,
+    image: `${BLOB}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
+    accent: "#004AAD",
+  },
+];
+
+interface BmiTimeSlot {
+  start: string;
+  stop: string;
+  name: string;
+  freeSpots: number;
+  proposal: unknown;
+  block: unknown;
+}
+
+interface BmiAddonSelection {
+  productId: string;
+  name: string;
+  quantity: number;
+  price: number;
+  perPerson: boolean;
+  selectedTime?: string;
+  proposal?: unknown;
+  block?: unknown;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -261,6 +317,12 @@ export default function BowlingBookingPage() {
   const [wantShoes, setWantShoes] = useState(true);
   const [selectedExtras, setSelectedExtras] = useState<Map<number, number>>(new Map());
 
+  // BMI add-on state (FM only)
+  const [bmiAddonQty, setBmiAddonQty] = useState<Record<string, number>>({});
+  const [bmiTimeSlots, setBmiTimeSlots] = useState<Record<string, BmiTimeSlot[]>>({});
+  const [bmiSelectedTime, setBmiSelectedTime] = useState<Record<string, number>>({});
+  const [bmiLoadingSlots, setBmiLoadingSlots] = useState<Record<string, boolean>>({});
+
   // Time change confirmation modal
   const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
 
@@ -268,6 +330,106 @@ export default function BowlingBookingPage() {
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
+
+  // BMI add-on helpers
+  function parseBmiLocal(iso: string): Date {
+    const clean = iso.replace(/Z$/, "");
+    const [datePart, timePart] = clean.split("T");
+    if (!timePart) return new Date(clean);
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [h, min, s] = timePart.split(":").map(Number);
+    return new Date(y, m - 1, d, h, min, s || 0);
+  }
+
+  function conflictsWithBowling(slotStart: string, slotStop: string): boolean {
+    if (!selectedTime || !selectedDate) return false;
+    const bowlStart = new Date(`${selectedDate}T${selectedTime}:00`).getTime();
+    // Assume bowling is ~2 hours
+    const bowlEnd = bowlStart + 2 * 60 * 60_000;
+    const sStart = parseBmiLocal(slotStart).getTime();
+    const sStop = parseBmiLocal(slotStop).getTime();
+    const buffer = 15 * 60_000; // 15 min buffer
+    return sStart < (bowlEnd + buffer) && sStop > (bowlStart - buffer);
+  }
+
+  function formatBmiTime(iso: string): string {
+    const d = parseBmiLocal(iso);
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  }
+
+  async function fetchBmiTimeSlots(productId: string, qty: number) {
+    setBmiLoadingSlots(prev => ({ ...prev, [productId]: true }));
+    try {
+      const dateOnly = selectedDate;
+      const allSlots: BmiTimeSlot[] = [];
+      const seen = new Set<string>();
+      const searchHours = [11, 13, 15, 17, 19, 21];
+
+      for (const hour of searchHours) {
+        const h = String(hour).padStart(2, "0");
+        const utcTime = `${dateOnly}T${h}:00:00.000Z`;
+        try {
+          const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              productId,
+              pageId: BMI_ADDONS_PAGE,
+              quantity: qty,
+              dynamicLines: null,
+              date: utcTime,
+            }),
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          for (const p of (data.proposals || [])) {
+            const block = p.blocks?.[0]?.block;
+            if (!block) continue;
+            if (seen.has(block.start)) continue;
+            seen.add(block.start);
+            if (conflictsWithBowling(block.start, block.stop)) continue;
+            allSlots.push({ start: block.start, stop: block.stop, name: block.name, freeSpots: block.freeSpots, proposal: p, block });
+          }
+        } catch { /* skip */ }
+      }
+
+      allSlots.sort((a, b) => a.start.localeCompare(b.start));
+      setBmiTimeSlots(prev => ({ ...prev, [productId]: allSlots }));
+      if (allSlots.length > 0) setBmiSelectedTime(prev => ({ ...prev, [productId]: 0 }));
+    } catch {
+      setBmiTimeSlots(prev => ({ ...prev, [productId]: [] }));
+    } finally {
+      setBmiLoadingSlots(prev => ({ ...prev, [productId]: false }));
+    }
+  }
+
+  function setBmiQty(productId: string, qty: number) {
+    setBmiAddonQty(prev => ({ ...prev, [productId]: Math.max(0, qty) }));
+    if (qty > 0 && !bmiTimeSlots[productId] && !bmiLoadingSlots[productId]) {
+      fetchBmiTimeSlots(productId, qty);
+    }
+    if (qty === 0) {
+      setBmiSelectedTime(prev => { const n = { ...prev }; delete n[productId]; return n; });
+    }
+  }
+
+  function getBmiAddons(): BmiAddonSelection[] {
+    return BMI_ADDONS.filter(a => (bmiAddonQty[a.productId] || 0) > 0).map(a => {
+      const slots = bmiTimeSlots[a.productId] || [];
+      const idx = bmiSelectedTime[a.productId];
+      const slot = idx !== undefined ? slots[idx] : undefined;
+      return {
+        productId: a.productId,
+        name: a.name,
+        quantity: bmiAddonQty[a.productId],
+        price: a.price,
+        perPerson: a.perPerson,
+        selectedTime: slot?.start,
+        proposal: slot?.proposal,
+        block: slot?.block,
+      };
+    });
+  }
 
   // Countdown timer for reservation hold
   useEffect(() => {
@@ -551,6 +713,16 @@ export default function BowlingBookingPage() {
           key: reservationKey, centerId, centerName, operationId: result.OperationId,
           offer: selectedOffer?.Name, date: selectedDate, time: selectedTime, players: playerCount,
         }));
+        // Store BMI add-ons for post-payment booking
+        const bmiAddons = getBmiAddons();
+        if (bmiAddons.length > 0) {
+          sessionStorage.setItem("qamf_bmi_addons", JSON.stringify({
+            addons: bmiAddons,
+            guest: { name: guestName, email: guestEmail, phone: guestPhone.replace(/\D/g, "") },
+          }));
+        } else {
+          sessionStorage.removeItem("qamf_bmi_addons");
+        }
         window.location.href = result.ApprovePayment.Url;
       }
     } catch (err) {
@@ -975,7 +1147,18 @@ export default function BowlingBookingPage() {
         {/* ── EXTRAS ── */}
         {step === "extras" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Add Extras</h2>
+            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2 text-center">Level Up Your Visit</h2>
+            <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-6">Add activities to your bowling session</p>
+
+            {/* Bowling time reference */}
+            <div className="rounded-lg p-3 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] uppercase tracking-wider mb-1">Your Bowling Time</p>
+              <p className="font-[var(--font-hp-body)] text-white text-sm font-bold">
+                {formatTimeStr(selectedTime)} &bull; {selectedOffer?.Name} &bull; {playerCount} bowlers
+              </p>
+            </div>
+
+            {/* Shoes toggle */}
             {shoes.length > 0 && (
               <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${cyan}25` }}>
                 <div className="flex items-center justify-between">
@@ -990,26 +1173,124 @@ export default function BowlingBookingPage() {
                 </div>
               </div>
             )}
-            {extras.length > 0 && (
-              <div className="space-y-2 mb-6">
-                {extras.map(ex => {
-                  const isSel = selectedExtras.has(ex.Id) && selectedExtras.get(ex.Id)! > 0;
+
+            {/* BMI Add-ons (FM only) */}
+            {centerId === "9172" && (
+              <div className="space-y-4 mb-6">
+                {BMI_ADDONS.map(addon => {
+                  const qty = bmiAddonQty[addon.productId] || 0;
+                  const isSelected = qty > 0;
+                  const slots = bmiTimeSlots[addon.productId] || [];
+                  const selectedIdx = bmiSelectedTime[addon.productId];
+                  const isLoadingSlots = bmiLoadingSlots[addon.productId];
+
                   return (
-                    <button key={ex.Id} onClick={() => toggleExtra(ex.Id)}
-                      className="w-full rounded-lg p-4 text-left transition-all cursor-pointer"
-                      style={{ backgroundColor: isSel ? `${coral}10` : "rgba(7,16,39,0.5)", border: `1.78px dashed ${isSel ? coral : "rgba(255,255,255,0.1)"}` }}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">{ex.Name}</h3>
-                          {ex.Description && <p className="font-[var(--font-hp-body)] text-white/40 text-xs">{stripHtml(ex.Description)}</p>}
+                    <div
+                      key={addon.productId}
+                      className="rounded-lg overflow-hidden transition-all"
+                      style={{
+                        backgroundColor: isSelected ? `${addon.accent}08` : "rgba(7,16,39,0.5)",
+                        border: `1.78px dashed ${isSelected ? addon.accent + "50" : "rgba(255,255,255,0.1)"}`,
+                      }}
+                    >
+                      <div className="flex flex-col sm:flex-row">
+                        {/* Image */}
+                        <div className="relative w-full sm:w-36 h-28 sm:h-auto shrink-0 overflow-hidden">
+                          <img src={addon.image} alt={addon.shortName} className="w-full h-full object-cover" />
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: addon.accent }}>
+                            {addon.shortName}
+                          </span>
                         </div>
-                        <span className="font-[var(--font-hp-display)] text-base" style={{ color: isSel ? coral : gold }}>${ex.Price}</span>
+
+                        <div className="flex-1 p-4">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">{addon.name}</h3>
+                            <span className="font-[var(--font-hp-body)] text-sm font-bold shrink-0" style={{ color: addon.accent }}>
+                              {addon.perPerson ? `$${addon.price}/person` : `$${addon.price}${addon.maxPerGroup ? ` (up to ${addon.maxPerGroup})` : ""}`}
+                            </span>
+                          </div>
+                          <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-3">{addon.desc}</p>
+
+                          {/* Add/quantity controls */}
+                          {addon.perPerson ? (
+                            qty === 0 ? (
+                              <button
+                                onClick={() => setBmiQty(addon.productId, playerCount)}
+                                className="w-full py-2.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-colors cursor-pointer"
+                                style={{ backgroundColor: `${addon.accent}15`, color: addon.accent, border: `1px solid ${addon.accent}30` }}
+                              >
+                                Add for all {playerCount} bowlers &mdash; ${(addon.price * playerCount).toFixed(2)}
+                              </button>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <button onClick={() => setBmiQty(addon.productId, qty - 1)}
+                                    className="w-7 h-7 rounded border border-white/20 text-white/50 hover:text-white text-sm cursor-pointer flex items-center justify-center">-</button>
+                                  <span className="w-6 text-center text-white font-bold text-xs">{qty}</span>
+                                  <button onClick={() => setBmiQty(addon.productId, qty + 1)}
+                                    className="w-7 h-7 rounded border border-white/20 text-white/50 hover:text-white text-sm cursor-pointer flex items-center justify-center">+</button>
+                                  <span className="font-[var(--font-hp-body)] text-white/30 text-[10px]">{qty} people</span>
+                                </div>
+                                <span className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: addon.accent }}>${(addon.price * qty).toFixed(2)}</span>
+                              </div>
+                            )
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <button
+                                onClick={() => setBmiQty(addon.productId, qty > 0 ? 0 : 1)}
+                                className="px-4 py-2 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-colors cursor-pointer"
+                                style={{
+                                  backgroundColor: isSelected ? addon.accent : "rgba(255,255,255,0.1)",
+                                  color: isSelected ? "#0a1628" : "rgba(255,255,255,0.6)",
+                                }}
+                              >
+                                {isSelected ? "Added \u2713" : "Add to Booking"}
+                              </button>
+                              {isSelected && <span className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: addon.accent }}>${addon.price.toFixed(2)}</span>}
+                            </div>
+                          )}
+
+                          {/* Time picker */}
+                          {isSelected && (
+                            <div className="mt-3 pt-3 border-t border-white/10">
+                              {isLoadingSlots ? (
+                                <div className="flex items-center gap-2 font-[var(--font-hp-body)] text-white/40 text-xs">
+                                  <div className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin" />
+                                  Loading times...
+                                </div>
+                              ) : slots.length === 0 ? (
+                                <p className="font-[var(--font-hp-body)] text-amber-400/70 text-xs">No times available on this date</p>
+                              ) : (
+                                <div>
+                                  <p className="font-[var(--font-hp-body)] text-white/50 text-[10px] uppercase tracking-wider mb-2">Select a time</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {slots.map((slot, idx) => (
+                                      <button
+                                        key={slot.start}
+                                        onClick={() => setBmiSelectedTime(prev => ({ ...prev, [addon.productId]: idx }))}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-all cursor-pointer"
+                                        style={{
+                                          backgroundColor: selectedIdx === idx ? addon.accent : "rgba(7,16,39,0.5)",
+                                          color: selectedIdx === idx ? "#0a1628" : "rgba(255,255,255,0.6)",
+                                          border: `1px solid ${selectedIdx === idx ? addon.accent : "rgba(255,255,255,0.1)"}`,
+                                        }}
+                                      >
+                                        {formatBmiTime(slot.start)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
             )}
+
             <button onClick={goToReview}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Review Order</button>
@@ -1031,6 +1312,21 @@ export default function BowlingBookingPage() {
                   {new Date(calYear, calMonth, parseInt(selectedDate.split("-")[2])).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at {formatTimeStr(selectedTime)} &bull; {playerCount} bowlers
                 </p>
               </div>
+              {/* BMI add-ons */}
+              {getBmiAddons().length > 0 && (
+                <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
+                  <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] uppercase tracking-wider mb-2">Add-On Activities (included)</p>
+                  {getBmiAddons().map(a => (
+                    <div key={a.productId} className="flex justify-between">
+                      <span className="font-[var(--font-hp-body)] text-white/70 text-sm">
+                        {a.name} {a.selectedTime ? `at ${formatBmiTime(a.selectedTime)}` : ""} {a.perPerson ? `x${a.quantity}` : ""}
+                      </span>
+                      <span className="font-[var(--font-hp-body)] text-white/50 text-sm">FREE</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
                 <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Subtotal</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.TotalItems.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Tax</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.AddedTaxes.toFixed(2)}</span></div>
