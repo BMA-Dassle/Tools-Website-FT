@@ -6,7 +6,8 @@ import Image from "next/image";
 /* -- HeadPinz brand tokens -------------------------------- */
 
 const coral = "#fd5b56";
-const royalBlue = "#123075";
+const gold = "#FFD700";
+const cyan = "#00E2E5";
 const bg = "#0a1628";
 
 /* -- Data ------------------------------------------------- */
@@ -15,8 +16,8 @@ const packages = [
   {
     name: "Bronze Birthday",
     badge: null,
-    accent: "rgba(255,255,255,0.15)",
-    accentSolid: "#ffffff",
+    accent: coral,
+    borderColor: "rgba(253,91,86,0.35)",
     startingAt: "$349",
     laneLabel: "2 lanes",
     featured: false,
@@ -34,8 +35,8 @@ const packages = [
   {
     name: "VIP Birthday",
     badge: "MOST POPULAR",
-    accent: "rgba(253,91,86,0.15)",
-    accentSolid: coral,
+    accent: gold,
+    borderColor: "rgba(255,215,0,0.4)",
     startingAt: "$649",
     laneLabel: "2 lanes",
     featured: true,
@@ -55,8 +56,8 @@ const packages = [
   {
     name: "Silver Birthday",
     badge: null,
-    accent: "rgba(18,48,117,0.15)",
-    accentSolid: royalBlue,
+    accent: cyan,
+    borderColor: "rgba(0,226,229,0.35)",
     startingAt: "$429",
     laneLabel: "2 lanes",
     featured: false,
@@ -74,55 +75,60 @@ const packages = [
   },
 ];
 
+const valueProps = [
+  {
+    icon: (
+      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.745 3.745 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+      </svg>
+    ),
+    title: "We Handle Everything",
+    desc: "Your dedicated party ambassador takes care of setup, food, activities, and cleanup. You just show up and celebrate.",
+    accent: coral,
+  },
+  {
+    icon: (
+      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+      </svg>
+    ),
+    title: "Activities They'll Love",
+    desc: "Bowling, laser tag, gel blasters, and 40+ arcade games — enough action to keep every kid entertained for hours.",
+    accent: gold,
+  },
+  {
+    icon: (
+      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+      </svg>
+    ),
+    title: "Memories That Last",
+    desc: "LED glow bowling, cosmic lighting, big-screen video walls, and music create an atmosphere they'll never forget.",
+    accent: cyan,
+  },
+];
+
+const foodOptions = [
+  { name: "Pizza Party", desc: "Cheese or pepperoni pizza", emoji: "\ud83c\udf55" },
+  { name: "Hot Dogs & Fries", desc: "Classic hot dogs with crispy fries", emoji: "\ud83c\udf2d" },
+  { name: "Chicken Tenders", desc: "Crispy tenders with fries", emoji: "\ud83c\udf57" },
+];
+
+const addOns = [
+  { name: "Extra Laser Tag", desc: "Additional session per guest", icon: "\ud83d\udd2b" },
+  { name: "Arcade Boost", desc: "Extra 100 tokens per guest", icon: "\ud83c\udfae" },
+  { name: "Party Favor Bags", desc: "Take-home goody bags", icon: "\ud83c\udf81" },
+  { name: "Extra Time", desc: "Add 30 min to your party", icon: "\u23f0" },
+];
+
 const includedItems = [
-  {
-    icon: (
-      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714a2.25 2.25 0 0 0 .659 1.591L19 14.5m-4.75-11.396c.251.023.501.05.75.082M12 21a8.966 8.966 0 0 0 5.982-2.275M12 21a8.966 8.966 0 0 1-5.982-2.275M15.75 3.186a24.394 24.394 0 0 1 2.364.402M6.886 3.588a24.27 24.27 0 0 1 2.364-.402" />
-      </svg>
-    ),
-    label: "Party plates, tablecloths, napkins, cups & utensils",
-  },
-  {
-    icon: (
-      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-      </svg>
-    ),
-    label: "Dedicated birthday party ambassador",
-  },
-  {
-    icon: (
-      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
-      </svg>
-    ),
-    label: "Large video screens over lanes with music",
-  },
-  {
-    icon: (
-      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
-      </svg>
-    ),
-    label: "LED glow lighting atmosphere",
-  },
-  {
-    icon: (
-      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m18-4.5-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 12" />
-      </svg>
-    ),
-    label: "Food choice (one for all guests): Cheese or pepperoni pizza + soda, Hot dog + fries + soda, or Chicken tenders + fries + soda",
-  },
-  {
-    icon: (
-      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z" />
-      </svg>
-    ),
-    label: "Bowling shoes and balls",
-  },
+  "Party plates, tablecloths, napkins, cups & utensils",
+  "Dedicated birthday party ambassador",
+  "Large video screens over lanes with music",
+  "LED glow lighting atmosphere",
+  "Food + unlimited soda for every guest",
+  "Bowling shoes and balls included",
 ];
 
 const galleryImages = [
@@ -133,30 +139,13 @@ const galleryImages = [
 ];
 
 const faqs = [
-  {
-    q: "What ages are birthday parties for?",
-    a: "Our birthday party packages are designed for guests ages 17 and under.",
-  },
-  {
-    q: "How many guests per lane?",
-    a: "Each lane accommodates up to 6 guests. You can reserve 2, 4, or 6 lanes depending on your party size.",
-  },
-  {
-    q: "Can adults attend?",
-    a: "Absolutely! Adults are welcome to attend as guests. If you\u2019re looking for an adult birthday party, check out our group event packages for a custom experience.",
-  },
-  {
-    q: "What food is included?",
-    a: "Every package includes one food choice for all guests: cheese or pepperoni pizza + soda, hot dog + fries + soda, or chicken tenders + fries + soda.",
-  },
-  {
-    q: "Can I add more activities?",
-    a: "Yes! Ask our events team about add-ons like extra laser tag sessions, additional game zone tokens, and more to make the party even bigger.",
-  },
-  {
-    q: "How far in advance should I book?",
-    a: "We recommend booking at least 2 weeks in advance. Popular dates and weekends fill up quickly, so the earlier the better!",
-  },
+  { q: "What ages are birthday parties for?", a: "Our birthday party packages are designed for guests ages 17 and under." },
+  { q: "How many guests per lane?", a: "Each lane accommodates up to 6 guests. You can reserve 2, 4, or 6 lanes depending on your party size." },
+  { q: "Can adults attend?", a: "Absolutely! Adults are welcome to attend as guests. If you\u2019re looking for an adult birthday party, check out our group event packages." },
+  { q: "What food is included?", a: "Every package includes one food choice for all guests: cheese or pepperoni pizza + soda, hot dog + fries + soda, or chicken tenders + fries + soda." },
+  { q: "Can I add more activities?", a: "Yes! Ask our events team about add-ons like extra laser tag sessions, additional game zone tokens, party favor bags, and more." },
+  { q: "How far in advance should I book?", a: "We recommend booking at least 2 weeks in advance. Popular dates and weekends fill up quickly, so the earlier the better!" },
+  { q: "Can I bring my own cake?", a: "Yes! You\u2019re welcome to bring your own birthday cake or cupcakes. We\u2019ll provide the plates and utensils." },
 ];
 
 /* -- Component -------------------------------------------- */
@@ -184,6 +173,13 @@ export default function HeadPinzBirthdaysPage() {
           className="relative z-10 flex flex-col items-center justify-center text-center px-4"
           style={{ minHeight: "100vh" }}
         >
+          <span
+            className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.3em] px-4 py-1.5 rounded-full mb-6 font-bold"
+            style={{ backgroundColor: `${coral}20`, color: coral, border: `1px solid ${coral}40` }}
+          >
+            Ages 17 &amp; Under
+          </span>
+
           <h1
             className="font-[var(--font-hp-hero)] font-black uppercase text-white"
             style={{
@@ -191,130 +187,130 @@ export default function HeadPinzBirthdaysPage() {
               lineHeight: "1.05",
               letterSpacing: "-1px",
               marginBottom: "16px",
+              textShadow: "0 0 40px rgba(253,91,86,0.35)",
             }}
           >
-            Birthday Parties
+            All the Fun.<br />None of the Stress.
           </h1>
           <p
             className="font-[var(--font-hp-body)] text-white/70 max-w-xl mx-auto"
             style={{ fontSize: "clamp(14px, 2.5vw, 20px)", lineHeight: "1.5", marginBottom: "32px" }}
           >
-            Make Their Special Day Unforgettable
+            We handle everything &mdash; you enjoy the party
           </p>
           <button
             onClick={() => setShowForm(true)}
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)] cursor-pointer"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 cursor-pointer"
+            style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
             Start Planning
           </button>
         </div>
+
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#fd5b56] via-white/60 to-[#123075]" />
       </section>
 
-      {/* ====== 2. INTRO ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
-        <div className="max-w-4xl mx-auto px-6 lg:px-8 text-center">
-          <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-            style={{
-              fontSize: "clamp(28px, 7vw, 52px)",
-              lineHeight: "1.05",
-              letterSpacing: "-0.5px",
-              marginBottom: "16px",
-            }}
-          >
-            The Ultimate Birthday Experience
-          </h2>
-          <div className="mx-auto h-1 w-24 rounded-full mb-6" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
-          <p
-            className="font-[var(--font-hp-body)] text-white/80 mx-auto mb-8"
-            style={{ fontSize: "clamp(15px, 2vw, 18px)", lineHeight: "1.6", maxWidth: "640px" }}
-          >
-            LED glow bowling, laser tag, gel blasters, arcade, and more &mdash; all under
-            one roof. Your dedicated party ambassador handles everything so you can enjoy the
-            celebration.
-          </p>
-
-          {/* Ages badge */}
-          <div
-            className="inline-flex items-center rounded-full border border-[#123075]/40 bg-white/[0.05] px-5 py-2.5 mb-8"
-          >
-            <svg className="w-5 h-5 mr-2" style={{ color: coral }} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m18-4.5-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 12" />
-            </svg>
-            <span className="font-[var(--font-hp-body)] font-bold text-white text-sm uppercase tracking-wider">
-              Ages 17 and under
+      {/* ====== 2. STATS BAR ====== */}
+      <section style={{ padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)" }}>
+        <div
+          className="max-w-5xl mx-auto flex flex-wrap justify-center gap-x-8 gap-y-4 rounded-lg px-6 py-5"
+          style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.25)" }}
+        >
+          {[
+            { label: "24 Bowling Lanes", color: coral },
+            { label: "Laser Tag Arena", color: "#E41C1D" },
+            { label: "Gel Blaster Arena", color: "#9b51e0" },
+            { label: "40+ Arcade Games", color: cyan },
+            { label: "Full Kitchen", color: gold },
+          ].map((stat, i) => (
+            <span key={stat.label} className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: stat.color }} />
+              <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold uppercase tracking-wider whitespace-nowrap">
+                {stat.label}
+              </span>
+              {i < 4 && <span className="text-white/20 ml-2 hidden sm:inline">&bull;</span>}
             </span>
-          </div>
-
-          <div className="flex flex-wrap justify-center gap-3">
-            <button
-              onClick={() => setShowForm(true)}
-              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
-              style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
-            >
-              Start Planning
-            </button>
-            <a
-              href="tel:+12393022155"
-              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-              style={{ backgroundColor: royalBlue, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
-            >
-              Call (239) 302-2155
-            </a>
-          </div>
+          ))}
         </div>
       </section>
 
-      {/* ====== 3. PARTY PACKAGES ====== */}
+      {/* ====== 3. VALUE PROPS ====== */}
+      <section style={{ padding: "clamp(20px, 4vw, 40px) clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>
+        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+          {valueProps.map((vp) => (
+            <div
+              key={vp.title}
+              className="rounded-lg p-6 text-center transition-all hover:scale-[1.01]"
+              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${vp.accent}30` }}
+            >
+              <div className="flex justify-center mb-4" style={{ color: vp.accent }}>
+                {vp.icon}
+              </div>
+              <h3
+                className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2"
+                style={{ textShadow: `0 0 20px ${vp.accent}30` }}
+              >
+                {vp.title}
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
+                {vp.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ====== 4. PARTY PACKAGES ====== */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628] via-[#0f1e38] to-[#0a1628]" />
+        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 50% 20%, rgba(255,215,0,0.06) 0%, transparent 60%), #0a1628" }} />
         <div
-          className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8"
-          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+          className="relative z-10 max-w-7xl mx-auto"
+          style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
         >
-          <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
-            style={{
-              fontSize: "clamp(28px, 7vw, 52px)",
-              lineHeight: "1.05",
-              letterSpacing: "-0.5px",
-              marginBottom: "48px",
-              textShadow: "rgba(253,91,86,0.4) 0px 0px 30px",
-            }}
-          >
-            Party Packages
-          </h2>
+          <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: "0 0 30px rgba(255,215,0,0.25)",
+              }}
+            >
+              Party Packages
+            </h2>
+            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${coral}, ${gold})` }} />
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {packages.map((pkg) => (
               <div
                 key={pkg.name}
-                className="relative flex flex-col rounded-2xl border overflow-hidden transition-all duration-300 hover:scale-[1.01]"
+                className={`relative flex flex-col rounded-lg overflow-hidden transition-all duration-300 hover:scale-[1.01] ${pkg.featured ? "lg:-mt-4 lg:mb-4" : ""}`}
                 style={{
-                  backgroundColor: "rgba(10,22,40,0.6)",
-                  borderColor: pkg.featured ? `${coral}60` : "rgba(18,48,117,0.3)",
-                  boxShadow: pkg.featured ? `0 0 30px rgba(253,91,86,0.15)` : "none",
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${pkg.borderColor}`,
+                  boxShadow: pkg.featured ? `0 0 30px ${pkg.accent}15` : "none",
                 }}
               >
                 {/* Badge */}
                 {pkg.badge && (
                   <div
-                    className="text-center font-[var(--font-hp-body)] font-bold text-xs uppercase tracking-widest text-white py-2"
-                    style={{ backgroundColor: coral }}
+                    className="text-center font-[var(--font-hp-body)] font-bold text-xs uppercase tracking-widest py-2.5"
+                    style={{ backgroundColor: pkg.accent, color: bg }}
                   >
                     {pkg.badge}
                   </div>
                 )}
 
                 <div className="p-6 flex flex-col flex-1">
-                  {/* Name + price */}
                   <h3
-                    className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1"
-                    style={{ fontSize: "clamp(20px, 3vw, 26px)", letterSpacing: "0.5px" }}
+                    className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-1"
+                    style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: `0 0 20px ${pkg.accent}30` }}
                   >
                     {pkg.name}
                   </h3>
-                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs uppercase tracking-wider mb-4">
+                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs uppercase tracking-wider mb-5">
                     Starting at {pkg.startingAt} ({pkg.laneLabel})
                   </p>
 
@@ -322,60 +318,39 @@ export default function HeadPinzBirthdaysPage() {
                   <ul className="space-y-2.5 mb-6 flex-1">
                     {pkg.includes.map((item) => (
                       <li key={item} className="flex items-start gap-2.5">
-                        <svg
-                          className="w-4 h-4 flex-shrink-0 mt-0.5"
-                          style={{ color: pkg.accentSolid === "#ffffff" ? coral : pkg.accentSolid }}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          viewBox="0 0 24 24"
-                        >
+                        <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: pkg.accent }} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
-                        <span className="font-[var(--font-hp-body)] text-white/70 text-sm leading-snug">
-                          {item}
-                        </span>
+                        <span className="font-[var(--font-hp-body)] text-white/70 text-sm leading-snug">{item}</span>
                       </li>
                     ))}
                   </ul>
 
                   {/* Pricing table */}
-                  <div className="rounded-xl overflow-hidden border border-white/10 mb-5">
+                  <div className="rounded-lg overflow-hidden mb-5" style={{ border: `1px solid ${pkg.accent}20` }}>
                     {pkg.pricing.map((row, i) => (
                       <div
                         key={row.lanes}
                         className="flex items-center justify-between px-4 py-2.5"
-                        style={{
-                          backgroundColor: i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.01)",
-                        }}
+                        style={{ backgroundColor: i % 2 === 0 ? "rgba(255,255,255,0.03)" : "transparent" }}
                       >
-                        <span className="font-[var(--font-hp-body)] text-white/60 text-sm">
-                          {row.lanes}
-                        </span>
-                        <span
-                          className="font-[var(--font-hp-hero)] font-black text-lg"
-                          style={{ color: pkg.accentSolid === "#ffffff" ? coral : pkg.accentSolid }}
-                        >
-                          {row.price}
-                        </span>
+                        <span className="font-[var(--font-hp-body)] text-white/60 text-sm">{row.lanes}</span>
+                        <span className="font-[var(--font-hp-display)] text-lg" style={{ color: pkg.accent }}>{row.price}</span>
                       </div>
                     ))}
                   </div>
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-5">
-                    {pkg.guestsNote}
-                  </p>
+                  <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-5">{pkg.guestsNote}</p>
 
-                  {/* CTA */}
                   <button
                     onClick={() => setShowForm(true)}
-                    className="w-full inline-flex items-center justify-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full"
+                    className="w-full inline-flex items-center justify-center font-[var(--font-hp-body)] font-bold uppercase tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full text-sm py-3.5"
                     style={{
-                      backgroundColor: pkg.featured ? coral : royalBlue,
-                      padding: "14px 20px",
-                      fontSize: "14px",
+                      backgroundColor: pkg.accent,
+                      color: pkg.featured ? bg : "#fff",
+                      boxShadow: `0 0 16px ${pkg.accent}30`,
                     }}
                   >
-                    Start Planning
+                    Book This Package
                   </button>
                 </div>
               </div>
@@ -384,42 +359,102 @@ export default function HeadPinzBirthdaysPage() {
         </div>
       </section>
 
-      {/* ====== 4. WHAT'S INCLUDED IN EVERY PACKAGE ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-5xl mx-auto px-6 lg:px-8">
-          <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
-            style={{
-              fontSize: "clamp(28px, 7vw, 52px)",
-              lineHeight: "1.05",
-              letterSpacing: "-0.5px",
-              marginBottom: "48px",
-              textShadow: "rgba(18,48,117,0.5) 0px 0px 30px",
-            }}
-          >
-            Included in Every Package
-          </h2>
+      {/* ====== 5. WHAT'S INCLUDED ====== */}
+      <section style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(0,226,229,0.25)" }}
+            >
+              Every Package Includes
+            </h2>
+            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${cyan}, ${coral})` }} />
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {includedItems.map((item) => (
               <div
-                key={item.label}
-                className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5 flex items-start gap-4"
+                key={item}
+                className="rounded-lg p-4 flex items-center gap-3"
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(0,226,229,0.2)" }}
               >
-                <div className="flex-shrink-0" style={{ color: coral }}>
-                  {item.icon}
-                </div>
-                <p className="font-[var(--font-hp-body)] text-white/70 text-sm leading-relaxed">
-                  {item.label}
-                </p>
+                <svg className="w-5 h-5 flex-shrink-0" style={{ color: cyan }} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                <span className="font-[var(--font-hp-body)] text-white/70 text-sm">{item}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ====== 5. GALLERY ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}>
+      {/* ====== 6. FOOD MENU PREVIEW ====== */}
+      <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${gold}25` }}
+            >
+              Fuel the Fun
+            </h2>
+            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+              Pick one menu option for your whole party &mdash; all served with unlimited soda
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {foodOptions.map((food) => (
+              <div
+                key={food.name}
+                className="rounded-lg p-6 text-center transition-all hover:scale-[1.01]"
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}25` }}
+              >
+                <span className="text-4xl mb-3 block">{food.emoji}</span>
+                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                  {food.name}
+                </h3>
+                <p className="font-[var(--font-hp-body)] text-white/50 text-sm">{food.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ====== 7. ADD-ONS ====== */}
+      <section style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px rgba(155,81,224,0.25)` }}
+            >
+              Make It Even Bigger
+            </h2>
+            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+              Ask our events team about these popular upgrades
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {addOns.map((addon) => (
+              <div
+                key={addon.name}
+                className="rounded-lg p-5 text-center transition-all hover:scale-[1.02]"
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(155,81,224,0.2)" }}
+              >
+                <span className="text-2xl mb-2 block">{addon.icon}</span>
+                <h4 className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">{addon.name}</h4>
+                <p className="font-[var(--font-hp-body)] text-white/40 text-xs">{addon.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ====== 8. GALLERY ====== */}
+      <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
           {galleryImages.map((img) => (
             <div key={img.src} className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "4/3" }}>
@@ -436,59 +471,83 @@ export default function HeadPinzBirthdaysPage() {
         </div>
       </section>
 
-      {/* ====== 6. FAQ ACCORDION ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-3xl mx-auto px-6 lg:px-8">
-          <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
-            style={{
-              fontSize: "clamp(28px, 7vw, 52px)",
-              lineHeight: "1.05",
-              letterSpacing: "-0.5px",
-              marginBottom: "48px",
-              textShadow: "rgba(253,91,86,0.4) 0px 0px 30px",
-            }}
-          >
-            Frequently Asked Questions
-          </h2>
+      {/* ====== 9. HOW IT WORKS ====== */}
+      <section style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}25` }}
+            >
+              How It Works
+            </h2>
+            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${coral}, ${gold})` }} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { step: "1", title: "Pick a Package", desc: "Choose Bronze, Silver, or VIP based on your group size and budget" },
+              { step: "2", title: "Choose Your Date", desc: "Fill out our quick form and our events team will confirm availability" },
+              { step: "3", title: "Show Up & Party!", desc: "We handle setup, food, activities, and cleanup. You just celebrate!" },
+            ].map((s) => (
+              <div
+                key={s.step}
+                className="rounded-lg p-6 text-center"
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
+              >
+                <span
+                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-[var(--font-hp-display)] text-xl mb-4"
+                  style={{ backgroundColor: `${coral}20`, color: coral, border: `1.78px solid ${coral}40` }}
+                >
+                  {s.step}
+                </span>
+                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+                  {s.title}
+                </h3>
+                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ====== 10. FAQ ====== */}
+      <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}25` }}
+            >
+              Questions?
+            </h2>
+          </div>
           <div className="space-y-3">
             {faqs.map((f, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden"
+                className="rounded-lg overflow-hidden"
+                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.2)" }}
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
                 >
-                  <span className="font-[var(--font-hp-body)] font-bold text-white text-sm pr-4">
-                    {f.q}
-                  </span>
+                  <span className="font-[var(--font-hp-body)] font-bold text-white text-sm pr-4">{f.q}</span>
                   <svg
                     className="w-5 h-5 flex-shrink-0 transition-transform"
-                    style={{
-                      color: coral,
-                      transform: openFaq === i ? "rotate(180deg)" : "rotate(0deg)",
-                    }}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
+                    style={{ color: coral, transform: openFaq === i ? "rotate(180deg)" : "rotate(0deg)" }}
+                    fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 <div
                   className="overflow-hidden transition-all duration-300"
-                  style={{
-                    maxHeight: openFaq === i ? "300px" : "0px",
-                    opacity: openFaq === i ? 1 : 0,
-                  }}
+                  style={{ maxHeight: openFaq === i ? "300px" : "0px", opacity: openFaq === i ? 1 : 0 }}
                 >
                   <div className="px-5 pb-4">
-                    <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
-                      {f.a}
-                    </p>
+                    <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{f.a}</p>
                   </div>
                 </div>
               </div>
@@ -497,52 +556,57 @@ export default function HeadPinzBirthdaysPage() {
         </div>
       </section>
 
-      {/* ====== 7. START PLANNING CTA ====== */}
+      {/* ====== 11. FINAL CTA ====== */}
       <section className="relative overflow-hidden" id="plan">
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg"
           alt="HeadPinz birthday celebration"
           fill
           className="object-cover"
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-black/60 to-black/40" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-black/70 to-black/50" />
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#123075] via-white/60 to-[#fd5b56]" />
+
         <div
-          className="relative z-10 max-w-3xl mx-auto px-6 lg:px-8 text-center"
-          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+          className="relative z-10 max-w-3xl mx-auto text-center"
+          style={{ padding: "clamp(80px, 12vw, 140px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white"
             style={{
-              fontSize: "clamp(28px, 7vw, 52px)",
+              fontSize: "clamp(28px, 7vw, 56px)",
               lineHeight: "1.05",
               letterSpacing: "-0.5px",
               marginBottom: "16px",
-              textShadow: "rgba(18,48,117,0.5) 0px 0px 30px",
+              textShadow: `0 0 30px ${coral}40`,
             }}
           >
             Ready to Plan the Best Birthday Ever?
           </h2>
           <p
-            className="font-[var(--font-hp-body)] text-white/70 mx-auto mb-10"
+            className="font-[var(--font-hp-body)] text-white/70 mx-auto mb-8"
             style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
           >
             Fill out our quick form and our events team will help you build the perfect party.
           </p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
-            style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
-          >
-            Start Planning
-          </button>
-          <p className="font-[var(--font-hp-body)] mt-5 text-white/50 text-sm">
-            Prefer to talk? Call us at{" "}
-            <a href="tel:+12393022155" className="hover:underline transition-colors" style={{ color: coral }}>
-              (239) 302-2155
+          <div className="flex flex-wrap justify-center gap-3">
+            <button
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full"
+              style={{ backgroundColor: coral, padding: "16px 28px", fontSize: "15px", boxShadow: `0 0 20px ${coral}40` }}
+            >
+              Start Planning
+            </button>
+            <a
+              href="tel:+12393022155"
+              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 rounded-full border border-white/20 hover:border-white/40"
+              style={{ padding: "16px 28px", fontSize: "15px", backgroundColor: "rgba(255,255,255,0.1)" }}
+            >
+              Call (239) 302-2155
             </a>
-          </p>
+          </div>
         </div>
       </section>
 
@@ -551,13 +615,11 @@ export default function HeadPinzBirthdaysPage() {
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowForm(false);
-          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
         >
           <div
-            className="relative w-full max-w-3xl rounded-2xl overflow-hidden"
-            style={{ backgroundColor: bg, border: "2px solid rgba(253,91,86,0.4)", height: "90vh" }}
+            className="relative w-full max-w-3xl rounded-lg overflow-hidden"
+            style={{ backgroundColor: bg, border: `1.78px dashed ${coral}40`, height: "90vh" }}
           >
             <button
               onClick={() => setShowForm(false)}
