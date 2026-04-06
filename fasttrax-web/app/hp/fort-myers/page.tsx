@@ -374,7 +374,7 @@ export default function FortMyersPage() {
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/80 via-[#0a1628]/70 to-[#0a1628]/90" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/60 via-[#0a1628]/40 to-[#0a1628]/70" />
 
         <div className="relative z-10 max-w-5xl mx-auto text-center">
           <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-xs uppercase tracking-[0.3em] mb-3">
@@ -392,7 +392,7 @@ export default function FortMyersPage() {
             {/* NeoVerse card */}
             <div
               className="rounded-2xl border border-[#123075]/40 p-8 text-left"
-              style={{ backgroundColor: "rgba(10,22,40,0.7)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+              style={{ backgroundColor: "rgba(10,22,40,0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
             >
               <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-white bg-[#123075] px-3 py-1 rounded-full mb-4">
                 VIP Exclusive
@@ -412,7 +412,7 @@ export default function FortMyersPage() {
             {/* HyperBowling card */}
             <div
               className="rounded-2xl border border-[#123075]/40 p-8 text-left"
-              style={{ backgroundColor: "rgba(10,22,40,0.7)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+              style={{ backgroundColor: "rgba(10,22,40,0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
             >
               <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-white bg-[#123075] px-3 py-1 rounded-full mb-4">
                 VIP Exclusive
@@ -441,15 +441,8 @@ export default function FortMyersPage() {
 
       {/* ====== WEEKLY SPECIALS ====== */}
       <section id="specials" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp"
-          alt="HeadPinz entertainment"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          unoptimized
-        />
-        <div className="absolute inset-0 bg-[#0a1628]/90" />
+        {/* Neon glow background */}
+        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 30% 20%, rgba(18,48,117,0.3) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(253,91,86,0.1) 0%, transparent 50%), #0a1628" }} />
         <div className="relative z-10">
         <div className="text-center" style={{ marginBottom: "16px" }}>
           <h2
@@ -547,15 +540,7 @@ export default function FortMyersPage() {
 
       {/* ====== NEMO'S FOOD & DRINKS ====== */}
       <section id="menu" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_1.webp"
-          alt="HeadPinz dining area"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          unoptimized
-        />
-        <div className="absolute inset-0 bg-[#0a1628]/90" />
+        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 70% 30%, rgba(253,91,86,0.12) 0%, transparent 50%), radial-gradient(ellipse at 20% 70%, rgba(18,48,117,0.2) 0%, transparent 60%), #0a1628" }} />
         <div className="relative z-10 max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
             {/* Left — text */}
