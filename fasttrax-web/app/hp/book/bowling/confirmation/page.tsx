@@ -107,7 +107,7 @@ export default function BowlingConfirmationPage() {
       if (!orderId) { setBmiStatus("error"); return; }
       const regBody = { firstName: guest.name.split(" ")[0] || guest.name, lastName: guest.name.split(" ").slice(1).join(" ") || "", email: guest.email, phone: guest.phone };
       await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", { method: "POST", headers: { "content-type": "application/json" }, body: `{"orderId":${orderId},` + JSON.stringify(regBody).slice(1) });
-      await fetch("/api/bmi?endpoint=payment%2Fconfirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: crypto.randomUUID(), paymentTime: new Date().toISOString(), amount: 0, orderId: Number(orderId), depositKind: 2 }) });
+      await fetch("/api/bmi?endpoint=payment%2Fconfirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: crypto.randomUUID(), paymentTime: new Date().toISOString(), amount: 0, orderId: Number(orderId), depositKind: 0 }) });
       sessionStorage.removeItem("qamf_bmi_addons");
       setBmiStatus("done");
     } catch { setBmiStatus("error"); }
