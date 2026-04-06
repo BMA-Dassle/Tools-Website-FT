@@ -45,16 +45,17 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
       );
       const offers = await res.json();
 
-      const results: LaneStatus[] = [];
+      // Collect best status per lane type (VIP vs Regular), picking the one with availability now
+      const bestByType = new Map<string, LaneStatus>();
 
       for (const offer of offers) {
         if (offer.Name && offer.Name.includes("Time Bowling")) {
           const isVip = offer.Name.includes("VIP");
           const name = isVip ? "VIP Lanes" : "Regular Lanes";
           const firstItem = offer.Items?.[0];
-
           if (!firstItem) continue;
 
+          let status: LaneStatus;
           if (firstItem.Remaining === 0 && firstItem.Alternatives?.length > 0) {
             const alt = firstItem.Alternatives[0];
             const timeParts = alt.Time.split(":").map(Number);
@@ -63,20 +64,21 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
               minute: "2-digit",
               hour12: true,
             });
-            results.push({
-              name,
-              remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`,
-              isAvailable: false,
-            });
+            status = { name, remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`, isAvailable: false };
           } else {
-            results.push({
-              name,
-              remaining: firstItem.Remaining,
-              isAvailable: firstItem.Remaining > 0,
-            });
+            status = { name, remaining: firstItem.Remaining, isAvailable: firstItem.Remaining > 0 };
+          }
+
+          const existing = bestByType.get(name);
+          // Prefer the entry that has lanes available now, or the one with more lanes
+          if (!existing || (!existing.isAvailable && status.isAvailable) ||
+              (existing.isAvailable === status.isAvailable && typeof status.remaining === "number" && typeof existing.remaining === "number" && status.remaining > existing.remaining)) {
+            bestByType.set(name, status);
           }
         }
       }
+
+      const results = [...bestByType.values()];
 
       setLanes(results);
       setBookingUrl(
