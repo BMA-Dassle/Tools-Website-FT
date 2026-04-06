@@ -110,16 +110,72 @@ const valueProps = [
 ];
 
 const foodOptions = [
-  { name: "Pizza Party", desc: "Cheese or pepperoni pizza", emoji: "\ud83c\udf55" },
-  { name: "Hot Dogs & Fries", desc: "Classic hot dogs with crispy fries", emoji: "\ud83c\udf2d" },
-  { name: "Chicken Tenders", desc: "Crispy tenders with fries", emoji: "\ud83c\udf57" },
+  {
+    name: "Pizza Party",
+    desc: "Cheese or pepperoni pizza",
+    icon: (
+      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m18-4.5-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 12" />
+      </svg>
+    ),
+  },
+  {
+    name: "Hot Dogs & Fries",
+    desc: "Classic hot dogs with crispy fries",
+    icon: (
+      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z" />
+      </svg>
+    ),
+  },
+  {
+    name: "Chicken Tenders",
+    desc: "Crispy tenders with fries",
+    icon: (
+      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+      </svg>
+    ),
+  },
 ];
 
 const addOns = [
-  { name: "Extra Laser Tag", desc: "Additional session per guest", icon: "\ud83d\udd2b" },
-  { name: "Arcade Boost", desc: "Extra 100 tokens per guest", icon: "\ud83c\udfae" },
-  { name: "Party Favor Bags", desc: "Take-home goody bags", icon: "\ud83c\udf81" },
-  { name: "Extra Time", desc: "Add 30 min to your party", icon: "\u23f0" },
+  {
+    name: "Extra Laser Tag",
+    desc: "Additional session per guest",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+      </svg>
+    ),
+  },
+  {
+    name: "Arcade Boost",
+    desc: "Extra 100 tokens per guest",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      </svg>
+    ),
+  },
+  {
+    name: "Party Favor Bags",
+    desc: "Take-home goody bags",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+      </svg>
+    ),
+  },
+  {
+    name: "Extra Time",
+    desc: "Add 30 min to your party",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      </svg>
+    ),
+  },
 ];
 
 const includedItems = [
@@ -262,7 +318,18 @@ export default function HeadPinzBirthdaysPage() {
 
       {/* ====== 4. PARTY PACKAGES ====== */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 50% 20%, rgba(255,215,0,0.06) 0%, transparent 60%), #0a1628" }} />
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover"
+          poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+        >
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade.mp4" type="video/mp4" />
+        </video>
+        <div className="absolute inset-0 bg-[#0a1628]/92" />
         <div
           className="relative z-10 max-w-7xl mx-auto"
           style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
@@ -411,7 +478,7 @@ export default function HeadPinzBirthdaysPage() {
                 className="rounded-lg p-6 text-center transition-all hover:scale-[1.01]"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}25` }}
               >
-                <span className="text-4xl mb-3 block">{food.emoji}</span>
+                <div className="flex justify-center mb-3" style={{ color: gold }}>{food.icon}</div>
                 <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
                   {food.name}
                 </h3>
@@ -444,7 +511,7 @@ export default function HeadPinzBirthdaysPage() {
                 className="rounded-lg p-5 text-center transition-all hover:scale-[1.02]"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(155,81,224,0.2)" }}
               >
-                <span className="text-2xl mb-2 block">{addon.icon}</span>
+                <div className="flex justify-center mb-2" style={{ color: "#9b51e0" }}>{addon.icon}</div>
                 <h4 className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">{addon.name}</h4>
                 <p className="font-[var(--font-hp-body)] text-white/40 text-xs">{addon.desc}</p>
               </div>

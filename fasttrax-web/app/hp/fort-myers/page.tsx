@@ -406,19 +406,11 @@ export default function FortMyersPage() {
           loop
           playsInline
           preload="metadata"
-          className="absolute inset-0 w-full h-full object-cover hidden md:block"
+          className="absolute inset-0 w-full h-full object-cover"
           poster="https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg"
         >
           <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling.mp4" type="video/mp4" />
         </video>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg"
-          alt="HyperBowling VIP experience"
-          fill
-          className="object-cover md:hidden"
-          sizes="100vw"
-          unoptimized
-        />
         <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/70 via-[#0a1628]/50 to-[#0a1628]/80" />
 
         <div className="relative z-10 max-w-5xl mx-auto text-center">
