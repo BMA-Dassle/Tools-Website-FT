@@ -1024,7 +1024,7 @@ export default function HeadPinzGroupEventsPage() {
               &times;
             </button>
             <iframe
-              src="https://www.cognitoforms.com/f/u3qiZTtd8UeGo_mV4yHewA/294"
+              src="https://www.cognitoforms.com/f/u3qiZTtd8UeGo_mV4yHewA/21"
               className="w-full h-full"
               style={{ border: "none" }}
               title="HeadPinz Event Quote Request Form"
