@@ -416,6 +416,7 @@ export default function BowlingBookingPage() {
 
   // Time change confirmation modal
   const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
+  const [pendingTimeSwitch, setPendingTimeSwitch] = useState<{ laneType: string; laneLabel: string; fromTime: string; toTime: string } | null>(null);
 
   // Guest details — prefill from previous booking or Rewards profile
   const [guestName, setGuestName] = useState(() => {
@@ -1177,20 +1178,9 @@ export default function BowlingBookingPage() {
                 const nextTime = count === 0 ? getNextAvailableTime(allOffers, lt.key, selectedTime, selectedDate) : null;
                 const isSoldOut = count === 0 && !nextTime;
                 return (
-                  <button
+                  <div
                     key={lt.key}
-                    onClick={() => {
-                      if (count > 0) {
-                        setLaneType(lt.key); trackBowlingStep("Lane Type Selected", { type: lt.label }); setStep("offer");
-                      } else if (nextTime) {
-                        setSelectedTime(nextTime);
-                        setLaneType(lt.key);
-                        trackBowlingStep("Lane Type Selected (time switch)", { type: lt.label, from: selectedTime, to: nextTime });
-                        setStep("offer");
-                      }
-                    }}
-                    disabled={isSoldOut}
-                    className={`w-full rounded-lg overflow-hidden text-left transition-all cursor-pointer ${isSoldOut ? "opacity-50 cursor-default" : "hover:scale-[1.01]"}`}
+                    className={`w-full rounded-lg overflow-hidden text-left transition-all ${isSoldOut ? "opacity-50" : "hover:scale-[1.01]"}`}
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${isSoldOut ? "rgba(253,91,86,0.3)" : lt.accent + "35"}` }}
                   >
                     <div className="flex flex-col sm:flex-row">
@@ -1244,16 +1234,37 @@ export default function BowlingBookingPage() {
                           </div>
                         )}
 
-                        <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: isSoldOut ? coral : nextTime ? gold : lt.accent }}>
-                          {isSoldOut
-                            ? "Not available today"
-                            : nextTime
-                              ? `Sold out at ${formatTimeStr(selectedTime)} — Switch to ${formatTimeStr(nextTime)} \u2192`
-                              : `${count} package${count !== 1 ? "s" : ""} available \u2192`}
-                        </span>
+                        {count > 0 && (
+                          <button
+                            onClick={() => { setLaneType(lt.key); trackBowlingStep("Lane Type Selected", { type: lt.label }); setStep("offer"); }}
+                            className="font-[var(--font-hp-body)] text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full cursor-pointer transition-all hover:scale-105"
+                            style={{ backgroundColor: lt.accent, color: "#0a1628" }}
+                          >
+                            {count} package{count !== 1 ? "s" : ""} available &rarr;
+                          </button>
+                        )}
+                        {nextTime && count === 0 && (
+                          <div className="space-y-2">
+                            <p className="font-[var(--font-hp-body)] text-xs text-white/40">
+                              Sold out at {formatTimeStr(selectedTime)}
+                            </p>
+                            <button
+                              onClick={() => setPendingTimeSwitch({ laneType: lt.key, laneLabel: lt.label, fromTime: selectedTime, toTime: nextTime })}
+                              className="font-[var(--font-hp-body)] text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full cursor-pointer transition-all hover:scale-105"
+                              style={{ backgroundColor: gold, color: "#0a1628" }}
+                            >
+                              Switch to {formatTimeStr(nextTime)} &rarr;
+                            </button>
+                          </div>
+                        )}
+                        {isSoldOut && (
+                          <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: coral }}>
+                            Not available today
+                          </span>
+                        )}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -1770,6 +1781,55 @@ export default function BowlingBookingPage() {
                 style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
               >
                 Accept {formatTimeStr(pendingOffer.newTime)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time switch confirmation modal */}
+      {pendingTimeSwitch && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
+          onClick={() => setPendingTimeSwitch(null)}
+        >
+          <div
+            className="rounded-lg p-6 max-w-sm w-full text-center"
+            style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+              Switch Time?
+            </h3>
+            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">
+              <strong className="text-white">{pendingTimeSwitch.laneLabel}</strong> is sold out at {formatTimeStr(pendingTimeSwitch.fromTime)}
+            </p>
+            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-4">
+              The next available time is:
+            </p>
+            <p className="font-[var(--font-hp-display)] text-3xl mb-6" style={{ color: gold }}>
+              {formatTimeStr(pendingTimeSwitch.toTime)}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPendingTimeSwitch(null)}
+                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const { laneType, laneLabel, toTime } = pendingTimeSwitch;
+                  setSelectedTime(toTime);
+                  setLaneType(laneType as LaneType);
+                  trackBowlingStep("Lane Type Selected (time switch)", { type: laneLabel, from: pendingTimeSwitch.fromTime, to: toTime });
+                  setPendingTimeSwitch(null);
+                  setStep("offer");
+                }}
+                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
+              >
+                Switch to {formatTimeStr(pendingTimeSwitch.toTime)}
               </button>
             </div>
           </div>
