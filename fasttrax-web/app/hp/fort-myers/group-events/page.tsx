@@ -745,8 +745,8 @@ export default function HeadPinzGroupEventsPage() {
       {/* ====== 8. BUFFET PACKAGES ====== */}
       <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_5.webp"
-          alt="Nemo's food at HeadPinz"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png"
+          alt="Nemo's famous wings at HeadPinz"
           fill
           className="object-cover"
           sizes="100vw"

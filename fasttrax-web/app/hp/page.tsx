@@ -29,25 +29,14 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 export default function HeadPinzHome() {
   return (
     <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
-      {/* Video background */}
-      {/* Static poster for immediate display + mobile */}
-      <Image
-        src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
-        alt="HeadPinz"
-        fill
-        className="object-cover"
-        sizes="100vw"
-        priority
-        unoptimized
-      />
-      {/* Video overlay — desktop only, lazy loaded */}
+      {/* Video background — plays on all devices, poster as fallback */}
       <video
         autoPlay
         muted
         loop
         playsInline
-        preload="none"
-        className="absolute inset-0 w-full h-full object-cover hidden md:block"
+        preload="metadata"
+        className="absolute inset-0 w-full h-full object-cover"
         poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
       >
         <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />

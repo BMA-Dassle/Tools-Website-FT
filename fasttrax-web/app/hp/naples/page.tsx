@@ -157,22 +157,14 @@ export default function NaplesPage() {
     <div className="bg-[#0a1628]">
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
-          alt="HeadPinz Naples"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          priority
-          unoptimized
-        />
         <video
           autoPlay
           muted
           loop
           playsInline
-          preload="none"
-          className="absolute inset-0 w-full h-full object-cover hidden md:block"
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover"
+          poster="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
         >
           <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
         </video>
@@ -347,8 +339,105 @@ export default function NaplesPage() {
         </div>
       </section>
 
+      {/* ====== VIP EXPERIENCE ====== */}
+      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        {/* Background video on desktop, poster on mobile */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover hidden md:block"
+          poster="https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg"
+        >
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling.mp4" type="video/mp4" />
+        </video>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg"
+          alt="HyperBowling VIP experience"
+          fill
+          className="object-cover md:hidden"
+          sizes="100vw"
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/80 via-[#0a1628]/70 to-[#0a1628]/90" />
+
+        <div className="relative z-10 max-w-5xl mx-auto text-center">
+          <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-xs uppercase tracking-[0.3em] mb-3">
+            Exclusive to HeadPinz
+          </p>
+          <h2
+            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            style={{ fontSize: "clamp(32px, 7vw, 60px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "16px" }}
+          >
+            The VIP Experience
+          </h2>
+          <div className="mx-auto h-1 w-24 rounded-full mb-10" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+            {/* NeoVerse card */}
+            <div
+              className="rounded-2xl border border-[#123075]/40 p-8 text-left"
+              style={{ backgroundColor: "rgba(10,22,40,0.7)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+            >
+              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-white bg-[#123075] px-3 py-1 rounded-full mb-4">
+                VIP Exclusive
+              </span>
+              <h3
+                className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-3"
+                style={{ fontSize: "clamp(18px, 3vw, 24px)" }}
+              >
+                NeoVerse
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
+                Interactive LED video wall that transforms your bowling experience.
+                Exclusive to VIP lanes.
+              </p>
+            </div>
+
+            {/* HyperBowling card */}
+            <div
+              className="rounded-2xl border border-[#123075]/40 p-8 text-left"
+              style={{ backgroundColor: "rgba(10,22,40,0.7)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+            >
+              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-white bg-[#123075] px-3 py-1 rounded-full mb-4">
+                VIP Exclusive
+              </span>
+              <h3
+                className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-3"
+                style={{ fontSize: "clamp(18px, 3vw, 24px)" }}
+              >
+                HyperBowling
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
+                LED targets in the bumpers — hit them for points while you bowl.
+                Skill meets spectacle.
+              </p>
+            </div>
+          </div>
+
+          <BookingLink
+            href="https://www.mybowlingpassport.com/2/3148/book"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)]"
+          >
+            Book VIP Lanes
+          </BookingLink>
+        </div>
+      </section>
+
       {/* ====== WEEKLY SPECIALS ====== */}
-      <section id="specials" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section id="specials" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp"
+          alt="HeadPinz entertainment"
+          fill
+          className="object-cover"
+          sizes="100vw"
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-[#0a1628]/90" />
+        <div className="relative z-10">
         <div className="text-center" style={{ marginBottom: "16px" }}>
           <h2
             className="font-[var(--font-hp-display)] uppercase text-white"
@@ -417,6 +506,7 @@ export default function NaplesPage() {
             </div>
           ))}
         </div>
+        </div>
       </section>
 
       {/* ====== GALLERY STRIP ====== */}
@@ -453,28 +543,44 @@ export default function NaplesPage() {
           unoptimized
         />
         <div className="absolute inset-0 bg-[#0a1628]/90" />
-        <div className="relative z-10 max-w-4xl mx-auto text-center">
-          <h2
-            className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px" }}
-          >
-            Nemo&apos;s Food &amp; Drinks
-          </h2>
-          <div className="mx-auto h-1 w-24 rounded-full mb-4" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
-          <p
-            className="font-[var(--font-hp-body)] text-white/70 mx-auto mb-8"
-            style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "600px", lineHeight: "1.6" }}
-          >
-            Fresh cooked pizza, famous jumbo wings, and a full menu of appetizers,
-            burgers, wraps and more. Pair it with craft beers, cocktails, or
-            signature mocktails.
-          </p>
-          <Link
-            href="/menu"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
-          >
-            View Full Menu
-          </Link>
+        <div className="relative z-10 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+            {/* Left — text */}
+            <div>
+              <h2
+                className="font-[var(--font-hp-display)] uppercase text-white"
+                style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px" }}
+              >
+                Nemo&apos;s Food &amp; Drinks
+              </h2>
+              <div className="h-1 w-24 rounded-full mb-6" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+              <p
+                className="font-[var(--font-hp-body)] text-white/70 mb-8"
+                style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
+              >
+                Fresh cooked pizza, famous jumbo wings, and a full menu of appetizers,
+                burgers, wraps and more. Pair it with craft beers, cocktails, or
+                signature mocktails.
+              </p>
+              <Link
+                href="/menu"
+                className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
+              >
+                View Full Menu
+              </Link>
+            </div>
+            {/* Right — wings photo */}
+            <div className="relative rounded-2xl overflow-hidden" style={{ aspectRatio: "4/3" }}>
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png"
+                alt="Nemo's famous jumbo wings"
+                fill
+                className="object-cover"
+                sizes="(max-width: 768px) 100vw, 50vw"
+                unoptimized
+              />
+            </div>
+          </div>
         </div>
       </section>
 
