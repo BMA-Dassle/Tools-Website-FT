@@ -1,132 +1,163 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
+import BookingLink from "@/components/BookingLink";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Fort Myers - Bowling, Laser Tag, Arcade & More",
+  title: "HeadPinz Fort Myers - Bowling, Laser Tag, Gel Blasters, Arcade & Dining",
   description:
-    "Premier bowling, NEXUS laser tag, gel blaster arena, arcade gaming & Nemo's dining at HeadPinz Fort Myers. 14513 Global Parkway, Fort Myers FL. Book now!",
+    "Premier bowling, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, arcade gaming & Nemo's dining at HeadPinz Fort Myers. 14513 Global Parkway. Book now!",
+  keywords: [
+    "HeadPinz Fort Myers",
+    "bowling Fort Myers",
+    "laser tag Fort Myers",
+    "gel blasters Fort Myers",
+    "arcade Fort Myers",
+    "HyperBowling",
+    "NeoVerse",
+    "things to do Fort Myers",
+    "family entertainment Fort Myers",
+    "bowling alley Fort Myers",
+    "glow bowling Fort Myers",
+  ],
+  openGraph: {
+    title: "HeadPinz Fort Myers - Bowling, Laser Tag, Arcade & More",
+    description:
+      "Premier bowling, NEXUS laser tag, gel blaster arena, arcade gaming & Nemo's dining at HeadPinz Fort Myers.",
+    type: "website",
+    url: "https://headpinz.com/hp/fort-myers",
+  },
+  alternates: {
+    canonical: "https://headpinz.com/hp/fort-myers",
+  },
 };
 
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
 /* ------------------------------------------------------------------ */
 
-const quickActions = [
-  {
-    label: "Book Bowling",
-    href: "https://www.mybowlingpassport.com/2/9172/book",
-    external: true,
-  },
-  { label: "Laser Tag", href: "/book/laser-tag", external: false },
-  { label: "Gel Blasters", href: "/book/gel-blaster", external: false },
-  { label: "Game Zone", href: "#attractions", external: false },
-  { label: "View Menu", href: "#menu", external: false },
-];
-
 const attractions = [
   {
     name: "Premier Bowling",
-    description: "Modern lanes with glow bowl effects",
-    pricing: "Weekday $12.99-$15.99 | Weekend $15.99-$17.99 | VIP +$2",
-    details: "1.5 hours, up to 6 per lane",
+    tagline: "24 State-of-the-Art Lanes",
+    description: "Modern lanes with cosmic glow effects, VIP lounge lanes, and a full-service bar steps away. 1.5 hours, up to 6 per lane.",
+    image: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
+    price: "From $12.99",
     cta: "Reserve Lanes",
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
     badge: null,
-    gradient: "from-[#240A2B] to-[#1a1a5e]",
+    color: "#fd5b56",
   },
   {
     name: "NEXUS Laser Tag",
-    description: "2-story glow-in-the-dark space-themed arena",
-    pricing: "$10/person, 15 min sessions",
-    details: null,
-    cta: "Book Now",
+    tagline: "2-Story Glow Arena",
+    description: "Immersive, multi-level space-themed combat. Haptic vests and precision sensors for objective-based missions.",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
+    price: "$10/person",
+    cta: "Join the Mission",
     ctaHref: "/book/laser-tag",
     external: false,
     badge: null,
-    gradient: "from-[#1a1a5e] to-[#0693e3]",
+    color: "#fd5b56",
   },
   {
-    name: "NEXUS Gel Blaster Arena",
-    description: "State-of-the-art blasters with haptic vests",
-    pricing: "$12/person",
-    details: null,
-    cta: "Book Now",
+    name: "NEXUS Gel Blasters",
+    tagline: "Zero Mess. Total Mayhem.",
+    description: "State-of-the-art blasters with haptic vests. Eco-friendly Gellets evaporate on impact. All the action, none of the cleanup.",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
+    price: "$12/person",
+    cta: "Book Gel Blasters",
     ctaHref: "/book/gel-blaster",
     external: false,
     badge: null,
-    gradient: "from-[#273370] to-[#9b51e0]",
-  },
-  {
-    name: "Game Zone",
-    description: "40+ premier arcade games",
-    pricing: "Load any amount onto a Game Card at our kiosks",
-    details: null,
-    cta: "Learn More",
-    ctaHref: "#attractions",
-    external: false,
-    badge: null,
-    gradient: "from-[#0a0518] to-[#240A2B]",
+    color: "#9b51e0",
   },
   {
     name: "NeoVerse",
-    description: "Interactive video wall experience",
-    pricing: "Select VIP when booking bowling",
-    details: null,
+    tagline: "Interactive Video Wall Experience",
+    description: "Step into a 360-degree immersive projection world. Touch-reactive walls, dynamic games, and mind-bending visuals.",
+    image: "https://headpinz.com/wp-content/uploads/2024/02/neoverse.jpg",
+    price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
     badge: "VIP ONLY",
-    gradient: "from-[#9b51e0] to-[#fd5b56]",
+    color: "#9b51e0",
   },
   {
     name: "HyperBowling",
-    description: "LED-integrated bumper targets",
-    pricing: "Dynamic scoring meets physical skill",
-    details: null,
+    tagline: "Where Bowling Meets Gaming",
+    description: "LED-integrated bumper targets turn every throw into a scoring challenge. Dynamic gameplay meets physical skill.",
+    image: "https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg",
+    price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
     badge: "VIP ONLY",
-    gradient: "from-[#fd5b56] to-[#ff7a77]",
+    color: "#fd5b56",
+  },
+  {
+    name: "Game Zone",
+    tagline: "40+ Premier Arcade Games",
+    description: "The latest titles, VR simulators, and a prize center. Load any amount onto a Game Card at our kiosks and play.",
+    image: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp",
+    price: "Game Cards",
+    cta: "Learn More",
+    ctaHref: "#specials",
+    external: false,
+    badge: null,
+    color: "#fd5b56",
   },
 ];
 
 const specials = [
   {
-    name: "Mon-Thu Fun 4 All Day",
-    time: "Before 6PM",
+    name: "Fun 4 All Day",
+    when: "Mon-Thu before 6PM",
     regular: "$12.99",
     vip: "$14.99",
-    note: null,
+    note: "1.5 hours per lane",
+    icon: "sun",
   },
   {
-    name: "Mon-Thu Fun 4 Night",
-    time: "6PM-12AM",
+    name: "Fun 4 Night",
+    when: "Mon-Thu 6PM-12AM",
     regular: "$15.99",
     vip: "$17.99",
-    note: null,
+    note: "1.5 hours per lane",
+    icon: "moon",
   },
   {
-    name: "Fri-Sat Late Night Madness",
-    time: "11PM-1AM",
+    name: "Fri-Sat Bowling",
+    when: "All day & night",
+    regular: "$15.99",
+    vip: "$17.99",
+    note: "1.5 hours per lane",
+    icon: "star",
+  },
+  {
+    name: "Late Night Madness",
+    when: "Fri-Sat 11PM-1AM",
     regular: "$11.99",
     vip: "$13.99",
     note: "2 hours unlimited",
+    icon: "bolt",
   },
   {
     name: "Sunday Pizza Bowl",
-    time: "All day",
-    regular: "$64.95/lane",
-    vip: "$79.95/lane",
-    note: "2 hrs + shoes + pizza + soda",
+    when: "Sundays all day",
+    regular: "$64.95",
+    vip: "$79.95",
+    note: "2 hrs + shoes + pizza + soda per lane",
+    icon: "pizza",
   },
 ];
 
 const weeklyEvents = [
-  { day: "Monday", event: "BOGO Laser Tag" },
-  { day: "Tuesday", event: "Double Token Days" },
-  { day: "Thursday", event: "Double Token Days" },
+  { day: "Monday", event: "BOGO Laser Tag", color: "#fd5b56" },
+  { day: "Tuesday", event: "Double Token Days", color: "#9b51e0" },
+  { day: "Thursday", event: "Double Token Days", color: "#9b51e0" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -136,228 +167,361 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a0518]">
-      {/* ====== HERO ====== */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#240A2B] via-[#1a1a5e] to-[#273370]" />
-        <div className="absolute inset-0 bg-black/30" />
-        <div className="relative max-w-7xl mx-auto px-4 py-20 sm:py-28 lg:py-36 text-center">
-          <h1 className="font-[var(--font-hp-display)] text-4xl sm:text-5xl lg:text-6xl uppercase tracking-wider text-white mb-4">
-            HeadPinz Fort Myers
+      {/* ====== HERO — Full-bleed venue photo ====== */}
+      <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 800px)" }}>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
+          alt="HeadPinz Fort Myers bowling action"
+          fill
+          className="object-cover"
+          sizes="100vw"
+          priority
+          quality={90}
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a0518]" />
+
+        <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(500px, 80vh, 800px)" }}>
+          {/* Logo */}
+          <div className="relative mb-4" style={{ width: "clamp(160px, 30vw, 300px)", height: "clamp(48px, 9vw, 90px)" }}>
+            <Image
+              src="https://headpinz.com/wp-content/uploads/2023/10/BOWL_HP_logo_Text.webp"
+              alt="HeadPinz"
+              fill
+              className="object-contain"
+              sizes="300px"
+              priority
+              unoptimized
+            />
+          </div>
+
+          <h1
+            className="font-[var(--font-hp-display)] uppercase text-white"
+            style={{ fontSize: "clamp(32px, 7vw, 72px)", lineHeight: "1.1", letterSpacing: "4px", marginBottom: "12px" }}
+          >
+            Fort Myers
           </h1>
-          <p className="font-[var(--font-hp-body)] text-white/70 text-base sm:text-lg mb-2">
-            14513 Global Parkway, Fort Myers, FL 33913
+
+          <p
+            className="font-[var(--font-hp-body)] text-white/70 uppercase tracking-widest"
+            style={{ fontSize: "clamp(12px, 2vw, 16px)", marginBottom: "20px", letterSpacing: "3px" }}
+          >
+            Bowling &bull; Laser Tag &bull; Gel Blasters &bull; Arcade &bull; Dining
           </p>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">
-            <a
-              href="tel:+12393022155"
-              className="hover:text-white transition-colors"
-            >
-              (239) 302-2155
-            </a>
-          </p>
-          <p className="font-[var(--font-hp-body)] text-white/40 text-sm mb-8">
-            Sun-Thu 11AM-12AM &bull; Fri-Sat 11AM-2AM
-          </p>
-          <a
+
+          <div className="flex flex-col items-center gap-1 mb-8">
+            <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
+              14513 Global Parkway, Fort Myers, FL 33913
+            </p>
+            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+              <a href="tel:+12393022155" className="hover:text-white transition-colors">(239) 302-2155</a>
+            </p>
+            <p className="font-[var(--font-hp-body)] text-white/40 text-xs">
+              Sun-Thu 11AM-12AM &bull; Fri-Sat 11AM-2AM
+            </p>
+          </div>
+
+          <BookingLink
             href="https://www.mybowlingpassport.com/2/9172/book"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-colors"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
           >
             Book Now
-          </a>
+          </BookingLink>
         </div>
       </section>
 
-      {/* ====== QUICK ACTIONS ====== */}
-      <section className="bg-[#0a0518] border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 py-5">
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {quickActions.map((a) =>
-              a.external ? (
-                <a
-                  key={a.label}
-                  href={a.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] text-sm px-5 py-2 rounded-full transition-all"
-                >
-                  {a.label}
-                </a>
-              ) : (
-                <Link
-                  key={a.label}
-                  href={a.href}
-                  className="inline-flex items-center bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] text-sm px-5 py-2 rounded-full transition-all"
-                >
-                  {a.label}
-                </Link>
-              ),
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ====== ATTRACTIONS GRID ====== */}
-      <section id="attractions" className="max-w-7xl mx-auto px-4 py-16 sm:py-20">
-        <h2 className="font-[var(--font-hp-display)] text-3xl sm:text-4xl uppercase tracking-wider text-white text-center mb-12">
-          Attractions
+      {/* ====== WHAT'S INSIDE — Attraction Cards ====== */}
+      <section id="attractions" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <h2
+          className="font-[var(--font-hp-display)] uppercase text-white text-center"
+          style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "clamp(32px, 6vw, 56px)" }}
+        >
+          What&apos;s Inside
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {attractions.map((a) => (
             <div
               key={a.name}
-              className="group relative rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden hover:border-[#fd5b56]/30 transition-all duration-300"
+              className="group relative flex flex-col rounded-2xl overflow-hidden border border-white/10 hover:border-[#fd5b56]/40 transition-all duration-300 hover:scale-[1.01]"
+              style={{ backgroundColor: "rgba(10,5,24,0.6)" }}
             >
-              {/* Image placeholder (gradient) */}
-              <div
-                className={`h-40 sm:h-48 bg-gradient-to-br ${a.gradient} relative`}
-              >
+              {/* Card image */}
+              <div className="relative overflow-hidden" style={{ height: "clamp(180px, 28vw, 240px)" }}>
+                <Image
+                  src={a.image}
+                  alt={a.name}
+                  fill
+                  className="object-cover transition-transform duration-500 group-hover:scale-105"
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                  unoptimized
+                />
+                {/* Bottom gradient for text bleed */}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0518] via-transparent to-transparent" />
+
+                {/* Badge */}
                 {a.badge && (
-                  <span className="absolute top-3 right-3 bg-[#9b51e0] text-white text-xs font-bold font-[var(--font-hp-body)] uppercase tracking-wider px-3 py-1 rounded-full">
+                  <span
+                    className="absolute top-3 right-3 text-white text-xs font-bold font-[var(--font-hp-body)] uppercase tracking-wider px-3 py-1.5 rounded-full"
+                    style={{ backgroundColor: "#9b51e0" }}
+                  >
                     {a.badge}
                   </span>
                 )}
+
+                {/* Price badge */}
+                <span
+                  className="absolute bottom-3 left-4 font-[var(--font-hp-body)] font-bold text-sm px-3 py-1 rounded-full"
+                  style={{ backgroundColor: a.color, color: "#fff" }}
+                >
+                  {a.price}
+                </span>
               </div>
 
               {/* Card content */}
-              <div className="p-5">
-                <h3 className="font-[var(--font-hp-display)] text-lg uppercase tracking-wider text-white mb-2">
+              <div className="flex flex-col flex-1 p-5">
+                <h3
+                  className="font-[var(--font-hp-display)] uppercase text-white"
+                  style={{ fontSize: "clamp(16px, 2.5vw, 20px)", letterSpacing: "1.5px", marginBottom: "4px" }}
+                >
                   {a.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">
+                <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-xs uppercase tracking-wider mb-3">
+                  {a.tagline}
+                </p>
+                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed flex-1 mb-4">
                   {a.description}
                 </p>
-                <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm font-bold mb-1">
-                  {a.pricing}
-                </p>
-                {a.details && (
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-4">
-                    {a.details}
-                  </p>
+                {a.external ? (
+                  <BookingLink
+                    href={a.ctaHref}
+                    className="inline-flex items-center justify-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.3)]"
+                  >
+                    {a.cta}
+                  </BookingLink>
+                ) : (
+                  <Link
+                    href={a.ctaHref}
+                    className="inline-flex items-center justify-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.3)]"
+                  >
+                    {a.cta}
+                  </Link>
                 )}
-                <div className="mt-4">
-                  {a.external ? (
-                    <a
-                      href={a.ctaHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-5 py-2 rounded-full transition-colors"
-                    >
-                      {a.cta}
-                    </a>
-                  ) : (
-                    <Link
-                      href={a.ctaHref}
-                      className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-5 py-2 rounded-full transition-colors"
-                    >
-                      {a.cta}
-                    </Link>
-                  )}
-                </div>
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ====== WEEKLY SPECIALS ====== */}
-      <section
-        id="specials"
-        className="max-w-7xl mx-auto px-4 py-16 sm:py-20"
-      >
-        <h2 className="font-[var(--font-hp-display)] text-3xl sm:text-4xl uppercase tracking-wider text-white text-center mb-12">
-          Weekly Specials
-        </h2>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
-          {/* Bowling specials table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="font-[var(--font-hp-display)] text-sm uppercase tracking-wider text-white/60 px-5 py-4">
-                    Special
-                  </th>
-                  <th className="font-[var(--font-hp-display)] text-sm uppercase tracking-wider text-white/60 px-5 py-4">
-                    Time
-                  </th>
-                  <th className="font-[var(--font-hp-display)] text-sm uppercase tracking-wider text-white/60 px-5 py-4">
-                    Regular
-                  </th>
-                  <th className="font-[var(--font-hp-display)] text-sm uppercase tracking-wider text-white/60 px-5 py-4">
-                    VIP
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {specials.map((s) => (
-                  <tr
-                    key={s.name}
-                    className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
-                  >
-                    <td className="px-5 py-4">
-                      <p className="font-[var(--font-hp-body)] text-white text-sm font-bold">
-                        {s.name}
-                      </p>
-                      {s.note && (
-                        <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-0.5">
-                          {s.note}
-                        </p>
-                      )}
-                    </td>
-                    <td className="font-[var(--font-hp-body)] text-white/60 text-sm px-5 py-4">
-                      {s.time}
-                    </td>
-                    <td className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm font-bold px-5 py-4">
-                      {s.regular}
-                    </td>
-                    <td className="font-[var(--font-hp-body)] text-[#9b51e0] text-sm font-bold px-5 py-4">
-                      {s.vip}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Weekly events */}
-          <div className="border-t border-white/10 px-5 py-5">
-            <h3 className="font-[var(--font-hp-display)] text-sm uppercase tracking-wider text-white/60 mb-3">
-              Weekly Events
-            </h3>
-            <div className="flex flex-wrap gap-4">
-              {weeklyEvents.map((e) => (
-                <div key={e.day + e.event} className="flex items-center gap-2">
-                  <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold">
-                    {e.day}:
-                  </span>
-                  <span className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm">
-                    {e.event}
-                  </span>
-                </div>
-              ))}
-            </div>
+      {/* ====== NEXUS PROMO BANNER ====== */}
+      <section className="relative overflow-hidden" style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2025/05/nexus.png"
+          alt="NEXUS Laser Tag and Gel Blasters"
+          fill
+          className="object-cover"
+          sizes="100vw"
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0a0518]/90 via-[#0a0518]/60 to-transparent" />
+        <div className="relative z-10 max-w-7xl mx-auto">
+          <h2
+            className="font-[var(--font-hp-display)] uppercase text-white"
+            style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", lineHeight: "1.1", marginBottom: "12px" }}
+          >
+            NEXUS Combat Arena
+          </h2>
+          <p
+            className="font-[var(--font-hp-body)] text-white/70 mb-6"
+            style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
+          >
+            Choose your weapon. Laser Tag or Gel Blasters in our multi-level combat arena. Same arena, two ways to play.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/book/laser-tag"
+              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+            >
+              Laser Tag &mdash; $10
+            </Link>
+            <Link
+              href="/book/gel-blaster"
+              className="inline-flex items-center bg-[#9b51e0] hover:bg-[#b06ce0] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+            >
+              Gel Blasters &mdash; $12
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* ====== FOOD / NEMO'S ====== */}
-      <section id="menu" className="max-w-7xl mx-auto px-4 py-16 sm:py-20">
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#240A2B]/50 to-[#273370]/50 p-8 sm:p-12 text-center">
-          <h2 className="font-[var(--font-hp-display)] text-3xl sm:text-4xl uppercase tracking-wider text-white mb-4">
+      {/* ====== WEEKLY SPECIALS ====== */}
+      <section id="specials" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <h2
+          className="font-[var(--font-hp-display)] uppercase text-white text-center"
+          style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "16px" }}
+        >
+          Weekly Specials
+        </h2>
+        <p className="font-[var(--font-hp-body)] text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
+          Bowling specials run all week long. All prices per lane, 1.5 hours unless noted.
+        </p>
+
+        {/* Specials cards */}
+        <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {specials.map((s) => (
+            <div
+              key={s.name}
+              className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 hover:border-[#fd5b56]/30 transition-all duration-300"
+            >
+              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                {s.name}
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-4">
+                {s.when}
+              </p>
+              <div className="flex items-baseline gap-4 mb-3">
+                <div>
+                  <span className="font-[var(--font-hp-display)] text-[#fd5b56]" style={{ fontSize: "28px" }}>
+                    {s.regular}
+                  </span>
+                  <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">regular</span>
+                </div>
+                <div>
+                  <span className="font-[var(--font-hp-display)] text-[#9b51e0]" style={{ fontSize: "28px" }}>
+                    {s.vip}
+                  </span>
+                  <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">VIP</span>
+                </div>
+              </div>
+              {s.note && (
+                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                  {s.note}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Weekly events row */}
+        <div className="max-w-5xl mx-auto mt-8 flex flex-wrap justify-center gap-4">
+          {weeklyEvents.map((e) => (
+            <div
+              key={e.day + e.event}
+              className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.03] px-5 py-2.5"
+            >
+              <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold">
+                {e.day}
+              </span>
+              <span
+                className="font-[var(--font-hp-body)] text-sm font-bold"
+                style={{ color: e.color }}
+              >
+                {e.event}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ====== GALLERY STRIP ====== */}
+      <section className="bg-[#0a0518]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}>
+        <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp", alt: "HeadPinz entertainment" },
+            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_5.webp", alt: "HeadPinz fun" },
+            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_6.webp", alt: "HeadPinz action" },
+            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_7.webp", alt: "HeadPinz venue" },
+          ].map((img) => (
+            <div key={img.src} className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "4/3" }}>
+              <Image
+                src={img.src}
+                alt={img.alt}
+                fill
+                className="object-cover hover:scale-105 transition-transform duration-500"
+                sizes="(max-width: 640px) 50vw, 25vw"
+                unoptimized
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ====== NEMO'S FOOD & DRINKS ====== */}
+      <section id="menu" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_1.webp"
+          alt="HeadPinz dining area"
+          fill
+          className="object-cover"
+          sizes="100vw"
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-[#0a0518]/85" />
+        <div className="relative z-10 max-w-4xl mx-auto text-center">
+          <h2
+            className="font-[var(--font-hp-display)] uppercase text-white"
+            style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "16px" }}
+          >
             Nemo&apos;s Food &amp; Drinks
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-base sm:text-lg mb-8 max-w-2xl mx-auto">
+          <p
+            className="font-[var(--font-hp-body)] text-white/70 mx-auto mb-8"
+            style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "600px", lineHeight: "1.6" }}
+          >
             Fresh cooked pizza, famous jumbo wings, and a full menu of appetizers,
             burgers, wraps and more. Pair it with craft beers, cocktails, or
             signature mocktails.
           </p>
           <Link
             href="/menu"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-colors"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
           >
             View Full Menu
           </Link>
+        </div>
+      </section>
+
+      {/* ====== BOTTOM CTA ====== */}
+      <section className="relative overflow-hidden" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4755-2048x1365-1-1024x683.webp"
+          alt="HeadPinz bowling wide view"
+          fill
+          className="object-cover"
+          sizes="100vw"
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0518] via-black/50 to-black/30" />
+        <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
+          <h2
+            className="font-[var(--font-hp-display)] uppercase text-white"
+            style={{ fontSize: "clamp(24px, 5vw, 44px)", letterSpacing: "3px", marginBottom: "12px" }}
+          >
+            Ready for Some Fun?
+          </h2>
+          <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-8 max-w-md mx-auto">
+            Reserve your lanes, book your battles, or just show up and play. We&apos;re open 7 days a week.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <BookingLink
+              href="https://www.mybowlingpassport.com/2/9172/book"
+              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
+            >
+              Book Bowling
+            </BookingLink>
+            <Link
+              href="/book/laser-tag"
+              className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
+            >
+              Book Laser Tag
+            </Link>
+            <Link
+              href="/book/gel-blaster"
+              className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#9b51e0]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
+            >
+              Book Gel Blasters
+            </Link>
+          </div>
         </div>
       </section>
     </div>
