@@ -40,7 +40,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
-  // Set brand header for /hp/ routes (dev access)
+  // Block /hp/ on fasttraxent.com — redirect to headpinz.com (allow on localhost for dev)
+  const isLocalhost = hostname.includes("localhost") || hostname.includes("127.0.0.1");
+  if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost) {
+    const hpPath = pathname.replace(/^\/hp/, "") || "/";
+    return NextResponse.redirect(`https://headpinz.com${hpPath}`);
+  }
+
+  // Set brand header for /hp/ routes (dev access on localhost)
   if (pathname.startsWith("/hp")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
