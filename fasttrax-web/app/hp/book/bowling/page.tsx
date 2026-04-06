@@ -1111,51 +1111,65 @@ export default function BowlingBookingPage() {
             </div>
 
             <div className="max-w-sm mx-auto">
-            {/* Month navigation */}
-            <div className="flex items-center justify-between mb-4">
-              <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
-                className="text-white/50 hover:text-white p-2 cursor-pointer">&larr;</button>
-              <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{monthName}</span>
-              <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); }}
-                className="text-white/50 hover:text-white p-2 cursor-pointer">&rarr;</button>
-            </div>
+            {/* Calendar — collapses to chip once date is selected */}
+            {!selectedDate ? (
+              <>
+                {/* Month navigation */}
+                <div className="flex items-center justify-between mb-4">
+                  <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
+                    className="text-white/50 hover:text-white p-2 cursor-pointer">&larr;</button>
+                  <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{monthName}</span>
+                  <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); }}
+                    className="text-white/50 hover:text-white p-2 cursor-pointer">&rarr;</button>
+                </div>
 
-            {/* Day headers */}
-            <div className="grid grid-cols-7 mb-1">
-              {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
-                <div key={d} className="text-center text-[11px] text-white/30 py-1">{d}</div>
-              ))}
-            </div>
+                {/* Day headers */}
+                <div className="grid grid-cols-7 mb-1">
+                  {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
+                    <div key={d} className="text-center text-[11px] text-white/30 py-1">{d}</div>
+                  ))}
+                </div>
 
-            {/* Calendar grid */}
-            <div className="grid grid-cols-7 gap-1">
-              {Array.from({ length: firstDay }).map((_, i) => <div key={`pad-${i}`} />)}
-              {Array.from({ length: daysInMonth }).map((_, i) => {
-                const day = i + 1;
-                const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const isOpen = openDateSet.has(dateStr);
-                const isSelected = dateStr === selectedDate;
-                const today = new Date();
-                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-                const isPast = dateStr < todayStr;
-                return (
-                  <button
-                    key={day}
-                    disabled={!isOpen || isPast}
-                    onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); setTimeout(() => timePickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100); }}
-                    className={`aspect-square rounded-lg text-sm font-medium transition-all duration-150 ${
-                      isSelected
-                        ? "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
-                        : isOpen && !isPast
-                          ? "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
-                          : "text-white/20 cursor-not-allowed"
-                    }`}
-                  >
-                    {day}
-                  </button>
-                );
-              })}
-            </div>
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: firstDay }).map((_, i) => <div key={`pad-${i}`} />)}
+                  {Array.from({ length: daysInMonth }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const isOpen = openDateSet.has(dateStr);
+                    const today = new Date();
+                    const tStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+                    const isPast = dateStr < tStr;
+                    return (
+                      <button
+                        key={day}
+                        disabled={!isOpen || isPast}
+                        onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); setTimeout(() => timePickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100); }}
+                        className={`aspect-square rounded-lg text-sm font-medium transition-all duration-150 ${
+                          isOpen && !isPast
+                            ? "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
+                            : "text-white/20 cursor-not-allowed"
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <button
+                  onClick={() => { setSelectedDate(""); setSelectedTime(""); }}
+                  className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-[var(--font-hp-body)] font-bold cursor-pointer transition-all hover:scale-105"
+                  style={{ backgroundColor: cyan, color: "#0a1628" }}
+                >
+                  {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                <span className="font-[var(--font-hp-body)] text-white/30 text-[10px]">tap to change</span>
+              </div>
+            )}
 
             {/* Time picker — hour + minute selectors */}
             {selectedDate && (
@@ -1172,36 +1186,46 @@ export default function BowlingBookingPage() {
                   const minutesForHour = selectedHour ? filteredTimeSlots.filter(t => t.startsWith(selectedHour + ":")) : [];
                   return (
                     <>
-                      {/* Hour selector */}
-                      <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Hour</p>
-                      <div className="flex flex-wrap justify-center gap-2 mb-4">
-                        {hours.map(h => {
-                          const hr = parseInt(h, 10);
-                          const ampm = hr >= 12 ? "PM" : "AM";
-                          const display = `${hr % 12 || 12} ${ampm}`;
-                          const isActive = h === selectedHour;
-                          return (
-                            <button
-                              key={h}
-                              onClick={() => {
-                                // Auto-select the first available minute for this hour
-                                const firstSlot = filteredTimeSlots.find(t => t.startsWith(h + ":"));
-                                if (firstSlot) setSelectedTime(firstSlot);
-                              }}
-                              className="rounded-lg px-4 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
-                              style={{
-                                backgroundColor: isActive ? gold : "rgba(7,16,39,0.5)",
-                                color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
-                                border: isActive ? `2px solid ${gold}` : "1px solid rgba(255,255,255,0.1)",
-                              }}
-                            >
-                              {display}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {/* Hour selector — collapses to chip once selected */}
+                      {!selectedHour ? (
+                        <>
+                          <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Hour</p>
+                          <div className="flex flex-wrap justify-center gap-2 mb-4">
+                            {hours.map(h => {
+                              const hr = parseInt(h, 10);
+                              const ampm = hr >= 12 ? "PM" : "AM";
+                              const display = `${hr % 12 || 12} ${ampm}`;
+                              return (
+                                <button
+                                  key={h}
+                                  onClick={() => {
+                                    const firstSlot = filteredTimeSlots.find(t => t.startsWith(h + ":"));
+                                    if (firstSlot) setSelectedTime(firstSlot);
+                                  }}
+                                  className="rounded-lg px-4 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
+                                  style={{ backgroundColor: "rgba(7,16,39,0.5)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}
+                                >
+                                  {display}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2 mb-3">
+                          <button
+                            onClick={() => setSelectedTime("")}
+                            className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-[var(--font-hp-body)] font-bold cursor-pointer transition-all hover:scale-105"
+                            style={{ backgroundColor: gold, color: "#0a1628" }}
+                          >
+                            {(() => { const hr = parseInt(selectedHour, 10); return `${hr % 12 || 12} ${hr >= 12 ? "PM" : "AM"}`; })()}
+                            <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                          </button>
+                          <span className="font-[var(--font-hp-body)] text-white/30 text-[10px]">tap to change</span>
+                        </div>
+                      )}
 
-                      {/* Minute selector — only shows after hour is picked */}
+                      {/* Minute selector — shows after hour is picked */}
                       {selectedHour && minutesForHour.length > 1 && (
                         <>
                           <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Minutes</p>
