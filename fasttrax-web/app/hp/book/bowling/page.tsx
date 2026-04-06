@@ -1205,39 +1205,32 @@ export default function BowlingBookingPage() {
                       <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
                       {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
 
-                      <div className="space-y-2">
+                      <div className={`grid gap-2 ${hasMultipleItems ? "grid-cols-3" : "grid-cols-1"}`}>
                         {validItems.map(item => {
                           const timeShift = (!item.Reason && item.Remaining > 0 && item.Time !== selectedTime) ? item.Time : null;
                           return (
                             <button
                               key={item.ItemId}
                               onClick={() => handleSelectItem(item)}
-                              className="w-full flex items-center justify-between rounded-lg p-3 cursor-pointer transition-all hover:bg-white/5"
+                              className="flex flex-col items-center justify-center rounded-lg p-4 cursor-pointer transition-all hover:bg-white/5 hover:scale-[1.02] text-center"
                               style={{ border: `1px solid ${timeShift ? "rgba(255,215,0,0.3)" : "rgba(255,255,255,0.1)"}` }}
                             >
-                              <div className="text-left">
-                                {hasMultipleItems && (
-                                  <span className="font-[var(--font-hp-body)] text-white text-sm font-bold">{formatDuration(item.Quantity, item.QuantityType)}</span>
-                                )}
-                                {!hasMultipleItems && item.Quantity > 0 && (
-                                  <span className="font-[var(--font-hp-body)] text-white/50 text-xs">{formatDuration(item.Quantity, item.QuantityType)}</span>
-                                )}
-                                {item.Remaining > 0 && !item.Reason && (
-                                  <span className="font-[var(--font-hp-body)] text-white/30 text-xs ml-2">{item.Remaining} lanes left</span>
-                                )}
-                                {timeShift && (
-                                  <span className="font-[var(--font-hp-body)] text-xs ml-2" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
-                                )}
-                              </div>
-                              <div className="text-right">
-                                <span className="font-[var(--font-hp-display)] text-lg" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
-                                {perPerson && (
-                                  <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">${perPersonPrice.toFixed(2)}/person</span>
-                                )}
-                                {!perPerson && (
-                                  <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">per lane</span>
-                                )}
-                              </div>
+                              {hasMultipleItems && (
+                                <span className="font-[var(--font-hp-display)] text-white text-sm tracking-wider mb-1">{formatDuration(item.Quantity, item.QuantityType)}</span>
+                              )}
+                              <span className="font-[var(--font-hp-display)] text-xl mb-1" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
+                              {perPerson && (
+                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px]">${perPersonPrice.toFixed(2)}/person</span>
+                              )}
+                              {!perPerson && (
+                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px]">per lane</span>
+                              )}
+                              {item.Remaining > 0 && !item.Reason && (
+                                <span className="font-[var(--font-hp-body)] text-white/20 text-[10px] mt-1">{item.Remaining} left</span>
+                              )}
+                              {timeShift && (
+                                <span className="font-[var(--font-hp-body)] text-[10px] mt-1" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
+                              )}
                             </button>
                           );
                         })}
