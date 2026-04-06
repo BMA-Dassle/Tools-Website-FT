@@ -706,7 +706,7 @@ export default function BowlingBookingPage() {
           Items: {
             Extra: extraItems,
             FoodAndBeverage: classifyOffer(selectedOffer!.Name) === "vip"
-              ? [{ PriceKeyId: 13186, Quantity: playerCount, UnitPrice: 0, Note: "", Modifiers: [] }]
+              ? [{ PriceKeyId: 13186, Quantity: 1, UnitPrice: 0, Note: "", Modifiers: [] }]
               : [],
             ShoesSocks: shoeItems,
             WebOffer: {
@@ -1468,7 +1468,7 @@ export default function BowlingBookingPage() {
                 )}
                 {selectedOffer && classifyOffer(selectedOffer.Name) === "vip" && (
                   <div className="flex justify-between mt-1">
-                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>Chips &amp; Salsa x{playerCount}</span>
+                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>Chips &amp; Salsa</span>
                     <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>FREE</span>
                   </div>
                 )}
