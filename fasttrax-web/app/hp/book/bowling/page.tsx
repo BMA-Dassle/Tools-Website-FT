@@ -87,7 +87,7 @@ function getLaneTypes(center: string): LaneTypeInfo[] {
       label: "VIP Lanes",
       desc: "The ultimate bowling experience. Private VIP suite with NeoVerse interactive LED walls and HyperBowling LED target scoring.",
       accent: "#FFD700",
-      videos: [`${BLOB}/videos/headpinz-neoverse.mp4`, `${BLOB}/videos/headpinz-hyperbowling.mp4`],
+      videos: [`${BLOB}/videos/headpinz-neoverse-v2.mp4`, `${BLOB}/videos/headpinz-hyperbowling-v2.mp4`],
       details: [`${isFM ? "8" : "8"} VIP lanes`, "NeoVerse interactive video wall", "HyperBowling LED targets in bumpers", "Private lounge seating", "Complimentary Chips & Salsa"],
     },
     ...(isFM ? [{
@@ -1648,7 +1648,7 @@ export default function BowlingBookingPage() {
               {/* Large video */}
               <div className="relative h-48 overflow-hidden">
                 <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
-                  <source src={`${BLOB}/videos/headpinz-neoverse.mp4`} type="video/mp4" />
+                  <source src={`${BLOB}/videos/headpinz-neoverse-v2.mp4`} type="video/mp4" />
                 </video>
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0a1628]" />
                 <div className="absolute bottom-3 left-4 flex gap-2">

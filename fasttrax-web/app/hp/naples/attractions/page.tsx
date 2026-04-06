@@ -104,7 +104,7 @@ const attractions = [
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-neoverse.mp4",
+    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-neoverse-v2.mp4",
   },
   {
     name: "HyperBowling",
@@ -121,7 +121,7 @@ const attractions = [
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling.mp4",
+    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4",
   },
   {
     name: "Game Zone",
@@ -138,7 +138,7 @@ const attractions = [
     badge: null,
     accent: "#00E2E5",
     borderColor: "rgba(0,226,229,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade.mp4",
+    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4",
   },
 ];
 

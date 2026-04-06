@@ -327,7 +327,7 @@ export default function HeadPinzBirthdaysPage() {
           className="absolute inset-0 w-full h-full object-cover"
           poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
         >
-          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade.mp4" type="video/mp4" />
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4" type="video/mp4" />
         </video>
         <div className="absolute inset-0 bg-[#0a1628]/92" />
         <div
