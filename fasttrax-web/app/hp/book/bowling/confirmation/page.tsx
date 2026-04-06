@@ -275,6 +275,25 @@ export default function BowlingConfirmationPage() {
               </div>
             )}
 
+            {/* Add-on booking status */}
+            {reservation?.addons && reservation.addons.length > 0 && bmiStatus === "booking" && (
+              <div className="rounded-lg p-4 mb-6 flex items-center gap-3" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1px solid ${cyan}30` }}>
+                <div className="w-4 h-4 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin shrink-0" />
+                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">Reserving your add-on activities...</p>
+              </div>
+            )}
+            {reservation?.addons && reservation.addons.length > 0 && bmiStatus === "done" && (
+              <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: `${cyan}10`, border: `1px solid ${cyan}30` }}>
+                <p className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: cyan }}>Add-on activities confirmed!</p>
+              </div>
+            )}
+            {reservation?.addons && reservation.addons.length > 0 && bmiStatus === "error" && (
+              <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: "rgba(253,91,86,0.1)", border: `1px solid rgba(253,91,86,0.3)` }}>
+                <p className="font-[var(--font-hp-body)] text-white text-sm font-bold mb-1">No worries!</p>
+                <p className="font-[var(--font-hp-body)] text-white/60 text-xs">We&apos;ll take care of your add-on activities at guest services when you arrive. Just mention your confirmation number.</p>
+              </div>
+            )}
+
             {/* Player Details Form */}
             {!playersSaved && players.length > 0 && (
               <div className="rounded-lg p-5 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${cyan}30` }}>
