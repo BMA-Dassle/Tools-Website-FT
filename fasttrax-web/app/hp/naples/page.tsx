@@ -78,6 +78,27 @@ const jsonLd = {
   ],
 };
 
+const breadcrumbJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "HeadPinz", item: "https://headpinz.com" },
+    { "@type": "ListItem", position: 2, name: "Naples", item: "https://headpinz.com/naples" },
+  ],
+};
+
+const navJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "HeadPinz Naples",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Book Bowling", url: "https://headpinz.com/book/bowling?location=naples" },
+    { "@type": "ListItem", position: 2, name: "Attractions", url: "https://headpinz.com/naples/attractions" },
+    { "@type": "ListItem", position: 3, name: "Birthday Parties", url: "https://headpinz.com/naples/birthdays" },
+    { "@type": "ListItem", position: 4, name: "Group Events", url: "https://headpinz.com/naples/group-events" },
+  ],
+};
+
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
 /* ------------------------------------------------------------------ */
@@ -214,10 +235,13 @@ const weeklyEvents = [
 export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      {[jsonLd, breadcrumbJsonLd, navJsonLd].map((schema, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        />
+      ))}
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video

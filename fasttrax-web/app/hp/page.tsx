@@ -27,19 +27,70 @@ export const metadata: Metadata = {
   },
 };
 
-const orgJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  name: "HeadPinz",
-  url: "https://headpinz.com",
-  logo: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/logo-white.png",
-  description:
-    "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
-  sameAs: [
-    "https://www.facebook.com/headpinz",
-    "https://www.instagram.com/headpinz",
-  ],
-};
+const jsonLdSchemas = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "HeadPinz",
+    url: "https://headpinz.com",
+    logo: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/logo-white.png",
+    description:
+      "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+    sameAs: [
+      "https://www.facebook.com/headpinz",
+      "https://www.instagram.com/headpinz",
+    ],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "HeadPinz",
+    url: "https://headpinz.com",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "HeadPinz Locations",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "HeadPinz Fort Myers",
+        url: "https://headpinz.com/fort-myers",
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "HeadPinz Naples",
+        url: "https://headpinz.com/naples",
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: "Book Bowling",
+        url: "https://headpinz.com/book/bowling",
+      },
+      {
+        "@type": "ListItem",
+        position: 4,
+        name: "Birthday Parties",
+        url: "https://headpinz.com/fort-myers/birthdays",
+      },
+      {
+        "@type": "ListItem",
+        position: 5,
+        name: "Group Events",
+        url: "https://headpinz.com/fort-myers/group-events",
+      },
+      {
+        "@type": "ListItem",
+        position: 6,
+        name: "Attractions",
+        url: "https://headpinz.com/fort-myers/attractions",
+      },
+    ],
+  },
+];
 
 const locations = [
   {
@@ -63,10 +114,13 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 export default function HeadPinzHome() {
   return (
     <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
-      />
+      {jsonLdSchemas.map((schema, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        />
+      ))}
       {/* Video background — plays on all devices, poster as fallback */}
       <video
         autoPlay

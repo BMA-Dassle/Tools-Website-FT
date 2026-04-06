@@ -79,6 +79,27 @@ const jsonLd = {
   ],
 };
 
+const breadcrumbJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "HeadPinz", item: "https://headpinz.com" },
+    { "@type": "ListItem", position: 2, name: "Fort Myers", item: "https://headpinz.com/fort-myers" },
+  ],
+};
+
+const navJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "HeadPinz Fort Myers",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Book Bowling", url: "https://headpinz.com/book/bowling" },
+    { "@type": "ListItem", position: 2, name: "Attractions", url: "https://headpinz.com/fort-myers/attractions" },
+    { "@type": "ListItem", position: 3, name: "Birthday Parties", url: "https://headpinz.com/fort-myers/birthdays" },
+    { "@type": "ListItem", position: 4, name: "Group Events", url: "https://headpinz.com/fort-myers/group-events" },
+  ],
+};
+
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
 /* ------------------------------------------------------------------ */
@@ -228,10 +249,13 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      {[jsonLd, breadcrumbJsonLd, navJsonLd].map((schema, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        />
+      ))}
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video
