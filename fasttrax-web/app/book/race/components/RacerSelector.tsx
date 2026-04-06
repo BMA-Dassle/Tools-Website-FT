@@ -143,7 +143,7 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {r.creditBalances.map((cb, i) => (
                       <span key={i} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
-                        {cb.kind.replace("Credit - ", "").replace("Race ", "")}: {cb.balance}
+                        {cb.kind}: {cb.balance}
                       </span>
                     ))}
                   </div>

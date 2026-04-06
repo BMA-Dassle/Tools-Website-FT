@@ -490,7 +490,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
                     <div className="flex flex-wrap gap-1 mt-1">
                       {a.creditBalances.map((cb, ci) => (
                         <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
-                          {cb.kind.replace("Credit - ", "").replace("Race ", "")}: {cb.balance}
+                          {cb.kind}: {cb.balance}
                         </span>
                       ))}
                     </div>

@@ -735,7 +735,7 @@ export default function BookRacePage() {
                         <div className="flex flex-wrap gap-1 mt-1">
                           {r.creditBalances.map((cb, ci) => (
                             <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
-                              {cb.kind.replace("Credit - ", "").replace("Race ", "")}: {cb.balance}
+                              {cb.kind}: {cb.balance}
                             </span>
                           ))}
                         </div>
