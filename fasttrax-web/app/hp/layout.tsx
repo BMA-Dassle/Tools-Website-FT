@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Dela_Gothic_One, Varela_Round } from "next/font/google";
+import { Dela_Gothic_One, Varela_Round, Outfit } from "next/font/google";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import HeadPinzFooter from "@/components/headpinz/Footer";
 
@@ -14,6 +14,13 @@ const varelaRound = Varela_Round({
   weight: "400",
   subsets: ["latin"],
   variable: "--font-hp-body",
+  display: "swap",
+});
+
+const outfit = Outfit({
+  weight: ["700", "800", "900"],
+  subsets: ["latin"],
+  variable: "--font-hp-hero",
   display: "swap",
 });
 
@@ -42,7 +49,7 @@ export default function HeadPinzLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${delaGothicOne.variable} ${varelaRound.variable}`}>
+    <div className={`${delaGothicOne.variable} ${varelaRound.variable} ${outfit.variable}`}>
       <HeadPinzNav />
       <div className="pt-16 lg:pt-20">{children}</div>
       <HeadPinzFooter />

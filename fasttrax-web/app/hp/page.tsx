@@ -41,41 +41,28 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 export default function HeadPinzHome() {
   return (
     <div className="min-h-screen bg-[#0a0518]">
-      {/* ====== HERO — Full-bleed venue photo ====== */}
+      {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 85vh, 900px)" }}>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
-          alt="HeadPinz bowling lanes glowing"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          priority
-          quality={90}
-          unoptimized
-        />
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+          poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+        >
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero.mp4" type="video/mp4" />
+        </video>
         {/* Heavy gradient overlay for text legibility */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-[#0a0518]" />
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(500px, 85vh, 900px)" }}>
-          {/* Logo */}
-          <div className="relative mb-6" style={{ width: "clamp(200px, 40vw, 400px)", height: "clamp(60px, 12vw, 120px)" }}>
-            <Image
-              src="https://headpinz.com/wp-content/uploads/2023/10/BOWL_HP_logo_Text.webp"
-              alt="HeadPinz"
-              fill
-              className="object-contain"
-              sizes="(max-width: 768px) 200px, 400px"
-              priority
-              unoptimized
-            />
-          </div>
-
-          {/* Headline */}
+          {/* Headline — Outfit Bold */}
           <h1
-            className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(28px, 6vw, 56px)", lineHeight: "1.15", letterSpacing: "4px", marginBottom: "16px" }}
+            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            style={{ fontSize: "clamp(36px, 8vw, 80px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "16px" }}
           >
-            Your Destination for Fun
+            Your Destination<br />for Fun
           </h1>
 
           {/* Activity list */}
