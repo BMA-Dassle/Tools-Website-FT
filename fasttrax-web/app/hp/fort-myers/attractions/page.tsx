@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 import AttractionVideo from "@/components/headpinz/AttractionVideo";
+import AutoplayVideo from "@/components/headpinz/AutoplayVideo";
 
 export const metadata: Metadata = {
   title:
@@ -224,16 +225,24 @@ export default function AttractionsPage() {
                     isEven ? "md:flex-row-reverse" : ""
                   }`}
                 >
-                  {/* Image side */}
+                  {/* Image/Video side */}
                   <div className="relative md:w-[60%] flex-shrink-0" style={{ minHeight: "400px" }}>
-                    <Image
-                      src={a.image}
-                      alt={a.name}
-                      fill
-                      className="object-cover"
-                      sizes="(max-width: 768px) 100vw, 60vw"
-                      unoptimized
-                    />
+                    {a.videoUrl ? (
+                      <AutoplayVideo
+                        src={a.videoUrl}
+                        poster={a.image}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Image
+                        src={a.image}
+                        alt={a.name}
+                        fill
+                        className="object-cover"
+                        sizes="(max-width: 768px) 100vw, 60vw"
+                        unoptimized
+                      />
+                    )}
                     {/* Gradient overlay — direction depends on side */}
                     <div
                       className={`absolute inset-0 ${
