@@ -200,13 +200,6 @@ const specials = [
     note: "1.5 hours per lane",
   },
   {
-    name: "Fri-Sat Bowling",
-    when: "All day & night",
-    regular: "$15.99",
-    vip: "$17.99",
-    note: "1.5 hours per lane",
-  },
-  {
     name: "Late Night Madness",
     when: "Fri-Sat 11PM-1AM",
     regular: "$11.99",
@@ -305,7 +298,7 @@ export default function NaplesPage() {
       </section>
 
       {/* ====== LOCATION INFO + LIVE AVAILABILITY ====== */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)" }}>
+      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
           alt=""
@@ -315,6 +308,11 @@ export default function NaplesPage() {
         />
         <div className="absolute inset-0 bg-[#0a1628]/90" />
         <div className="relative z-10 max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+          {/* Live availability — shown first on mobile */}
+          <div className="md:hidden">
+            <LaneAvailability location="naples" />
+          </div>
+
           <div className="space-y-4">
             <h2
               className="font-[var(--font-hp-hero)] font-black uppercase text-white"
@@ -350,7 +348,10 @@ export default function NaplesPage() {
             </div>
           </div>
 
-          <LaneAvailability location="naples" />
+          {/* Live availability — desktop column */}
+          <div className="hidden md:block">
+            <LaneAvailability location="naples" />
+          </div>
         </div>
       </section>
 
