@@ -450,7 +450,14 @@ export default function BowlingBookingPage() {
         }));
         window.location.href = result.ApprovePayment.Url;
       }
-    } catch { setError("Failed to submit booking"); }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("409")) {
+        setError("Your reservation expired. Please go back and select your package again.");
+      } else {
+        setError("Failed to submit booking. Please try again.");
+      }
+    }
     finally { setLoading(false); }
   }
 
