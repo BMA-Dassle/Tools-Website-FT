@@ -247,6 +247,47 @@ function formatDuration(qty: number, qtyType: string): string {
   return `${qty}`;
 }
 
+/** Find the VIP equivalent of a regular offer from the full offers list */
+function findVipUpgrade(regularOffer: Offer, allOffers: Offer[], selectedTime: string): { offer: Offer; item: OfferItem; priceDiff: number } | null {
+  if (classifyOffer(regularOffer.Name) !== "regular") return null;
+
+  // Normalize name for matching: strip Regular/VIP, normalize "Open Bowling" = "Time Bowling"
+  function normalizeOfferName(name: string): string {
+    return name
+      .replace(/[-–]\s*(Regular|VIP)/gi, "")
+      .replace(/(Regular|VIP)/gi, "")
+      .replace(/Open Bowling/i, "Time Bowling")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  }
+
+  const baseName = normalizeOfferName(regularOffer.Name);
+
+  // Find VIP offer with matching normalized name
+  for (const vipOffer of allOffers) {
+    if (classifyOffer(vipOffer.Name) !== "vip") continue;
+    const vipBase = normalizeOfferName(vipOffer.Name);
+    if (baseName !== vipBase) continue;
+
+    // Find a valid item within 1 hour
+    const validItems = (vipOffer.Items || []).filter(i =>
+      (!i.Reason && i.Remaining > 0 && isWithinOneHour(i.Time, selectedTime))
+    );
+    if (validItems.length === 0) continue;
+
+    // Match by similar duration — find the item closest to the regular offer's first item
+    const regItem = regularOffer.Items?.[0];
+    const bestItem = validItems[0]; // simplest: take first available
+    const priceDiff = bestItem.Total - (regItem?.Total || 0);
+
+    if (priceDiff > 0) {
+      return { offer: vipOffer, item: bestItem, priceDiff };
+    }
+  }
+  return null;
+}
+
 function classifyOffer(name: string): LaneType {
   const n = name.toLowerCase();
   if (n.includes("old time") || n.includes("pinboyz")) return "oldtime";
@@ -1212,6 +1253,45 @@ export default function BowlingBookingPage() {
                 </div>
               </div>
             )}
+
+            {/* VIP Upgrade prompt */}
+            {selectedOffer && classifyOffer(selectedOffer.Name) === "regular" && (() => {
+              const upgrade = findVipUpgrade(selectedOffer, allOffers, selectedTime);
+              if (!upgrade) return null;
+              return (
+                <div
+                  className="rounded-lg overflow-hidden mb-6"
+                  style={{ backgroundColor: "rgba(255,215,0,0.05)", border: `1.78px dashed ${gold}40` }}
+                >
+                  {/* VIP video preview */}
+                  <div className="relative h-28 overflow-hidden">
+                    <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
+                      <source src={`${BLOB}/videos/headpinz-neoverse.mp4`} type="video/mp4" />
+                    </video>
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/90" />
+                    <div className="absolute bottom-2 left-3 flex gap-1">
+                      <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: `${gold}40`, color: gold }}>NeoVerse</span>
+                      <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: `${cyan}40`, color: cyan }}>HyperBowling</span>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1" style={{ textShadow: `0 0 15px ${gold}25` }}>
+                      Upgrade to VIP?
+                    </h3>
+                    <p className="font-[var(--font-hp-body)] text-white/60 text-xs mb-3">
+                      Get the full VIP experience with NeoVerse interactive LED walls and HyperBowling LED target scoring.
+                    </p>
+                    <button
+                      onClick={() => selectOffer(upgrade.offer, { Id: upgrade.item.ItemId, Name: upgrade.offer.Name, Price: upgrade.item.Total, Duration: formatDuration(upgrade.item.Quantity, upgrade.item.QuantityType) })}
+                      className="w-full py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02]"
+                      style={{ backgroundColor: gold, color: "#0a1628", boxShadow: `0 0 16px ${gold}30` }}
+                    >
+                      Upgrade for +${upgrade.priceDiff.toFixed(2)} more
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* BMI Add-ons (FM only) */}
             {centerId === "9172" && (

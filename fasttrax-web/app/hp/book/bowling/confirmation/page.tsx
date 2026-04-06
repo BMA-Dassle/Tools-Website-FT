@@ -76,6 +76,7 @@ export default function BowlingConfirmationPage() {
   const [status, setStatus] = useState<"loading" | "confirmed" | "failed">("loading");
   const [reservation, setReservation] = useState<ReservationData | null>(null);
   const [bmiStatus, setBmiStatus] = useState<"" | "booking" | "done" | "error">("");
+  const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
 
   // Player form state
   const [shoeCategories, setShoeCategories] = useState<ShoeCategory[]>([]);
@@ -111,6 +112,15 @@ export default function BowlingConfirmationPage() {
       // Use raw number injection for orderId to avoid JS number precision loss on large IDs
       const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":0}`;
       await fetch("/api/bmi?endpoint=payment%2Fconfirm", { method: "POST", headers: { "content-type": "application/json" }, body: confirmBody });
+      // Get waiver URL from BMI project reference
+      try {
+        const projRes = await fetch(`/api/bmi-office?action=project&id=${orderId}`);
+        const proj = await projRes.json();
+        if (proj.projectReference) {
+          setWaiverUrl(`https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`);
+        }
+      } catch { /* non-fatal */ }
+
       sessionStorage.removeItem("qamf_bmi_addons");
       setBmiStatus("done");
     } catch { setBmiStatus("error"); }
@@ -312,7 +322,7 @@ export default function BowlingConfirmationPage() {
                       All participants must complete a waiver before playing laser tag or gel blasters. You can do this online ahead of time or at the check-in kiosk.
                     </p>
                     <a
-                      href="https://kiosk.bmileisure.com/headpinzftmyers"
+                      href={waiverUrl || "https://kiosk.bmileisure.com/headpinzftmyers"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 mt-3 font-[var(--font-hp-body)] text-amber-300 text-xs font-bold hover:text-amber-200 transition-colors"
