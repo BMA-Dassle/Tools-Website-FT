@@ -37,7 +37,7 @@ export default function HeadPinzNav() {
   const currentLoc = locations.find(l => pathname.includes(l.key)) || locations[0];
   const navLinks = [
     { label: "Attractions", href: `${currentLoc.href}#attractions` },
-    { label: "Group Events", href: "/hp/group-events" },
+    { label: "Group Events", href: `${currentLoc.href}/group-events` },
     { label: "Specials", href: `${currentLoc.href}#specials` },
     { label: "Menu", href: `${currentLoc.href}#menu` },
     { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
