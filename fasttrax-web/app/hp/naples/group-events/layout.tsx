@@ -21,10 +21,10 @@ export const metadata: Metadata = {
     description:
       "Classic & VIP bowling, laser tag, gel blasters, arcade, buffet catering & full bar for groups of 10 to 500+ at HeadPinz Naples.",
     type: "website",
-    url: "https://headpinz.com/hp/naples/group-events",
+    url: "https://headpinz.com/naples/group-events",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/naples/group-events",
+    canonical: "https://headpinz.com/naples/group-events",
   },
 };
 

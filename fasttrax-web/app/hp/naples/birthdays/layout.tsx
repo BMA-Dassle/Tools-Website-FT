@@ -21,10 +21,10 @@ export const metadata: Metadata = {
     description:
       "Bronze, Silver & VIP birthday packages with bowling, gel blasters, arcade gaming & dedicated party ambassador at HeadPinz Naples.",
     type: "website",
-    url: "https://headpinz.com/hp/naples/birthdays",
+    url: "https://headpinz.com/naples/birthdays",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/naples/birthdays",
+    canonical: "https://headpinz.com/naples/birthdays",
   },
 };
 

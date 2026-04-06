@@ -5,12 +5,13 @@ import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Fort Myers - Bowling, Laser Tag, Gel Blasters, Arcade & Dining",
+  title: "HeadPinz Fort Myers | Bowling, Arcade, Laser Tag & Events",
   description:
-    "Premier bowling, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, arcade gaming & Nemo's dining at HeadPinz Fort Myers. 14513 Global Parkway. Book now!",
+    "Visit HeadPinz Fort Myers for 24 bowling lanes, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro. Book online!",
   keywords: [
     "HeadPinz Fort Myers",
     "bowling Fort Myers",
+    "bowling alley Fort Myers",
     "laser tag Fort Myers",
     "gel blasters Fort Myers",
     "arcade Fort Myers",
@@ -18,19 +19,64 @@ export const metadata: Metadata = {
     "NeoVerse",
     "things to do Fort Myers",
     "family entertainment Fort Myers",
-    "bowling alley Fort Myers",
-    "glow bowling Fort Myers",
+    "indoor activities Fort Myers",
+    "cosmic bowling Fort Myers",
+    "best bowling alley Fort Myers",
   ],
   openGraph: {
-    title: "HeadPinz Fort Myers - Bowling, Laser Tag, Arcade & More",
+    title: "HeadPinz Fort Myers | Bowling, Arcade, Laser Tag & Events",
     description:
-      "Premier bowling, NEXUS laser tag, gel blaster arena, arcade gaming & Nemo's dining at HeadPinz Fort Myers.",
+      "24 bowling lanes, NEXUS laser tag, gel blaster arena, 40+ arcade games & Nemo's dining at HeadPinz Fort Myers.",
     type: "website",
-    url: "https://headpinz.com/hp/fort-myers",
+    url: "https://headpinz.com/fort-myers",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/fort-myers",
+    canonical: "https://headpinz.com/fort-myers",
   },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "EntertainmentBusiness",
+  name: "HeadPinz Fort Myers",
+  description:
+    "Premier bowling, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro dining.",
+  url: "https://headpinz.com/fort-myers",
+  telephone: "+1-239-288-8385",
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: "14513 Global Parkway",
+    addressLocality: "Fort Myers",
+    addressRegion: "FL",
+    postalCode: "33913",
+    addressCountry: "US",
+  },
+  geo: {
+    "@type": "GeoCoordinates",
+    latitude: 26.5247,
+    longitude: -81.7552,
+  },
+  openingHoursSpecification: [
+    {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
+      opens: "11:00",
+      closes: "00:00",
+    },
+    {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: ["Friday", "Saturday"],
+      opens: "11:00",
+      closes: "02:00",
+    },
+  ],
+  image:
+    "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+  priceRange: "$$",
+  sameAs: [
+    "https://www.facebook.com/headpinz",
+    "https://www.instagram.com/headpinz",
+  ],
 };
 
 /* ------------------------------------------------------------------ */
@@ -182,6 +228,10 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video

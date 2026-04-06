@@ -12,9 +12,9 @@ export const metadata: Metadata = {
     title: "Kids Bowl Free - HeadPinz & FastTrax",
     description: "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
     type: "website",
-    url: "https://headpinz.com/hp/kids-bowl-free",
+    url: "https://headpinz.com/kids-bowl-free",
   },
-  alternates: { canonical: "https://headpinz.com/hp/kids-bowl-free" },
+  alternates: { canonical: "https://headpinz.com/kids-bowl-free" },
 };
 
 const features = [

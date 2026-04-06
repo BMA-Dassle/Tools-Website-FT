@@ -27,10 +27,10 @@ export const metadata: Metadata = {
     description:
       "Six attractions under one roof: premier bowling, NEXUS laser tag, gel blasters, NeoVerse, HyperBowling, and 40+ arcade games.",
     type: "website",
-    url: "https://headpinz.com/hp/fort-myers/attractions",
+    url: "https://headpinz.com/fort-myers/attractions",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/fort-myers/attractions",
+    canonical: "https://headpinz.com/fort-myers/attractions",
   },
 };
 

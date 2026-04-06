@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /hp/book/bowling/confirmation
 
 Sitemap: https://fasttraxent.com/sitemap.xml
+Sitemap: https://headpinz.com/sitemap.xml

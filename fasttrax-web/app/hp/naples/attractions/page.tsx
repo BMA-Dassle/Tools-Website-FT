@@ -26,10 +26,10 @@ export const metadata: Metadata = {
     description:
       "Six attractions under one roof: premier bowling, NEXUS laser tag, NeoVerse, HyperBowling, and 40+ arcade games.",
     type: "website",
-    url: "https://headpinz.com/hp/naples/attractions",
+    url: "https://headpinz.com/naples/attractions",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/naples/attractions",
+    canonical: "https://headpinz.com/naples/attractions",
   },
 };
 

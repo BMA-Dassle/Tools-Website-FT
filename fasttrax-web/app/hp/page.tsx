@@ -4,7 +4,41 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "HeadPinz - Where Fun Comes Together | Fort Myers & Naples",
-  description: "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+  description:
+    "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+  keywords: [
+    "HeadPinz",
+    "bowling Fort Myers",
+    "bowling Naples",
+    "laser tag",
+    "gel blasters",
+    "arcade",
+    "family entertainment Southwest Florida",
+  ],
+  openGraph: {
+    title: "HeadPinz - Where Fun Comes Together",
+    description:
+      "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+    type: "website",
+    url: "https://headpinz.com",
+  },
+  alternates: {
+    canonical: "https://headpinz.com",
+  },
+};
+
+const orgJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "HeadPinz",
+  url: "https://headpinz.com",
+  logo: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/logo-white.png",
+  description:
+    "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+  sameAs: [
+    "https://www.facebook.com/headpinz",
+    "https://www.instagram.com/headpinz",
+  ],
 };
 
 const locations = [
@@ -29,6 +63,10 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 export default function HeadPinzHome() {
   return (
     <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
+      />
       {/* Video background — plays on all devices, poster as fallback */}
       <video
         autoPlay

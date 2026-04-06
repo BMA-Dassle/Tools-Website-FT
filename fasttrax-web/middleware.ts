@@ -31,6 +31,26 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
+  // HeadPinz legacy WordPress URL redirects (301 permanent)
+  if (isHeadPinz) {
+    const legacyRedirects: Record<string, string> = {
+      "/headpinz-fort-myers": "/fort-myers",
+      "/headpinz-naples": "/naples",
+      "/headpinz-fort-myers/": "/fort-myers",
+      "/headpinz-naples/": "/naples",
+      "/fort-myers-attractions": "/fort-myers/attractions",
+      "/naples-attractions": "/naples/attractions",
+      "/fort-myers-group-events": "/fort-myers/group-events",
+      "/naples-group-events": "/naples/group-events",
+      "/fort-myers-birthdays": "/fort-myers/birthdays",
+      "/naples-birthdays": "/naples/birthdays",
+    };
+    const redirect = legacyRedirects[pathname.toLowerCase()];
+    if (redirect) {
+      return NextResponse.redirect(`https://headpinz.com${redirect}`, 301);
+    }
+  }
+
   // HeadPinz domain: rewrite to /hp prefix (unless already there or it's a shared route)
   if (isHeadPinz && !pathname.startsWith("/hp") && !pathname.startsWith("/book") && !pathname.startsWith("/api")) {
     const url = request.nextUrl.clone();

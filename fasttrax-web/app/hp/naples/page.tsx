@@ -5,31 +5,77 @@ import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Naples - Bowling, Laser Tag, Arcade & Dining",
+  title: "HeadPinz Naples | Bowling, Arcade & Events | Naples FL",
   description:
-    "Premier bowling, NEXUS laser tag, NeoVerse, HyperBowling, arcade gaming & Nemo's dining at HeadPinz Naples. 8525 Radio Lane, Naples FL 34104. Book now!",
+    "HeadPinz Naples offers bowling, HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro. 8525 Radio Lane. Book lanes online!",
   keywords: [
     "HeadPinz Naples",
-    "bowling Naples",
+    "bowling Naples FL",
+    "bowling alley Naples Florida",
+    "best bowling Naples FL",
     "laser tag Naples",
-    "arcade Naples",
+    "arcade Naples FL",
     "HyperBowling",
     "NeoVerse",
-    "things to do Naples",
+    "things to do Naples FL",
     "family entertainment Naples",
-    "bowling alley Naples",
-    "glow bowling Naples",
+    "indoor activities Naples",
+    "bowling league Naples FL",
   ],
   openGraph: {
-    title: "HeadPinz Naples - Bowling, Laser Tag, Arcade & More",
+    title: "HeadPinz Naples | Bowling, Arcade & Events",
     description:
-      "Premier bowling, NEXUS laser tag, arcade gaming & Nemo's dining at HeadPinz Naples.",
+      "Bowling, HyperBowling, NeoVerse, laser tag, 40+ arcade games & Nemo's dining at HeadPinz Naples.",
     type: "website",
-    url: "https://headpinz.com/hp/naples",
+    url: "https://headpinz.com/naples",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/naples",
+    canonical: "https://headpinz.com/naples",
   },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "EntertainmentBusiness",
+  name: "HeadPinz Naples",
+  description:
+    "Premier bowling, NEXUS laser tag, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro dining.",
+  url: "https://headpinz.com/naples",
+  telephone: "+1-239-455-3755",
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: "8525 Radio Lane",
+    addressLocality: "Naples",
+    addressRegion: "FL",
+    postalCode: "34104",
+    addressCountry: "US",
+  },
+  geo: {
+    "@type": "GeoCoordinates",
+    latitude: 26.2368,
+    longitude: -81.7494,
+  },
+  openingHoursSpecification: [
+    {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
+      opens: "11:00",
+      closes: "00:00",
+    },
+    {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: ["Friday", "Saturday"],
+      opens: "11:00",
+      closes: "02:00",
+    },
+  ],
+  image:
+    "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+  priceRange: "$$",
+  sameAs: [
+    "https://www.facebook.com/headpinz",
+    "https://www.instagram.com/headpinz",
+  ],
 };
 
 /* ------------------------------------------------------------------ */
@@ -168,6 +214,10 @@ const weeklyEvents = [
 export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video

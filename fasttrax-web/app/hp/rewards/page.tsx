@@ -17,10 +17,10 @@ export const metadata: Metadata = {
     description:
       "Earn points every visit. Redeem for free games, discounts, and exclusive perks at HeadPinz.",
     type: "website",
-    url: "https://headpinz.com/hp/rewards",
+    url: "https://headpinz.com/rewards",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/rewards",
+    canonical: "https://headpinz.com/rewards",
   },
 };
 
