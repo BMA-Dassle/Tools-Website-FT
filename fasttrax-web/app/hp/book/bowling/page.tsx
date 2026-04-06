@@ -1219,7 +1219,7 @@ export default function BowlingBookingPage() {
                       <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
                       {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
 
-                      <div className={`grid gap-2 ${hasMultipleItems ? "grid-cols-3" : "grid-cols-1"}`}>
+                      <div className="grid gap-2 grid-cols-3">
                         {validItems.map(item => {
                           const timeShift = (!item.Reason && item.Remaining > 0 && item.Time !== selectedTime) ? item.Time : null;
                           return (
