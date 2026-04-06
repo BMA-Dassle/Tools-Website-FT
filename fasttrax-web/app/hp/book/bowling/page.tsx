@@ -1192,7 +1192,7 @@ export default function BowlingBookingPage() {
                   >
                     <div className="flex flex-col sm:flex-row">
                     {offer.ImageUrl && (
-                      <div className="relative w-full sm:w-72 h-40 sm:h-full shrink-0 overflow-hidden">
+                      <div className="relative w-full sm:w-72 h-40 shrink-0 overflow-hidden sm:min-h-[200px]">
                         <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/80" />
                         <span className="absolute top-2 right-2 font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
@@ -1457,6 +1457,12 @@ export default function BowlingBookingPage() {
                   <div className="flex justify-between mt-1">
                     <span className="font-[var(--font-hp-body)] text-white/70 text-sm">Bowling Shoes x{playerCount}</span>
                     <span className="font-[var(--font-hp-body)] text-white/70 text-sm">${(shoes[0].Price * playerCount).toFixed(2)}</span>
+                  </div>
+                )}
+                {selectedOffer && classifyOffer(selectedOffer.Name) === "vip" && (
+                  <div className="flex justify-between mt-1">
+                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>Chips &amp; Salsa x{playerCount}</span>
+                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>FREE</span>
                   </div>
                 )}
               </div>
