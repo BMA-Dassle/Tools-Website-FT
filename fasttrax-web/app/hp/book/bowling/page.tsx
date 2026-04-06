@@ -88,9 +88,22 @@ const cyan = "#00E2E5";
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+// Session token storage (set by temp reservation, used by confirm)
+let _sessionToken = "";
+
 async function qamf(path: string, options?: RequestInit) {
-  const res = await fetch(`${API}/${path}`, options);
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string> || {}),
+  };
+  if (_sessionToken) headers["x-sessiontoken"] = _sessionToken;
+
+  const res = await fetch(`${API}/${path}`, { ...options, headers });
   if (!res.ok) throw new Error(`QAMF ${res.status}`);
+
+  // Capture session token from response
+  const tok = res.headers.get("x-sessiontoken");
+  if (tok) _sessionToken = tok;
+
   const text = await res.text();
   if (!text) return null;
   return JSON.parse(text);

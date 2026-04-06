@@ -40,6 +40,12 @@ async function proxyRequest(
       headers: proxyHeaders(),
     };
 
+    // Forward x-sessiontoken if present
+    const sessionToken = req.headers.get("x-sessiontoken");
+    if (sessionToken) {
+      (fetchOptions.headers as Record<string, string>)["x-sessiontoken"] = sessionToken;
+    }
+
     if (method !== "GET" && method !== "HEAD") {
       try {
         const body = await req.text();
@@ -56,21 +62,26 @@ async function proxyRequest(
       return new NextResponse(null, { status: res.status });
     }
 
+    // Capture session token from response to forward to client
+    const respSessionToken = res.headers.get("x-sessiontoken");
+    const extraHeaders: Record<string, string> = {};
+    if (respSessionToken) extraHeaders["x-sessiontoken"] = respSessionToken;
+
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const data = await res.json();
-      return NextResponse.json(data, { status: res.status });
+      return NextResponse.json(data, { status: res.status, headers: extraHeaders });
     }
 
     // Non-JSON response (e.g. plain text boolean)
     const text = await res.text();
     try {
       const parsed = JSON.parse(text);
-      return NextResponse.json(parsed, { status: res.status });
+      return NextResponse.json(parsed, { status: res.status, headers: extraHeaders });
     } catch {
       return new NextResponse(text, {
         status: res.status,
-        headers: { "Content-Type": "text/plain" },
+        headers: { "Content-Type": "text/plain", ...extraHeaders },
       });
     }
   } catch (err) {
