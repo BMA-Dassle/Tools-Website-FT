@@ -397,6 +397,7 @@ export default function BowlingBookingPage() {
 
   // Location confirm modal
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
+  const [redirectingToPayment, setRedirectingToPayment] = useState(false);
 
   // Time change confirmation modal
   const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
@@ -867,7 +868,8 @@ export default function BowlingBookingPage() {
           sessionStorage.removeItem("qamf_bmi_addons");
         }
 
-        // Prefill buyer info on the Square payment page
+        // Show full-screen loading while we prep payment
+        setRedirectingToPayment(true);
         let paymentUrl = result.ApprovePayment.Url;
         try {
           const nameParts = guestName.trim().split(/\s+/);
@@ -1567,7 +1569,7 @@ export default function BowlingBookingPage() {
         )}
 
         {/* ── DETAILS ── */}
-        {step === "details" && !loading && (
+        {step === "details" && !redirectingToPayment && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Your Details</h2>
             <div className="space-y-3 mb-6">
@@ -1584,6 +1586,24 @@ export default function BowlingBookingPage() {
               {loading ? "Processing..." : "Pay & Confirm"}
             </button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+          </div>
+        )}
+
+        {/* ── REDIRECTING TO PAYMENT ── */}
+        {redirectingToPayment && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="relative mb-6">
+              <div className="w-16 h-16 border-2 border-white/10 border-t-[#FFD700] rounded-full animate-spin" />
+              <svg className="absolute inset-0 m-auto w-7 h-7 text-[#FFD700]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2">
+              Loading Secure Payment
+            </h2>
+            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+              Opening secure checkout — please wait...
+            </p>
           </div>
         )}
       </section>
