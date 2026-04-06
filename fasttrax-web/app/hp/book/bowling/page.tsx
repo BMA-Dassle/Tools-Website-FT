@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { trackBowlingStep } from "@/lib/analytics";
+import BowlingDateTimePicker from "@/components/headpinz/BowlingDateTimePicker";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -1103,154 +1104,24 @@ export default function BowlingBookingPage() {
         )}
 
         {/* ── DATE + TIME ── */}
-        {step === "date" && !loading && (() => {
-          const hours = [...new Set(filteredTimeSlots.map(t => t.split(":")[0]))];
-          const selectedHour = selectedTime ? selectedTime.split(":")[0] : "";
-          const minutesForHour = selectedHour ? filteredTimeSlots.filter(t => t.startsWith(selectedHour + ":")) : [];
-          return (
-            <div>
-              <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">When do you want to bowl?</h2>
-
-              <div className="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Left: Calendar */}
-                <div>
-                  <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Date</p>
-                  <div className="flex items-center justify-between mb-3">
-                    <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
-                      className="text-white/50 hover:text-white p-2 cursor-pointer">&larr;</button>
-                    <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{monthName}</span>
-                    <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); }}
-                      className="text-white/50 hover:text-white p-2 cursor-pointer">&rarr;</button>
-                  </div>
-                  <div className="grid grid-cols-7 mb-1">
-                    {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
-                      <div key={d} className="text-center text-[11px] text-white/30 py-1">{d}</div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {Array.from({ length: firstDay }).map((_, i) => <div key={`pad-${i}`} />)}
-                    {Array.from({ length: daysInMonth }).map((_, i) => {
-                      const day = i + 1;
-                      const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                      const isOpen = openDateSet.has(dateStr);
-                      const isSelected = dateStr === selectedDate;
-                      const today = new Date();
-                      const tStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-                      const isPast = dateStr < tStr;
-                      return (
-                        <button
-                          key={day}
-                          disabled={!isOpen || isPast}
-                          onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); setTimeout(() => timePickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100); }}
-                          className={`aspect-square rounded-lg text-sm font-medium transition-all duration-150 ${
-                            isSelected
-                              ? "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
-                              : isOpen && !isPast
-                                ? "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
-                                : "text-white/20 cursor-not-allowed"
-                          }`}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Right: Time picker */}
-                <div ref={timePickerRef}>
-                  {!selectedDate ? (
-                    <div className="flex items-center justify-center h-full">
-                      <p className="font-[var(--font-hp-body)] text-white/30 text-sm">Select a date first</p>
-                    </div>
-                  ) : filteredTimeSlots.length === 0 ? (
-                    <div className="flex items-center justify-center h-full">
-                      <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center">
-                        {isToday ? "No more times available today. Try tomorrow." : "No times available for this date."}
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Hour</p>
-                      <div className="flex flex-wrap justify-center gap-2 mb-4">
-                        {hours.map(h => {
-                          const hr = parseInt(h, 10);
-                          const ampm = hr >= 12 ? "PM" : "AM";
-                          const display = `${hr % 12 || 12} ${ampm}`;
-                          const isActive = h === selectedHour;
-                          return (
-                            <button
-                              key={h}
-                              onClick={() => {
-                                const firstSlot = filteredTimeSlots.find(t => t.startsWith(h + ":"));
-                                if (firstSlot) setSelectedTime(firstSlot);
-                              }}
-                              className="rounded-lg px-4 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
-                              style={{
-                                backgroundColor: isActive ? gold : "rgba(7,16,39,0.5)",
-                                color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
-                                border: isActive ? `2px solid ${gold}` : "1px solid rgba(255,255,255,0.1)",
-                              }}
-                            >
-                              {display}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {selectedHour && minutesForHour.length > 1 && (
-                        <>
-                          <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Minutes</p>
-                          <div className="flex justify-center gap-2 mb-4">
-                            {minutesForHour.map(t => {
-                              const min = t.split(":")[1];
-                              const isActive = t === selectedTime;
-                              return (
-                                <button
-                                  key={t}
-                                  onClick={() => setSelectedTime(t)}
-                                  className="rounded-lg px-5 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
-                                  style={{
-                                    backgroundColor: isActive ? cyan : "rgba(7,16,39,0.5)",
-                                    color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
-                                    border: isActive ? `2px solid ${cyan}` : "1px solid rgba(255,255,255,0.1)",
-                                  }}
-                                >
-                                  :{min}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-
-                      {selectedTime && (
-                        <p className="font-[var(--font-hp-display)] text-center text-2xl mt-2" style={{ color: gold }}>
-                          {formatTimeStr(selectedTime)}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Continue button */}
-              {selectedTime && (
-                <div className="max-w-md mx-auto mt-6">
-                  <button
-                    onClick={fetchOffersAndGoToLaneType}
-                    className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-                    style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
-                  >
-                    See Available Packages
-                  </button>
-                </div>
-              )}
-
-              <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
-            </div>
-          );
-        })()}
+        {step === "date" && !loading && (
+          <div>
+            <BowlingDateTimePicker
+              availableDates={openDateSet}
+              selectedDate={selectedDate}
+              onDateSelect={(d) => { setSelectedDate(d); setSelectedTime(""); }}
+              timeSlots={filteredTimeSlots}
+              selectedTime={selectedTime}
+              onTimeSelect={setSelectedTime}
+              onContinue={fetchOffersAndGoToLaneType}
+              calMonth={calMonth}
+              calYear={calYear}
+              onMonthChange={(m, y) => { setCalMonth(m); setCalYear(y); }}
+              isToday={isToday}
+            />
+            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+          </div>
+        )}
 
         {/* ── PLAYERS ── */}
         {step === "players" && !loading && (
