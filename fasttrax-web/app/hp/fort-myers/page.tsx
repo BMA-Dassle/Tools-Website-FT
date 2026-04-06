@@ -303,47 +303,6 @@ export default function FortMyersPage() {
         </div>
       </section>
 
-      {/* ====== NEXUS PROMO BANNER ====== */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}>
-        <Image
-          src="https://headpinz.com/wp-content/uploads/2025/05/nexus.png"
-          alt="NEXUS Laser Tag and Gel Blasters"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          unoptimized
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0a0518]/90 via-[#0a0518]/60 to-transparent" />
-        <div className="relative z-10 max-w-7xl mx-auto">
-          <h2
-            className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", lineHeight: "1.1", marginBottom: "12px" }}
-          >
-            NEXUS Combat Arena
-          </h2>
-          <p
-            className="font-[var(--font-hp-body)] text-white/70 mb-6"
-            style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
-          >
-            Choose your weapon. Laser Tag or Gel Blasters in our multi-level combat arena. Same arena, two ways to play.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/book/laser-tag"
-              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
-            >
-              Laser Tag &mdash; $10
-            </Link>
-            <Link
-              href="/book/gel-blaster"
-              className="inline-flex items-center bg-[#9b51e0] hover:bg-[#b06ce0] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
-            >
-              Gel Blasters &mdash; $12
-            </Link>
-          </div>
-        </div>
-      </section>
-
       {/* ====== WEEKLY SPECIALS ====== */}
       <section id="specials" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <h2
