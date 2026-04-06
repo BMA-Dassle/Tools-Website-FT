@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -49,10 +50,32 @@ const LOCATIONS = [
   { id: "3148", name: "HeadPinz Naples", address: "8525 Radio Ln, Naples", hasOldTime: false },
 ];
 
-const LANE_TYPES: { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean }[] = [
-  { key: "regular", label: "Regular Lanes", desc: "24 classic bowling lanes with cosmic glow", accent: "#fd5b56" },
-  { key: "vip", label: "VIP Lanes", desc: "Private VIP suite with NeoVerse + HyperBowling", accent: "#FFD700" },
-  { key: "oldtime", label: "Old Time Lanes", desc: "Pinboyz retro duckpin bowling experience", accent: "#00E2E5", fmOnly: true },
+const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+const LANE_TYPES: { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean; videos?: string[]; details?: string[] }[] = [
+  {
+    key: "regular",
+    label: "Regular Lanes",
+    desc: "24 classic bowling lanes with cosmic glow lighting, big screens, and a full bar steps away.",
+    accent: "#fd5b56",
+    videos: [`${BLOB}/videos/headpinz-bowling.mp4`],
+    details: ["24 state-of-the-art lanes", "Cosmic glow atmosphere", "Up to 6 bowlers per lane", "Full bar & food service"],
+  },
+  {
+    key: "vip",
+    label: "VIP Lanes",
+    desc: "The ultimate bowling experience. Private VIP suite with NeoVerse interactive LED walls and HyperBowling LED target scoring.",
+    accent: "#FFD700",
+    videos: [`${BLOB}/videos/headpinz-neoverse.mp4`, `${BLOB}/videos/headpinz-hyperbowling.mp4`],
+    details: ["NeoVerse interactive video wall", "HyperBowling LED targets in bumpers", "Private lounge seating", "Premium experience"],
+  },
+  {
+    key: "oldtime",
+    label: "Old Time Lanes",
+    desc: "Pinboyz retro duckpin bowling — smaller balls, no finger holes, pure classic fun.",
+    accent: "#00E2E5",
+    fmOnly: true,
+    details: ["Retro duckpin bowling", "No finger holes — just throw!", "Perfect for all ages", "Fort Myers exclusive"],
+  },
 ];
 
 const coral = "#fd5b56";
@@ -104,6 +127,7 @@ function formatTimeStr(t: string): string {
 /* ------------------------------------------------------------------ */
 
 export default function BowlingBookingPage() {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>("location");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -112,6 +136,23 @@ export default function BowlingBookingPage() {
   const [centerId, setCenterId] = useState("");
   const [centerName, setCenterName] = useState("");
   const [hasOldTime, setHasOldTime] = useState(false);
+
+  // Auto-detect location from query param or referrer
+  useEffect(() => {
+    const locParam = searchParams.get("location");
+    if (locParam === "naples") {
+      const loc = LOCATIONS.find(l => l.id === "3148")!;
+      setCenterId(loc.id);
+      setCenterName(loc.name);
+      setHasOldTime(loc.hasOldTime);
+    } else {
+      // Default to Fort Myers
+      const loc = LOCATIONS.find(l => l.id === "9172")!;
+      setCenterId(loc.id);
+      setCenterName(loc.name);
+      setHasOldTime(loc.hasOldTime);
+    }
+  }, [searchParams]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [playerCount, setPlayerCount] = useState(2);
@@ -192,8 +233,12 @@ export default function BowlingBookingPage() {
     const start = selectedOpenDate.StartBookingTime.split("T")[1];
     const end = selectedOpenDate.EndBookingTime.split("T")[1];
     const [sh, sm] = start.split(":").map(Number);
-    const [eh] = end.split(":").map(Number);
-    for (let h = sh; h <= Math.min(eh, 23); h++) {
+    let [eh] = end.split(":").map(Number);
+    // If end is midnight (00:00) or next day, treat as 23:30
+    if (eh === 0) eh = 23;
+    // If end is before start (crosses midnight), go to 23
+    if (eh < sh) eh = 23;
+    for (let h = sh; h <= eh; h++) {
       for (const m of [0, 30]) {
         if (h === sh && m < sm) continue;
         timeSlots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
@@ -390,17 +435,34 @@ export default function BowlingBookingPage() {
 
       <section className="max-w-lg mx-auto px-4 pb-24">
 
-        {/* ── LOCATION ── */}
-        {step === "location" && !loading && (
-          <div className="space-y-3">
-            {LOCATIONS.map(loc => (
-              <button key={loc.id} onClick={() => selectLocation(loc)}
-                className="w-full rounded-lg p-5 text-left transition-all hover:scale-[1.01] cursor-pointer"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider">{loc.name}</h3>
-                <p className="font-[var(--font-hp-body)] text-white/50 text-sm">{loc.address}</p>
-              </button>
-            ))}
+        {/* ── LOCATION CONFIRM ── */}
+        {step === "location" && !loading && centerId && (
+          <div className="text-center">
+            <div className="rounded-lg p-6 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}>
+              <p className="font-[var(--font-hp-body)] text-white/50 text-xs uppercase tracking-wider mb-2">You&apos;re booking at</p>
+              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-xl tracking-wider" style={{ textShadow: `0 0 20px ${gold}25` }}>
+                {centerName}
+              </h3>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-sm mt-1">
+                {LOCATIONS.find(l => l.id === centerId)?.address}
+              </p>
+            </div>
+            <button
+              onClick={() => selectLocation(LOCATIONS.find(l => l.id === centerId)!)}
+              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
+            >
+              Continue
+            </button>
+            <button
+              onClick={() => {
+                const other = LOCATIONS.find(l => l.id !== centerId)!;
+                setCenterId(other.id); setCenterName(other.name); setHasOldTime(other.hasOldTime);
+              }}
+              className="mt-3 font-[var(--font-hp-body)] text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+            >
+              Switch to {LOCATIONS.find(l => l.id !== centerId)?.name}
+            </button>
           </div>
         )}
 
@@ -516,7 +578,7 @@ export default function BowlingBookingPage() {
         {step === "lane-type" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {LANE_TYPES.filter(lt => !lt.fmOnly || hasOldTime).map(lt => {
                 const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key).length;
                 return (
@@ -524,14 +586,47 @@ export default function BowlingBookingPage() {
                     key={lt.key}
                     onClick={() => { setLaneType(lt.key); setStep("offer"); }}
                     disabled={count === 0}
-                    className="w-full rounded-lg p-5 text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                    className="w-full rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${lt.accent}35` }}
                   >
-                    <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
-                      {lt.label}
-                    </h3>
-                    <p className="font-[var(--font-hp-body)] text-white/50 text-sm">{lt.desc}</p>
-                    <p className="font-[var(--font-hp-body)] text-xs mt-1" style={{ color: lt.accent }}>{count} package{count !== 1 ? "s" : ""} available</p>
+                    {/* Video preview */}
+                    {lt.videos && lt.videos.length > 0 && (
+                      <div className="relative h-36 overflow-hidden">
+                        <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
+                          <source src={lt.videos[0]} type="video/mp4" />
+                        </video>
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/90" />
+                        {lt.key === "vip" && lt.videos.length > 1 && (
+                          <div className="absolute bottom-2 left-3 flex gap-1">
+                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
+                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="p-5">
+                      <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
+                        {lt.label}
+                      </h3>
+                      <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">{lt.desc}</p>
+
+                      {/* Feature bullets */}
+                      {lt.details && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
+                          {lt.details.map(d => (
+                            <span key={d} className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lt.accent }} />
+                              <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{d}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: lt.accent }}>
+                        {count} package{count !== 1 ? "s" : ""} available &rarr;
+                      </span>
+                    </div>
                   </button>
                 );
               })}
