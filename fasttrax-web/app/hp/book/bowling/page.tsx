@@ -376,6 +376,13 @@ export default function BowlingBookingPage() {
   const [bmiSelectedTime, setBmiSelectedTime] = useState<Record<string, number>>({});
   const [bmiLoadingSlots, setBmiLoadingSlots] = useState<Record<string, boolean>>({});
 
+  // VIP upgrade modal
+  const [showVipUpgrade, setShowVipUpgrade] = useState(false);
+  const [vipUpgradeShown, setVipUpgradeShown] = useState(false);
+
+  // Location confirm modal
+  const [showLocationConfirm, setShowLocationConfirm] = useState(false);
+
   // Time change confirmation modal
   const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
 
@@ -644,6 +651,11 @@ export default function BowlingBookingPage() {
       setShoes(shoesData.Shoes || []);
       setExtras(Array.isArray(extrasData) ? extrasData : []);
       setStep("extras");
+      // Show VIP upgrade modal if regular and not already shown
+      if (classifyOffer(offer.Name) === "regular" && !vipUpgradeShown) {
+        const upgrade = findVipUpgrade(offer, allOffers, useTime);
+        if (upgrade) { setShowVipUpgrade(true); setVipUpgradeShown(true); }
+      }
     } catch { setError("Failed to create reservation"); }
     finally { setLoading(false); }
   }
@@ -836,24 +848,62 @@ export default function BowlingBookingPage() {
 
   return (
     <div className="min-h-screen bg-[#0a1628]">
-      {/* Header + Progress */}
-      <section className="pt-36 pb-6 px-4 text-center">
-        <h1 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 40px)", textShadow: `0 0 30px ${coral}30` }}>
-          Book Bowling
-        </h1>
-        {centerName && <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-1">{centerName}</p>}
+      {/* Spacer for fixed nav */}
+      <div className="pt-28 sm:pt-32" />
 
-        <div className="max-w-2xl mx-auto mt-6 flex items-center gap-1">
-          {stepLabels.map((label, i) => (
-            <div key={label} className="flex-1 text-center">
-              <div className="h-1 rounded-full mb-1 transition-all" style={{ backgroundColor: i <= stepIndex ? coral : "rgba(255,255,255,0.1)" }} />
-              <span className="font-[var(--font-hp-body)] text-[9px] uppercase tracking-wider" style={{ color: i <= stepIndex ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.2)" }}>
-                {label}
-              </span>
+      {/* Sticky step nav (mirrors racing style) */}
+      <div className="sticky top-[72px] sm:top-[80px] z-30">
+        <div className="border-b border-white/8 bg-[#0a1628]">
+          <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
+            <div className="flex items-center gap-0 min-w-max">
+              {allSteps.map((s, i) => {
+                const isPast = i < stepIndex;
+                const isCurrent = i === stepIndex;
+                const isFuture = i > stepIndex;
+                return (
+                  <div key={s} className="flex items-center">
+                    <div
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-[var(--font-hp-body)] font-bold transition-all ${
+                        isCurrent ? `text-[${coral}]` :
+                        isPast ? "text-white/60" :
+                        "text-white/20"
+                      }`}
+                      style={{ color: isCurrent ? coral : undefined }}
+                    >
+                      <span
+                        className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold"
+                        style={{
+                          backgroundColor: isCurrent ? coral : isPast ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)",
+                          color: isCurrent ? "#fff" : isPast ? "#fff" : "rgba(255,255,255,0.2)",
+                        }}
+                      >
+                        {isPast ? "\u2713" : i + 1}
+                      </span>
+                      <span className="hidden sm:inline">{stepLabels[i]}</span>
+                    </div>
+                    {i < allSteps.length - 1 && <span className="text-white/15 mx-0.5">&rsaquo;</span>}
+                  </div>
+                );
+              })}
+
+              {/* Lane held indicator */}
+              {reservationKey && countdown && (
+                <span
+                  className="ml-auto inline-flex items-center gap-1.5 font-[var(--font-hp-body)] text-xs px-3 py-1 rounded-full shrink-0"
+                  style={{
+                    backgroundColor: countdown === "Expired" ? "rgba(253,91,86,0.15)" : "rgba(255,215,0,0.1)",
+                    color: countdown === "Expired" ? coral : gold,
+                  }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: countdown === "Expired" ? coral : gold, animation: countdown !== "Expired" ? "pulse 2s infinite" : "none" }} />
+                  {countdown === "Expired" ? "Expired" : countdown}
+                  <button onClick={clearReservation} className="ml-1 text-white/40 hover:text-white cursor-pointer">&times;</button>
+                </span>
+              )}
             </div>
-          ))}
+          </div>
         </div>
-      </section>
+      </div>
 
       {error && (
         <div className="max-w-lg mx-auto px-4 mb-4">
@@ -869,43 +919,7 @@ export default function BowlingBookingPage() {
         </div>
       )}
 
-      {/* Reservation hold bar */}
-      {reservationKey && countdown && (
-        <div className="max-w-3xl mx-auto px-4 mb-4">
-          <div
-            className="flex items-center justify-between rounded-lg px-4 py-3"
-            style={{
-              backgroundColor: countdown === "Expired" ? "rgba(253,91,86,0.15)" : "rgba(255,215,0,0.1)",
-              border: `1px solid ${countdown === "Expired" ? "rgba(253,91,86,0.3)" : "rgba(255,215,0,0.25)"}`,
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: countdown === "Expired" ? coral : gold, animation: countdown !== "Expired" ? "pulse 2s infinite" : "none" }}
-              />
-              <div>
-                <p className="font-[var(--font-hp-body)] text-white text-sm font-bold">
-                  {countdown === "Expired" ? "Reservation expired" : "Lane held"}
-                </p>
-                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
-                  {countdown === "Expired"
-                    ? "Please start over to get a new reservation"
-                    : `${selectedOffer?.Name || "Package"} \u2022 ${countdown} remaining`}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={clearReservation}
-              className="font-[var(--font-hp-body)] text-white/40 hover:text-white text-xs uppercase tracking-wider cursor-pointer transition-colors px-3 py-1.5 rounded-full border border-white/10 hover:border-white/30"
-            >
-              {countdown === "Expired" ? "Start Over" : "Clear"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <section className="max-w-3xl mx-auto px-4 pb-24">
+      <section className="max-w-3xl mx-auto px-4 py-8 pb-24">
 
         {/* ── LOCATION CONFIRM ── */}
         {step === "location" && !loading && centerId && (
@@ -920,7 +934,7 @@ export default function BowlingBookingPage() {
               </p>
             </div>
             <button
-              onClick={() => selectLocation(LOCATIONS.find(l => l.id === centerId)!)}
+              onClick={() => setShowLocationConfirm(true)}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
             >
@@ -1059,7 +1073,7 @@ export default function BowlingBookingPage() {
         {step === "lane-type" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-4">
               {getLaneTypes(centerId).map(lt => {
                 const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime).length > 0).length;
                 return (
@@ -1070,43 +1084,45 @@ export default function BowlingBookingPage() {
                     className="w-full rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${lt.accent}35` }}
                   >
-                    {/* Video preview */}
-                    {lt.videos && lt.videos.length > 0 && (
-                      <div className="relative h-36 overflow-hidden">
-                        <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
-                          <source src={lt.videos[0]} type="video/mp4" />
-                        </video>
-                        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/90" />
-                        {lt.key === "vip" && lt.videos.length > 1 && (
-                          <div className="absolute bottom-2 left-3 flex gap-1">
-                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
-                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="p-5">
-                      <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
-                        {lt.label}
-                      </h3>
-                      <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">{lt.desc}</p>
-
-                      {/* Feature bullets */}
-                      {lt.details && (
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
-                          {lt.details.map(d => (
-                            <span key={d} className="flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lt.accent }} />
-                              <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{d}</span>
-                            </span>
-                          ))}
+                    <div className="flex flex-col sm:flex-row">
+                      {/* Video/image side */}
+                      {lt.videos && lt.videos.length > 0 && (
+                        <div className="relative w-full sm:w-56 h-36 sm:h-auto shrink-0 overflow-hidden">
+                          <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
+                            <source src={lt.videos[0]} type="video/mp4" />
+                          </video>
+                          <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70" />
+                          {lt.key === "vip" && lt.videos.length > 1 && (
+                            <div className="absolute bottom-2 left-3 flex gap-1">
+                              <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
+                              <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
+                            </div>
+                          )}
                         </div>
                       )}
 
-                      <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: lt.accent }}>
-                        {count} package{count !== 1 ? "s" : ""} available&nbsp;&rarr;
-                      </span>
+                      {/* Content side */}
+                      <div className="flex-1 p-5">
+                        <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
+                          {lt.label}
+                        </h3>
+                        <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">{lt.desc}</p>
+
+                        {lt.details && (
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
+                            {lt.details.map(d => (
+                              <span key={d} className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lt.accent }} />
+                                <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{d}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: lt.accent }}>
+                          {count} package{count !== 1 ? "s" : ""} available &rarr;
+                        </span>
+                      </div>
                     </div>
                   </button>
                 );
@@ -1253,45 +1269,6 @@ export default function BowlingBookingPage() {
                 </div>
               </div>
             )}
-
-            {/* VIP Upgrade prompt */}
-            {selectedOffer && classifyOffer(selectedOffer.Name) === "regular" && (() => {
-              const upgrade = findVipUpgrade(selectedOffer, allOffers, selectedTime);
-              if (!upgrade) return null;
-              return (
-                <div
-                  className="rounded-lg overflow-hidden mb-6"
-                  style={{ backgroundColor: "rgba(255,215,0,0.05)", border: `1.78px dashed ${gold}40` }}
-                >
-                  {/* VIP video preview */}
-                  <div className="relative h-28 overflow-hidden">
-                    <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
-                      <source src={`${BLOB}/videos/headpinz-neoverse.mp4`} type="video/mp4" />
-                    </video>
-                    <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/90" />
-                    <div className="absolute bottom-2 left-3 flex gap-1">
-                      <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: `${gold}40`, color: gold }}>NeoVerse</span>
-                      <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: `${cyan}40`, color: cyan }}>HyperBowling</span>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1" style={{ textShadow: `0 0 15px ${gold}25` }}>
-                      Upgrade to VIP?
-                    </h3>
-                    <p className="font-[var(--font-hp-body)] text-white/60 text-xs mb-3">
-                      Get the full VIP experience with NeoVerse interactive LED walls and HyperBowling LED target scoring.
-                    </p>
-                    <button
-                      onClick={() => selectOffer(upgrade.offer, { Id: upgrade.item.ItemId, Name: upgrade.offer.Name, Price: upgrade.item.Total, Duration: formatDuration(upgrade.item.Quantity, upgrade.item.QuantityType) })}
-                      className="w-full py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02]"
-                      style={{ backgroundColor: gold, color: "#0a1628", boxShadow: `0 0 16px ${gold}30` }}
-                    >
-                      Upgrade for +${upgrade.priceDiff.toFixed(2)} more
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* BMI Add-ons (FM only) */}
             {centerId === "9172" && (
@@ -1512,6 +1489,90 @@ export default function BowlingBookingPage() {
           </div>
         )}
       </section>
+
+      {/* Location confirmation modal */}
+      {showLocationConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4" onClick={() => setShowLocationConfirm(false)}>
+          <div className="rounded-lg p-6 max-w-sm w-full text-center" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${coral}40` }} onClick={e => e.stopPropagation()}>
+            <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+              Confirm Location
+            </h3>
+            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">
+              You&apos;re booking at:
+            </p>
+            <p className="font-[var(--font-hp-hero)] font-black uppercase text-white text-xl mb-1" style={{ textShadow: `0 0 20px ${coral}30` }}>
+              {centerName}
+            </p>
+            <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-6">
+              {LOCATIONS.find(l => l.id === centerId)?.address}
+            </p>
+            <button
+              onClick={() => {
+                setShowLocationConfirm(false);
+                selectLocation(LOCATIONS.find(l => l.id === centerId)!);
+              }}
+              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
+            >
+              Yes, this is correct
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* VIP Upgrade modal */}
+      {showVipUpgrade && selectedOffer && (() => {
+        const upgrade = findVipUpgrade(selectedOffer, allOffers, selectedTime);
+        if (!upgrade) return null;
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 px-4" onClick={() => setShowVipUpgrade(false)}>
+            <div className="rounded-lg overflow-hidden max-w-md w-full" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }} onClick={e => e.stopPropagation()}>
+              {/* Large video */}
+              <div className="relative h-48 overflow-hidden">
+                <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
+                  <source src={`${BLOB}/videos/headpinz-neoverse.mp4`} type="video/mp4" />
+                </video>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0a1628]" />
+                <div className="absolute bottom-3 left-4 flex gap-2">
+                  <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${gold}50`, color: gold }}>NeoVerse</span>
+                  <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${cyan}50`, color: cyan }}>HyperBowling</span>
+                </div>
+              </div>
+
+              <div className="p-6 text-center">
+                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2" style={{ textShadow: `0 0 20px ${gold}30` }}>
+                  Upgrade to VIP?
+                </h3>
+                <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-2">
+                  NeoVerse interactive LED walls and HyperBowling LED target scoring in our private VIP suite.
+                </p>
+                <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-6">
+                  8 exclusive VIP lanes &bull; Private lounge seating &bull; Premium experience
+                </p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowVipUpgrade(false)}
+                    className="flex-1 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+                  >
+                    No Thanks
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowVipUpgrade(false);
+                      selectOffer(upgrade.offer, { Id: upgrade.item.ItemId, Name: upgrade.offer.Name, Price: upgrade.item.Total, Duration: formatDuration(upgrade.item.Quantity, upgrade.item.QuantityType) });
+                    }}
+                    className="flex-1 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                    style={{ backgroundColor: gold, boxShadow: `0 0 20px ${gold}30` }}
+                  >
+                    Upgrade +${upgrade.priceDiff.toFixed(2)}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Time change confirmation modal */}
       {pendingOffer && (
