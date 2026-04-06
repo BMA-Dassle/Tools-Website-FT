@@ -1013,6 +1013,46 @@ export default function LeaderboardsPage() {
           </div>
         </div>
       </section>
+
+      {/* ── League Standings Banner ── */}
+      <section
+        style={{
+          padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)",
+          background: "linear-gradient(135deg, rgba(0,74,173,0.15), rgba(228,28,29,0.1))",
+          borderTop: "1px solid rgba(0,226,229,0.1)",
+        }}
+      >
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6 text-center sm:text-left">
+          <div>
+            <h3
+              className="font-display uppercase text-white"
+              style={{ fontSize: "clamp(24px, 4vw, 36px)", letterSpacing: "3px", marginBottom: "8px" }}
+            >
+              League Standings
+            </h3>
+            <p
+              className="font-[var(--font-poppins)]"
+              style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)", maxWidth: "400px" }}
+            >
+              Track the Blue League championship race. See cumulative points, session breakdowns, and fastest laps.
+            </p>
+          </div>
+          <a
+            href="/leagues"
+            className="font-[var(--font-poppins)] font-bold uppercase tracking-wider text-white shrink-0"
+            style={{
+              backgroundColor: "#00E2E5",
+              color: "#000418",
+              borderRadius: "555px",
+              padding: "16px 32px",
+              fontSize: "14px",
+              transition: "all 0.2s",
+            }}
+          >
+            View Standings →
+          </a>
+        </div>
+      </section>
     </>
   );
 }
