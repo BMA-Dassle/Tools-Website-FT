@@ -35,16 +35,16 @@ export function middleware(request: NextRequest) {
   if (isHeadPinz && !pathname.startsWith("/hp") && !pathname.startsWith("/book") && !pathname.startsWith("/api")) {
     const url = request.nextUrl.clone();
     url.pathname = `/hp${pathname}`;
-    const response = NextResponse.rewrite(url);
-    response.headers.set("x-brand", "headpinz");
-    return response;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
   // Set brand header for /hp/ routes (dev access)
   if (pathname.startsWith("/hp")) {
-    const response = NextResponse.next();
-    response.headers.set("x-brand", "headpinz");
-    return response;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   return NextResponse.next();
