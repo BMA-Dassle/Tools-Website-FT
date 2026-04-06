@@ -40,6 +40,7 @@ interface FoundAccount {
   lastSeen: string;
   races: number;
   memberships: string[];
+  creditBalances?: { kind: string; balance: number }[];
 }
 
 
@@ -117,12 +118,24 @@ export default function RacePacksPage() {
         const lastSeen = p.lastLineUp
           ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
           : "";
+        // Fetch credit balances
+        let creditBalances: { kind: string; balance: number }[] = [];
+        try {
+          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
+          if (depRes.ok) {
+            const deposits: { depositKind: string; balance: number }[] = await depRes.json();
+            creditBalances = deposits
+              .filter(d => d.balance > 0 && (d.depositKind.toLowerCase().includes("credit") || d.depositKind.toLowerCase().includes("pass")))
+              .map(d => ({ kind: d.depositKind, balance: d.balance }));
+          }
+        } catch {}
         return {
           personId: String(p.id),
           fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
           lastSeen,
           races: (p.tags || []).length,
           memberships,
+          creditBalances,
         } as FoundAccount;
       } catch { return null; }
     });
@@ -730,6 +743,15 @@ export default function RacePacksPage() {
                             <span key={i} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
                           ))}
                         </div>
+                        {a.creditBalances && a.creditBalances.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {a.creditBalances.map((cb, ci) => (
+                              <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
+                                {cb.kind.replace("Credit - ", "").replace("Race ", "")}: {cb.balance}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {a.lastSeen && <p className="text-white/30 text-[10px] mt-1">Last seen: {a.lastSeen}</p>}
                       </div>
                       <div className="text-right shrink-0 ml-3">

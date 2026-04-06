@@ -27,6 +27,7 @@ interface FoundAccount {
   races: number;
   memberships: string[];
   birthDate?: string | null;
+  creditBalances?: { kind: string; balance: number }[];
 }
 
 interface Props {
@@ -80,7 +81,18 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         const lastSeen = p.lastLineUp
           ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
           : "";
-        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships, birthDate: p.birthDate || null } as FoundAccount;
+        // Fetch credit balances
+        let creditBalances: { kind: string; balance: number }[] = [];
+        try {
+          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
+          if (depRes.ok) {
+            const deposits: { depositKind: string; balance: number }[] = await depRes.json();
+            creditBalances = deposits
+              .filter(d => d.balance > 0 && (d.depositKind.toLowerCase().includes("credit") || d.depositKind.toLowerCase().includes("pass")))
+              .map(d => ({ kind: d.depositKind, balance: d.balance }));
+          }
+        } catch {}
+        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships, birthDate: p.birthDate || null, creditBalances } as FoundAccount;
       } catch { return null; }
     });
     const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
@@ -457,6 +469,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
                   personReference: "",
                   memberships: a.memberships,
                   birthDate: a.birthDate || null,
+                  hasCredits: (a.creditBalances || []).length > 0,
+                  creditBalances: a.creditBalances,
                 };
                 setVerifiedPerson(person);
                 setPhase("verified");
@@ -472,6 +486,15 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
                       <span key={i} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
                     ))}
                   </div>
+                  {a.creditBalances && a.creditBalances.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {a.creditBalances.map((cb, ci) => (
+                        <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
+                          {cb.kind.replace("Credit - ", "").replace("Race ", "")}: {cb.balance}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {a.lastSeen && <p className="text-white/30 text-[10px] mt-1">Last seen: {a.lastSeen}</p>}
                 </div>
                 <div className="text-right">
