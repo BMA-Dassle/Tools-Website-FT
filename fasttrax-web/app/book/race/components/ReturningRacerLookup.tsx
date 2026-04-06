@@ -62,7 +62,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
       if (!byName.has(name)) byName.set(name, r);
     }
     const uniqueEntries = [...byName.values()].slice(0, 10);
-    const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
+    const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified junior intermediate", "qualified pro", "qualified junior pro", "turbo pass", "employee pass", "race credit"];
 
     const detailPromises = uniqueEntries.map(async (r) => {
       try {

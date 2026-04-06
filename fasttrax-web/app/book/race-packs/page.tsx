@@ -42,7 +42,7 @@ interface FoundAccount {
   memberships: string[];
 }
 
-const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
+const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified junior intermediate", "qualified pro", "qualified junior pro", "turbo pass", "employee pass", "race credit"];
 
 type ModalPhase = "closed" | "lookup" | "looking" | "found" | "new-person" | "summary" | "paying";
 
