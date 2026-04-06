@@ -122,6 +122,22 @@ const attractions = [
     videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling.mp4",
   },
   {
+    name: "Shuffly Shuffleboard",
+    subtitle: "Premium LED Shuffleboard Tables",
+    description:
+      "Full-size shuffleboard tables with LED scoring in a lounge setting. Perfect for groups, date nights, or casual competition.",
+    details: "Up to 8 per table \u2022 $10/group",
+    pricing: "$10/group",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
+    cta: "Book Shuffly",
+    ctaHref: "/hp/book/shuffly",
+    external: false,
+    badge: "FORT MYERS ONLY",
+    accent: "#004AAD",
+    borderColor: "rgba(0,74,173,0.45)",
+  },
+  {
     name: "Game Zone",
     subtitle: "40+ Premier Arcade Games",
     description:
