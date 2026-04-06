@@ -642,32 +642,41 @@ export default function BowlingBookingPage() {
         {step === "offer" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose a Package</h2>
-            <div className="space-y-3">
-              {filteredOffers.map(offer => (
-                <div key={offer.OfferId} className="rounded-lg overflow-hidden" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}>
-                  <div className="p-4">
-                    <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
-                    {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
-                    <div className="space-y-2">
-                      {(offer.Tariffs || []).map(tariff => (
-                        <button key={tariff.Id} onClick={() => selectOffer(offer, tariff)}
-                          className="w-full flex items-center justify-between rounded-lg p-3 cursor-pointer transition-all hover:bg-white/5"
-                          style={{ border: "1px solid rgba(255,255,255,0.1)" }}>
-                          <div className="text-left">
-                            <span className="font-[var(--font-hp-body)] text-white text-sm font-bold">{tariff.Name}</span>
-                            {tariff.Duration && <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-2">{tariff.Duration}</span>}
-                          </div>
-                          <span className="font-[var(--font-hp-display)] text-lg" style={{ color: gold }}>${tariff.Price}</span>
-                        </button>
-                      ))}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredOffers.map(offer => {
+                // Get price from first available item
+                const firstItem = offer.Items?.[0];
+                const price = firstItem?.Total || 0;
+                const laneCount = firstItem?.Lanes || 1;
+
+                return (
+                  <button
+                    key={offer.OfferId}
+                    onClick={() => selectOffer(offer, { Id: offer.OfferId, Name: offer.Name, Price: price, Duration: "" })}
+                    className="rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer"
+                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
+                  >
+                    {offer.ImageUrl && (
+                      <div className="relative h-28 overflow-hidden">
+                        <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/80" />
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
+                      {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
+                      <div className="flex items-baseline justify-between">
+                        <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>${price.toFixed(2)}</span>
+                        <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{laneCount} lane &bull; {playerCount} bowlers</span>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-              {filteredOffers.length === 0 && (
-                <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available for this time and lane type.</p>
-              )}
+                  </button>
+                );
+              })}
             </div>
+            {filteredOffers.length === 0 && (
+              <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available for this time and lane type.</p>
+            )}
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
         )}
