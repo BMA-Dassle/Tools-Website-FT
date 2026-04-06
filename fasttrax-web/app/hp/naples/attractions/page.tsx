@@ -144,17 +144,22 @@ const attractions = [
 export default function NaplesAttractionsPage() {
   return (
     <div className="bg-[#0a1628]">
-      {/* ====== HERO — Image background ====== */}
+      {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "80vh" }}>
-        <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg"
-          alt="HeadPinz bowling fun"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          priority
-          unoptimized
-        />
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover"
+          poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+        >
+          <source
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-bowling.mp4"
+            type="video/mp4"
+          />
+        </video>
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/40 to-[#0a1628]" />
 
         <div
