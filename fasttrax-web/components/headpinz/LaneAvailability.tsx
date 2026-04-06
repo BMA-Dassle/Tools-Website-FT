@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 interface LaneStatus {
   name: string;
@@ -79,7 +80,7 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
 
       setLanes(results);
       setBookingUrl(
-        `https://www.mybowlingpassport.com/2/${centerCode}/book/offers?q_datetime=${formattedTime}&q_bowlers=1-4`
+        location === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling"
       );
     } catch {
       setLanes([]);
@@ -129,17 +130,15 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
         ))}
       </div>
       {bookingUrl && (
-        <a
+        <Link
           href={bookingUrl}
-          target="_blank"
-          rel="noopener noreferrer"
           className="inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.4)]"
         >
           Book Now
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>
-        </a>
+        </Link>
       )}
     </div>
   );

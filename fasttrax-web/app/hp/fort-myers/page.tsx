@@ -321,8 +321,16 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== LOCATION INFO + LIVE AVAILABILITY ====== */}
-      <section style={{ padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+      <section className="relative overflow-hidden" style={{ padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)" }}>
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
+          alt=""
+          fill
+          className="object-cover"
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-[#0a1628]/90" />
+        <div className="relative z-10 max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
           {/* Location details */}
           <div className="space-y-4">
             <h2
