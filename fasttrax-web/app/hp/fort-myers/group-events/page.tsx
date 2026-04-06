@@ -441,14 +441,17 @@ export default function HeadPinzGroupEventsPage() {
             </div>
           </div>
           <div className="flex-1 relative w-full aspect-[4/3] rounded-2xl overflow-hidden">
-            <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp"
-              alt="HeadPinz entertainment"
-              fill
-              className="object-cover"
-              sizes="(max-width: 1024px) 100vw, 50vw"
-              unoptimized
-            />
+            <video
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              className="absolute inset-0 w-full h-full object-cover"
+              poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp"
+            >
+              <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
+            </video>
           </div>
         </div>
       </section>
@@ -527,14 +530,14 @@ export default function HeadPinzGroupEventsPage() {
                       <source src={s.img} type="video/mp4" />
                     </video>
                   ) : (
-                  <Image
-                    src={s.img}
-                    alt={s.title}
-                    fill
-                    className="object-cover transition-transform duration-500 group-hover:scale-105"
-                    sizes="(max-width: 640px) 100vw, 50vw"
-                    unoptimized
-                  />
+                    <Image
+                      src={s.img}
+                      alt={s.title}
+                      fill
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                      sizes="(max-width: 640px) 100vw, 50vw"
+                      unoptimized
+                    />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-transparent to-transparent" />
                   <span
