@@ -214,10 +214,10 @@ export default function BookRacePage() {
     // Fetch related persons from Pandora (family members)
     setLinkedFetching(true);
     fetch(`/api/pandora?personId=${person.personId}&picture=false`).then(async res => {
-      if (!res.ok) return;
+      if (!res.ok) { setLinkedFetching(false); return; }
       const data = await res.json();
       const relatedIds: string[] = data.related || [];
-      if (relatedIds.length === 0) return;
+      if (relatedIds.length === 0) { setLinkedFetching(false); return; }
       // Fetch each related person's details
       const related = await Promise.all(relatedIds.map(async (rid: string) => {
         try {
