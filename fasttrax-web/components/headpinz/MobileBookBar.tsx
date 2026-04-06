@@ -12,6 +12,9 @@ export default function HeadPinzMobileBookBar() {
   const [showContact, setShowContact] = useState(false);
   const pathname = usePathname();
 
+  // Hide on booking pages — user is already booking
+  if (pathname?.includes("/book/")) return null;
+
   // Determine location from URL
   const loc = pathname?.includes("naples") ? locations.naples : locations["fort-myers"];
 
