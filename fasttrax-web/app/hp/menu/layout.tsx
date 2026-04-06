@@ -13,6 +13,9 @@ export const metadata: Metadata = {
     "restaurant Fort Myers",
     "sports bar Fort Myers",
     "HeadPinz dining",
+    "happy hour Fort Myers",
+    "free wing friday HeadPinz",
+    "wings Fort Myers",
   ],
   openGraph: {
     title: "Menu - Nemo's Sports Bistro | HeadPinz",

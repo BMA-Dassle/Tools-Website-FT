@@ -40,7 +40,7 @@ export default function HeadPinzNav() {
     { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
     { label: "Group Events", href: `${currentLoc.href}/group-events` },
     { label: "Specials", href: `${currentLoc.href}#specials` },
-    { label: "Menu", href: "/hp/menu" },
+    { label: "Nemo's", href: "/hp/menu" },
     { label: "Leagues", href: currentLoc.leagues },
     { label: "Rewards", href: "/hp/rewards" },
     { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
