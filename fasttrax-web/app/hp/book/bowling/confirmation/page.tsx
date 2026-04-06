@@ -24,13 +24,36 @@ async function qamfCall(path: string, options?: RequestInit) {
 
 export default function BowlingConfirmationPage() {
   const params = useSearchParams();
-  const key = params.get("key");
-  const centerId = params.get("center");
-  const transactionId = params.get("transactionId") || params.get("orderId");
+
+  // Capture URL params into sessionStorage and clean the URL
+  const [confirmData] = useState(() => {
+    const urlKey = params.get("key");
+    const urlCenter = params.get("center");
+    const urlTx = params.get("transactionId") || params.get("orderId");
+
+    // If URL has params, store them and clean URL
+    if (urlKey && typeof window !== "undefined") {
+      const data = { key: urlKey, center: urlCenter || "", transactionId: urlTx || "" };
+      sessionStorage.setItem("qamf_confirm_data", JSON.stringify(data));
+      window.history.replaceState({}, "", window.location.pathname);
+      return data;
+    }
+
+    // Otherwise read from sessionStorage (page was already cleaned)
+    if (typeof window !== "undefined") {
+      const stored = sessionStorage.getItem("qamf_confirm_data");
+      if (stored) return JSON.parse(stored);
+    }
+
+    return { key: null, center: null, transactionId: null };
+  });
+
+  const key = confirmData.key;
+  const centerId = confirmData.center;
+  const transactionId = confirmData.transactionId;
 
   const [status, setStatus] = useState<"loading" | "confirmed" | "failed">("loading");
   const [reservation, setReservation] = useState<Record<string, unknown> | null>(null);
-  const [debugInfo, setDebugInfo] = useState("");
 
   useEffect(() => {
     if (!key || !centerId) {
@@ -81,6 +104,7 @@ export default function BowlingConfirmationPage() {
                 // Clean up session
                 sessionStorage.removeItem("qamf_session_token");
                 sessionStorage.removeItem("qamf_reservation");
+                sessionStorage.removeItem("qamf_confirm_data");
                 return;
               }
             } else {
@@ -92,6 +116,7 @@ export default function BowlingConfirmationPage() {
                 setStatus("confirmed");
                 sessionStorage.removeItem("qamf_session_token");
                 sessionStorage.removeItem("qamf_reservation");
+                sessionStorage.removeItem("qamf_confirm_data");
                 return;
               }
             }
