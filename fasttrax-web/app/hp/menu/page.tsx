@@ -245,67 +245,107 @@ export default function MenuPage() {
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#fd5b56] via-white/60 to-[#123075]" />
       </section>
 
-      {/* ====== FREE WING FRIDAY + HAPPY HOUR ====== */}
-      <section style={{ padding: "clamp(24px, 4vw, 40px) clamp(16px, 4vw, 32px) 0" }}>
-        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Free Wing Friday */}
+      {/* ====== FREE WING FRIDAY ====== */}
+      <section style={{ padding: "clamp(32px, 6vw, 56px) clamp(16px, 4vw, 32px) 0" }}>
+        <div className="max-w-5xl mx-auto">
           <div
-            className="rounded-lg p-6 relative overflow-hidden"
-            style={{ backgroundColor: "rgba(253,91,86,0.08)", border: `1.78px dashed ${coral}50` }}
+            className="rounded-2xl overflow-hidden relative"
+            style={{ border: `1.78px dashed ${coral}50` }}
           >
-            <div className="absolute top-3 right-3">
-              <span className="text-[9px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-2 py-1 rounded-full animate-pulse">
-                New!
-              </span>
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              {/* Wings image */}
+              <div className="relative" style={{ minHeight: "clamp(220px, 40vw, 360px)" }}>
+                <Image
+                  src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png"
+                  alt="Free Wing Friday - 5 free wings"
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                />
+                <div className="absolute top-4 left-4">
+                  <span className="text-[10px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-3 py-1.5 rounded-full animate-pulse shadow-lg">
+                    New!
+                  </span>
+                </div>
+              </div>
+              {/* Details */}
+              <div className="p-6 md:p-8 flex flex-col justify-center" style={{ backgroundColor: "rgba(253,91,86,0.08)" }}>
+                <h2
+                  className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+                  style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: "1.05", textShadow: `0 0 30px ${coral}30` }}
+                >
+                  Free Wing Friday
+                </h2>
+                <p className="font-[var(--font-hp-body)] text-white/90 text-base mt-3">
+                  Get <strong className="text-[#fd5b56] text-lg">5 FREE Wings</strong> every Friday
+                </p>
+                <p
+                  className="font-[var(--font-hp-display)] uppercase tracking-wider mt-2"
+                  style={{ color: coral, fontSize: "clamp(20px, 4vw, 28px)" }}
+                >
+                  4 &ndash; 6 PM
+                </p>
+                <p className="font-[var(--font-hp-body)] text-white/60 text-sm mt-2">
+                  With any food or beverage purchase
+                </p>
+                <div className="flex items-center gap-2 mt-4">
+                  <svg className="w-4 h-4 text-[#FFD700] shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                  <a href="/hp/rewards" className="font-[var(--font-hp-body)] text-[#FFD700] text-sm font-semibold hover:text-white transition-colors underline underline-offset-2">
+                    HeadPinz Rewards Required &mdash; Join Free
+                  </a>
+                </div>
+                <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] mt-4">
+                  Dine-in only. Available while supplies last.
+                </p>
+              </div>
             </div>
-            <h2
-              className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-              style={{ fontSize: "clamp(22px, 4vw, 32px)", lineHeight: "1.1", textShadow: `0 0 30px ${coral}30` }}
-            >
-              Free Wing Friday
-            </h2>
-            <p className="font-[var(--font-hp-body)] text-white/80 text-sm mt-2">
-              Get <strong className="text-[#fd5b56]">5 FREE Wings</strong> every Friday, <strong className="text-white">4&ndash;6PM</strong>
-            </p>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-xs mt-1">
-              With any food or beverage purchase
-            </p>
-            <div className="flex items-center gap-2 mt-4">
-              <svg className="w-4 h-4 text-[#FFD700] shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-              </svg>
-              <a href="/hp/rewards" className="font-[var(--font-hp-body)] text-[#FFD700] text-xs font-semibold hover:text-white transition-colors underline underline-offset-2">
-                HeadPinz Rewards Required &mdash; Join Free
-              </a>
-            </div>
-            <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] mt-3">
-              Dine-in only. Available while supplies last.
-            </p>
           </div>
+        </div>
+      </section>
 
-          {/* Happy Hour */}
-          <div
-            className="rounded-lg p-6"
-            style={{ backgroundColor: "rgba(255,215,0,0.06)", border: `1.78px dashed rgba(255,215,0,0.35)` }}
-          >
-            <h2
-              className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-              style={{ fontSize: "clamp(22px, 4vw, 32px)", lineHeight: "1.1", textShadow: `0 0 30px rgba(255,215,0,0.2)` }}
-            >
-              Happy Hour
-            </h2>
-            <p className="font-[var(--font-hp-body)] text-white/80 text-sm mt-2">
-              <strong style={{ color: gold }}>7 Days a Week</strong>
-            </p>
-            <p
-              className="font-[var(--font-hp-display)] uppercase tracking-wider mt-3"
-              style={{ color: gold, fontSize: "clamp(20px, 4vw, 28px)" }}
-            >
-              11AM &ndash; 6PM
-            </p>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-3">
-              Drink specials, discounted apps &amp; good vibes at Nemo&apos;s Sports Bistro.
-            </p>
+      {/* ====== HAPPY HOUR ====== */}
+      <section style={{ padding: "clamp(24px, 4vw, 40px) clamp(16px, 4vw, 32px)" }}>
+        <div
+          className="max-w-5xl mx-auto rounded-2xl p-6 md:p-8"
+          style={{ backgroundColor: "rgba(255,215,0,0.05)", border: `1.78px dashed rgba(255,215,0,0.3)` }}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+            <div>
+              <h2
+                className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+                style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: "1.05", textShadow: `0 0 30px rgba(255,215,0,0.2)` }}
+              >
+                Happy Hour
+              </h2>
+              <p className="font-[var(--font-hp-body)] text-white/80 text-base mt-2">
+                <strong style={{ color: gold }}>7 Days a Week</strong> &bull;{" "}
+                <span className="font-[var(--font-hp-display)] uppercase tracking-wider" style={{ color: gold }}>
+                  11AM &ndash; 6PM
+                </span>
+              </p>
+              <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-2">
+                Unwind with discounted drinks and apps at Nemo&apos;s Sports Bistro. No reservation needed.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Draft Beers", detail: "Discounted pints" },
+                { label: "Well Drinks", detail: "Happy hour pricing" },
+                { label: "Wine", detail: "Select glasses" },
+                { label: "Apps", detail: "Discounted shareables" },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-xl p-3 text-center"
+                  style={{ backgroundColor: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.15)" }}
+                >
+                  <p className="font-[var(--font-hp-body)] text-white font-semibold text-sm">{item.label}</p>
+                  <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] mt-0.5">{item.detail}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -358,16 +398,31 @@ export default function MenuPage() {
         </div>
       </section>
 
+      {/* ====== VIEW FULL MENU CTA ====== */}
+      <div className="text-center" style={{ padding: "clamp(16px, 3vw, 24px) clamp(16px, 4vw, 32px)" }}>
+        <a
+          href="https://cash.app/order/$headpinzfasttra"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 font-[var(--font-hp-body)] text-[#00E2E5] text-sm font-semibold hover:text-white transition-colors underline underline-offset-4"
+        >
+          View Full Menu &amp; Order Online
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
+      </div>
+
       {/* ====== MENU SECTIONS ====== */}
-      <section style={{ padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-4xl mx-auto space-y-12">
+      <section style={{ padding: "clamp(24px, 4vw, 40px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-4xl mx-auto space-y-8">
           {filtered.map((section) => (
             <div key={section.name}>
               {/* Section header */}
-              <div className="mb-6">
+              <div className="mb-4">
                 <h2
                   className="font-[var(--font-hp-display)] uppercase text-white tracking-wider"
-                  style={{ fontSize: "clamp(20px, 4vw, 32px)", textShadow: `0 0 20px ${section.accent}30` }}
+                  style={{ fontSize: "clamp(18px, 3.5vw, 26px)", textShadow: `0 0 20px ${section.accent}30` }}
                 >
                   {section.name}
                 </h2>
