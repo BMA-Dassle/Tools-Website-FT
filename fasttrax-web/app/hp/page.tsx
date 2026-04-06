@@ -28,7 +28,7 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 
 export default function HeadPinzHome() {
   return (
-    <div className="min-h-screen bg-[#0a0518] flex flex-col items-center justify-center relative">
+    <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
       {/* Video background */}
       {/* Static poster for immediate display + mobile */}
       <Image
@@ -52,7 +52,7 @@ export default function HeadPinzHome() {
       >
         <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
       </video>
-      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-[#0a0518]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-[#0a1628]" />
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center text-center px-4 py-20 w-full max-w-4xl mx-auto">
@@ -101,7 +101,7 @@ export default function HeadPinzHome() {
             <Link
               key={loc.name}
               href={loc.href}
-              className="group flex-1 flex items-center justify-between gap-4 px-6 py-5 rounded-2xl border border-white/15 hover:border-[#fd5b56]/50 transition-all duration-300 hover:scale-[1.02]"
+              className="group flex-1 flex items-center justify-between gap-4 px-6 py-5 rounded-2xl border border-[#123075]/40 hover:border-[#fd5b56]/50 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_24px_rgba(18,48,117,0.3)]"
               style={{
                 backgroundColor: "rgba(255,255,255,0.06)",
                 backdropFilter: "blur(12px)",

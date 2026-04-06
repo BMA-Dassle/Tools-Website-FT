@@ -119,7 +119,7 @@ export default async function RootLayout({
       <head>
         {!isHeadPinz && <LocalBusinessJsonLd />}
       </head>
-      <body className={`${isHeadPinz ? "bg-[#0a0518]" : "bg-[#000418]"} text-white font-[var(--font-poppins)] antialiased`}>
+      <body className={`${isHeadPinz ? "bg-[#0a1628]" : "bg-[#000418]"} text-white font-[var(--font-poppins)] antialiased`}>
         {!isHeadPinz && <Nav />}
         <main>{children}</main>
         {!isHeadPinz && <Footer />}

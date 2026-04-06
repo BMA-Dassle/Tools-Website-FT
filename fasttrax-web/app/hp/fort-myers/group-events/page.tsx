@@ -6,12 +6,13 @@ import Image from "next/image";
 /* -- HeadPinz brand tokens -------------------------------- */
 
 const coral = "#fd5b56";
-const purple = "#9b51e0";
+const purple = "#123075";
 const blue = "#0693e3";
-const bg = "#0a0518";
+const bg = "#0a1628";
+const royalBlue = "#123075";
 
 const glowCoral = "rgba(253,91,86,0.4) 0px 0px 30px";
-const glowPurple = "rgba(155,81,224,0.4) 0px 0px 30px";
+const glowPurple = "rgba(18,48,117,0.5) 0px 0px 30px";
 
 /* -- Data ------------------------------------------------- */
 
@@ -77,10 +78,10 @@ const activities = [
   },
   {
     title: "NEXUS Laser Tag",
-    subtitle: "$9/person",
+    subtitle: "$200/session",
     color: purple,
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions.",
+    desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions. $200 per session for group events.",
   },
   {
     title: "Axe Throwing",
@@ -145,7 +146,8 @@ const bowlingTables = [classicBowling, vipBowling, vipPinzExclusive];
 /* -- Add-on activities ------------------------------------ */
 
 const addOnActivities = [
-  { name: "Laser Tag", price: "$9/person" },
+  { name: "NEXUS Laser Tag", price: "$200/session" },
+  { name: "NEXUS Gel Blasters", price: "$250/session" },
   { name: "Pool Tables", price: "$15/hour" },
   { name: "Axe Throwing (18+)", price: "$60 weekdays / $90 weekends" },
   { name: "Ping Pong", price: "$9 before 5pm / $13 after 5pm" },
@@ -213,13 +215,14 @@ const extraFrames = [
   { name: "Chicken Teriyaki Potstickers", price: "$35", note: "30 pieces" },
   { name: "15 Mini Sliders", price: "$52", note: "Mini burgers, cubans, chicken, or mojo pork" },
   { name: "Nemo\u2019s Famous Chicken Wings", price: "Market Price", note: "20/50/100 count, Ranch or Blue Cheese" },
-  { name: 'Cheese Pizza (16")', price: "$16", note: "" },
-  { name: 'Pepperoni Pizza (16")', price: "$18", note: "" },
-  { name: 'Veggie Pizza (16")', price: "$19", note: "" },
-  { name: 'Buffalo Chicken Pizza (16")', price: "$19", note: "" },
-  { name: 'Meat Lover Pizza (16")', price: "$20", note: "" },
-  { name: 'Supreme Pizza (16")', price: "$21", note: "" },
-  { name: 'BBQ Chicken Pizza (16")', price: "$19", note: "" },
+  { name: 'Cheese Pizza (16")', price: "$18", note: "" },
+  { name: 'Pepperoni Pizza (16")', price: "$20", note: "" },
+  { name: 'Veggie Pizza (16")', price: "$22", note: "" },
+  { name: 'Buffalo Chicken Pizza (16")', price: "$24", note: "" },
+  { name: 'Meat Lover Pizza (16")', price: "$24", note: "" },
+  { name: 'Supreme Pizza (16")', price: "$24", note: "" },
+  { name: 'Margherita Pizza (16")', price: "$24", note: "" },
+  { name: 'BBQ Chicken Pizza (16")', price: "$24", note: "" },
   { name: "Chafer of Salad", price: "$45", note: "House or Caesar, serves 25" },
   { name: "Fruit Tray (Small)", price: "$85", note: "Serves 25" },
   { name: "Fruit Tray (Large)", price: "$160", note: "Serves 50" },
@@ -305,7 +308,7 @@ const faqs = [
 
 function BowlingPriceTable({ table }: { table: typeof classicBowling }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden mb-8">
+    <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-8">
       <div className="px-5 py-4 border-b border-white/10" style={{ backgroundColor: `${table.color}15` }}>
         <h3
           className="font-[var(--font-hp-hero)] font-black uppercase text-white"
@@ -329,7 +332,7 @@ function BowlingPriceTable({ table }: { table: typeof classicBowling }) {
             {table.rows.map((r, i) => (
               <tr
                 key={r.period}
-                style={{ backgroundColor: i % 2 === 0 ? "rgba(10,5,24,0.6)" : "rgba(10,5,24,0.3)" }}
+                style={{ backgroundColor: i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)" }}
               >
                 <td className="px-4 py-3 text-white/80 font-medium">{r.period}</td>
                 <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h15}</td>
@@ -364,7 +367,7 @@ export default function HeadPinzGroupEventsPage() {
           priority
           unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a0518]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a1628]" />
 
         <div
           className="relative z-10 flex flex-col items-center justify-center text-center px-4"
@@ -389,7 +392,7 @@ export default function HeadPinzGroupEventsPage() {
           </p>
           <button
             onClick={() => setShowForm(true)}
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(253,91,86,0.4)] cursor-pointer"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)] cursor-pointer"
           >
             Request a Quote
           </button>
@@ -397,7 +400,7 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 2. INTRO + CTAs ====== */}
-      <section className="bg-[#0a0518]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
+      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-6 lg:px-8 flex flex-col lg:flex-row gap-10 items-center">
           <div className="flex-1">
             <h2
@@ -451,7 +454,7 @@ export default function HeadPinzGroupEventsPage() {
 
       {/* ====== 3. HOW IT WORKS ====== */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a0518] via-[#12082a] to-[#0a0518]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628] via-[#0f1e38] to-[#0a1628]" />
         <div
           className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8"
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
@@ -472,7 +475,7 @@ export default function HeadPinzGroupEventsPage() {
             {howItWorks.map((s) => (
               <div
                 key={s.step}
-                className="flex flex-col items-center text-center rounded-2xl border border-white/10 bg-white/[0.03]"
+                className="flex flex-col items-center text-center rounded-2xl border border-[#123075]/30 bg-white/[0.03]"
                 style={{ padding: "32px 20px" }}
               >
                 <div
@@ -497,7 +500,7 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 4. EVENT SPACES ====== */}
-      <section className="bg-[#0a0518]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
@@ -515,7 +518,7 @@ export default function HeadPinzGroupEventsPage() {
             {eventSpaces.map((s) => (
               <div
                 key={s.title}
-                className="group flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] hover:border-[#fd5b56]/30 transition-all duration-300"
+                className="group flex flex-col overflow-hidden rounded-2xl border border-[#123075]/30 bg-white/[0.03] hover:border-[#fd5b56]/30 transition-all duration-300"
               >
                 <div className="relative w-full aspect-[16/10] overflow-hidden">
                   <Image
@@ -526,7 +529,7 @@ export default function HeadPinzGroupEventsPage() {
                     sizes="(max-width: 640px) 100vw, 50vw"
                     unoptimized
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a0518] via-transparent to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-transparent to-transparent" />
                   <span
                     className="absolute bottom-3 left-4 font-[var(--font-hp-body)] font-bold text-xs px-3 py-1.5 rounded-full text-white"
                     style={{ backgroundColor: s.color }}
@@ -553,7 +556,7 @@ export default function HeadPinzGroupEventsPage() {
 
       {/* ====== 5. ACTIVITIES ====== */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a0518] via-[#12082a] to-[#0a0518]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628] via-[#0f1e38] to-[#0a1628]" />
         <div
           className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8"
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
@@ -574,7 +577,7 @@ export default function HeadPinzGroupEventsPage() {
             {activities.map((a) => (
               <div
                 key={a.title}
-                className="group flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] hover:border-[#fd5b56]/30 transition-all duration-300"
+                className="group flex flex-col overflow-hidden rounded-2xl border border-[#123075]/30 bg-white/[0.03] hover:border-[#fd5b56]/30 transition-all duration-300"
               >
                 <div className="relative w-full aspect-[16/10] overflow-hidden">
                   <Image
@@ -585,7 +588,7 @@ export default function HeadPinzGroupEventsPage() {
                     sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                     unoptimized
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a0518] via-transparent to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-transparent to-transparent" />
                   <span
                     className="absolute bottom-3 left-4 font-[var(--font-hp-body)] font-bold text-xs px-3 py-1.5 rounded-full text-white"
                     style={{ backgroundColor: a.color }}
@@ -611,7 +614,7 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 6. BOWLING EVENT PRICING ====== */}
-      <section className="bg-[#0a0518]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-5xl mx-auto px-6 lg:px-8">
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
@@ -634,7 +637,7 @@ export default function HeadPinzGroupEventsPage() {
           ))}
 
           {/* Pinboyz Lanes -- flat rate, separate card */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden mb-8">
+          <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-8">
             <div className="px-5 py-4 border-b border-white/10" style={{ backgroundColor: `${coral}15` }}>
               <h3
                 className="font-[var(--font-hp-hero)] font-black uppercase text-white"
@@ -668,7 +671,7 @@ export default function HeadPinzGroupEventsPage() {
 
       {/* ====== 7. ADD-ON ACTIVITIES + SPECIALS ====== */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a0518] via-[#12082a] to-[#0a0518]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628] via-[#0f1e38] to-[#0a1628]" />
         <div
           className="relative z-10 max-w-5xl mx-auto px-6 lg:px-8"
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
@@ -691,7 +694,7 @@ export default function HeadPinzGroupEventsPage() {
             {addOnActivities.map((a) => (
               <div
                 key={a.name}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col items-center text-center"
+                className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5 flex flex-col items-center text-center"
               >
                 <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-2" style={{ fontSize: "16px" }}>
                   {a.name}
@@ -705,7 +708,7 @@ export default function HeadPinzGroupEventsPage() {
 
           {/* Game Zone Party + Meeting Room + Full Buyout */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-white/10 p-5 text-center" style={{ backgroundColor: `${purple}15` }}>
+            <div className="rounded-2xl border border-[#123075]/30 p-5 text-center" style={{ backgroundColor: `${purple}15` }}>
               <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
                 Game Zone Party
               </h3>
@@ -714,7 +717,7 @@ export default function HeadPinzGroupEventsPage() {
                 1 round of Laser Tag + 1-hour unlimited Game Zone (not valid on photo, redemption, merchandise, or coin pushers)
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 p-5 text-center" style={{ backgroundColor: `${blue}15` }}>
+            <div className="rounded-2xl border border-[#123075]/30 p-5 text-center" style={{ backgroundColor: `${blue}15` }}>
               <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
                 Corporate Meeting Room
               </h3>
@@ -723,7 +726,7 @@ export default function HeadPinzGroupEventsPage() {
                 A/V equipment included. Perfect for presentations before team activities.
               </p>
             </div>
-            <div className="rounded-2xl border border-white/10 p-5 text-center" style={{ backgroundColor: `${coral}15` }}>
+            <div className="rounded-2xl border border-[#123075]/30 p-5 text-center" style={{ backgroundColor: `${coral}15` }}>
               <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
                 Full Venue Buyout
               </h3>
@@ -749,7 +752,7 @@ export default function HeadPinzGroupEventsPage() {
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0 bg-[#0a0518]/90" />
+        <div className="absolute inset-0 bg-[#0a1628]/90" />
         <div className="relative z-10 max-w-6xl mx-auto px-6 lg:px-8">
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
@@ -776,7 +779,7 @@ export default function HeadPinzGroupEventsPage() {
             {buffetPackages.map((pkg) => (
               <div
                 key={pkg.name}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col"
+                className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5 flex flex-col"
               >
                 <div className="flex items-baseline justify-between mb-3">
                   <h3 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "16px" }}>
@@ -794,7 +797,7 @@ export default function HeadPinzGroupEventsPage() {
           </div>
 
           {/* Extra Frames -- collapsible accordion */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden mb-6">
+          <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-6">
             <button
               onClick={() => setExtrasOpen(!extrasOpen)}
               className="w-full flex items-center justify-between px-5 py-4 cursor-pointer"
@@ -831,7 +834,7 @@ export default function HeadPinzGroupEventsPage() {
               <div className="border-t border-white/10 overflow-x-auto">
                 <table className="w-full text-left font-[var(--font-hp-body)] text-sm" style={{ minWidth: "480px" }}>
                   <thead>
-                    <tr style={{ backgroundColor: "rgba(155,81,224,0.5)" }}>
+                    <tr style={{ backgroundColor: "rgba(18,48,117,0.5)" }}>
                       <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Item</th>
                       <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Price</th>
                       <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Details</th>
@@ -841,7 +844,7 @@ export default function HeadPinzGroupEventsPage() {
                     {extraFrames.map((item, i) => (
                       <tr
                         key={item.name}
-                        style={{ backgroundColor: i % 2 === 0 ? "rgba(10,5,24,0.6)" : "rgba(10,5,24,0.3)" }}
+                        style={{ backgroundColor: i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)" }}
                       >
                         <td className="px-4 py-2.5 text-white/80">{item.name}</td>
                         <td className="px-4 py-2.5 font-semibold" style={{ color: purple }}>{item.price}</td>
@@ -863,7 +866,7 @@ export default function HeadPinzGroupEventsPage() {
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
             {beverages.map((cat) => (
-              <div key={cat.category} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <div key={cat.category} className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5">
                 <h4
                   className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-4"
                   style={{ fontSize: "14px", letterSpacing: "1px" }}
@@ -890,7 +893,7 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 9. FAQ ACCORDION ====== */}
-      <section className="bg-[#0a0518]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-3xl mx-auto px-6 lg:px-8">
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white text-center"
@@ -908,7 +911,7 @@ export default function HeadPinzGroupEventsPage() {
             {faqs.map((f, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden"
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
@@ -961,7 +964,7 @@ export default function HeadPinzGroupEventsPage() {
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0518] via-black/60 to-black/40" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-black/60 to-black/40" />
         <div
           className="relative z-10 max-w-3xl mx-auto px-6 lg:px-8 text-center"
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
@@ -1004,7 +1007,7 @@ export default function HeadPinzGroupEventsPage() {
       {showForm && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-          style={{ backgroundColor: "rgba(10,5,24,0.9)" }}
+          style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowForm(false);
           }}

@@ -56,7 +56,7 @@ export default function HeadPinzNav() {
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
       {/* Top bar — hours + location selector */}
-      <div className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#0a0518]" : "bg-transparent"}`}>
+      <div className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#0a1628]" : "bg-transparent"}`}>
         <div className="flex items-center gap-4">
           <a href="https://www.facebook.com/HeadPinzFortMyers" target="_blank" rel="noopener noreferrer" className="hover:text-[#fd5b56] transition-colors" aria-label="Facebook">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
@@ -82,7 +82,7 @@ export default function HeadPinzNav() {
               </svg>
             </button>
             {locOpen && (
-              <div className="absolute right-0 top-full mt-1 z-[60] bg-[#0a0518] border border-white/15 rounded-lg overflow-hidden shadow-xl min-w-[160px]">
+              <div className="absolute right-0 top-full mt-1 z-[60] bg-[#0a1628] border border-[#123075]/50 rounded-lg overflow-hidden shadow-xl min-w-[160px]">
                 {locations.map(loc => (
                   <Link
                     key={loc.key}
@@ -109,7 +109,7 @@ export default function HeadPinzNav() {
         <div
           className="max-w-7xl mx-auto flex items-center justify-between"
           style={{
-            backgroundColor: "rgba(10,5,24,0.4)",
+            backgroundColor: "rgba(10,22,40,0.4)",
             backdropFilter: "blur(6.6px)",
             WebkitBackdropFilter: "blur(6.6px)",
             border: "0.89px solid rgba(255,252,252,0.08)",
@@ -168,7 +168,7 @@ export default function HeadPinzNav() {
               href={currentLoc.booking}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-poppins)] font-bold uppercase tracking-wider transition-colors"
+              className="hidden sm:inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-poppins)] font-bold uppercase tracking-wider transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.5)]"
               style={{ fontSize: "14px", padding: "16px 24px", borderRadius: "166px" }}
             >
               Book Now
@@ -187,7 +187,7 @@ export default function HeadPinzNav() {
 
         {/* Mobile menu */}
         <div className={`lg:hidden overflow-hidden transition-all duration-300 ${open ? "max-h-screen" : "max-h-0"}`}>
-          <div className="bg-[#0a0518] px-4 pb-6 pt-2 flex flex-col gap-4 rounded-b-2xl">
+          <div className="bg-[#0a1628] px-4 pb-6 pt-2 flex flex-col gap-4 rounded-b-2xl">
             {/* Location switcher in mobile */}
             <div className="flex gap-2 pb-2 border-b border-white/10">
               {locations.map(loc => (
