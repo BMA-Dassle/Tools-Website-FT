@@ -862,10 +862,10 @@ export default function BowlingBookingPage() {
                           </button>
                         ))}
                         {/* Show alternatives if main items unavailable */}
-                        {offer.Items?.every(i => i.Reason && i.Remaining === 0) && offer.Items?.[0]?.Alternatives?.length > 0 && (
+                        {offer.Items?.every(i => i.Reason && i.Remaining === 0) && (offer.Items?.[0]?.Alternatives?.length ?? 0) > 0 && (
                           <div>
                             <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-2">Not available at selected time. Try:</p>
-                            {offer.Items[0].Alternatives.filter(a => a.Remaining > 0).slice(0, 3).map(alt => (
+                            {offer.Items![0].Alternatives!.filter(a => a.Remaining > 0).slice(0, 3).map(alt => (
                               <button
                                 key={alt.Time}
                                 onClick={() => {
