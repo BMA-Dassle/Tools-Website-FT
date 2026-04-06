@@ -40,7 +40,19 @@ interface Offer {
 
 interface ShoeOption { Name: string; Price: number; PriceKeyId: number; PlayerTypeId: number }
 interface Extra { Id: number; Name: string; Price: number; ImageUrl: string; Description: string; ItemType: string }
-interface CartSummary { TotalWithoutTaxes: number; TotalItems: number; AddedTaxes: number; TotalWithTaxes: number }
+interface CartSummary {
+  TotalWithoutTaxes: number;
+  TotalItems: number;
+  TotalDiscountedItems: number;
+  AddedTaxes: number;
+  Fee: number;
+  Total: number;
+  Deposit: number;
+  AutoGratuity: number;
+  TipAmount: number;
+  Discount: number;
+  SavingAmount: number;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -478,11 +490,11 @@ export default function BowlingBookingPage() {
             Items: cartItems,
             Summary: cartSummary ? {
               AddedTaxes: cartSummary.AddedTaxes,
-              Deposit: cartSummary.TotalWithTaxes || cartSummary.TotalWithoutTaxes,
-              Fee: 0,
-              Total: cartSummary.TotalWithTaxes || cartSummary.TotalWithoutTaxes,
+              Deposit: cartSummary.Deposit,
+              Fee: cartSummary.Fee,
+              Total: cartSummary.Total,
               TotalItems: cartSummary.TotalItems,
-              AutoGratuity: 0,
+              AutoGratuity: cartSummary.AutoGratuity,
               TotalWithoutTaxes: cartSummary.TotalWithoutTaxes,
             } : undefined,
           },
@@ -956,10 +968,13 @@ export default function BowlingBookingPage() {
               <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
                 <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Subtotal</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.TotalItems.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Tax</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.AddedTaxes.toFixed(2)}</span></div>
+                {cartSummary.Fee > 0 && (
+                  <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Service Fee</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.Fee.toFixed(2)}</span></div>
+                )}
               </div>
               <div className="flex justify-between">
-                <span className="font-[var(--font-hp-body)] text-white font-bold">Total</span>
-                <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>${(cartSummary.TotalWithTaxes || cartSummary.TotalWithoutTaxes).toFixed(2)}</span>
+                <span className="font-[var(--font-hp-body)] text-white font-bold">Total Due</span>
+                <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>${cartSummary.Total.toFixed(2)}</span>
               </div>
             </div>
             <button onClick={() => setStep("details")}
