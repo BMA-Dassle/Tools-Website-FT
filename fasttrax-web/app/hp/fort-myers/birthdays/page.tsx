@@ -168,7 +168,7 @@ export default function HeadPinzBirthdaysPage() {
   return (
     <>
       {/* ====== 1. HERO ====== */}
-      <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 800px)" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image
           src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp"
           alt="HeadPinz birthday party"
@@ -182,7 +182,7 @@ export default function HeadPinzBirthdaysPage() {
 
         <div
           className="relative z-10 flex flex-col items-center justify-center text-center px-4"
-          style={{ minHeight: "clamp(500px, 80vh, 800px)" }}
+          style={{ minHeight: "100vh" }}
         >
           <h1
             className="font-[var(--font-hp-hero)] font-black uppercase text-white"

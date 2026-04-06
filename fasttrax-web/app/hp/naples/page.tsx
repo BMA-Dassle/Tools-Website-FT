@@ -5,31 +5,30 @@ import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Fort Myers - Bowling, Laser Tag, Gel Blasters, Arcade & Dining",
+  title: "HeadPinz Naples - Bowling, Laser Tag, Arcade & Dining",
   description:
-    "Premier bowling, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, arcade gaming & Nemo's dining at HeadPinz Fort Myers. 14513 Global Parkway. Book now!",
+    "Premier bowling, NEXUS laser tag, NeoVerse, HyperBowling, arcade gaming & Nemo's dining at HeadPinz Naples. 8525 Radio Lane, Naples FL 34104. Book now!",
   keywords: [
-    "HeadPinz Fort Myers",
-    "bowling Fort Myers",
-    "laser tag Fort Myers",
-    "gel blasters Fort Myers",
-    "arcade Fort Myers",
+    "HeadPinz Naples",
+    "bowling Naples",
+    "laser tag Naples",
+    "arcade Naples",
     "HyperBowling",
     "NeoVerse",
-    "things to do Fort Myers",
-    "family entertainment Fort Myers",
-    "bowling alley Fort Myers",
-    "glow bowling Fort Myers",
+    "things to do Naples",
+    "family entertainment Naples",
+    "bowling alley Naples",
+    "glow bowling Naples",
   ],
   openGraph: {
-    title: "HeadPinz Fort Myers - Bowling, Laser Tag, Arcade & More",
+    title: "HeadPinz Naples - Bowling, Laser Tag, Arcade & More",
     description:
-      "Premier bowling, NEXUS laser tag, gel blaster arena, arcade gaming & Nemo's dining at HeadPinz Fort Myers.",
+      "Premier bowling, NEXUS laser tag, arcade gaming & Nemo's dining at HeadPinz Naples.",
     type: "website",
-    url: "https://headpinz.com/hp/fort-myers",
+    url: "https://headpinz.com/hp/naples",
   },
   alternates: {
-    canonical: "https://headpinz.com/hp/fort-myers",
+    canonical: "https://headpinz.com/hp/naples",
   },
 };
 
@@ -45,7 +44,7 @@ const attractions = [
     image: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
     price: "From $12.99",
     cta: "Reserve Lanes",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "https://www.mybowlingpassport.com/2/3148/book",
     external: true,
     badge: null,
     color: "#fd5b56",
@@ -55,24 +54,12 @@ const attractions = [
     tagline: "2-Story Glow Arena",
     description: "Immersive, multi-level space-themed combat. Haptic vests and precision sensors for objective-based missions.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    price: "$10/person",
+    price: "$8.50/person",
     cta: "Join the Mission",
     ctaHref: "/book/laser-tag",
     external: false,
     badge: null,
     color: "#fd5b56",
-  },
-  {
-    name: "NEXUS Gel Blasters",
-    tagline: "Zero Mess. Total Mayhem.",
-    description: "State-of-the-art blasters with haptic vests. Eco-friendly Gellets evaporate on impact. All the action, none of the cleanup.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
-    price: "$12/person",
-    cta: "Book Gel Blasters",
-    ctaHref: "/book/gel-blaster",
-    external: false,
-    badge: null,
-    color: "#123075",
   },
   {
     name: "NeoVerse",
@@ -81,7 +68,7 @@ const attractions = [
     image: "https://headpinz.com/wp-content/uploads/2024/02/neoverse.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "https://www.mybowlingpassport.com/2/3148/book",
     external: true,
     badge: "VIP ONLY",
     color: "#123075",
@@ -93,7 +80,7 @@ const attractions = [
     image: "https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "https://www.mybowlingpassport.com/2/3148/book",
     external: true,
     badge: "VIP ONLY",
     color: "#fd5b56",
@@ -165,14 +152,14 @@ const weeklyEvents = [
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function FortMyersPage() {
+export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image
           src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
-          alt="HeadPinz Fort Myers"
+          alt="HeadPinz Naples"
           fill
           className="object-cover"
           sizes="100vw"
@@ -209,20 +196,20 @@ export default function FortMyersPage() {
             className="font-[var(--font-hp-hero)] font-black uppercase text-white"
             style={{ fontSize: "clamp(36px, 8vw, 80px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "12px" }}
           >
-            Fort Myers
+            Naples
           </h1>
 
           <p
             className="font-[var(--font-hp-body)] text-white/70 uppercase tracking-widest"
             style={{ fontSize: "clamp(11px, 1.8vw, 15px)", marginBottom: "20px", letterSpacing: "3px" }}
           >
-            Bowling &bull; Laser Tag &bull; Gel Blasters &bull; Arcade &bull; Dining
+            Bowling &bull; Laser Tag &bull; Arcade &bull; Dining
           </p>
 
           <div className="mb-8" />
 
           <BookingLink
-            href="https://www.mybowlingpassport.com/2/9172/book"
+            href="https://www.mybowlingpassport.com/2/3148/book"
             className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)]"
           >
             Book Now
@@ -239,11 +226,11 @@ export default function FortMyersPage() {
               className="font-[var(--font-hp-hero)] font-black uppercase text-white"
               style={{ fontSize: "clamp(20px, 3vw, 28px)" }}
             >
-              HeadPinz Fort Myers
+              HeadPinz Naples
             </h2>
             <div className="space-y-2">
               <a
-                href="https://maps.google.com/?q=14513+Global+Parkway+Fort+Myers+FL+33913"
+                href="https://maps.google.com/?q=8525+Radio+Lane+Naples+FL+34104"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-start gap-3 text-white/70 hover:text-white transition-colors group"
@@ -252,13 +239,13 @@ export default function FortMyersPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                <span className="text-sm">14513 Global Parkway<br />Fort Myers, FL 33913</span>
+                <span className="text-sm">8525 Radio Lane<br />Naples, FL 34104</span>
               </a>
-              <a href="tel:+12393022155" className="flex items-center gap-3 text-white/70 hover:text-white transition-colors">
+              <a href="tel:+12394553755" className="flex items-center gap-3 text-white/70 hover:text-white transition-colors">
                 <svg className="w-5 h-5 text-[#fd5b56] shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
-                <span className="text-sm">(239) 302-2155</span>
+                <span className="text-sm">(239) 455-3755</span>
               </a>
               <div className="flex items-center gap-3 text-white/50">
                 <svg className="w-5 h-5 text-[#fd5b56] shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -270,7 +257,7 @@ export default function FortMyersPage() {
           </div>
 
           {/* Live availability */}
-          <LaneAvailability location="fort-myers" />
+          <LaneAvailability location="naples" />
         </div>
       </section>
 
@@ -514,7 +501,7 @@ export default function FortMyersPage() {
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <BookingLink
-              href="https://www.mybowlingpassport.com/2/9172/book"
+              href="https://www.mybowlingpassport.com/2/3148/book"
               className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
             >
               Book Bowling
@@ -524,12 +511,6 @@ export default function FortMyersPage() {
               className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
             >
               Book Laser Tag
-            </Link>
-            <Link
-              href="/book/gel-blaster"
-              className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
-            >
-              Book Gel Blasters
             </Link>
           </div>
         </div>
