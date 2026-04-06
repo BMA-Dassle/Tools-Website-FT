@@ -1137,7 +1137,7 @@ export default function BowlingBookingPage() {
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2 text-center">Choose a Package</h2>
             <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-4">Showing packages near {formatTimeStr(selectedTime)}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
               {filteredOffers.map(offer => {
                 const validItems = filterOfferItems(offer, selectedTime);
                 if (validItems.length === 0) return null; // Hide offers with no items within 1 hour
@@ -1177,10 +1177,11 @@ export default function BowlingBookingPage() {
                     className="rounded-lg overflow-hidden"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
                   >
+                    <div className="flex flex-col sm:flex-row">
                     {offer.ImageUrl && (
-                      <div className="relative h-32 overflow-hidden">
+                      <div className="relative w-full sm:w-48 h-32 sm:h-auto shrink-0 overflow-hidden">
                         <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#071027]/80" />
+                        <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/80" />
                         <span className="absolute top-2 right-2 font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
                           style={{ backgroundColor: perPerson ? `${coral}90` : `${gold}90`, color: "#fff" }}>
                           {perPerson ? "Per Person" : "Per Lane"}
@@ -1228,6 +1229,7 @@ export default function BowlingBookingPage() {
                           );
                         })}
                       </div>
+                    </div>
                     </div>
                   </div>
                 );
