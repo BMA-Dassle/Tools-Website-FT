@@ -64,6 +64,7 @@ function isGrandPrix(sessionName: string): boolean {
   return /grandprix|grand\s*prix/i.test(sessionName);
 }
 
+
 const rankColors: Record<number, string> = {
   1: "#FFD700",
   2: "#C0C0C0",
@@ -146,12 +147,15 @@ function DriverRow({
   leaderPoints,
   leaderBestLap,
   sortField,
+  allSessions,
 }: {
   driver: Driver;
   rank: number;
   leaderPoints: number;
   leaderBestLap: number;
   sortField: SortField;
+  /** Full sessions including practice (for expanded view) */
+  allSessions?: Driver["sessions"];
 }) {
   const [expanded, setExpanded] = useState(false);
   const bestLap = driverBestLap(driver);
@@ -173,12 +177,14 @@ function DriverRow({
   const rankColor = rankColors[rank] || "rgba(255,255,255,0.4)";
   const rowBg = rankBg[rank] || (rank % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent");
 
+  // Use allSessions (includes practice) for the expanded breakdown, fall back to driver.sessions
+  const sessionsForDetail = allSessions || driver.sessions;
   const sortedSessions = useMemo(
     () =>
-      [...driver.sessions].sort(
+      [...sessionsForDetail].sort(
         (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
       ),
-    [driver.sessions],
+    [sessionsForDetail],
   );
 
   return (
@@ -411,7 +417,10 @@ function Spinner() {
 /* ── Page ── */
 
 export default function LeagueStandingsPage() {
+  /** Standings data: excludePractice=true for points ranking */
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  /** Full data with practice sessions for expandable detail view */
+  const [fullDrivers, setFullDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sortField, setSortField] = useState<SortField>("points");
@@ -419,18 +428,29 @@ export default function LeagueStandingsPage() {
   useEffect(() => {
     async function fetchStandings() {
       try {
-        const params = new URLSearchParams({
+        const baseParams = {
           action: "summary",
           track: LEAGUE.track,
           scoreGroup: LEAGUE.scoreGroup,
           startDate: LEAGUE.startDate,
           endDate: LEAGUE.endDate,
-        });
-        const res = await fetch(`/api/leagues?${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || "API error");
-        setDrivers(json.data || []);
+        };
+
+        // Fetch both: without practice (for standings) and with practice (for detail view)
+        const [standingsRes, fullRes] = await Promise.all([
+          fetch(`/api/leagues?${new URLSearchParams({ ...baseParams, excludePractice: "true" })}`),
+          fetch(`/api/leagues?${new URLSearchParams({ ...baseParams, excludePractice: "false" })}`),
+        ]);
+
+        if (!standingsRes.ok) throw new Error(`HTTP ${standingsRes.status}`);
+        const standingsJson = await standingsRes.json();
+        if (!standingsJson.success) throw new Error(standingsJson.error || "API error");
+        setDrivers(standingsJson.data || []);
+
+        if (fullRes.ok) {
+          const fullJson = await fullRes.json();
+          if (fullJson.success) setFullDrivers(fullJson.data || []);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load standings");
       } finally {
@@ -450,16 +470,12 @@ export default function LeagueStandingsPage() {
       case "bestLap":
         copy.sort((a, b) => driverBestLap(a) - driverBestLap(b));
         break;
-      case "races":
-        copy.sort((a, b) => b.sessions.length - a.sessions.length || b.totalPoints - a.totalPoints);
-        break;
     }
     return copy;
   }, [drivers, sortField]);
 
   /* Stats */
   const totalDrivers = drivers.length;
-  const totalRaces = drivers.reduce((sum, d) => sum + d.sessions.length, 0);
   const leader = sorted[0];
   const fastestLap = useMemo(() => {
     let best = Infinity;
@@ -534,9 +550,8 @@ export default function LeagueStandingsPage() {
           ) : (
             <>
               {/* Stats Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
+              <div className="grid grid-cols-3 gap-3 mb-10">
                 <StatCard label="Total Drivers" value={String(totalDrivers)} />
-                <StatCard label="Total Races" value={String(totalRaces)} />
                 <StatCard label="League Leader" value={leader ? properName(leader.name).split(" ")[0] : "--"} accent="#FFD700" />
                 <StatCard label="Fastest Lap" value={fastestLap ? formatLapTime(fastestLap) : "--"} accent="#E41C1D" />
               </div>
@@ -551,7 +566,6 @@ export default function LeagueStandingsPage() {
                 </span>
                 <SortBtn label="Points" field="points" active={sortField} onClick={setSortField} />
                 <SortBtn label="Best Lap" field="bestLap" active={sortField} onClick={setSortField} />
-                <SortBtn label="Races" field="races" active={sortField} onClick={setSortField} />
               </div>
 
               {/* Standings Table */}
@@ -593,7 +607,9 @@ export default function LeagueStandingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sorted.map((driver, i) => (
+                    {sorted.map((driver, i) => {
+                      const fullDriver = fullDrivers.find(d => d.persId === driver.persId);
+                      return (
                       <DriverRow
                         key={driver.persId}
                         driver={driver}
@@ -601,8 +617,10 @@ export default function LeagueStandingsPage() {
                         leaderPoints={leader.totalPoints}
                         leaderBestLap={sortField === "bestLap" ? driverBestLap(sorted[0]) : leaderBestLap}
                         sortField={sortField}
+                        allSessions={fullDriver?.sessions}
                       />
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
