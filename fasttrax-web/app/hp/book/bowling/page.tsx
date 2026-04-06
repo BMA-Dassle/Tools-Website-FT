@@ -737,6 +737,11 @@ export default function BowlingBookingPage() {
         sessionStorage.setItem("qamf_reservation", JSON.stringify({
           key: reservationKey, centerId, centerName, operationId: result.OperationId,
           offer: selectedOffer?.Name, date: selectedDate, time: selectedTime, players: playerCount,
+          tariffPrice: selectedTariff?.Price,
+          shoes: wantShoes && shoes.length > 0,
+          shoePrice: shoes[0]?.Price || 0,
+          addons: getBmiAddons().map(a => ({ name: a.name, qty: a.quantity, price: a.price, time: a.selectedTime })),
+          guestName, guestEmail,
         }));
         // Store BMI add-ons for post-payment booking
         const bmiAddons = getBmiAddons();
