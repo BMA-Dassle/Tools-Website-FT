@@ -8,6 +8,13 @@ export const metadata: Metadata = {
   title: "Register for Kids Bowl Free | HeadPinz & FastTrax",
   description:
     "Register your child for Kids Bowl Free at HeadPinz Fort Myers, HeadPinz Naples, or FastTrax Fort Myers. Kids 15 and under get 2 free games every weekday.",
+  keywords: [
+    "kids bowl free registration",
+    "register kids bowling",
+    "free bowling sign up",
+    "kids bowl free Fort Myers",
+    "kids bowl free Naples",
+  ],
   alternates: { canonical: "https://headpinz.com/kids-bowl-free/register" },
 };
 

@@ -8,6 +8,12 @@ export const metadata: Metadata = {
   title: "Book Kids Bowl Free Lane | HeadPinz & FastTrax",
   description:
     "Reserve your Kids Bowl Free lane online up to 24 hours in advance. Available at HeadPinz Fort Myers, HeadPinz Naples, and FastTrax Fort Myers.",
+  keywords: [
+    "book kids bowl free",
+    "reserve bowling lane kids",
+    "kids bowl free booking",
+    "free bowling reservation",
+  ],
   alternates: { canonical: "https://headpinz.com/kids-bowl-free/book" },
 };
 

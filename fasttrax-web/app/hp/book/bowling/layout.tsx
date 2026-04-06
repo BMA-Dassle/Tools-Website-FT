@@ -5,6 +5,14 @@ export const metadata: Metadata = {
   title: "Book Bowling - Reserve Lanes Online | HeadPinz",
   description:
     "Reserve bowling lanes online at HeadPinz Fort Myers or Naples. Choose your date, lane type, and package. VIP lanes with NeoVerse and HyperBowling available.",
+  keywords: [
+    "book bowling Fort Myers",
+    "reserve bowling lanes",
+    "bowling reservation",
+    "book bowling Naples",
+    "VIP bowling reservation",
+    "online bowling booking",
+  ],
   openGraph: {
     title: "Book Bowling - HeadPinz",
     description:

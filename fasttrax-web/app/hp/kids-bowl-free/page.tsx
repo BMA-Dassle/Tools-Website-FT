@@ -8,6 +8,16 @@ export const metadata: Metadata = {
   title: "Kids Bowl Free - Free Summer Bowling for Kids | HeadPinz & FastTrax",
   description:
     "Kids 15 and under bowl 2 free games every weekday this summer at HeadPinz Fort Myers, HeadPinz Naples, and FastTrax Fort Myers. Register today!",
+  keywords: [
+    "kids bowl free Fort Myers",
+    "kids bowl free Naples",
+    "free bowling kids",
+    "kids bowling Fort Myers",
+    "summer bowling kids",
+    "free summer activities Fort Myers",
+    "kids activities Fort Myers",
+    "family fun Fort Myers",
+  ],
   openGraph: {
     title: "Kids Bowl Free - HeadPinz & FastTrax",
     description: "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
