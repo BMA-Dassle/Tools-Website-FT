@@ -209,17 +209,7 @@ export default function FortMyersPage() {
             Bowling &bull; Laser Tag &bull; Gel Blasters &bull; Arcade &bull; Dining
           </p>
 
-          <div className="flex flex-col items-center gap-1 mb-8">
-            <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
-              14513 Global Parkway, Fort Myers, FL 33913
-            </p>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
-              <a href="tel:+12393022155" className="hover:text-white transition-colors">(239) 302-2155</a>
-            </p>
-            <p className="font-[var(--font-hp-body)] text-white/40 text-xs">
-              Sun-Thu 11AM-12AM &bull; Fri-Sat 11AM-2AM
-            </p>
-          </div>
+          <div className="mb-8" />
 
           <BookingLink
             href="https://www.mybowlingpassport.com/2/9172/book"
