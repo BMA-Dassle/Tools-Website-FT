@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type Step = "location" | "date" | "players" | "lane-type" | "offer" | "extras" | "review" | "details";
+type Step = "location" | "players" | "lane-type" | "date" | "offer" | "extras" | "review" | "details";
 type LaneType = "regular" | "vip" | "oldtime";
 
 interface OpenDate {
@@ -286,12 +286,16 @@ export default function BowlingBookingPage() {
     setCenterId(loc.id);
     setCenterName(loc.name);
     setHasOldTime(loc.hasOldTime);
+    setStep("players");
+  }
+
+  async function fetchDates() {
     setLoading(true);
     setError("");
     try {
       const today = new Date().toISOString().split("T")[0];
       const end = new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
-      const data = await qamf(`centers/${loc.id}/opening-times/bookforlater/range?fromDate=${today}&toDate=${end}`);
+      const data = await qamf(`centers/${centerId}/opening-times/bookforlater/range?fromDate=${today}&toDate=${end}`);
       setOpenDates((data.Dates || []).filter((d: OpenDate) => d.IsOpen));
       setStep("date");
     } catch { setError("Failed to load dates"); }
@@ -339,6 +343,10 @@ export default function BowlingBookingPage() {
 
   /* ── Step: Players → fetch offers ────────────────────────────── */
 
+  async function goToLaneType() {
+    setStep("lane-type");
+  }
+
   async function fetchOffers() {
     setLoading(true);
     setError("");
@@ -348,7 +356,7 @@ export default function BowlingBookingPage() {
         `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&players=1-${playerCount}&page=1&itemsPerPage=50`
       );
       setAllOffers(Array.isArray(data) ? data : []);
-      setStep("lane-type");
+      setStep("offer");
     } catch { setError("Failed to load packages"); }
     finally { setLoading(false); }
   }
@@ -521,8 +529,8 @@ export default function BowlingBookingPage() {
 
   /* ── Navigation ──────────────────────────────────────────────── */
 
-  const allSteps: Step[] = ["location", "date", "players", "lane-type", "offer", "extras", "review", "details"];
-  const stepLabels = ["Location", "Date", "Bowlers", "Type", "Package", "Extras", "Review", "Pay"];
+  const allSteps: Step[] = ["location", "players", "lane-type", "date", "offer", "extras", "review", "details"];
+  const stepLabels = ["Location", "Party", "Type", "Date", "Package", "Extras", "Review", "Pay"];
   const stepIndex = allSteps.indexOf(step);
 
   function goBack() {
@@ -540,7 +548,7 @@ export default function BowlingBookingPage() {
   return (
     <div className="min-h-screen bg-[#0a1628]">
       {/* Header + Progress */}
-      <section className="pt-28 pb-6 px-4 text-center">
+      <section className="pt-36 pb-6 px-4 text-center">
         <h1 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 40px)", textShadow: `0 0 30px ${coral}30` }}>
           Book Bowling
         </h1>
@@ -644,8 +652,12 @@ export default function BowlingBookingPage() {
         {/* ── DATE + TIME (Calendar) ── */}
         {step === "date" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Select Date &amp; Time</h2>
+            <div className="text-center mb-4">
+              <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-1">Pick a Date</h2>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-sm">{playerCount} bowlers &bull; {LANE_TYPES.find(l => l.key === laneType)?.label}</p>
+            </div>
 
+            <div className="max-w-sm mx-auto">
             {/* Month navigation */}
             <div className="flex items-center justify-between mb-4">
               <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
@@ -656,31 +668,35 @@ export default function BowlingBookingPage() {
             </div>
 
             {/* Day headers */}
-            <div className="grid grid-cols-7 gap-1 mb-1">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-                <div key={d} className="text-center font-[var(--font-hp-body)] text-white/30 text-xs py-1">{d}</div>
+            <div className="grid grid-cols-7 mb-1">
+              {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
+                <div key={d} className="text-center text-[11px] text-white/30 py-1">{d}</div>
               ))}
             </div>
 
             {/* Calendar grid */}
-            <div className="grid grid-cols-7 gap-1 mb-6">
+            <div className="grid grid-cols-7 gap-1">
               {Array.from({ length: firstDay }).map((_, i) => <div key={`pad-${i}`} />)}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
                 const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                 const isOpen = openDateSet.has(dateStr);
                 const isSelected = dateStr === selectedDate;
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+                const isPast = dateStr < todayStr;
                 return (
                   <button
                     key={day}
-                    disabled={!isOpen}
+                    disabled={!isOpen || isPast}
                     onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); setTimeout(() => timePickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100); }}
-                    className="aspect-square rounded-lg flex items-center justify-center text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer disabled:cursor-default disabled:opacity-20"
-                    style={{
-                      backgroundColor: isSelected ? coral : isOpen ? "rgba(7,16,39,0.5)" : "transparent",
-                      border: isSelected ? `2px solid ${coral}` : isOpen ? "1px solid rgba(255,255,255,0.1)" : "none",
-                      color: isSelected ? "#fff" : isOpen ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.2)",
-                    }}
+                    className={`aspect-square rounded-lg text-sm font-medium transition-all duration-150 ${
+                      isSelected
+                        ? "bg-[#fd5b56] text-white font-bold shadow-lg shadow-[#fd5b56]/30"
+                        : isOpen && !isPast
+                          ? "bg-[#fd5b56]/15 text-[#fd5b56] hover:bg-[#fd5b56]/30 cursor-pointer"
+                          : "text-white/20 cursor-not-allowed"
+                    }`}
                   >
                     {day}
                   </button>
@@ -714,15 +730,16 @@ export default function BowlingBookingPage() {
 
                 {selectedTime && (
                   <button
-                    onClick={() => setStep("players")}
+                    onClick={fetchOffers}
                     className="w-full mt-6 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
                     style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
                   >
-                    Continue
+                    See Available Packages
                   </button>
                 )}
               </div>
             )}
+            </div>
 
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
@@ -742,7 +759,7 @@ export default function BowlingBookingPage() {
                 className="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white cursor-pointer transition-all hover:scale-105"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>+</button>
             </div>
-            <button onClick={fetchOffers}
+            <button onClick={goToLaneType}
               className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Continue</button>
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
@@ -759,7 +776,7 @@ export default function BowlingBookingPage() {
                 return (
                   <button
                     key={lt.key}
-                    onClick={() => { setLaneType(lt.key); setStep("offer"); }}
+                    onClick={() => { setLaneType(lt.key); fetchDates(); }}
                     disabled={count === 0}
                     className="w-full rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${lt.accent}35` }}

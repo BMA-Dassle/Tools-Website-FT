@@ -4,8 +4,8 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 
 const locations: Record<string, { phone: string; phoneTel: string; booking: string }> = {
-  "fort-myers": { phone: "(239) 302-2155", phoneTel: "+12393022155", booking: "https://www.mybowlingpassport.com/2/9172/book" },
-  naples: { phone: "(239) 455-3755", phoneTel: "+12394553755", booking: "https://www.mybowlingpassport.com/2/3148/book" },
+  "fort-myers": { phone: "(239) 302-2155", phoneTel: "+12393022155", booking: "/hp/book/bowling" },
+  naples: { phone: "(239) 455-3755", phoneTel: "+12394553755", booking: "/hp/book/bowling?location=naples" },
 };
 
 export default function HeadPinzMobileBookBar() {
@@ -61,8 +61,6 @@ export default function HeadPinzMobileBookBar() {
         <div className="flex gap-2">
           <a
             href={loc.booking}
-            target="_blank"
-            rel="noopener noreferrer"
             className="flex-1 block text-white font-[var(--font-hp-body)] font-bold text-sm py-3.5 rounded-full text-center uppercase tracking-widest transition-colors"
             style={{ backgroundColor: "#fd5b56", boxShadow: "0 0 16px rgba(253,91,86,0.3)" }}
           >

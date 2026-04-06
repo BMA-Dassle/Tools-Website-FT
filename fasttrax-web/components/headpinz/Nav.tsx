@@ -6,8 +6,8 @@ import Link from "next/link";
 import Image from "next/image";
 
 const locations = [
-  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/hp/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "https://www.mybowlingpassport.com/2/9172/book", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
-  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/hp/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "https://www.mybowlingpassport.com/2/3148/book", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
+  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/hp/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "/hp/book/bowling", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
+  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/hp/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "/hp/book/bowling?location=naples", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
 ];
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {
@@ -169,8 +169,6 @@ export default function HeadPinzNav() {
           <div className="flex items-center gap-3 shrink-0">
             <a
               href={currentLoc.booking}
-              target="_blank"
-              rel="noopener noreferrer"
               className="hidden sm:inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-poppins)] font-bold uppercase tracking-wider transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.5)]"
               style={{ fontSize: "14px", padding: "16px 24px", borderRadius: "166px" }}
             >
@@ -230,8 +228,6 @@ export default function HeadPinzNav() {
             )}
             <a
               href={currentLoc.booking}
-              target="_blank"
-              rel="noopener noreferrer"
               className="mt-2 bg-[#fd5b56] text-white font-[var(--font-poppins)] font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
             >
               Book Now

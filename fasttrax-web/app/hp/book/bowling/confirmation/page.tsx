@@ -58,8 +58,7 @@ export default function BowlingConfirmationPage() {
   useEffect(() => {
     if (!key || !centerId) {
       setStatus("failed");
-      setDebugInfo("Missing key or center");
-      return;
+            return;
     }
 
     let pollInterval: NodeJS.Timeout | null = null;

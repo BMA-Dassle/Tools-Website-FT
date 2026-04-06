@@ -45,7 +45,7 @@ const attractions = [
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     price: "From $12.99",
     cta: "Reserve Lanes",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "/hp/book/bowling",
     external: true,
     badge: null,
     accent: "#fd5b56",
@@ -84,7 +84,7 @@ const attractions = [
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "/hp/book/bowling",
     external: true,
     badge: "VIP ONLY",
     accent: "#FFD700",
@@ -97,7 +97,7 @@ const attractions = [
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "/hp/book/bowling",
     external: true,
     badge: "VIP ONLY",
     accent: "#00E2E5",
@@ -234,7 +234,7 @@ export default function FortMyersPage() {
           <div className="mb-8" />
 
           <BookingLink
-            href="https://www.mybowlingpassport.com/2/9172/book"
+            href="/hp/book/bowling"
             className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
@@ -497,7 +497,7 @@ export default function FortMyersPage() {
           </div>
 
           <BookingLink
-            href="https://www.mybowlingpassport.com/2/9172/book"
+            href="/hp/book/bowling"
             className="inline-flex items-center bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(255,215,0,0.35)" }}
           >
@@ -703,7 +703,7 @@ export default function FortMyersPage() {
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <BookingLink
-              href="https://www.mybowlingpassport.com/2/9172/book"
+              href="/hp/book/bowling"
               className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
               style={{ boxShadow: "0 0 16px rgba(253,91,86,0.3)" }}
             >

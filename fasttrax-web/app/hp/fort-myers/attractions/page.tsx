@@ -49,7 +49,7 @@ const attractions = [
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     cta: "Reserve Lanes",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "/hp/book/bowling",
     external: true,
     badge: null,
     accent: "#fd5b56",
@@ -97,7 +97,7 @@ const attractions = [
     pricing: "Included with VIP",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
     cta: "Book VIP",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "/hp/book/bowling",
     external: true,
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
@@ -114,7 +114,7 @@ const attractions = [
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
     cta: "Book VIP",
-    ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
+    ctaHref: "/hp/book/bowling",
     external: true,
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
@@ -400,7 +400,7 @@ export default function AttractionsPage() {
             Reserve your lanes, book your battles, or just show up and play.
           </p>
           <BookingLink
-            href="https://www.mybowlingpassport.com/2/9172/book"
+            href="/hp/book/bowling"
             className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)] mb-4"
           >
             Book Now
