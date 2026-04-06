@@ -50,7 +50,7 @@ export default function HeadPinzHome() {
         className="absolute inset-0 w-full h-full object-cover hidden md:block"
         poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
       >
-        <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero.mp4" type="video/mp4" />
+        <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
       </video>
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-[#0a0518]" />
 

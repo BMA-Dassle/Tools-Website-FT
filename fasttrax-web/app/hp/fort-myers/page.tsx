@@ -186,7 +186,7 @@ export default function FortMyersPage() {
           preload="none"
           className="absolute inset-0 w-full h-full object-cover hidden md:block"
         >
-          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero.mp4" type="video/mp4" />
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
         </video>
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a0518]" />
 
