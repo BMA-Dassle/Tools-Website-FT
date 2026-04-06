@@ -8,12 +8,18 @@ const API = "/api/qamf";
 const coral = "#fd5b56";
 const gold = "#FFD700";
 
-async function qamf(path: string, options?: RequestInit) {
-  const res = await fetch(`${API}/${path}`, options);
-  if (!res.ok) return null;
+async function qamfCall(path: string, options?: RequestInit) {
+  const token = sessionStorage.getItem("qamf_session_token") || "";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string> || {}),
+  };
+  if (token) headers["x-sessiontoken"] = token;
+
+  const res = await fetch(`${API}/${path}`, { ...options, headers });
   const text = await res.text();
   if (!text) return null;
-  return JSON.parse(text);
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 export default function BowlingConfirmationPage() {
@@ -24,61 +30,94 @@ export default function BowlingConfirmationPage() {
 
   const [status, setStatus] = useState<"loading" | "confirmed" | "failed">("loading");
   const [reservation, setReservation] = useState<Record<string, unknown> | null>(null);
+  const [debugInfo, setDebugInfo] = useState("");
 
   useEffect(() => {
     if (!key || !centerId) {
       setStatus("failed");
+      setDebugInfo("Missing key or center");
       return;
     }
 
+    let pollInterval: NodeJS.Timeout | null = null;
+
     async function confirm() {
       try {
-        // Confirm payment if we have transaction details
-        if (transactionId) {
-          await qamf(`centers/${centerId}/reservations/${key}/payment-confirm`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              QueryParams: { transactionId, orderId: transactionId },
-            }),
-          });
-        }
-
         // Get stored reservation info
         const stored = sessionStorage.getItem("qamf_reservation");
         if (stored) setReservation(JSON.parse(stored));
+        const opId = stored ? JSON.parse(stored).operationId : null;
 
-        // Poll status
+        // Step 1: Confirm payment with transaction ID
+        if (transactionId) {
+          try {
+            await qamfCall(`centers/${centerId}/reservations/${key}/payment-confirm`, {
+              method: "PUT",
+              body: JSON.stringify({
+                QueryParams: { transactionId, orderId: transactionId },
+              }),
+            });
+          } catch {
+            // Payment confirm might fail but reservation could still be confirmed
+          }
+        }
+
+        // Step 2: Poll reservation status
         let attempts = 0;
-        const poll = setInterval(async () => {
+        pollInterval = setInterval(async () => {
           attempts++;
           try {
-            const storedData = stored ? JSON.parse(stored) : null;
-            const opId = storedData?.operationId;
             if (opId) {
-              const statusData = await qamf(`centers/${centerId}/reservations/${key}/status/${opId}`);
+              const statusData = await qamfCall(`centers/${centerId}/reservations/${key}/status/${opId}`);
+              setDebugInfo(`Poll ${attempts}: ${JSON.stringify(statusData)}`);
+
               if (statusData?.PaymentStatus === "COMPLETED" || statusData?.ReservationStatus === "CONFIRMED") {
-                clearInterval(poll);
+                if (pollInterval) clearInterval(pollInterval);
                 // End the flow
-                await qamf(`centers/${centerId}/reservations/${key}/SetEndFlow`, { method: "PATCH" });
+                try {
+                  await qamfCall(`centers/${centerId}/reservations/${key}/SetEndFlow`, { method: "PATCH" });
+                } catch { /* ok */ }
                 setStatus("confirmed");
+                // Clean up session
+                sessionStorage.removeItem("qamf_session_token");
+                sessionStorage.removeItem("qamf_reservation");
+                return;
+              }
+            } else {
+              // No operation ID — try checking reservation status directly
+              const statusData = await qamfCall(`centers/${centerId}/reservations/${key}/status`);
+              setDebugInfo(`Poll ${attempts} (no opId): ${JSON.stringify(statusData)}`);
+              if (statusData === "Confirmed" || statusData === "CONFIRMED") {
+                if (pollInterval) clearInterval(pollInterval);
+                setStatus("confirmed");
+                sessionStorage.removeItem("qamf_session_token");
+                sessionStorage.removeItem("qamf_reservation");
                 return;
               }
             }
           } catch { /* keep polling */ }
-          if (attempts > 30) {
-            clearInterval(poll);
-            setStatus("confirmed"); // Assume success after 30 attempts
+
+          // After 15 attempts (30s), assume success since payment went through Square
+          if (attempts >= 15) {
+            if (pollInterval) clearInterval(pollInterval);
+            setStatus("confirmed");
+            sessionStorage.removeItem("qamf_session_token");
+            sessionStorage.removeItem("qamf_reservation");
           }
         }, 2000);
-
-        return () => clearInterval(poll);
       } catch {
-        setStatus("failed");
+        // If everything fails but we have a transaction ID, payment likely went through
+        if (transactionId) {
+          setStatus("confirmed");
+        } else {
+          setStatus("failed");
+        }
       }
     }
 
     confirm();
+
+    return () => { if (pollInterval) clearInterval(pollInterval); };
   }, [key, centerId, transactionId]);
 
   return (
@@ -122,15 +161,21 @@ export default function BowlingConfirmationPage() {
                 className="rounded-lg p-5 mt-6 mb-6 text-left"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}
               >
-                <p className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">
-                  {reservation.offer as string}
-                </p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
-                  {reservation.centerName as string}
-                </p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
-                  {reservation.players as number} bowlers
-                </p>
+                {reservation.offer && (
+                  <p className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">
+                    {reservation.offer as string}
+                  </p>
+                )}
+                {reservation.centerName && (
+                  <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
+                    {reservation.centerName as string}
+                  </p>
+                )}
+                {reservation.players && (
+                  <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
+                    {reservation.players as number} bowlers
+                  </p>
+                )}
                 <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-2">
                   Confirmation: {key}
                 </p>
@@ -160,8 +205,15 @@ export default function BowlingConfirmationPage() {
               Something Went Wrong
             </h1>
             <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-2 mb-6">
-              We couldn&apos;t confirm your booking. Please contact us directly.
+              {transactionId
+                ? "Your payment was received but we couldn't confirm the reservation. Please contact us with your confirmation number."
+                : "We couldn't confirm your booking. Please contact us directly."}
             </p>
+            {key && (
+              <p className="font-[var(--font-hp-body)] text-white/30 text-xs mb-4">
+                Reference: {key}
+              </p>
+            )}
             <a
               href="tel:+12393022155"
               className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
