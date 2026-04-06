@@ -706,7 +706,7 @@ export default function BowlingBookingPage() {
           Items: {
             Extra: extraItems,
             FoodAndBeverage: classifyOffer(selectedOffer!.Name) === "vip"
-              ? [{ PriceKeyId: 13186, Quantity: 1, UnitPrice: 0, Note: "", Modifiers: [] }]
+              ? [{ PriceKeyId: 13186, Quantity: Math.ceil(playerCount / 6), UnitPrice: 0, Note: "", Modifiers: [] }]
               : [],
             ShoesSocks: shoeItems,
             WebOffer: {
@@ -1108,8 +1108,8 @@ export default function BowlingBookingPage() {
                     key={lt.key}
                     onClick={() => { setLaneType(lt.key); setStep("offer"); }}
                     disabled={count === 0}
-                    className="w-full rounded-lg overflow-hidden text-left transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-30 disabled:cursor-default"
-                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${lt.accent}35` }}
+                    className={`w-full rounded-lg overflow-hidden text-left transition-all cursor-pointer ${count === 0 ? "opacity-50 cursor-default" : "hover:scale-[1.01]"}`}
+                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${count === 0 ? "rgba(253,91,86,0.3)" : lt.accent + "35"}` }}
                   >
                     <div className="flex flex-col sm:flex-row">
                       {/* Video/image side */}
@@ -1130,9 +1130,16 @@ export default function BowlingBookingPage() {
 
                       {/* Content side */}
                       <div className="flex-1 p-5">
-                        <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
-                          {lt.label}
-                        </h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
+                            {lt.label}
+                          </h3>
+                          {count === 0 && (
+                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(253,91,86,0.2)", color: coral, border: `1px solid ${coral}40` }}>
+                              Sold Out
+                            </span>
+                          )}
+                        </div>
                         <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">{lt.desc}</p>
 
                         {lt.details && (
@@ -1146,8 +1153,8 @@ export default function BowlingBookingPage() {
                           </div>
                         )}
 
-                        <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: lt.accent }}>
-                          {count} package{count !== 1 ? "s" : ""} available &rarr;
+                        <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: count === 0 ? coral : lt.accent }}>
+                          {count === 0 ? "Not available at this time" : `${count} package${count !== 1 ? "s" : ""} available \u2192`}
                         </span>
                       </div>
                     </div>
@@ -1468,7 +1475,7 @@ export default function BowlingBookingPage() {
                 )}
                 {selectedOffer && classifyOffer(selectedOffer.Name) === "vip" && (
                   <div className="flex justify-between mt-1">
-                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>Chips &amp; Salsa</span>
+                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>Chips &amp; Salsa x{Math.ceil(playerCount / 6)} (per lane)</span>
                     <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>FREE</span>
                   </div>
                 )}
