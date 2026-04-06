@@ -37,6 +37,7 @@ export default function HeadPinzNav() {
   const currentLoc = locations.find(l => pathname.includes(l.key)) || locations[0];
   const navLinks = [
     { label: "Attractions", href: `${currentLoc.href}#attractions` },
+    { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
     { label: "Group Events", href: `${currentLoc.href}/group-events` },
     { label: "Specials", href: `${currentLoc.href}#specials` },
     { label: "Menu", href: `${currentLoc.href}#menu` },
