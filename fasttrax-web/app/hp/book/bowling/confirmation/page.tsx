@@ -53,7 +53,7 @@ export default function BowlingConfirmationPage() {
   const transactionId = confirmData.transactionId;
 
   const [status, setStatus] = useState<"loading" | "confirmed" | "failed">("loading");
-  const [reservation, setReservation] = useState<Record<string, unknown> | null>(null);
+  const [reservation, setReservation] = useState<{ offer?: string; centerName?: string; players?: number; operationId?: string } | null>(null);
 
   useEffect(() => {
     if (!key || !centerId) {
@@ -185,17 +185,17 @@ export default function BowlingConfirmationPage() {
               >
                 {reservation.offer && (
                   <p className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">
-                    {reservation.offer as string}
+                    {reservation.offer}
                   </p>
                 )}
                 {reservation.centerName && (
                   <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
-                    {reservation.centerName as string}
+                    {reservation.centerName}
                   </p>
                 )}
                 {reservation.players && (
                   <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
-                    {reservation.players as number} bowlers
+                    {reservation.players} bowlers
                   </p>
                 )}
                 <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-2">
