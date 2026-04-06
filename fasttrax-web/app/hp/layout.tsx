@@ -48,11 +48,10 @@ export default function HeadPinzLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Minimal layout — just fonts. Nav/Footer rendered by individual pages or nested layouts.
   return (
     <div className={`${delaGothicOne.variable} ${varelaRound.variable} ${outfit.variable}`}>
-      <HeadPinzNav />
-      <div className="pt-16 lg:pt-20">{children}</div>
-      <HeadPinzFooter />
+      {children}
     </div>
   );
 }
