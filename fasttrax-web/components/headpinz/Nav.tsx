@@ -82,7 +82,7 @@ export default function HeadPinzNav() {
               </svg>
             </button>
             {locOpen && (
-              <div className="absolute right-0 top-full mt-1 bg-[#0a0518] border border-white/15 rounded-lg overflow-hidden shadow-xl min-w-[160px]">
+              <div className="absolute right-0 top-full mt-1 z-[60] bg-[#0a0518] border border-white/15 rounded-lg overflow-hidden shadow-xl min-w-[160px]">
                 {locations.map(loc => (
                   <Link
                     key={loc.key}

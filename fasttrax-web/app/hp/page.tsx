@@ -30,12 +30,24 @@ export default function HeadPinzHome() {
   return (
     <div className="min-h-screen bg-[#0a0518] flex flex-col items-center justify-center relative">
       {/* Video background */}
+      {/* Static poster for immediate display + mobile */}
+      <Image
+        src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+        alt="HeadPinz"
+        fill
+        className="object-cover"
+        sizes="100vw"
+        priority
+        unoptimized
+      />
+      {/* Video overlay — desktop only, lazy loaded */}
       <video
         autoPlay
         muted
         loop
         playsInline
-        className="absolute inset-0 w-full h-full object-cover"
+        preload="none"
+        className="absolute inset-0 w-full h-full object-cover hidden md:block"
         poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
       >
         <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero.mp4" type="video/mp4" />

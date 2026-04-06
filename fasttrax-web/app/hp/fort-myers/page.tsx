@@ -169,13 +169,22 @@ export default function FortMyersPage() {
     <div className="bg-[#0a0518]">
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 800px)" }}>
+        <Image
+          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
+          alt="HeadPinz Fort Myers"
+          fill
+          className="object-cover"
+          sizes="100vw"
+          priority
+          unoptimized
+        />
         <video
           autoPlay
           muted
           loop
           playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-          poster="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
+          preload="none"
+          className="absolute inset-0 w-full h-full object-cover hidden md:block"
         >
           <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero.mp4" type="video/mp4" />
         </video>
