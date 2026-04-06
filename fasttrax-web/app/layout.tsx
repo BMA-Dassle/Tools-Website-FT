@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Anton, Poppins, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
+import { headers } from "next/headers";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
@@ -107,33 +108,39 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const hdrs = await headers();
+  const isHeadPinz = hdrs.get("x-brand") === "headpinz";
+
   return (
     <html lang="en" className={`${anton.variable} ${poppins.variable} ${jakarta.variable}`}>
       <head>
-        <LocalBusinessJsonLd />
+        {!isHeadPinz && <LocalBusinessJsonLd />}
       </head>
-      <body className="bg-[#000418] text-white font-[var(--font-poppins)] antialiased">
-        <Nav />
+      <body className={`${isHeadPinz ? "bg-[#0a0518]" : "bg-[#000418]"} text-white font-[var(--font-poppins)] antialiased`}>
+        {!isHeadPinz && <Nav />}
         <main>{children}</main>
-        <Footer />
-        <MobileBookBar />
-        <ChatWidgetManager />
+        {!isHeadPinz && <Footer />}
+        {!isHeadPinz && <MobileBookBar />}
+        {!isHeadPinz && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />
-        {/* 3CX Live Chat Widget */}
-        <div
-          dangerouslySetInnerHTML={{
-            __html: '<call-us-selector phonesystem-url="https://bma.3cx.us" party="LiveChat728061" enable-poweredby="false"></call-us-selector>',
-          }}
-        />
-        <Script
-          src="https://downloads-global.3cx.com/downloads/livechatandtalk/v1/callus.js"
-          id="tcx-callus-js"
-          strategy="lazyOnload"
-        />
+        {!isHeadPinz && (
+          <>
+            <div
+              dangerouslySetInnerHTML={{
+                __html: '<call-us-selector phonesystem-url="https://bma.3cx.us" party="LiveChat728061" enable-poweredby="false"></call-us-selector>',
+              }}
+            />
+            <Script
+              src="https://downloads-global.3cx.com/downloads/livechatandtalk/v1/callus.js"
+              id="tcx-callus-js"
+              strategy="lazyOnload"
+            />
+          </>
+        )}
       </body>
     </html>
   );

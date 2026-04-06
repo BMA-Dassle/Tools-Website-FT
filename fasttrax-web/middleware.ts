@@ -1,0 +1,55 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+/**
+ * Hostname-based routing for dual-branded site:
+ * - headpinz.com → rewrites to /hp/...
+ * - fasttraxent.com → passes through
+ * - localhost:3000/hp/... → HeadPinz pages for dev
+ */
+export function middleware(request: NextRequest) {
+  const hostname = request.headers.get("host") || "";
+  const isHeadPinz = hostname.includes("headpinz.com");
+  const pathname = request.nextUrl.pathname;
+
+  // Dev: ?brand=headpinz sets a cookie to simulate headpinz.com on localhost
+  const brandParam = request.nextUrl.searchParams.get("brand");
+  if (brandParam === "headpinz") {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("brand");
+    url.pathname = `/hp${pathname === "/" ? "" : pathname}`;
+    const response = NextResponse.redirect(url);
+    response.cookies.set("dev-brand", "headpinz", { path: "/", maxAge: 60 * 60 * 24 });
+    return response;
+  }
+  if (brandParam === "fasttrax") {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("brand");
+    url.pathname = "/";
+    const response = NextResponse.redirect(url);
+    response.cookies.delete("dev-brand");
+    return response;
+  }
+
+  // HeadPinz domain: rewrite to /hp prefix (unless already there or it's a shared route)
+  if (isHeadPinz && !pathname.startsWith("/hp") && !pathname.startsWith("/book") && !pathname.startsWith("/api")) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/hp${pathname}`;
+    const response = NextResponse.rewrite(url);
+    response.headers.set("x-brand", "headpinz");
+    return response;
+  }
+
+  // Set brand header for /hp/ routes (dev access)
+  if (pathname.startsWith("/hp")) {
+    const response = NextResponse.next();
+    response.headers.set("x-brand", "headpinz");
+    return response;
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|images/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js)$).*)"],
+};
