@@ -33,7 +33,7 @@ const howItWorks = [
     step: 3,
     title: "Pick Activities",
     color: blue,
-    desc: "Bowling, laser tag, axe throwing, arcade, HyperBowling \u2014 build the ultimate event lineup.",
+    desc: "Bowling, laser tag, gel blasters, arcade, HyperBowling \u2014 build the ultimate event lineup.",
   },
 ];
 
@@ -49,7 +49,8 @@ const eventSpaces = [
     title: "VIP Bowling",
     capacity: "Dedicated VIP Lounge & Bar",
     color: purple,
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-viptour.mp4",
+    isVideo: true,
     desc: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included.",
   },
   {
@@ -63,7 +64,7 @@ const eventSpaces = [
     title: "Pinboyz Lanes",
     capacity: "4 Vintage Lanes, Private Lounge",
     color: coral,
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/oldtime-pinboyz.jpg",
     desc: "4 vintage lanes, separate sound system, private lounge & bar with dedicated server, vintage 1908 pool table.",
   },
 ];
@@ -84,11 +85,11 @@ const activities = [
     desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions. $200 per session for group events.",
   },
   {
-    title: "Axe Throwing",
-    subtitle: "18+ Only",
+    title: "Gel Blasters",
+    subtitle: "Per Person",
     color: blue,
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp",
-    desc: "$60 weekdays, $90 weekends. A unique team-building activity for your adult group events.",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg",
+    desc: "High-tech blasters with haptic vests and eco-friendly Gellets. Fast-paced team battles in a glowing arena.",
   },
   {
     title: "Arcade / Game Zone",
@@ -149,7 +150,7 @@ const addOnActivities = [
   { name: "NEXUS Laser Tag", price: "$200/session" },
   { name: "NEXUS Gel Blasters", price: "$250/session" },
   { name: "Pool Tables", price: "$15/hour" },
-  { name: "Axe Throwing (18+)", price: "$60 weekdays / $90 weekends" },
+  { name: "Gel Blasters", price: "$12/person" },
   { name: "Ping Pong", price: "$9 before 5pm / $13 after 5pm" },
   { name: "Game Zone Cards", price: "$5 / $10 / $20" },
 ];
@@ -288,7 +289,7 @@ const faqs = [
   },
   {
     q: "What about non-bowlers in our group?",
-    a: "No problem! We offer laser tag, axe throwing, ping pong, pool tables, arcade games, HyperBowling, and a full-service restaurant and bar. There\u2019s something for everyone.",
+    a: "No problem! We offer laser tag, gel blasters, ping pong, pool tables, arcade games, HyperBowling, and a full-service restaurant and bar. There\u2019s something for everyone.",
   },
   {
     q: "Do you accommodate dietary restrictions?",
@@ -359,8 +360,8 @@ export default function HeadPinzGroupEventsPage() {
       {/* ====== 1. HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
-          alt="HeadPinz bowling wide view"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
+          alt="HeadPinz classic bowling lanes"
           fill
           className="object-cover"
           sizes="100vw"
@@ -521,6 +522,11 @@ export default function HeadPinzGroupEventsPage() {
                 className="group flex flex-col overflow-hidden rounded-2xl border border-[#123075]/30 bg-white/[0.03] hover:border-[#fd5b56]/30 transition-all duration-300"
               >
                 <div className="relative w-full aspect-[16/10] overflow-hidden">
+                  {(s as { isVideo?: boolean }).isVideo ? (
+                    <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
+                      <source src={s.img} type="video/mp4" />
+                    </video>
+                  ) : (
                   <Image
                     src={s.img}
                     alt={s.title}
@@ -529,6 +535,7 @@ export default function HeadPinzGroupEventsPage() {
                     sizes="(max-width: 640px) 100vw, 50vw"
                     unoptimized
                   />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-transparent to-transparent" />
                   <span
                     className="absolute bottom-3 left-4 font-[var(--font-hp-body)] font-bold text-xs px-3 py-1.5 rounded-full text-white"
