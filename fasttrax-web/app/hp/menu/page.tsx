@@ -321,9 +321,9 @@ export default function MenuPage() {
               Happy Hour
             </h2>
             <p className="font-[var(--font-hp-body)] text-white/80 text-base mt-2">
-              <strong style={{ color: gold }}>7 Days a Week</strong> &bull;{" "}
+              <strong style={{ color: gold }}>Every Day</strong> &bull;{" "}
               <span className="font-[var(--font-hp-display)] uppercase tracking-wider" style={{ color: gold }}>
-                11AM &ndash; 6PM
+                Open &ndash; 6PM
               </span>
             </p>
           </div>
@@ -336,9 +336,10 @@ export default function MenuPage() {
                 {[
                   { name: "Margherita Flatbread", price: "$10", desc: "Tomato sauce, fresh mozzarella, basil, olive oil drizzle" },
                   { name: "Flatbread of the Month", price: "$12", desc: "Rotating chef-inspired feature" },
-                  { name: "Pups & Sliders", price: "$16", desc: "Wagyu beef sliders + mini hot dogs" },
+                  { name: "Pups & Sliders", price: "$16", desc: "Wagyu beef sliders + mini hot dogs. Add fries +$3" },
                   { name: "The Sampler", price: "$23", desc: "Meatballs, fried calamari, fried mozzarella" },
-                  { name: "Buy 5 Get 5 Wings", price: "Market", desc: "Jumbo wings, hand breaded, choice of sauce" },
+                  { name: "Garlic Knots", price: "$6", desc: "Garlic butter, parsley, Parmesan. Served with marinara" },
+                  { name: "Chicken Wings", price: "$0.99/ea", desc: "Jumbo wings, hand breaded, choice of sauce (increments of 10)" },
                 ].map((item) => (
                   <div key={item.name} className="flex justify-between items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,215,0,0.1)" }}>
                     <div>
