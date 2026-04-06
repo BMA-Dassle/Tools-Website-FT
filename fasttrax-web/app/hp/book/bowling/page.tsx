@@ -126,9 +126,9 @@ const BMI_ADDONS = [
     name: "Shuffly Shuffleboard",
     shortName: "Shuffly",
     desc: "Premium LED shuffleboard tables. Perfect for groups between bowling sessions.",
-    price: 10,
+    price: 35,
     perPerson: false,
-    qamfExtraId: null as number | null, // Not in QAMF — BMI only, priced separately
+    qamfExtraId: 13991,
     maxPerGroup: 8,
     image: `${BLOB}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
     accent: "#004AAD",
