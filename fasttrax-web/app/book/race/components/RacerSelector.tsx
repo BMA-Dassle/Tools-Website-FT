@@ -2,13 +2,7 @@
 
 import { useState } from "react";
 import type { PersonData } from "./ReturningRacerLookup";
-
-function getRacerTier(memberships: string[]): "Starter" | "Intermediate" | "Pro" {
-  const mems = memberships.map(m => m.toLowerCase());
-  if (mems.some(m => m.includes("qualified pro"))) return "Pro";
-  if (mems.some(m => m.includes("qualified intermediate"))) return "Intermediate";
-  return "Starter";
-}
+import { getRacerTier } from "../data";
 
 /** Tier level for comparison: starter=0, intermediate=1, pro=2 */
 function tierLevel(tier: string): number {

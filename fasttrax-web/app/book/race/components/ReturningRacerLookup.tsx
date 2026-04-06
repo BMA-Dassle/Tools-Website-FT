@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { bmiGet } from "../data";
+import { bmiGet, isRelevantMembership } from "../data";
 
 export interface PersonData {
   personId: string;
@@ -62,8 +62,6 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
       if (!byName.has(name)) byName.set(name, r);
     }
     const uniqueEntries = [...byName.values()].slice(0, 10);
-    const RELEVANT_MEMBERSHIPS = ["license fee", "intermediate", "pro", "turbo pass", "employee pass", "race credit"];
-
     const detailPromises = uniqueEntries.map(async (r) => {
       try {
         const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
@@ -75,7 +73,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
         const memberships = (p.memberships || [])
           .filter((m: { stops: string; name: string }) =>
             (!m.stops || new Date(m.stops) > new Date()) &&
-            RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
+            isRelevantMembership(m.name)
           )
           .map((m: { name: string }) => m.name)
           .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
@@ -195,8 +193,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
             memberships: (p.memberships || [])
               .filter((m: { stops: string; name: string }) =>
                 (!m.stops || new Date(m.stops) > new Date()) &&
-                ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"]
-                  .some(r => m.name.toLowerCase().includes(r))
+                isRelevantMembership(m.name)
               )
               .map((m: { name: string }) => m.name)
               .filter((n: string, i: number, a: string[]) => a.indexOf(n) === i),

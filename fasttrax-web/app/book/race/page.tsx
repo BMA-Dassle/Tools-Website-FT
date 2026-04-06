@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
-import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine } from "./data";
+import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine, isRelevantMembership, getRacerTier } from "./data";
 import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackBookingResult } from "./components/OrderSummary";
 
@@ -248,14 +248,13 @@ export default function BookRacePage() {
       // Get person details
       const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
       const p = await detailRes.json();
-      const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
       const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
         (b.lastSeen || "").localeCompare(a.lastSeen || "")
       );
       const memberships = (p.memberships || [])
         .filter((m: { stops: string; name: string }) =>
           (!m.stops || new Date(m.stops) > new Date()) &&
-          RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
+          isRelevantMembership(m.name)
         )
         .map((m: { name: string }) => m.name)
         .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
@@ -318,14 +317,6 @@ export default function BookRacePage() {
     } else {
       setAdults(prev => Math.max(1, prev - 1));
     }
-  }
-
-  // Get the highest tier label for a racer's memberships
-  function getRacerTier(memberships: string[]): string {
-    const mems = memberships.map(m => m.toLowerCase());
-    if (mems.some(m => m.includes("qualified pro"))) return "Pro";
-    if (mems.some(m => m.includes("qualified intermediate"))) return "Intermediate";
-    return "Starter";
   }
 
   function handlePartyNext() {
@@ -554,8 +545,8 @@ export default function BookRacePage() {
     // The RacerSelector handles per-racer qualification gating.
     const tiers = catRacers.map(r => {
       const mems = (r.memberships || []).map(m => m.toLowerCase());
-      if (mems.some(m => m.includes("qualified pro"))) return 2;
-      if (mems.some(m => m.includes("qualified intermediate"))) return 1;
+      if (mems.some(m => m.includes("pro"))) return 2;
+      if (mems.some(m => m.includes("intermediate"))) return 1;
       return 0;
     });
     const highestTier = Math.max(...tiers);
@@ -938,8 +929,8 @@ export default function BookRacePage() {
                 {racerType === "existing" && verifiedRacers.length > 1 && (() => {
                   const catRacers = verifiedRacers.filter(r => r.category === bookingCategory);
                   const catMems = getCategoryMemberships(bookingCategory) || [];
-                  const hasPro = catMems.some(m => m.toLowerCase().includes("qualified pro"));
-                  const hasInt = catMems.some(m => m.toLowerCase().includes("qualified intermediate"));
+                  const hasPro = catMems.some(m => m.toLowerCase().includes("pro"));
+                  const hasInt = catMems.some(m => m.toLowerCase().includes("intermediate"));
                   const tierLabel = hasPro ? null : hasInt ? "Intermediate" : "Starter";
                   if (!tierLabel || catRacers.length <= 1) return null;
                   return (

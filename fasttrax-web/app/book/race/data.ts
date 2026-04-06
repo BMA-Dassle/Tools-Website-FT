@@ -4,6 +4,25 @@ export type RaceTier = "starter" | "intermediate" | "pro";
 export type RaceCategory = "adult" | "junior";
 export type RacerType = "new" | "existing";
 
+// ── Membership helpers (centralized) ────────────────────────────────────────
+
+/** Substrings to match when filtering BMI memberships for display / qualification checks */
+export const RELEVANT_MEMBERSHIP_KEYWORDS = ["license fee", "intermediate", "pro", "turbo pass", "employee pass", "race credit"];
+
+/** Check if a membership name matches any relevant keyword */
+export function isRelevantMembership(name: string): boolean {
+  const lower = name.toLowerCase();
+  return RELEVANT_MEMBERSHIP_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+/** Determine a racer's highest qualification tier from their membership names */
+export function getRacerTier(memberships: string[]): "Starter" | "Intermediate" | "Pro" {
+  const mems = memberships.map(m => m.toLowerCase());
+  if (mems.some(m => m.includes("pro"))) return "Pro";
+  if (mems.some(m => m.includes("intermediate"))) return "Intermediate";
+  return "Starter";
+}
+
 // ── BMI Public API types ────────────────────────────────────────────────────
 
 export interface BmiPrice {
@@ -239,8 +258,8 @@ export function filterProducts(
 ): ClassifiedProduct[] {
   // Determine highest qualification from memberships
   const mems = (memberships || []).map(m => m.toLowerCase());
-  const hasQualifiedPro = mems.some(m => m.includes("qualified pro"));
-  const hasQualifiedIntermediate = mems.some(m => m.includes("qualified intermediate"));
+  const hasQualifiedPro = mems.some(m => m.includes("pro"));
+  const hasQualifiedIntermediate = mems.some(m => m.includes("intermediate"));
 
   return products.filter(p => {
     // Hide race packs for now

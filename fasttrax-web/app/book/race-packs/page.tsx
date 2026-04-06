@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import Image from "next/image";
-import { calculateTax, calculateTotal } from "../race/data";
+import { calculateTax, calculateTotal, isRelevantMembership } from "../race/data";
 import { trackBookingStep } from "@/lib/analytics";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
@@ -42,7 +42,6 @@ interface FoundAccount {
   memberships: string[];
 }
 
-const RELEVANT_MEMBERSHIPS = ["license fee", "intermediate", "pro", "turbo pass", "employee pass", "race credit"];
 
 type ModalPhase = "closed" | "lookup" | "looking" | "found" | "new-person" | "summary" | "paying";
 
@@ -111,7 +110,7 @@ export default function RacePacksPage() {
         const memberships = (p.memberships || [])
           .filter((m: { stops: string; name: string }) =>
             (!m.stops || new Date(m.stops) > new Date()) &&
-            RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
+            isRelevantMembership(m.name)
           )
           .map((m: { name: string }) => m.name)
           .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
