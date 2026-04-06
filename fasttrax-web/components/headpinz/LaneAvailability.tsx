@@ -123,24 +123,20 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
         {lanes.map((lane) => (
           <div
             key={lane.name}
-            className="flex-1 rounded-xl border border-[#123075]/40 bg-white/[0.04] p-4"
+            className="flex-1 rounded-xl border border-[#123075]/40 bg-white/[0.04] p-4 text-center"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white font-semibold text-sm">{lane.name}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      lane.isAvailable ? "bg-green-400 animate-pulse" : "bg-amber-400"
-                    }`}
-                  />
-                  <span className={`text-sm font-bold ${lane.isAvailable ? "text-green-400" : "text-amber-400"}`}>
-                    {typeof lane.remaining === "number"
-                      ? `${lane.remaining} Lane${lane.remaining !== 1 ? "s" : ""}`
-                      : lane.remaining}
-                  </span>
-                </div>
-              </div>
+            <p className="text-white font-semibold text-sm">{lane.name}</p>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  lane.isAvailable ? "bg-green-400 animate-pulse" : "bg-amber-400"
+                }`}
+              />
+              <span className={`text-sm font-bold ${lane.isAvailable ? "text-green-400" : "text-amber-400"}`}>
+                {typeof lane.remaining === "number"
+                  ? `${lane.remaining} Lane${lane.remaining !== 1 ? "s" : ""}`
+                  : lane.remaining}
+              </span>
             </div>
           </div>
         ))}
