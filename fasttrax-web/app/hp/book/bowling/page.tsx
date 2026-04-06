@@ -1166,7 +1166,7 @@ export default function BowlingBookingPage() {
             <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-4">Showing packages near {formatTimeStr(selectedTime)}</p>
             <div className="space-y-4">
               {filteredOffers.map(offer => {
-                const validItems = filterOfferItems(offer, selectedTime);
+                const validItems = filterOfferItems(offer, selectedTime, selectedDate);
                 if (validItems.length === 0) return null; // Hide offers with no items within 1 hour
 
                 const perPerson = isPerPerson(offer.Name);
