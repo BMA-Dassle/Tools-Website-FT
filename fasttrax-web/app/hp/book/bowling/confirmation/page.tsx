@@ -54,6 +54,93 @@ export default function BowlingConfirmationPage() {
 
   const [status, setStatus] = useState<"loading" | "confirmed" | "failed">("loading");
   const [reservation, setReservation] = useState<{ offer?: string; centerName?: string; players?: number; operationId?: string } | null>(null);
+  const [bmiStatus, setBmiStatus] = useState<"" | "booking" | "done" | "error">("");
+
+  // Create BMI bill for add-ons after bowling is confirmed
+  async function createBmiBill() {
+    const stored = sessionStorage.getItem("qamf_bmi_addons");
+    if (!stored) return;
+
+    setBmiStatus("booking");
+    try {
+      const { addons, guest } = JSON.parse(stored);
+      if (!addons || addons.length === 0) return;
+
+      let orderId: string | null = null;
+
+      // Book each add-on
+      for (const addon of addons) {
+        if (!addon.proposal || !addon.block) continue;
+
+        const bookBody = {
+          productId: addon.productId,
+          quantity: addon.quantity,
+          resourceId: Number(addon.block.resourceId) || -1,
+          proposal: {
+            blocks: addon.proposal.blocks.map((b: { productLineIds: number[]; block: { resourceId: number } }) => ({
+              productLineIds: b.productLineIds || [],
+              block: { ...b.block, resourceId: Number(b.block.resourceId) || -1 },
+            })),
+            productLineId: addon.proposal.productLineId ?? null,
+          },
+        };
+
+        // Inject orderId if we have one (add to existing bill)
+        let bodyJson = JSON.stringify(bookBody);
+        if (orderId) {
+          bodyJson = `{"orderId":${orderId},` + bodyJson.slice(1);
+        }
+
+        const res = await fetch("/api/bmi?endpoint=booking%2Fbook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: bodyJson,
+        });
+
+        if (res.ok) {
+          const raw = await res.text();
+          if (!orderId) {
+            const m = raw.match(/"orderId"\s*:\s*(\d+)/);
+            if (m) orderId = m[1];
+          }
+        }
+      }
+
+      if (!orderId) { setBmiStatus("error"); return; }
+
+      // Register contact person
+      const regBody = {
+        firstName: guest.name.split(" ")[0] || guest.name,
+        lastName: guest.name.split(" ").slice(1).join(" ") || "",
+        email: guest.email,
+        phone: guest.phone,
+      };
+      const regJson = `{"orderId":${orderId},` + JSON.stringify(regBody).slice(1);
+      await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: regJson,
+      });
+
+      // Confirm payment at zero balance (credit)
+      await fetch("/api/bmi?endpoint=payment%2Fconfirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          paymentTime: new Date().toISOString(),
+          amount: 0,
+          orderId: Number(orderId),
+          depositKind: 2, // Credit
+        }),
+      });
+
+      sessionStorage.removeItem("qamf_bmi_addons");
+      setBmiStatus("done");
+    } catch {
+      setBmiStatus("error");
+    }
+  }
 
   useEffect(() => {
     if (!key || !centerId) {
@@ -94,12 +181,12 @@ export default function BowlingConfirmationPage() {
 
               if (statusData?.PaymentStatus === "COMPLETED" || statusData?.ReservationStatus === "CONFIRMED") {
                 if (pollInterval) clearInterval(pollInterval);
-                // End the flow
                 try {
                   await qamfCall(`centers/${centerId}/reservations/${key}/SetEndFlow`, { method: "PATCH" });
                 } catch { /* ok */ }
+                // Silently create BMI bill for add-ons (customer doesn't see this)
+                createBmiBill();
                 setStatus("confirmed");
-                // Clean up session
                 sessionStorage.removeItem("qamf_session_token");
                 sessionStorage.removeItem("qamf_reservation");
                 sessionStorage.removeItem("qamf_confirm_data");
@@ -110,6 +197,7 @@ export default function BowlingConfirmationPage() {
               const statusData = await qamfCall(`centers/${centerId}/reservations/${key}/status`);
               if (statusData === "Confirmed" || statusData === "CONFIRMED") {
                 if (pollInterval) clearInterval(pollInterval);
+                createBmiBill();
                 setStatus("confirmed");
                 sessionStorage.removeItem("qamf_session_token");
                 sessionStorage.removeItem("qamf_reservation");
@@ -122,6 +210,7 @@ export default function BowlingConfirmationPage() {
           // After 15 attempts (30s), assume success since payment went through Square
           if (attempts >= 15) {
             if (pollInterval) clearInterval(pollInterval);
+            createBmiBill();
             setStatus("confirmed");
             sessionStorage.removeItem("qamf_session_token");
             sessionStorage.removeItem("qamf_reservation");

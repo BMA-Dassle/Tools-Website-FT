@@ -1264,20 +1264,40 @@ export default function BowlingBookingPage() {
                                 <div>
                                   <p className="font-[var(--font-hp-body)] text-white/50 text-[10px] uppercase tracking-wider mb-2">Select a time</p>
                                   <div className="flex flex-wrap gap-1.5">
-                                    {slots.map((slot, idx) => (
-                                      <button
-                                        key={slot.start}
-                                        onClick={() => setBmiSelectedTime(prev => ({ ...prev, [addon.productId]: idx }))}
-                                        className="px-3 py-1.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-all cursor-pointer"
-                                        style={{
-                                          backgroundColor: selectedIdx === idx ? addon.accent : "rgba(7,16,39,0.5)",
-                                          color: selectedIdx === idx ? "#0a1628" : "rgba(255,255,255,0.6)",
-                                          border: `1px solid ${selectedIdx === idx ? addon.accent : "rgba(255,255,255,0.1)"}`,
-                                        }}
-                                      >
-                                        {formatBmiTime(slot.start)}
-                                      </button>
-                                    ))}
+                                    {(() => {
+                                      // Merge bowling time into timeline
+                                      const bowlTimeMs = new Date(`${selectedDate}T${selectedTime}:00`).getTime();
+                                      const items: { time: number; type: "slot" | "bowling"; idx?: number; slot?: typeof slots[0] }[] = [
+                                        ...slots.map((s, idx) => ({ time: parseBmiLocal(s.start).getTime(), type: "slot" as const, idx, slot: s })),
+                                        { time: bowlTimeMs, type: "bowling" as const },
+                                      ];
+                                      items.sort((a, b) => a.time - b.time);
+
+                                      return items.map((item, i) => {
+                                        if (item.type === "bowling") {
+                                          return (
+                                            <span key="bowling" className="px-3 py-1.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)]"
+                                              style={{ backgroundColor: `${coral}20`, color: coral, border: `1px solid ${coral}40` }}>
+                                              {formatTimeStr(selectedTime)} Bowling
+                                            </span>
+                                          );
+                                        }
+                                        return (
+                                          <button
+                                            key={item.slot!.start}
+                                            onClick={() => setBmiSelectedTime(prev => ({ ...prev, [addon.productId]: item.idx! }))}
+                                            className="px-3 py-1.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-all cursor-pointer"
+                                            style={{
+                                              backgroundColor: selectedIdx === item.idx ? addon.accent : "rgba(7,16,39,0.5)",
+                                              color: selectedIdx === item.idx ? "#0a1628" : "rgba(255,255,255,0.6)",
+                                              border: `1px solid ${selectedIdx === item.idx ? addon.accent : "rgba(255,255,255,0.1)"}`,
+                                            }}
+                                          >
+                                            {formatBmiTime(item.slot!.start)}
+                                          </button>
+                                        );
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               )}
