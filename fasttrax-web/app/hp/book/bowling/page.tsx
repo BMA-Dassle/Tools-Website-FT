@@ -65,7 +65,7 @@ const LOCATIONS = [
 ];
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
-type LaneTypeInfo = { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean; videos?: string[]; details?: string[] };
+type LaneTypeInfo = { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean; videos?: string[]; image?: string; details?: string[] };
 
 function getLaneTypes(center: string): LaneTypeInfo[] {
   const isFM = center === "9172";
@@ -96,6 +96,7 @@ function getLaneTypes(center: string): LaneTypeInfo[] {
       desc: "Pinboyz 1950s-themed bowling — vintage vibes, leather seating, classic Americana atmosphere.",
       accent: "#00E2E5",
       fmOnly: true,
+      image: `${BLOB}/images/headpinz/oldtime-pinboyz.jpg`,
       details: ["1950s vintage theme", "4 classic lanes", "Leather lounge seating", "Fort Myers exclusive"],
     }] : []),
   ];
@@ -1113,13 +1114,17 @@ export default function BowlingBookingPage() {
                   >
                     <div className="flex flex-col sm:flex-row">
                       {/* Video/image side */}
-                      {lt.videos && lt.videos.length > 0 && (
+                      {(lt.videos || lt.image) && (
                         <div className="relative w-full sm:w-56 h-36 sm:h-auto shrink-0 overflow-hidden">
-                          <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
-                            <source src={lt.videos[0]} type="video/mp4" />
-                          </video>
+                          {lt.videos && lt.videos.length > 0 ? (
+                            <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
+                              <source src={lt.videos[0]} type="video/mp4" />
+                            </video>
+                          ) : lt.image ? (
+                            <img src={lt.image} alt={lt.label} className="absolute inset-0 w-full h-full object-cover" />
+                          ) : null}
                           <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70" />
-                          {lt.key === "vip" && lt.videos.length > 1 && (
+                          {lt.key === "vip" && lt.videos && lt.videos.length > 1 && (
                             <div className="absolute bottom-2 left-3 flex gap-1">
                               <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
                               <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
