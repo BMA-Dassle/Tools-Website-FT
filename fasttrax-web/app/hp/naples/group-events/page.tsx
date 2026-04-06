@@ -77,6 +77,13 @@ const activities = [
     desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions. $200 per session for group events.",
   },
   {
+    title: "Gel Blasters",
+    subtitle: "Per Person",
+    color: blue,
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg",
+    desc: "High-tech blasters with haptic vests and eco-friendly Gellets. Fast-paced team battles in a glowing arena.",
+  },
+  {
     title: "Arcade / Game Zone",
     subtitle: "Cards $5\u2013$20",
     color: blue,
@@ -342,15 +349,10 @@ export default function HeadPinzNaplesGroupEventsPage() {
     <>
       {/* ====== 1. HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
-        <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
-          alt="HeadPinz Naples bowling wide view"
-          fill
-          className="object-cover"
-          sizes="100vw"
-          priority
-          unoptimized
-        />
+        <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover"
+          poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp">
+          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
+        </video>
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a1628]" />
 
         <div
@@ -424,14 +426,10 @@ export default function HeadPinzNaplesGroupEventsPage() {
             </div>
           </div>
           <div className="flex-1 relative w-full aspect-[4/3] rounded-2xl overflow-hidden">
-            <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp"
-              alt="HeadPinz entertainment"
-              fill
-              className="object-cover"
-              sizes="(max-width: 1024px) 100vw, 50vw"
-              unoptimized
-            />
+            <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover"
+              poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp">
+              <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
+            </video>
           </div>
         </div>
       </section>

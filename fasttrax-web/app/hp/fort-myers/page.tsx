@@ -46,7 +46,7 @@ const attractions = [
     price: "From $12.99",
     cta: "Reserve Lanes",
     ctaHref: "/hp/book/bowling",
-    external: true,
+    external: false,
     badge: null,
     accent: "#fd5b56",
     borderColor: "rgba(253,91,86,0.45)",
@@ -85,7 +85,7 @@ const attractions = [
     price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "/hp/book/bowling",
-    external: true,
+    external: false,
     badge: "VIP ONLY",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
@@ -98,7 +98,7 @@ const attractions = [
     price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "/hp/book/bowling",
-    external: true,
+    external: false,
     badge: "VIP ONLY",
     accent: "#00E2E5",
     borderColor: "rgba(0,226,229,0.35)",
@@ -233,13 +233,13 @@ export default function FortMyersPage() {
 
           <div className="mb-8" />
 
-          <BookingLink
+          <Link
             href="/hp/book/bowling"
             className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
             Book Now
-          </BookingLink>
+          </Link>
         </div>
 
         {/* Bottom accent gradient line */}
@@ -496,13 +496,13 @@ export default function FortMyersPage() {
             </div>
           </div>
 
-          <BookingLink
+          <Link
             href="/hp/book/bowling"
             className="inline-flex items-center bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(255,215,0,0.35)" }}
           >
             Book VIP Lanes
-          </BookingLink>
+          </Link>
         </div>
       </section>
 
@@ -569,29 +569,6 @@ export default function FortMyersPage() {
             ))}
           </div>
 
-          {/* Weekly events row */}
-          <div className="max-w-5xl mx-auto mt-8 flex flex-wrap justify-center gap-4">
-            {weeklyEvents.map((e) => (
-              <div
-                key={e.day + e.event}
-                className="flex items-center gap-3 rounded-full px-5 py-2.5"
-                style={{
-                  backgroundColor: "rgba(7,16,39,0.5)",
-                  border: `1.78px dashed ${e.color}35`,
-                }}
-              >
-                <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold">
-                  {e.day}
-                </span>
-                <span
-                  className="font-[var(--font-hp-body)] text-sm font-bold"
-                  style={{ color: e.color }}
-                >
-                  {e.event}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -702,13 +679,13 @@ export default function FortMyersPage() {
             Reserve your lanes, book your battles, or just show up and play. We&apos;re open 7 days a week.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
-            <BookingLink
+            <Link
               href="/hp/book/bowling"
               className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
               style={{ boxShadow: "0 0 16px rgba(253,91,86,0.3)" }}
             >
               Book Bowling
-            </BookingLink>
+            </Link>
             <Link
               href="/hp/book/laser-tag"
               className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
