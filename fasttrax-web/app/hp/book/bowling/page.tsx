@@ -93,10 +93,10 @@ function getLaneTypes(center: string): LaneTypeInfo[] {
     ...(isFM ? [{
       key: "oldtime" as LaneType,
       label: "Old Time Lanes",
-      desc: "Pinboyz retro duckpin bowling — smaller balls, no finger holes, pure classic fun.",
+      desc: "Pinboyz 1950s-themed bowling — vintage vibes, leather seating, classic Americana atmosphere.",
       accent: "#00E2E5",
       fmOnly: true,
-      details: ["Retro duckpin bowling", "No finger holes — just throw!", "Perfect for all ages", "Fort Myers exclusive"],
+      details: ["1950s vintage theme", "4 classic lanes", "Leather lounge seating", "Fort Myers exclusive"],
     }] : []),
   ];
 }
