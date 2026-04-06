@@ -181,6 +181,9 @@ export default function BowlingBookingPage() {
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
 
+  // Refs
+  const timePickerRef = useRef<HTMLDivElement>(null);
+
   // Keep-alive
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
   const startKeepAlive = useCallback((key: string, cid: string) => {
@@ -407,7 +410,7 @@ export default function BowlingBookingPage() {
         </h1>
         {centerName && <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-1">{centerName}</p>}
 
-        <div className="max-w-lg mx-auto mt-6 flex items-center gap-1">
+        <div className="max-w-2xl mx-auto mt-6 flex items-center gap-1">
           {stepLabels.map((label, i) => (
             <div key={label} className="flex-1 text-center">
               <div className="h-1 rounded-full mb-1 transition-all" style={{ backgroundColor: i <= stepIndex ? coral : "rgba(255,255,255,0.1)" }} />
@@ -433,7 +436,7 @@ export default function BowlingBookingPage() {
         </div>
       )}
 
-      <section className="max-w-lg mx-auto px-4 pb-24">
+      <section className="max-w-3xl mx-auto px-4 pb-24">
 
         {/* ── LOCATION CONFIRM ── */}
         {step === "location" && !loading && centerId && (
@@ -499,7 +502,7 @@ export default function BowlingBookingPage() {
                   <button
                     key={day}
                     disabled={!isOpen}
-                    onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); }}
+                    onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); setTimeout(() => timePickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100); }}
                     className="aspect-square rounded-lg flex items-center justify-center text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer disabled:cursor-default disabled:opacity-20"
                     style={{
                       backgroundColor: isSelected ? coral : isOpen ? "rgba(7,16,39,0.5)" : "transparent",
@@ -515,7 +518,7 @@ export default function BowlingBookingPage() {
 
             {/* Time picker */}
             {selectedDate && (
-              <div>
+              <div ref={timePickerRef}>
                 <h3 className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3 text-center">Select a Time</h3>
                 <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
                   {timeSlots.map(t => {
@@ -578,7 +581,7 @@ export default function BowlingBookingPage() {
         {step === "lane-type" && !loading && (
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {LANE_TYPES.filter(lt => !lt.fmOnly || hasOldTime).map(lt => {
                 const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key).length;
                 return (
@@ -624,7 +627,7 @@ export default function BowlingBookingPage() {
                       )}
 
                       <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: lt.accent }}>
-                        {count} package{count !== 1 ? "s" : ""} available &rarr;
+                        {count} package{count !== 1 ? "s" : ""} available&nbsp;&rarr;
                       </span>
                     </div>
                   </button>
