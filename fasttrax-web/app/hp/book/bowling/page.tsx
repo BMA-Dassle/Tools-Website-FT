@@ -1023,9 +1023,9 @@ export default function BowlingBookingPage() {
                     onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); setTimeout(() => timePickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100); }}
                     className={`aspect-square rounded-lg text-sm font-medium transition-all duration-150 ${
                       isSelected
-                        ? "bg-[#fd5b56] text-white font-bold shadow-lg shadow-[#fd5b56]/30"
+                        ? "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
                         : isOpen && !isPast
-                          ? "bg-[#fd5b56]/15 text-[#fd5b56] hover:bg-[#fd5b56]/30 cursor-pointer"
+                          ? "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
                           : "text-white/20 cursor-not-allowed"
                     }`}
                   >
