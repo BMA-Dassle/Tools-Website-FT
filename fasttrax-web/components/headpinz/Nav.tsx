@@ -125,7 +125,7 @@ export default function HeadPinzNav() {
           {/* Logo */}
           <Link href="/hp" className="flex items-center shrink-0">
             <Image
-              src="https://headpinz.com/wp-content/uploads/2023/10/BOWL_HP_logo_Text.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
               alt="HeadPinz"
               width={140}
               height={48}

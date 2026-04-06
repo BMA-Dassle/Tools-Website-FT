@@ -41,7 +41,7 @@ const attractions = [
     name: "Premier Bowling",
     tagline: "24 State-of-the-Art Lanes",
     description: "Modern lanes with cosmic glow effects, VIP lounge lanes, and a full-service bar steps away. 1.5 hours, up to 6 per lane.",
-    image: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     price: "From $12.99",
     cta: "Reserve Lanes",
     ctaHref: "https://www.mybowlingpassport.com/2/3148/book",
@@ -80,7 +80,7 @@ const attractions = [
     name: "NeoVerse",
     tagline: "Interactive Video Wall Experience",
     description: "Step into a 360-degree immersive projection world. Touch-reactive walls, dynamic games, and mind-bending visuals.",
-    image: "https://headpinz.com/wp-content/uploads/2024/02/neoverse.jpg",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "https://www.mybowlingpassport.com/2/3148/book",
@@ -93,7 +93,7 @@ const attractions = [
     name: "HyperBowling",
     tagline: "Where Bowling Meets Gaming",
     description: "LED-integrated bumper targets turn every throw into a scoring challenge. Dynamic gameplay meets physical skill.",
-    image: "https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "https://www.mybowlingpassport.com/2/3148/book",
@@ -106,7 +106,7 @@ const attractions = [
     name: "Game Zone",
     tagline: "40+ Premier Arcade Games",
     description: "The latest titles, VR simulators, and a prize center. Load any amount onto a Game Card at our kiosks and play.",
-    image: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp",
     price: "Game Cards",
     cta: "Learn More",
     ctaHref: "/hp/naples/attractions",
@@ -177,7 +177,7 @@ export default function NaplesPage() {
           playsInline
           preload="metadata"
           className="absolute inset-0 w-full h-full object-cover"
-          poster="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4716-2048x1365-1.webp"
+          poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hero-poster.webp"
         >
           <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
         </video>
@@ -186,7 +186,7 @@ export default function NaplesPage() {
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "100vh" }}>
           <div className="relative mb-4" style={{ width: "clamp(140px, 25vw, 240px)", height: "clamp(42px, 7vw, 72px)" }}>
             <Image
-              src="https://headpinz.com/wp-content/uploads/2023/10/BOWL_HP_logo_Text.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
               alt="HeadPinz"
               fill
               className="object-contain"
@@ -389,7 +389,7 @@ export default function NaplesPage() {
           playsInline
           preload="metadata"
           className="absolute inset-0 w-full h-full object-cover"
-          poster="https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg"
+          poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg"
         >
           <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling.mp4" type="video/mp4" />
         </video>
@@ -560,10 +560,10 @@ export default function NaplesPage() {
       <section className="bg-[#0a1628]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp", alt: "HeadPinz entertainment" },
-            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_5.webp", alt: "HeadPinz fun" },
-            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_6.webp", alt: "HeadPinz action" },
-            { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_7.webp", alt: "HeadPinz venue" },
+            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp", alt: "HeadPinz entertainment" },
+            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-fun.webp", alt: "HeadPinz fun" },
+            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp", alt: "HeadPinz action" },
+            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-venue.webp", alt: "HeadPinz venue" },
           ].map((img) => (
             <div key={img.src} className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "4/3" }}>
               <Image
@@ -633,7 +633,7 @@ export default function NaplesPage() {
       {/* ====== BOTTOM CTA ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4755-2048x1365-1-1024x683.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
           alt="HeadPinz bowling wide view"
           fill
           className="object-cover"

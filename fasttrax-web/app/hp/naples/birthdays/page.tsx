@@ -189,9 +189,9 @@ const includedItems = [
 
 const galleryImages = [
   { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg", alt: "Family bowling birthday party" },
-  { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp", alt: "HeadPinz entertainment" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp", alt: "HeadPinz entertainment" },
   { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg", alt: "Birthday girl with bowling ball" },
-  { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_6.webp", alt: "HeadPinz action" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp", alt: "HeadPinz action" },
 ];
 
 const faqs = [
@@ -325,7 +325,7 @@ export default function HeadPinzBirthdaysPage() {
           playsInline
           preload="metadata"
           className="absolute inset-0 w-full h-full object-cover"
-          poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+          poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
         >
           <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade.mp4" type="video/mp4" />
         </video>

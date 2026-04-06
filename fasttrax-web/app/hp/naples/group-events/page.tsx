@@ -42,21 +42,21 @@ const eventSpaces = [
     title: "Classic Bowling Lanes",
     capacity: "Up to 6 per lane, shoes included",
     color: coral,
-    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     desc: "Reserve a block of lanes for your group with glow-bowl lighting, cosmic effects, and shoe rental included.",
   },
   {
     title: "VIP Bowling",
     capacity: "Dedicated VIP Lounge & Bar",
     color: purple,
-    img: "https://headpinz.com/wp-content/uploads/2024/02/neoverse.jpg",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
     desc: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included.",
   },
   {
     title: "VIP Pinz Exclusive",
     capacity: "Up to 80 guests (48 bowl at once)",
     color: blue,
-    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp",
     desc: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling. Holds up to 80 people.",
   },
 ];
@@ -66,7 +66,7 @@ const activities = [
     title: "Bowling",
     subtitle: "Glow Bowl & Cosmic",
     color: coral,
-    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     desc: "State-of-the-art lanes with cosmic glow effects. Reserve lanes for your group with shoes included.",
   },
   {
@@ -80,14 +80,14 @@ const activities = [
     title: "Arcade / Game Zone",
     subtitle: "Cards $5\u2013$20",
     color: blue,
-    img: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp",
     desc: "The latest titles, VR simulators, and a prize center. Timed or redemption game cards available.",
   },
   {
     title: "HyperBowling",
     subtitle: "VIP Exclusive",
     color: coral,
-    img: "https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg",
+    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
     desc: "LED-integrated bumper targets turn every throw into a scoring challenge. Available in VIP lanes.",
   },
 ];
@@ -343,7 +343,7 @@ export default function HeadPinzNaplesGroupEventsPage() {
       {/* ====== 1. HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4755-2048x1365-1-1024x683.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
           alt="HeadPinz Naples bowling wide view"
           fill
           className="object-cover"
@@ -425,7 +425,7 @@ export default function HeadPinzNaplesGroupEventsPage() {
           </div>
           <div className="flex-1 relative w-full aspect-[4/3] rounded-2xl overflow-hidden">
             <Image
-              src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp"
               alt="HeadPinz entertainment"
               fill
               className="object-cover"
@@ -702,7 +702,7 @@ export default function HeadPinzNaplesGroupEventsPage() {
       {/* ====== 8. BUFFET PACKAGES ====== */}
       <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_5.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-fun.webp"
           alt="Nemo's food at HeadPinz"
           fill
           className="object-cover"
@@ -914,7 +914,7 @@ export default function HeadPinzNaplesGroupEventsPage() {
       {/* ====== 10. START YOUR QUOTE CTA ====== */}
       <section className="relative overflow-hidden" id="quote-form">
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4755-2048x1365-1-1024x683.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
           alt="HeadPinz bowling panoramic"
           fill
           className="object-cover"

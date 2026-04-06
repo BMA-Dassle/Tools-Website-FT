@@ -199,7 +199,7 @@ export default function MenuPage() {
       {/* ====== HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "60vh" }}>
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_1.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-lanes.webp"
           alt="Nemo's Sports Bistro dining"
           fill
           className="object-cover"
@@ -216,7 +216,7 @@ export default function MenuPage() {
           {/* Nemo's logo */}
           <div className="relative mb-4" style={{ width: "clamp(100px, 20vw, 160px)", height: "clamp(100px, 20vw, 160px)" }}>
             <Image
-              src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Nemos_Logo-removebg-preview.png"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-logo.png"
               alt="Nemo's Sports Bistro"
               fill
               className="object-contain"

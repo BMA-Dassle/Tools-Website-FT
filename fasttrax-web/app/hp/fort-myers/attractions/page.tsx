@@ -47,7 +47,7 @@ const attractions = [
     details: "Up to 6 per lane \u2022 Shoes included \u2022 1.5hr sessions",
     pricing: "Starting at $12.99/person (Mon\u2013Thu before 6PM)",
     image:
-      "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     cta: "Reserve Lanes",
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
@@ -95,7 +95,7 @@ const attractions = [
       "Interactive LED video wall that transforms your bowling experience into an immersive visual spectacle.",
     details: "Exclusive to VIP lanes \u2022 Immersive visuals",
     pricing: "Included with VIP",
-    image: "https://headpinz.com/wp-content/uploads/2024/02/neoverse.jpg",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
     cta: "Book VIP",
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
@@ -112,7 +112,7 @@ const attractions = [
     details: "VIP lanes only \u2022 Dynamic scoring",
     pricing: "Included with VIP",
     image:
-      "https://headpinz.com/wp-content/uploads/2024/02/hyperbowling-headpinz-fort-myers.jpg",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
     cta: "Book VIP",
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
@@ -145,7 +145,7 @@ const attractions = [
     details: "Load any amount onto a Game Card at kiosks",
     pricing: "Game Cards available on-site",
     image:
-      "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_6.webp",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp",
     cta: "Learn More",
     ctaHref: "/hp/fort-myers#specials",
     external: false,
@@ -172,7 +172,7 @@ export default function AttractionsPage() {
           playsInline
           preload="metadata"
           className="absolute inset-0 w-full h-full object-cover"
-          poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+          poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
         >
           <source
             src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-bowling.mp4"
@@ -370,7 +370,7 @@ export default function AttractionsPage() {
         style={{ minHeight: "clamp(350px, 50vh, 500px)" }}
       >
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Caronchi_Photography_190226_4755-2048x1365-1-1024x683.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
           alt="HeadPinz bowling wide view"
           fill
           className="object-cover"

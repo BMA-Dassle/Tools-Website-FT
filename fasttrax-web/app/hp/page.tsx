@@ -13,14 +13,14 @@ const locations = [
     address: "14513 Global Parkway",
     hours: "Sun-Thu 11AM-12AM • Fri-Sat 11AM-2AM",
     href: "/hp/fort-myers",
-    image: "https://headpinz.com/wp-content/uploads/2024/02/Pic-3-scaled.jpg",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/location-fm.jpg",
   },
   {
     name: "Naples",
     address: "8525 Radio Lane",
     hours: "Sun-Thu 11AM-12AM • Fri-Sat 11AM-2AM",
     href: "/hp/naples",
-    image: "https://headpinz.com/wp-content/uploads/2024/02/7bc74ef0-f7e7-4b82-a8e4-a0ddafbcb6ab.jpeg",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/location-naples.jpeg",
   },
 ];
 
@@ -37,7 +37,7 @@ export default function HeadPinzHome() {
         playsInline
         preload="metadata"
         className="absolute inset-0 w-full h-full object-cover"
-        poster="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_2-1024x683.webp"
+        poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
       >
         <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v2.mp4" type="video/mp4" />
       </video>
@@ -48,7 +48,7 @@ export default function HeadPinzHome() {
         {/* Logo */}
         <div className="relative mb-6" style={{ width: "clamp(160px, 30vw, 280px)", height: "clamp(50px, 9vw, 90px)" }}>
           <Image
-            src="https://headpinz.com/wp-content/uploads/2023/10/BOWL_HP_logo_Text.webp"
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
             alt="HeadPinz"
             fill
             className="object-contain"
@@ -116,7 +116,7 @@ export default function HeadPinzHome() {
         <div className="mt-10 flex items-center gap-2 opacity-30">
           <div className="relative" style={{ width: 30, height: 30 }}>
             <Image
-              src="https://headpinz.com/wp-content/uploads/2025/06/1-HeadPinz-10-Year-LOGO.png"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/10yr-logo.png"
               alt="10 Years"
               fill
               className="object-contain"
