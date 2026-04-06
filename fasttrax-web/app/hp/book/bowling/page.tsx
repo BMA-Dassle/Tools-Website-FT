@@ -132,6 +132,42 @@ async function qamf(path: string, options?: RequestInit) {
 
 function stripHtml(html: string) { return html.replace(/<[^>]*>/g, "").trim(); }
 
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+function isWithinOneHour(itemTime: string, selectedTime: string): boolean {
+  return Math.abs(timeToMinutes(itemTime) - timeToMinutes(selectedTime)) <= 60;
+}
+
+/** Filter offer items to only those within 1 hour of selected time */
+function filterOfferItems(offer: Offer, selTime: string): OfferItem[] {
+  return (offer.Items || []).filter(item => {
+    // Item available at its listed time and within 1 hour
+    if (!item.Reason && item.Remaining > 0 && isWithinOneHour(item.Time, selTime)) return true;
+    // Item has alternatives within 1 hour
+    if (item.Alternatives?.some(a => a.Remaining > 0 && isWithinOneHour(a.Time, selTime))) return true;
+    return false;
+  });
+}
+
+/** Check if any item in the offer requires a different time than selected */
+function getOfferTimeShift(items: OfferItem[], selTime: string): string | null {
+  for (const item of items) {
+    if (!item.Reason && item.Remaining > 0 && item.Time === selTime) return null; // exact match
+    if (!item.Reason && item.Remaining > 0 && item.Time !== selTime) return item.Time; // different time
+    // Check alternatives
+    if (item.Alternatives) {
+      for (const alt of item.Alternatives) {
+        if (alt.Remaining > 0 && alt.Time === selTime) return null;
+        if (alt.Remaining > 0 && isWithinOneHour(alt.Time, selTime)) return alt.Time;
+      }
+    }
+  }
+  return null;
+}
+
 function isPerPerson(name: string): boolean {
   const n = name.toLowerCase();
   return n.includes("fun 4") || n.includes("fun4");
@@ -224,6 +260,9 @@ export default function BowlingBookingPage() {
   // Extras selections
   const [wantShoes, setWantShoes] = useState(true);
   const [selectedExtras, setSelectedExtras] = useState<Map<number, number>>(new Map());
+
+  // Time change confirmation modal
+  const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
 
   // Guest details
   const [guestName, setGuestName] = useState("");
@@ -826,14 +865,41 @@ export default function BowlingBookingPage() {
         {/* ── OFFER ── */}
         {step === "offer" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose a Package</h2>
+            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2 text-center">Choose a Package</h2>
+            <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-4">Showing packages near {formatTimeStr(selectedTime)}</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredOffers.map(offer => {
+                const validItems = filterOfferItems(offer, selectedTime);
+                if (validItems.length === 0) return null; // Hide offers with no items within 1 hour
+
                 const perPerson = isPerPerson(offer.Name);
-                const hasMultipleItems = (offer.Items?.length || 0) > 1;
-                const firstItem = offer.Items?.[0];
+                const firstItem = validItems[0];
                 const basePrice = firstItem?.Total || 0;
                 const perPersonPrice = perPerson && playerCount > 0 ? basePrice / playerCount : 0;
+                const hasMultipleItems = validItems.length > 1;
+
+                function handleSelectItem(item: OfferItem) {
+                  const tariff = { Id: item.ItemId, Name: offer.Name, Price: item.Total, Duration: formatDuration(item.Quantity, item.QuantityType) };
+
+                  // Check if item time differs from selected time
+                  const itemTime = item.Time;
+                  if (!item.Reason && item.Remaining > 0 && itemTime !== selectedTime) {
+                    // Time shift — show confirmation
+                    setPendingOffer({ offer, tariff, newTime: itemTime });
+                    return;
+                  }
+
+                  // Check alternatives
+                  if (item.Reason || item.Remaining === 0) {
+                    const bestAlt = item.Alternatives?.find(a => a.Remaining > 0 && isWithinOneHour(a.Time, selectedTime));
+                    if (bestAlt && bestAlt.Time !== selectedTime) {
+                      setPendingOffer({ offer, tariff: { ...tariff, Price: bestAlt.Total }, newTime: bestAlt.Time });
+                      return;
+                    }
+                  }
+
+                  selectOffer(offer, tariff);
+                }
 
                 return (
                   <div
@@ -855,65 +921,50 @@ export default function BowlingBookingPage() {
                       <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
                       {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
 
-                      {/* Duration/price options */}
                       <div className="space-y-2">
-                        {(offer.Items || []).filter(item => !item.Reason || item.Remaining > 0).map(item => (
-                          <button
-                            key={item.ItemId}
-                            onClick={() => selectOffer(offer, { Id: item.ItemId, Name: offer.Name, Price: item.Total, Duration: formatDuration(item.Quantity, item.QuantityType) })}
-                            className="w-full flex items-center justify-between rounded-lg p-3 cursor-pointer transition-all hover:bg-white/5"
-                            style={{ border: "1px solid rgba(255,255,255,0.1)" }}
-                          >
-                            <div className="text-left">
-                              {hasMultipleItems && (
-                                <span className="font-[var(--font-hp-body)] text-white text-sm font-bold">{formatDuration(item.Quantity, item.QuantityType)}</span>
-                              )}
-                              {!hasMultipleItems && item.Quantity > 0 && (
-                                <span className="font-[var(--font-hp-body)] text-white/50 text-xs">{formatDuration(item.Quantity, item.QuantityType)}</span>
-                              )}
-                              {item.Remaining > 0 && (
-                                <span className="font-[var(--font-hp-body)] text-white/30 text-xs ml-2">{item.Remaining} lanes left</span>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <span className="font-[var(--font-hp-display)] text-lg" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
-                              {perPerson && (
-                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">${perPersonPrice.toFixed(2)}/person</span>
-                              )}
-                              {!perPerson && (
-                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">per lane</span>
-                              )}
-                            </div>
-                          </button>
-                        ))}
-                        {/* Show alternatives if main items unavailable */}
-                        {offer.Items?.every(i => i.Reason && i.Remaining === 0) && (offer.Items?.[0]?.Alternatives?.length ?? 0) > 0 && (
-                          <div>
-                            <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-2">Not available at selected time. Try:</p>
-                            {offer.Items![0].Alternatives!.filter(a => a.Remaining > 0).slice(0, 3).map(alt => (
-                              <button
-                                key={alt.Time}
-                                onClick={() => {
-                                  setSelectedTime(alt.Time);
-                                  selectOffer(offer, { Id: offer.OfferId, Name: offer.Name, Price: alt.Total, Duration: "" });
-                                }}
-                                className="w-full flex items-center justify-between rounded-lg p-2 mb-1 cursor-pointer transition-all hover:bg-white/5"
-                                style={{ border: "1px solid rgba(255,255,255,0.08)" }}
-                              >
-                                <span className="font-[var(--font-hp-body)] text-white text-sm">{formatTimeStr(alt.Time)}</span>
-                                <span className="font-[var(--font-hp-display)] text-base" style={{ color: gold }}>${alt.Total.toFixed(2)}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                        {validItems.map(item => {
+                          const timeShift = (!item.Reason && item.Remaining > 0 && item.Time !== selectedTime) ? item.Time : null;
+                          return (
+                            <button
+                              key={item.ItemId}
+                              onClick={() => handleSelectItem(item)}
+                              className="w-full flex items-center justify-between rounded-lg p-3 cursor-pointer transition-all hover:bg-white/5"
+                              style={{ border: `1px solid ${timeShift ? "rgba(255,215,0,0.3)" : "rgba(255,255,255,0.1)"}` }}
+                            >
+                              <div className="text-left">
+                                {hasMultipleItems && (
+                                  <span className="font-[var(--font-hp-body)] text-white text-sm font-bold">{formatDuration(item.Quantity, item.QuantityType)}</span>
+                                )}
+                                {!hasMultipleItems && item.Quantity > 0 && (
+                                  <span className="font-[var(--font-hp-body)] text-white/50 text-xs">{formatDuration(item.Quantity, item.QuantityType)}</span>
+                                )}
+                                {item.Remaining > 0 && !item.Reason && (
+                                  <span className="font-[var(--font-hp-body)] text-white/30 text-xs ml-2">{item.Remaining} lanes left</span>
+                                )}
+                                {timeShift && (
+                                  <span className="font-[var(--font-hp-body)] text-xs ml-2" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <span className="font-[var(--font-hp-display)] text-lg" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
+                                {perPerson && (
+                                  <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">${perPersonPrice.toFixed(2)}/person</span>
+                                )}
+                                {!perPerson && (
+                                  <span className="font-[var(--font-hp-body)] text-white/40 text-[10px] block">per lane</span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
                 );
-              })}
+              }).filter(Boolean)}
             </div>
-            {filteredOffers.length === 0 && (
-              <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available for this time and lane type.</p>
+            {filteredOffers.filter(o => filterOfferItems(o, selectedTime).length > 0).length === 0 && (
+              <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available within an hour of {formatTimeStr(selectedTime)}. Try a different time.</p>
             )}
             <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
@@ -1018,6 +1069,50 @@ export default function BowlingBookingPage() {
           </div>
         )}
       </section>
+
+      {/* Time change confirmation modal */}
+      {pendingOffer && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
+          onClick={() => setPendingOffer(null)}
+        >
+          <div
+            className="rounded-lg p-6 max-w-sm w-full text-center"
+            style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+              Time Change
+            </h3>
+            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-4">
+              <strong>{pendingOffer.offer.Name}</strong> is not available at {formatTimeStr(selectedTime)} but is available at:
+            </p>
+            <p className="font-[var(--font-hp-display)] text-2xl mb-6" style={{ color: gold }}>
+              {formatTimeStr(pendingOffer.newTime)}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPendingOffer(null)}
+                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const { offer, tariff, newTime } = pendingOffer;
+                  setSelectedTime(newTime);
+                  setPendingOffer(null);
+                  selectOffer(offer, tariff);
+                }}
+                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
+              >
+                Accept {formatTimeStr(pendingOffer.newTime)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
