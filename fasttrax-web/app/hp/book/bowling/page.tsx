@@ -88,7 +88,7 @@ function getLaneTypes(center: string): LaneTypeInfo[] {
       desc: "The ultimate bowling experience. Private VIP suite with NeoVerse interactive LED walls and HyperBowling LED target scoring.",
       accent: "#FFD700",
       videos: [`${BLOB}/videos/headpinz-neoverse.mp4`, `${BLOB}/videos/headpinz-hyperbowling.mp4`],
-      details: [`${isFM ? "8" : "8"} VIP lanes`, "NeoVerse interactive video wall", "HyperBowling LED targets in bumpers", "Private lounge seating"],
+      details: [`${isFM ? "8" : "8"} VIP lanes`, "NeoVerse interactive video wall", "HyperBowling LED targets in bumpers", "Private lounge seating", "Complimentary Chips & Salsa"],
     },
     ...(isFM ? [{
       key: "oldtime" as LaneType,
@@ -691,7 +691,9 @@ export default function BowlingBookingPage() {
           Time: `${selectedDate}T${selectedTime}`,
           Items: {
             Extra: extraItems,
-            FoodAndBeverage: [],
+            FoodAndBeverage: classifyOffer(selectedOffer!.Name) === "vip"
+              ? [{ PriceKeyId: 13186, Quantity: playerCount, UnitPrice: 0, Note: "", Modifiers: [] }]
+              : [],
             ShoesSocks: shoeItems,
             WebOffer: {
               Id: selectedOffer!.OfferId,
@@ -767,6 +769,17 @@ export default function BowlingBookingPage() {
           });
         }
       });
+
+      // Add free chips & salsa for VIP packages
+      if (classifyOffer(selectedOffer!.Name) === "vip") {
+        cartItems.push({
+          Name: "VIP Chips & Salsa",
+          Type: "FoodBeverage",
+          PriceKeyId: 13186,
+          Quantity: playerCount,
+          UnitPrice: 0,
+        });
+      }
 
       const returnUrl = `${window.location.origin}/hp/book/bowling/confirmation?key=${reservationKey}&center=${centerId}`;
 
@@ -919,7 +932,7 @@ export default function BowlingBookingPage() {
         </div>
       )}
 
-      <section className="max-w-3xl mx-auto px-4 py-8 pb-24">
+      <section className="max-w-5xl mx-auto px-4 py-8 pb-24">
 
         {/* ── LOCATION CONFIRM ── */}
         {step === "location" && !loading && centerId && (
@@ -1179,7 +1192,7 @@ export default function BowlingBookingPage() {
                   >
                     <div className="flex flex-col sm:flex-row">
                     {offer.ImageUrl && (
-                      <div className="relative w-full sm:w-48 h-32 sm:h-auto shrink-0 overflow-hidden">
+                      <div className="relative w-full sm:w-72 h-40 sm:h-full shrink-0 overflow-hidden">
                         <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/80" />
                         <span className="absolute top-2 right-2 font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
@@ -1255,6 +1268,17 @@ export default function BowlingBookingPage() {
                 {formatTimeStr(selectedTime)} &bull; {selectedOffer?.Name} &bull; {playerCount} bowlers
               </p>
             </div>
+
+            {/* VIP Chips & Salsa included */}
+            {selectedOffer && classifyOffer(selectedOffer.Name) === "vip" && (
+              <div className="rounded-lg p-4 mb-4 flex items-center gap-3" style={{ backgroundColor: `${gold}08`, border: `1.78px dashed ${gold}25` }}>
+                <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>&#x1f37f;</span>
+                <div>
+                  <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">Complimentary Chips &amp; Salsa</span>
+                  <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-2">Included with VIP</span>
+                </div>
+              </div>
+            )}
 
             {/* Shoes toggle */}
             {shoes.length > 0 && (
@@ -1549,7 +1573,7 @@ export default function BowlingBookingPage() {
                   NeoVerse interactive LED walls and HyperBowling LED target scoring in our private VIP suite.
                 </p>
                 <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-6">
-                  8 exclusive VIP lanes &bull; Private lounge seating &bull; Premium experience
+                  8 VIP lanes &bull; Complimentary Chips &amp; Salsa &bull; Private lounge
                 </p>
 
                 <div className="flex gap-3">
