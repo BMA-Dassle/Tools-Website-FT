@@ -91,7 +91,6 @@ export default function BowlingConfirmationPage() {
           try {
             if (opId) {
               const statusData = await qamfCall(`centers/${centerId}/reservations/${key}/status/${opId}`);
-              setDebugInfo(`Poll ${attempts}: ${JSON.stringify(statusData)}`);
 
               if (statusData?.PaymentStatus === "COMPLETED" || statusData?.ReservationStatus === "CONFIRMED") {
                 if (pollInterval) clearInterval(pollInterval);
@@ -109,7 +108,6 @@ export default function BowlingConfirmationPage() {
             } else {
               // No operation ID — try checking reservation status directly
               const statusData = await qamfCall(`centers/${centerId}/reservations/${key}/status`);
-              setDebugInfo(`Poll ${attempts} (no opId): ${JSON.stringify(statusData)}`);
               if (statusData === "Confirmed" || statusData === "CONFIRMED") {
                 if (pollInterval) clearInterval(pollInterval);
                 setStatus("confirmed");
