@@ -126,9 +126,9 @@ const includedItems = [
 ];
 
 const galleryImages = [
-  { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_1.webp", alt: "HeadPinz bowling lanes" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg", alt: "Family bowling birthday party" },
   { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_3.webp", alt: "HeadPinz entertainment" },
-  { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp", alt: "HeadPinz arcade" },
+  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg", alt: "Birthday girl with bowling ball" },
   { src: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_6.webp", alt: "HeadPinz action" },
 ];
 
@@ -170,7 +170,7 @@ export default function HeadPinzBirthdaysPage() {
       {/* ====== 1. HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image
-          src="https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg"
           alt="HeadPinz birthday party"
           fill
           className="object-cover"
@@ -178,7 +178,7 @@ export default function HeadPinzBirthdaysPage() {
           priority
           unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a1628]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/40 to-[#0a1628]" />
 
         <div
           className="relative z-10 flex flex-col items-center justify-center text-center px-4"

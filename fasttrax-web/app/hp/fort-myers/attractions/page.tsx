@@ -135,6 +135,7 @@ const attractions = [
     badge: null,
     accent: "#00E2E5",
     borderColor: "rgba(0,226,229,0.35)",
+    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade.mp4",
   },
 ];
 
