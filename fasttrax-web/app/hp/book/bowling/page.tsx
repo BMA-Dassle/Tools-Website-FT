@@ -106,6 +106,7 @@ const BMI_ADDONS = [
     desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
     price: 12,
     perPerson: true,
+    qamfExtraId: 13751, // QAMF PriceKeyId for billing
     image: `${BLOB}/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg`,
     accent: "#39FF14",
   },
@@ -116,6 +117,7 @@ const BMI_ADDONS = [
     desc: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena.",
     price: 10,
     perPerson: true,
+    qamfExtraId: 13678, // QAMF PriceKeyId for billing
     image: `${BLOB}/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg`,
     accent: "#E41C1D",
   },
@@ -126,6 +128,7 @@ const BMI_ADDONS = [
     desc: "Premium LED shuffleboard tables. Perfect for groups between bowling sessions.",
     price: 10,
     perPerson: false,
+    qamfExtraId: null as number | null, // Not in QAMF — BMI only, priced separately
     maxPerGroup: 8,
     image: `${BLOB}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
     accent: "#004AAD",
@@ -611,6 +614,14 @@ export default function BowlingBookingPage() {
           return { PriceKeyId: id, Quantity: qty, UnitPrice: ex?.Price || 0, Note: "" };
         });
 
+      // Add BMI add-ons that have QAMF pricing IDs to the extras
+      for (const addon of BMI_ADDONS) {
+        const qty = bmiAddonQty[addon.productId] || 0;
+        if (qty > 0 && addon.qamfExtraId) {
+          extraItems.push({ PriceKeyId: addon.qamfExtraId, Quantity: qty, UnitPrice: addon.price, Note: "" });
+        }
+      }
+
       const summary = await qamf(`centers/${centerId}/Cart/CreateSummary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -677,6 +688,20 @@ export default function BowlingBookingPage() {
             PriceKeyId: id,
             Quantity: qty,
             UnitPrice: ex?.Price || 0,
+          });
+        }
+      });
+
+      // Add BMI add-ons with QAMF pricing to the cart
+      BMI_ADDONS.forEach(addon => {
+        const qty = bmiAddonQty[addon.productId] || 0;
+        if (qty > 0 && addon.qamfExtraId) {
+          cartItems.push({
+            Name: addon.name,
+            Type: "Extras",
+            PriceKeyId: addon.qamfExtraId,
+            Quantity: qty,
+            UnitPrice: addon.price,
           });
         }
       });
@@ -1326,22 +1351,28 @@ export default function BowlingBookingPage() {
               <div className="space-y-2 mb-4 pb-4 border-b border-white/10">
                 <div className="flex justify-between">
                   <span className="font-[var(--font-hp-body)] text-white text-sm">{selectedOffer?.Name}</span>
-                  <span className="font-[var(--font-hp-body)] text-white text-sm">${selectedTariff?.Price}</span>
+                  <span className="font-[var(--font-hp-body)] text-white text-sm">${selectedTariff?.Price.toFixed(2)}</span>
                 </div>
                 <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
                   {new Date(calYear, calMonth, parseInt(selectedDate.split("-")[2])).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at {formatTimeStr(selectedTime)} &bull; {playerCount} bowlers
                 </p>
+                {wantShoes && shoes.length > 0 && (
+                  <div className="flex justify-between mt-1">
+                    <span className="font-[var(--font-hp-body)] text-white/70 text-sm">Bowling Shoes x{playerCount}</span>
+                    <span className="font-[var(--font-hp-body)] text-white/70 text-sm">${(shoes[0].Price * playerCount).toFixed(2)}</span>
+                  </div>
+                )}
               </div>
-              {/* BMI add-ons */}
+              {/* BMI add-ons with prices */}
               {getBmiAddons().length > 0 && (
                 <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] uppercase tracking-wider mb-2">Add-On Activities (included)</p>
+                  <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] uppercase tracking-wider mb-2">Add-On Activities</p>
                   {getBmiAddons().map(a => (
                     <div key={a.productId} className="flex justify-between">
                       <span className="font-[var(--font-hp-body)] text-white/70 text-sm">
                         {a.name} {a.selectedTime ? `at ${formatBmiTime(a.selectedTime)}` : ""} {a.perPerson ? `x${a.quantity}` : ""}
                       </span>
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-sm">FREE</span>
+                      <span className="font-[var(--font-hp-body)] text-white text-sm">${(a.price * a.quantity).toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
