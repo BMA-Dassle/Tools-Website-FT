@@ -401,10 +401,31 @@ export default function BowlingBookingPage() {
   // Time change confirmation modal
   const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
 
-  // Guest details
-  const [guestName, setGuestName] = useState("");
-  const [guestEmail, setGuestEmail] = useState("");
-  const [guestPhone, setGuestPhone] = useState("");
+  // Guest details — prefill from previous booking or Rewards profile
+  const [guestName, setGuestName] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const saved = localStorage.getItem("hp_guest");
+      if (saved) { const g = JSON.parse(saved); return g.name || ""; }
+    } catch {}
+    return "";
+  });
+  const [guestEmail, setGuestEmail] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const saved = localStorage.getItem("hp_guest");
+      if (saved) { const g = JSON.parse(saved); return g.email || ""; }
+    } catch {}
+    return "";
+  });
+  const [guestPhone, setGuestPhone] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const saved = localStorage.getItem("hp_guest");
+      if (saved) { const g = JSON.parse(saved); return g.phone || ""; }
+    } catch {}
+    return "";
+  });
 
   // BMI add-on helpers
   function parseBmiLocal(iso: string): Date {
@@ -824,6 +845,8 @@ export default function BowlingBookingPage() {
       });
 
       if (result.NeedPayment && result.ApprovePayment?.Url) {
+        // Remember guest info for next booking
+        try { localStorage.setItem("hp_guest", JSON.stringify({ name: guestName, email: guestEmail, phone: guestPhone })); } catch {}
         sessionStorage.setItem("qamf_reservation", JSON.stringify({
           key: reservationKey, centerId, centerName, operationId: result.OperationId,
           offer: selectedOffer?.Name, date: selectedDate, time: selectedTime, players: playerCount,
