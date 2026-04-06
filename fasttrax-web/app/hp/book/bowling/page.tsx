@@ -88,21 +88,30 @@ const cyan = "#00E2E5";
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-// Session token storage (set by temp reservation, used by confirm)
-let _sessionToken = "";
+// Session token stored in sessionStorage so it survives re-renders and HMR
+function getSessionToken(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem("qamf_session_token") || "";
+}
+function setSessionToken(tok: string) {
+  if (typeof window === "undefined") return;
+  if (tok) sessionStorage.setItem("qamf_session_token", tok);
+  else sessionStorage.removeItem("qamf_session_token");
+}
 
 async function qamf(path: string, options?: RequestInit) {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
   };
-  if (_sessionToken) headers["x-sessiontoken"] = _sessionToken;
+  const token = getSessionToken();
+  if (token) headers["x-sessiontoken"] = token;
 
   const res = await fetch(`${API}/${path}`, { ...options, headers });
   if (!res.ok) throw new Error(`QAMF ${res.status}`);
 
   // Capture session token from response
   const tok = res.headers.get("x-sessiontoken");
-  if (tok) _sessionToken = tok;
+  if (tok) setSessionToken(tok);
 
   const text = await res.text();
   if (!text) return null;
@@ -162,9 +171,6 @@ export default function BowlingBookingPage() {
   const [centerId, setCenterId] = useState("");
   const [centerName, setCenterName] = useState("");
   const [hasOldTime, setHasOldTime] = useState(false);
-
-  // Reset session on mount (hard refresh = clean state)
-  useEffect(() => { _sessionToken = ""; }, []);
 
   // Auto-detect location from query param or referrer
   useEffect(() => {
@@ -241,7 +247,7 @@ export default function BowlingBookingPage() {
     setExtras([]);
     setSelectedExtras(new Map());
     setCartSummary(null);
-    _sessionToken = "";
+    setSessionToken("");
     setStep("lane-type");
     setError("");
   }

@@ -46,6 +46,11 @@ async function proxyRequest(
       (fetchOptions.headers as Record<string, string>)["x-sessiontoken"] = sessionToken;
     }
 
+    // Log for debugging confirm calls
+    if (path.join("/").includes("confirm")) {
+      console.log("[qamf proxy] confirm call, sessionToken:", sessionToken ? "present (" + sessionToken.substring(0, 20) + "...)" : "MISSING");
+    }
+
     if (method !== "GET" && method !== "HEAD") {
       try {
         const body = await req.text();
