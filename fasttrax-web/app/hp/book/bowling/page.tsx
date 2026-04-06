@@ -65,32 +65,41 @@ const LOCATIONS = [
 ];
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
-const LANE_TYPES: { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean; videos?: string[]; details?: string[] }[] = [
-  {
-    key: "regular",
-    label: "Regular Lanes",
-    desc: "24 classic bowling lanes with cosmic glow lighting, big screens, and a full bar steps away.",
-    accent: "#fd5b56",
-    videos: [`${BLOB}/videos/headpinz-bowling.mp4`],
-    details: ["24 state-of-the-art lanes", "Cosmic glow atmosphere", "Up to 6 bowlers per lane", "Full bar & food service"],
-  },
-  {
-    key: "vip",
-    label: "VIP Lanes",
-    desc: "The ultimate bowling experience. Private VIP suite with NeoVerse interactive LED walls and HyperBowling LED target scoring.",
-    accent: "#FFD700",
-    videos: [`${BLOB}/videos/headpinz-neoverse.mp4`, `${BLOB}/videos/headpinz-hyperbowling.mp4`],
-    details: ["NeoVerse interactive video wall", "HyperBowling LED targets in bumpers", "Private lounge seating", "Premium experience"],
-  },
-  {
-    key: "oldtime",
-    label: "Old Time Lanes",
-    desc: "Pinboyz retro duckpin bowling — smaller balls, no finger holes, pure classic fun.",
-    accent: "#00E2E5",
-    fmOnly: true,
-    details: ["Retro duckpin bowling", "No finger holes — just throw!", "Perfect for all ages", "Fort Myers exclusive"],
-  },
-];
+type LaneTypeInfo = { key: LaneType; label: string; desc: string; accent: string; fmOnly?: boolean; videos?: string[]; details?: string[] };
+
+function getLaneTypes(center: string): LaneTypeInfo[] {
+  const isFM = center === "9172";
+  return [
+    {
+      key: "regular" as LaneType,
+      label: "Regular Lanes",
+      desc: isFM
+        ? "16 bowling lanes with music videos, large video screens, and a full bar steps away. Glow lighting Friday night through Sunday night."
+        : "24 bowling lanes with regular lighting. Glow lighting after 9 PM Friday, 12 PM Saturday & Sunday.",
+      accent: "#fd5b56",
+      videos: [`${BLOB}/videos/headpinz-bowling.mp4`],
+      details: isFM
+        ? ["16 lanes", "Music videos & large screens", "Glow lighting Fri-Sun nights", "Up to 6 bowlers per lane", "Full bar & food service"]
+        : ["24 lanes", "Regular lighting", "Glow after 9pm Fri / 12pm Sat-Sun", "Up to 6 bowlers per lane", "Full bar & food service"],
+    },
+    {
+      key: "vip" as LaneType,
+      label: "VIP Lanes",
+      desc: "The ultimate bowling experience. Private VIP suite with NeoVerse interactive LED walls and HyperBowling LED target scoring.",
+      accent: "#FFD700",
+      videos: [`${BLOB}/videos/headpinz-neoverse.mp4`, `${BLOB}/videos/headpinz-hyperbowling.mp4`],
+      details: [`${isFM ? "8" : "8"} VIP lanes`, "NeoVerse interactive video wall", "HyperBowling LED targets in bumpers", "Private lounge seating"],
+    },
+    ...(isFM ? [{
+      key: "oldtime" as LaneType,
+      label: "Old Time Lanes",
+      desc: "Pinboyz retro duckpin bowling — smaller balls, no finger holes, pure classic fun.",
+      accent: "#00E2E5",
+      fmOnly: true,
+      details: ["Retro duckpin bowling", "No finger holes — just throw!", "Perfect for all ages", "Fort Myers exclusive"],
+    }] : []),
+  ];
+}
 
 const coral = "#fd5b56";
 const gold = "#FFD700";
@@ -893,7 +902,7 @@ export default function BowlingBookingPage() {
           <div>
             <div className="text-center mb-4">
               <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-1">Pick a Date</h2>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-sm">{playerCount} bowlers &bull; {LANE_TYPES.find(l => l.key === laneType)?.label}</p>
+              <p className="font-[var(--font-hp-body)] text-white/40 text-sm">{playerCount} bowlers &bull; {getLaneTypes(centerId).find(l => l.key === laneType)?.label}</p>
             </div>
 
             <div className="max-w-sm mx-auto">
@@ -1010,7 +1019,7 @@ export default function BowlingBookingPage() {
           <div>
             <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {LANE_TYPES.filter(lt => !lt.fmOnly || hasOldTime).map(lt => {
+              {getLaneTypes(centerId).map(lt => {
                 const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime).length > 0).length;
                 return (
                   <button
