@@ -201,8 +201,8 @@ export default function MenuPage() {
       {/* ====== HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "60vh" }}>
         <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-lanes.webp"
-          alt="Nemo's Sports Bistro dining"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-bar-hero.jpg"
+          alt="Nemo's Sports Bistro - Cheers at the bar"
           fill
           className="object-cover"
           sizes="100vw"
