@@ -297,86 +297,33 @@ export default function BowlingConfirmationPage() {
               </div>
             )}
 
-            {/* Player Details Form */}
-            {!playersSaved && players.length > 0 && (
-              <div className="rounded-lg p-5 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${cyan}30` }}>
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">Bowler Details</h3>
-                <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-4">Enter names and shoe sizes for your party</p>
-
-                <div className="space-y-4">
-                  {players.map((p, i) => (
-                    <div key={i} className="space-y-2">
-                      <p className="font-[var(--font-hp-body)] text-white/50 text-xs font-bold">Bowler {i + 1}</p>
-                      <input
-                        type="text"
-                        placeholder="Name"
-                        value={p.name}
-                        onChange={e => {
-                          const next = [...players];
-                          next[i] = { ...next[i], name: e.target.value };
-                          setPlayers(next);
-                        }}
-                        className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-3 py-2.5 text-white text-sm font-[var(--font-hp-body)] placeholder:text-white/20 focus:outline-none focus:border-[#00E2E5]/50"
-                      />
-                      <div className="flex gap-2">
-                        <select
-                          value={p.shoeSize}
-                          onChange={e => {
-                            const next = [...players];
-                            const val = e.target.value;
-                            let sizeObj = null;
-                            for (const cat of shoeCategories) {
-                              const found = cat.ShoesSize.find(s => s.Name === val);
-                              if (found) { sizeObj = found; break; }
-                            }
-                            next[i] = { ...next[i], shoeSize: val, shoeSizeObj: sizeObj };
-                            setPlayers(next);
-                          }}
-                          className="flex-1 bg-[#0a1628] border border-white/20 rounded-lg px-3 py-2.5 text-white text-sm font-[var(--font-hp-body)] focus:outline-none focus:border-[#00E2E5]/50 appearance-none"
-                        >
-                          <option value="">Shoe Size</option>
-                          {shoeCategories.map(cat => (
-                            <optgroup key={cat.Id} label={cat.DisplayName}>
-                              {cat.ShoesSize.map(s => (
-                                <option key={s.Id} value={s.Name}>{s.Name}</option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => {
-                            const next = [...players];
-                            next[i] = { ...next[i], wantBumpers: !next[i].wantBumpers };
-                            setPlayers(next);
-                          }}
-                          className="px-3 py-2.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-all cursor-pointer"
-                          style={{
-                            backgroundColor: p.wantBumpers ? `${cyan}20` : "transparent",
-                            color: p.wantBumpers ? cyan : "rgba(255,255,255,0.4)",
-                            border: `1px solid ${p.wantBumpers ? cyan + "50" : "rgba(255,255,255,0.2)"}`,
-                          }}
-                        >
-                          Bumpers
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+            {/* Waiver warning for laser tag / gel blasters */}
+            {reservation?.addons && reservation.addons.some(a => a.name.toLowerCase().includes("laser") || a.name.toLowerCase().includes("gel") || a.name.toLowerCase().includes("blaster")) && (
+              <div className="rounded-lg p-5 mb-6" style={{ backgroundColor: "rgba(255,191,0,0.05)", border: "1.78px dashed rgba(255,191,0,0.3)" }}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "rgba(255,191,0,0.1)" }}>
+                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-[var(--font-hp-body)] text-amber-300 font-bold text-sm mb-1">Waiver Required</p>
+                    <p className="font-[var(--font-hp-body)] text-amber-200/60 text-xs leading-relaxed">
+                      All participants must complete a waiver before playing laser tag or gel blasters. You can do this online ahead of time or at the check-in kiosk.
+                    </p>
+                    <a
+                      href="https://kiosk.bmileisure.com/headpinzftmyers"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 mt-3 font-[var(--font-hp-body)] text-amber-300 text-xs font-bold hover:text-amber-200 transition-colors"
+                    >
+                      Complete Waiver Now
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
                 </div>
-
-                <button
-                  onClick={savePlayers}
-                  disabled={savingPlayers}
-                  className="w-full mt-4 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
-                  style={{ backgroundColor: cyan, color: "#0a1628", boxShadow: `0 0 16px ${cyan}30` }}
-                >
-                  {savingPlayers ? "Saving..." : "Save Bowler Details"}
-                </button>
-              </div>
-            )}
-
-            {playersSaved && (
-              <div className="rounded-lg p-4 mb-6 text-center" style={{ backgroundColor: `${cyan}10`, border: `1px solid ${cyan}30` }}>
-                <p className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: cyan }}>Bowler details saved!</p>
               </div>
             )}
 
