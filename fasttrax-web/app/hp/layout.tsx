@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Dela_Gothic_One, Varela_Round, Outfit } from "next/font/google";
-import HeadPinzNav from "@/components/headpinz/Nav";
-import HeadPinzFooter from "@/components/headpinz/Footer";
+import HeadPinzMobileBookBar from "@/components/headpinz/MobileBookBar";
 
 const delaGothicOne = Dela_Gothic_One({
   weight: "400",
@@ -52,6 +51,7 @@ export default function HeadPinzLayout({
   return (
     <div className={`${delaGothicOne.variable} ${varelaRound.variable} ${outfit.variable}`}>
       {children}
+      <HeadPinzMobileBookBar />
     </div>
   );
 }

@@ -6,8 +6,8 @@ import Link from "next/link";
 import Image from "next/image";
 
 const locations = [
-  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/hp/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "https://www.mybowlingpassport.com/2/9172/book" },
-  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/hp/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "https://www.mybowlingpassport.com/2/3148/book" },
+  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/hp/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "https://www.mybowlingpassport.com/2/9172/book", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
+  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/hp/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "https://www.mybowlingpassport.com/2/3148/book", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
 ];
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {
@@ -41,6 +41,7 @@ export default function HeadPinzNav() {
     { label: "Group Events", href: `${currentLoc.href}/group-events` },
     { label: "Specials", href: `${currentLoc.href}#specials` },
     { label: "Menu", href: `${currentLoc.href}#menu` },
+    { label: "Leagues", href: currentLoc.leagues },
     { label: "Rewards", href: "/hp/rewards" },
     { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
     { label: "Waiver", href: currentLoc.waiver },
