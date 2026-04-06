@@ -65,7 +65,7 @@ const attractions = [
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     cta: "Book Laser Tag",
-    ctaHref: "/book/laser-tag",
+    ctaHref: "/hp/book/laser-tag",
     external: false,
     badge: null,
     accent: "#E41C1D",
@@ -81,7 +81,7 @@ const attractions = [
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     cta: "Book Gel Blasters",
-    ctaHref: "/book/gel-blaster",
+    ctaHref: "/hp/book/gel-blaster",
     external: false,
     badge: null,
     accent: "#9b51e0",

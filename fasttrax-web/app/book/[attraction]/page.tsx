@@ -933,11 +933,12 @@ function ReviewStep({
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
-export default function AttractionBookingPage() {
+export function AttractionBookingCore({ navComponent }: { navComponent?: React.ReactNode }) {
   const params = useParams();
   const router = useRouter();
   const slug = params.attraction as string;
   const config = ATTRACTIONS[slug] as AttractionConfig | undefined;
+  if (!navComponent) navComponent = <Nav />;
 
   const initialStep = config?.location === "both" ? "location" : "product";
   const initialLocation = config && config.location !== "both" ? config.location as LocationKey : null;
@@ -1019,7 +1020,7 @@ export default function AttractionBookingPage() {
   if (!config) {
     return (
       <div className="min-h-screen bg-[#000418] flex flex-col items-center justify-center">
-        <Nav />
+        {navComponent}
         <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-4">Not Found</h1>
         <p className="text-white/50 mb-6">This attraction doesn't exist.</p>
         <Link href="/book" className="text-[#00E2E5] hover:underline text-sm">
@@ -1141,7 +1142,7 @@ export default function AttractionBookingPage() {
 
   return (
     <div className="min-h-screen bg-[#000418]">
-      <Nav />
+      {navComponent}
       <MiniCart />
 
       {/* Hero */}
@@ -1345,4 +1346,8 @@ export default function AttractionBookingPage() {
       </section>
     </div>
   );
+}
+
+export default function AttractionBookingPage() {
+  return <AttractionBookingCore />;
 }

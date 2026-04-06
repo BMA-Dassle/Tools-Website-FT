@@ -58,7 +58,7 @@ const attractions = [
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     price: "$10/person",
     cta: "Join the Mission",
-    ctaHref: "/book/laser-tag",
+    ctaHref: "/hp/book/laser-tag",
     external: false,
     badge: null,
     accent: "#E41C1D",
@@ -71,7 +71,7 @@ const attractions = [
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     price: "$12/person",
     cta: "Book Gel Blasters",
-    ctaHref: "/book/gel-blaster",
+    ctaHref: "/hp/book/gel-blaster",
     external: false,
     badge: null,
     accent: "#9b51e0",
@@ -697,13 +697,13 @@ export default function FortMyersPage() {
               Book Bowling
             </BookingLink>
             <Link
-              href="/book/laser-tag"
+              href="/hp/book/laser-tag"
               className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
             >
               Book Laser Tag
             </Link>
             <Link
-              href="/book/gel-blaster"
+              href="/hp/book/gel-blaster"
               className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
             >
               Book Gel Blasters
