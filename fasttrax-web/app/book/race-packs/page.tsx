@@ -51,6 +51,9 @@ export default function RacePacksPage() {
   const [smsSent, setSmsSent] = useState(false);
   const [searchResults, setSearchResults] = useState<{ localId: string; description: string }[]>([]);
   const [newPerson, setNewPerson] = useState({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
+  const [emailSmsSent, setEmailSmsSent] = useState(false);
+  const [emailSmsCode, setEmailSmsCode] = useState("");
+  const [disclaimersAccepted, setDisclaimersAccepted] = useState<boolean[]>([]);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
   const [payingStatus, setPayingStatus] = useState("");
@@ -70,12 +73,15 @@ export default function RacePacksPage() {
     setSmsCode("");
     setSmsError("");
     setSmsSent(false);
+    setEmailSmsSent(false);
+    setEmailSmsCode("");
+    setDisclaimersAccepted([]);
     setModalPhase("lookup");
     setTimeout(() => emailRef.current?.focus(), 200);
   }
 
   async function handleEmailSearch() {
-    const trimmed = emailInput.trim();
+    const trimmed = emailInput.trim().toLowerCase();
     if (!trimmed || !trimmed.includes("@")) return;
     setError("");
     setModalPhase("looking");
@@ -88,7 +94,6 @@ export default function RacePacksPage() {
         setModalPhase("lookup");
         return;
       }
-      // Filter to accounts with memberships, dedupe by name
       const withMem = results.filter((r: { description: string }) => r.description.includes("Memberships:"));
       const byName = new Map<string, { localId: string; description: string }>();
       for (const r of (withMem.length > 0 ? withMem : results) as { localId: string; description: string }[]) {
@@ -97,10 +102,46 @@ export default function RacePacksPage() {
         if (!byName.has(name)) byName.set(name, r);
       }
       setSearchResults([...byName.values()].slice(0, 5));
-      setModalPhase("found");
+
+      // Send OTP email
+      const otpRes = await fetch("/api/sms-verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const otpData = await otpRes.json();
+      if (!otpData.sent) {
+        setError(otpData.error || "Failed to send verification code");
+        setModalPhase("lookup");
+        return;
+      }
+      setEmailSmsSent(true);
+      setModalPhase("lookup");
     } catch {
       setError("Search failed. Please try again.");
       setModalPhase("lookup");
+    }
+  }
+
+  async function handleEmailOtpVerify() {
+    const trimmed = emailSmsCode.trim();
+    if (!trimmed || trimmed.length !== 6) { setSmsError("Enter the 6-digit code"); return; }
+    setSmsError("");
+    const email = emailInput.trim().toLowerCase();
+    try {
+      const res = await fetch("/api/sms-verify", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, code: trimmed }),
+      });
+      const data = await res.json();
+      if (data.verified) {
+        setModalPhase("found");
+      } else {
+        setSmsError(data.error || "Incorrect code");
+      }
+    } catch {
+      setSmsError("Verification failed");
     }
   }
 
@@ -112,6 +153,7 @@ export default function RacePacksPage() {
       const fullName = `${p.firstName || ""} ${p.name || ""}`.trim();
       const email = p.addresses?.[0]?.email || "";
       setPerson({ personId: String(p.id), fullName, email });
+      setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
       setModalPhase("summary");
     } catch {
       setError("Could not load person details.");
@@ -221,6 +263,7 @@ export default function RacePacksPage() {
       fullName: `${newPerson.firstName} ${newPerson.lastName}`,
       email: newPerson.email,
     });
+    setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
     setModalPhase("summary");
   }
 
@@ -432,9 +475,9 @@ export default function RacePacksPage() {
 
       {/* Modal overlay */}
       {modalPhase !== "closed" && selectedPack && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !paying && setModalPhase("closed")}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6" onClick={() => !paying && setModalPhase("closed")}>
           <div
-            className="w-full sm:max-w-md bg-[#0a0e1a] border border-white/10 rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 max-h-[85vh] overflow-y-auto"
+            className="w-full max-w-md bg-[#0a0e1a] border border-white/10 rounded-2xl p-5 sm:p-6 max-h-[85vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -541,7 +584,7 @@ export default function RacePacksPage() {
                   </div>
                 )}
 
-                {lookupMode === "email" && (
+                {lookupMode === "email" && !emailSmsSent && (
                   <div className="space-y-3">
                     <input
                       ref={emailRef}
@@ -552,8 +595,38 @@ export default function RacePacksPage() {
                       placeholder="racer@email.com"
                       className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
                     />
-                    <button onClick={handleEmailSearch} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors">
-                      Find Account
+                    <button onClick={handleEmailSearch} disabled={!emailInput.includes("@")} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors disabled:opacity-40">
+                      Send Verification Code
+                    </button>
+                  </div>
+                )}
+
+                {lookupMode === "email" && emailSmsSent && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-3 text-center">
+                      <p className="text-green-400 font-semibold text-xs">Code sent to {emailInput}</p>
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={emailSmsCode}
+                      onChange={e => { setEmailSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setSmsError(""); }}
+                      onKeyDown={e => e.key === "Enter" && handleEmailOtpVerify()}
+                      placeholder="000000"
+                      className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.4em] font-mono placeholder:text-white/20 focus:border-[#00E2E5]/50 focus:outline-none"
+                      autoFocus
+                    />
+                    {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
+                    <button
+                      onClick={handleEmailOtpVerify}
+                      disabled={emailSmsCode.length !== 6}
+                      className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors disabled:opacity-40"
+                    >
+                      Verify Code
+                    </button>
+                    <button onClick={() => { setEmailSmsSent(false); setEmailSmsCode(""); }} className="w-full text-white/30 text-xs hover:text-white/50 py-1">
+                      Resend code
                     </button>
                   </div>
                 )}
@@ -619,43 +692,78 @@ export default function RacePacksPage() {
             )}
 
             {/* Summary */}
-            {modalPhase === "summary" && person && (
-              <div className="space-y-4">
-                {/* Person card */}
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-white font-bold">{person.fullName}</p>
-                  <p className="text-white/40 text-xs">{person.email}</p>
+            {modalPhase === "summary" && person && (() => {
+              const disclaimers = [
+                ...(selectedPack.type === "weekday" ? ["This pack is only valid Monday through Thursday"] : []),
+                "Race pack is non-transferable",
+                "This does not book you a race. It is highly suggested you complete a reservation after purchase.",
+              ];
+              const allAccepted = disclaimersAccepted.length >= disclaimers.length && disclaimersAccepted.slice(0, disclaimers.length).every(Boolean);
+              return (
+                <div className="space-y-4">
+                  {/* Pack info */}
+                  <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 text-center">
+                    <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-widest">{selectedPack.type === "weekday" ? "Monday – Thursday" : "Anytime"}</p>
+                    <p className="text-white font-display text-xl uppercase tracking-wider mt-1">{selectedPack.raceCount}-Race Pack</p>
+                    <p className="text-white/50 text-xs mt-1">{selectedPack.raceCount} race credits · ${(selectedPack.price / selectedPack.raceCount).toFixed(2)}/race</p>
+                  </div>
+
+                  {/* Person card */}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-white font-bold">{person.fullName}</p>
+                    <p className="text-white/40 text-xs">{person.email}</p>
+                  </div>
+
+                  {/* Price breakdown */}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-white/60">{selectedPack.name} ({selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"})</span>
+                      <span className="text-white">${selectedPack.price.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-white/60">Tax</span>
+                      <span className="text-white">${tax.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
+                      <span className="text-white">Total</span>
+                      <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {/* Disclaimers */}
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                    <p className="text-amber-400 font-bold text-xs uppercase tracking-wider">Please acknowledge</p>
+                    {disclaimers.map((text, i) => (
+                      <label key={i} className="flex items-start gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={disclaimersAccepted[i] || false}
+                          onChange={() => setDisclaimersAccepted(prev => {
+                            const next = [...prev];
+                            next[i] = !next[i];
+                            return next;
+                          })}
+                          className="mt-0.5 w-4 h-4 rounded border-white/30 bg-white/5 accent-[#00E2E5] shrink-0"
+                        />
+                        <span className="text-white/70 text-xs leading-relaxed group-hover:text-white/90 transition-colors">{text}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleCheckout}
+                    disabled={paying || !allAccepted}
+                    className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {allAccepted ? `Pay $${total.toFixed(2)} →` : "Accept all terms to continue"}
+                  </button>
+
+                  <button onClick={() => { setPerson(null); setModalPhase("lookup"); setError(""); setDisclaimersAccepted([]); }} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors">
+                    ← Change person
+                  </button>
                 </div>
-
-                {/* Price breakdown */}
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/60">{selectedPack.name} ({selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"})</span>
-                    <span className="text-white">${selectedPack.price.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/60">Tax</span>
-                    <span className="text-white">${tax.toFixed(2)}</span>
-                  </div>
-                  <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
-                    <span className="text-white">Total</span>
-                    <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleCheckout}
-                  disabled={paying}
-                  className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50"
-                >
-                  Pay ${total.toFixed(2)} →
-                </button>
-
-                <button onClick={() => { setPerson(null); setModalPhase("lookup"); setError(""); }} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors">
-                  ← Change person
-                </button>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

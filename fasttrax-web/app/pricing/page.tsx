@@ -197,6 +197,65 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* ── Section: Race Packs ── */}
+      <section style={{ backgroundColor: "#000418", padding: "clamp(48px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-10">
+            <h2
+              className="font-[var(--font-anton)] italic uppercase text-white"
+              style={{ fontSize: "clamp(28px, 6vw, 48px)", lineHeight: "1.1", letterSpacing: "2px", textShadow: glowShadow }}
+            >
+              Race Packs — Save More, Race More
+            </h2>
+            <p className="font-[var(--font-poppins)] mt-3 max-w-lg mx-auto" style={{ color: "rgba(245,236,238,0.5)", fontSize: "15px" }}>
+              Buy race credits in bulk and use them anytime. Credits load instantly to your account.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto">
+            {[
+              { name: "3-Race Pack", weekday: "$49.99", anytime: "$59.99", perRace: "$16.66", save: "Save up to 17%" },
+              { name: "5-Race Pack", weekday: "$79.99", anytime: "$99.99", perRace: "$16.00", save: "Save up to 20%" },
+              { name: "10-Race Pack", weekday: "$159.99", anytime: "$199.99", perRace: "$16.00", save: "Best Value" },
+            ].map((pack) => (
+              <div
+                key={pack.name}
+                className="rounded-2xl border p-6 flex flex-col gap-3 text-center"
+                style={{ backgroundColor: "rgba(0,226,229,0.04)", borderColor: "rgba(0,226,229,0.2)" }}
+              >
+                <p className="font-[var(--font-anton)] uppercase text-white" style={{ fontSize: "24px", letterSpacing: "1.5px" }}>
+                  {pack.name}
+                </p>
+                <div className="flex justify-center gap-4">
+                  <div>
+                    <p className="font-[var(--font-poppins)] text-white/40 text-[10px] uppercase tracking-wider">Mon–Thu</p>
+                    <p className="font-[var(--font-poppins)] text-white font-bold text-lg">{pack.weekday}</p>
+                  </div>
+                  <div className="w-px bg-white/10" />
+                  <div>
+                    <p className="font-[var(--font-poppins)] text-white/40 text-[10px] uppercase tracking-wider">Anytime</p>
+                    <p className="font-[var(--font-poppins)] font-bold text-lg" style={{ color: "#00E2E5" }}>{pack.anytime}</p>
+                  </div>
+                </div>
+                <p className="font-[var(--font-poppins)] text-xs" style={{ color: "rgba(0,226,229,0.6)" }}>
+                  From {pack.perRace}/race · {pack.save}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center mt-8">
+            <a
+              href="/book/race-packs"
+              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-[#000418] tracking-wider transition-all hover:scale-105"
+              style={{ backgroundColor: "#00E2E5", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
+            >
+              Buy Race Packs
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* ── Section: Race Requirements Callout ── */}
       <section className="bg-[#000418]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
         <div
@@ -412,65 +471,6 @@ export default function PricingPage() {
                 </BookingLink>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Section: Race Packs ── */}
-      <section style={{ backgroundColor: "#000418", padding: "clamp(48px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-10">
-            <h2
-              className="font-[var(--font-anton)] italic uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 48px)", lineHeight: "1.1", letterSpacing: "2px", textShadow: glowShadow }}
-            >
-              Race Packs — Save More, Race More
-            </h2>
-            <p className="font-[var(--font-poppins)] mt-3 max-w-lg mx-auto" style={{ color: "rgba(245,236,238,0.5)", fontSize: "15px" }}>
-              Buy race credits in bulk and use them anytime. Credits load instantly to your account.
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto">
-            {[
-              { name: "3-Race Pack", weekday: "$49.99", anytime: "$59.99", perRace: "$16.66", save: "Save up to 17%" },
-              { name: "5-Race Pack", weekday: "$79.99", anytime: "$99.99", perRace: "$16.00", save: "Save up to 20%" },
-              { name: "10-Race Pack", weekday: "$159.99", anytime: "$199.99", perRace: "$16.00", save: "Best Value" },
-            ].map((pack) => (
-              <div
-                key={pack.name}
-                className="rounded-2xl border p-6 flex flex-col gap-3 text-center"
-                style={{ backgroundColor: "rgba(0,226,229,0.04)", borderColor: "rgba(0,226,229,0.2)" }}
-              >
-                <p className="font-[var(--font-anton)] uppercase text-white" style={{ fontSize: "24px", letterSpacing: "1.5px" }}>
-                  {pack.name}
-                </p>
-                <div className="flex justify-center gap-4">
-                  <div>
-                    <p className="font-[var(--font-poppins)] text-white/40 text-[10px] uppercase tracking-wider">Mon–Thu</p>
-                    <p className="font-[var(--font-poppins)] text-white font-bold text-lg">{pack.weekday}</p>
-                  </div>
-                  <div className="w-px bg-white/10" />
-                  <div>
-                    <p className="font-[var(--font-poppins)] text-white/40 text-[10px] uppercase tracking-wider">Anytime</p>
-                    <p className="font-[var(--font-poppins)] font-bold text-lg" style={{ color: "#00E2E5" }}>{pack.anytime}</p>
-                  </div>
-                </div>
-                <p className="font-[var(--font-poppins)] text-xs" style={{ color: "rgba(0,226,229,0.6)" }}>
-                  From {pack.perRace}/race · {pack.save}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <div className="text-center mt-8">
-            <a
-              href="/book/race-packs"
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-[#000418] tracking-wider transition-all hover:scale-105"
-              style={{ backgroundColor: "#00E2E5", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
-            >
-              Buy Race Packs
-            </a>
           </div>
         </div>
       </section>
