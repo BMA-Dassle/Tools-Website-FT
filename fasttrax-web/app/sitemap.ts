@@ -24,7 +24,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${hp}/naples/attractions`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.8 },
     { url: `${hp}/naples/birthdays`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },
     { url: `${hp}/naples/group-events`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },
-    { url: `${hp}/menu`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.7 },
+    { url: `${hp}/menu`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.85 },
     { url: `${hp}/rewards`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.7 },
     { url: `${hp}/kids-bowl-free`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.7 },
     { url: `${hp}/book/bowling`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.8 },
