@@ -48,7 +48,8 @@ const attractions = [
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
     badge: null,
-    color: "#fd5b56",
+    accent: "#fd5b56",
+    borderColor: "rgba(253,91,86,0.45)",
   },
   {
     name: "NEXUS Laser Tag",
@@ -60,7 +61,8 @@ const attractions = [
     ctaHref: "/book/laser-tag",
     external: false,
     badge: null,
-    color: "#fd5b56",
+    accent: "#E41C1D",
+    borderColor: "rgba(228,28,29,0.45)",
   },
   {
     name: "NEXUS Gel Blasters",
@@ -72,7 +74,8 @@ const attractions = [
     ctaHref: "/book/gel-blaster",
     external: false,
     badge: null,
-    color: "#123075",
+    accent: "#9b51e0",
+    borderColor: "rgba(155,81,224,0.45)",
   },
   {
     name: "NeoVerse",
@@ -84,7 +87,8 @@ const attractions = [
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
     badge: "VIP ONLY",
-    color: "#123075",
+    accent: "#FFD700",
+    borderColor: "rgba(255,215,0,0.35)",
   },
   {
     name: "HyperBowling",
@@ -96,7 +100,8 @@ const attractions = [
     ctaHref: "https://www.mybowlingpassport.com/2/9172/book",
     external: true,
     badge: "VIP ONLY",
-    color: "#fd5b56",
+    accent: "#00E2E5",
+    borderColor: "rgba(0,226,229,0.35)",
   },
   {
     name: "Game Zone",
@@ -105,10 +110,11 @@ const attractions = [
     image: "https://headpinz.com/wp-content/uploads/2023/10/Headpinz_Home_gallery_carousel_4.webp",
     price: "Game Cards",
     cta: "Learn More",
-    ctaHref: "#specials",
+    ctaHref: "/hp/fort-myers/attractions",
     external: false,
     badge: null,
-    color: "#fd5b56",
+    accent: "#fd5b56",
+    borderColor: "rgba(253,91,86,0.45)",
   },
 ];
 
@@ -119,7 +125,6 @@ const specials = [
     regular: "$12.99",
     vip: "$14.99",
     note: "1.5 hours per lane",
-    icon: "sun",
   },
   {
     name: "Fun 4 Night",
@@ -127,7 +132,6 @@ const specials = [
     regular: "$15.99",
     vip: "$17.99",
     note: "1.5 hours per lane",
-    icon: "moon",
   },
   {
     name: "Fri-Sat Bowling",
@@ -135,7 +139,6 @@ const specials = [
     regular: "$15.99",
     vip: "$17.99",
     note: "1.5 hours per lane",
-    icon: "star",
   },
   {
     name: "Late Night Madness",
@@ -143,7 +146,6 @@ const specials = [
     regular: "$11.99",
     vip: "$13.99",
     note: "2 hours unlimited",
-    icon: "bolt",
   },
   {
     name: "Sunday Pizza Bowl",
@@ -151,14 +153,13 @@ const specials = [
     regular: "$64.95",
     vip: "$79.95",
     note: "2 hrs + shoes + pizza + soda per lane",
-    icon: "pizza",
   },
 ];
 
 const weeklyEvents = [
   { day: "Monday", event: "BOGO Laser Tag", color: "#fd5b56" },
-  { day: "Tuesday", event: "Double Token Days", color: "#123075" },
-  { day: "Thursday", event: "Double Token Days", color: "#123075" },
+  { day: "Tuesday", event: "Double Token Days", color: "#00E2E5" },
+  { day: "Thursday", event: "Double Token Days", color: "#00E2E5" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -199,7 +200,13 @@ export default function FortMyersPage() {
 
           <h1
             className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-            style={{ fontSize: "clamp(36px, 8vw, 80px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "12px" }}
+            style={{
+              fontSize: "clamp(36px, 8vw, 80px)",
+              lineHeight: "1.05",
+              letterSpacing: "-1px",
+              marginBottom: "12px",
+              textShadow: "0 0 40px rgba(253,91,86,0.35)",
+            }}
           >
             Fort Myers
           </h1>
@@ -215,11 +222,15 @@ export default function FortMyersPage() {
 
           <BookingLink
             href="https://www.mybowlingpassport.com/2/9172/book"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)]"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
+            style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
             Book Now
           </BookingLink>
         </div>
+
+        {/* Bottom accent gradient line */}
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#fd5b56] via-white/60 to-[#123075]" />
       </section>
 
       {/* ====== LOCATION INFO + LIVE AVAILABILITY ====== */}
@@ -229,7 +240,10 @@ export default function FortMyersPage() {
           <div className="space-y-4">
             <h2
               className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-              style={{ fontSize: "clamp(20px, 3vw, 28px)" }}
+              style={{
+                fontSize: "clamp(20px, 3vw, 28px)",
+                textShadow: "0 0 30px rgba(253,91,86,0.25)",
+              }}
             >
               HeadPinz Fort Myers
             </h2>
@@ -271,7 +285,12 @@ export default function FortMyersPage() {
         <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 56px)" }}>
           <h2
             className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px" }}
+            style={{
+              fontSize: "clamp(28px, 6vw, 52px)",
+              letterSpacing: "3px",
+              marginBottom: "12px",
+              textShadow: "0 0 40px rgba(253,91,86,0.3)",
+            }}
           >
             What&apos;s Inside
           </h2>
@@ -282,8 +301,11 @@ export default function FortMyersPage() {
           {attractions.map((a) => (
             <div
               key={a.name}
-              className="group relative flex flex-col rounded-2xl overflow-hidden border border-[#123075]/30 hover:border-[#fd5b56]/40 transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_0_20px_rgba(18,48,117,0.25)]"
-              style={{ backgroundColor: "rgba(10,22,40,0.6)" }}
+              className="group relative flex flex-col rounded-lg overflow-hidden transition-all duration-300 hover:scale-[1.02]"
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: `1.78px dashed ${a.borderColor}`,
+              }}
             >
               {/* Card image */}
               <div className="relative overflow-hidden" style={{ height: "clamp(180px, 28vw, 240px)" }}>
@@ -296,13 +318,13 @@ export default function FortMyersPage() {
                   unoptimized
                 />
                 {/* Bottom gradient for text bleed */}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#071027] via-transparent to-transparent" />
 
                 {/* Badge */}
                 {a.badge && (
                   <span
-                    className="absolute top-3 right-3 text-white text-xs font-bold font-[var(--font-hp-body)] uppercase tracking-wider px-3 py-1.5 rounded-full"
-                    style={{ backgroundColor: "#123075" }}
+                    className="absolute top-3 right-3 text-white text-[10px] font-bold font-[var(--font-hp-body)] uppercase tracking-wider px-3 py-1.5 rounded-full"
+                    style={{ backgroundColor: a.accent }}
                   >
                     {a.badge}
                   </span>
@@ -311,7 +333,7 @@ export default function FortMyersPage() {
                 {/* Price badge */}
                 <span
                   className="absolute bottom-3 left-4 font-[var(--font-hp-body)] font-bold text-sm px-3 py-1 rounded-full"
-                  style={{ backgroundColor: a.color, color: "#fff" }}
+                  style={{ backgroundColor: a.accent, color: "#fff" }}
                 >
                   {a.price}
                 </span>
@@ -321,11 +343,19 @@ export default function FortMyersPage() {
               <div className="flex flex-col flex-1 p-5">
                 <h3
                   className="font-[var(--font-hp-display)] uppercase text-white"
-                  style={{ fontSize: "clamp(16px, 2.5vw, 20px)", letterSpacing: "1.5px", marginBottom: "4px" }}
+                  style={{
+                    fontSize: "clamp(16px, 2.5vw, 20px)",
+                    letterSpacing: "1.5px",
+                    marginBottom: "4px",
+                    textShadow: `0 0 20px ${a.accent}40`,
+                  }}
                 >
                   {a.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-xs uppercase tracking-wider mb-3">
+                <p
+                  className="font-[var(--font-hp-body)] text-xs uppercase tracking-wider mb-3"
+                  style={{ color: a.accent }}
+                >
                   {a.tagline}
                 </p>
                 <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed flex-1 mb-4">
@@ -334,14 +364,16 @@ export default function FortMyersPage() {
                 {a.external ? (
                   <BookingLink
                     href={a.ctaHref}
-                    className="inline-flex items-center justify-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.3)]"
+                    className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+                    style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
                   >
                     {a.cta}
                   </BookingLink>
                 ) : (
                   <Link
                     href={a.ctaHref}
-                    className="inline-flex items-center justify-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.3)]"
+                    className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+                    style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
                   >
                     {a.cta}
                   </Link>
@@ -349,6 +381,19 @@ export default function FortMyersPage() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* See All Attractions link */}
+        <div className="text-center mt-10">
+          <Link
+            href="/hp/fort-myers/attractions"
+            className="inline-flex items-center gap-2 font-[var(--font-hp-body)] text-white/60 hover:text-white text-sm uppercase tracking-wider transition-colors"
+          >
+            View All Attractions
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
         </div>
       </section>
 
@@ -374,32 +419,43 @@ export default function FortMyersPage() {
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/60 via-[#0a1628]/40 to-[#0a1628]/70" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/70 via-[#0a1628]/50 to-[#0a1628]/80" />
 
         <div className="relative z-10 max-w-5xl mx-auto text-center">
-          <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-xs uppercase tracking-[0.3em] mb-3">
+          <p className="font-[var(--font-hp-body)] text-[#FFD700] text-xs uppercase tracking-[0.3em] mb-3">
             Exclusive to HeadPinz
           </p>
           <h2
             className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-            style={{ fontSize: "clamp(32px, 7vw, 60px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "16px" }}
+            style={{
+              fontSize: "clamp(32px, 7vw, 60px)",
+              lineHeight: "1.05",
+              letterSpacing: "-1px",
+              marginBottom: "16px",
+              textShadow: "0 0 40px rgba(255,215,0,0.3)",
+            }}
           >
             The VIP Experience
           </h2>
-          <div className="mx-auto h-1 w-24 rounded-full mb-10" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+          <div className="mx-auto h-1 w-24 rounded-full mb-10" style={{ background: "linear-gradient(90deg, #FFD700, #fd5b56)" }} />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
             {/* NeoVerse card */}
             <div
-              className="rounded-2xl border border-[#123075]/40 p-8 text-left"
-              style={{ backgroundColor: "rgba(10,22,40,0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
+              className="rounded-lg p-8 text-left transition-all hover:scale-[1.01]"
+              style={{
+                backgroundColor: "rgba(7,16,39,0.6)",
+                border: "1.78px dashed rgba(255,215,0,0.35)",
+                backdropFilter: "blur(4px)",
+                WebkitBackdropFilter: "blur(4px)",
+              }}
             >
-              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-white bg-[#123075] px-3 py-1 rounded-full mb-4">
+              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#FFD700] px-3 py-1 rounded-full mb-4 font-bold">
                 VIP Exclusive
               </span>
               <h3
                 className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-3"
-                style={{ fontSize: "clamp(18px, 3vw, 24px)" }}
+                style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
               >
                 NeoVerse
               </h3>
@@ -411,15 +467,20 @@ export default function FortMyersPage() {
 
             {/* HyperBowling card */}
             <div
-              className="rounded-2xl border border-[#123075]/40 p-8 text-left"
-              style={{ backgroundColor: "rgba(10,22,40,0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
+              className="rounded-lg p-8 text-left transition-all hover:scale-[1.01]"
+              style={{
+                backgroundColor: "rgba(7,16,39,0.6)",
+                border: "1.78px dashed rgba(0,226,229,0.35)",
+                backdropFilter: "blur(4px)",
+                WebkitBackdropFilter: "blur(4px)",
+              }}
             >
-              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-white bg-[#123075] px-3 py-1 rounded-full mb-4">
+              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#00E2E5] px-3 py-1 rounded-full mb-4 font-bold">
                 VIP Exclusive
               </span>
               <h3
                 className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-3"
-                style={{ fontSize: "clamp(18px, 3vw, 24px)" }}
+                style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(0,226,229,0.25)" }}
               >
                 HyperBowling
               </h3>
@@ -432,7 +493,8 @@ export default function FortMyersPage() {
 
           <BookingLink
             href="https://www.mybowlingpassport.com/2/9172/book"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)]"
+            className="inline-flex items-center bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
+            style={{ boxShadow: "0 0 24px rgba(255,215,0,0.35)" }}
           >
             Book VIP Lanes
           </BookingLink>
@@ -441,77 +503,90 @@ export default function FortMyersPage() {
 
       {/* ====== WEEKLY SPECIALS ====== */}
       <section id="specials" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
-        {/* Neon glow background */}
-        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 30% 20%, rgba(18,48,117,0.3) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(253,91,86,0.1) 0%, transparent 50%), #0a1628" }} />
+        {/* Subtle background glow */}
+        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 30% 20%, rgba(18,48,117,0.2) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(253,91,86,0.08) 0%, transparent 50%), #0a1628" }} />
         <div className="relative z-10">
-        <div className="text-center" style={{ marginBottom: "16px" }}>
-          <h2
-            className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px" }}
-          >
-            Weekly Specials
-          </h2>
-          <div className="mx-auto h-1 w-24 rounded-full" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
-        </div>
-        <p className="font-[var(--font-hp-body)] text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
-          Bowling specials run all week long. All prices per lane, 1.5 hours unless noted.
-        </p>
-
-        {/* Specials cards */}
-        <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {specials.map((s) => (
-            <div
-              key={s.name}
-              className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-6 hover:border-[#fd5b56]/30 transition-all duration-300"
+          <div className="text-center" style={{ marginBottom: "16px" }}>
+            <h2
+              className="font-[var(--font-hp-display)] uppercase text-white"
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: "0 0 30px rgba(253,91,86,0.25)",
+              }}
             >
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
-                {s.name}
-              </h3>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-4">
-                {s.when}
-              </p>
-              <div className="flex items-baseline gap-4 mb-3">
-                <div>
-                  <span className="font-[var(--font-hp-display)] text-[#fd5b56]" style={{ fontSize: "28px" }}>
-                    {s.regular}
-                  </span>
-                  <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">regular</span>
-                </div>
-                <div>
-                  <span className="font-[var(--font-hp-display)] text-[#123075]" style={{ fontSize: "28px" }}>
-                    {s.vip}
-                  </span>
-                  <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">VIP</span>
-                </div>
-              </div>
-              {s.note && (
-                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
-                  {s.note}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
+              Weekly Specials
+            </h2>
+            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+          </div>
+          <p className="font-[var(--font-hp-body)] text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
+            Bowling specials run all week long. All prices per lane, 1.5 hours unless noted.
+          </p>
 
-        {/* Weekly events row */}
-        <div className="max-w-5xl mx-auto mt-8 flex flex-wrap justify-center gap-4">
-          {weeklyEvents.map((e) => (
-            <div
-              key={e.day + e.event}
-              className="flex items-center gap-3 rounded-full border border-[#123075]/30 bg-white/[0.03] px-5 py-2.5"
-            >
-              <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold">
-                {e.day}
-              </span>
-              <span
-                className="font-[var(--font-hp-body)] text-sm font-bold"
-                style={{ color: e.color }}
+          {/* Specials cards */}
+          <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {specials.map((s) => (
+              <div
+                key={s.name}
+                className="rounded-lg p-6 transition-all duration-300 hover:scale-[1.01]"
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(253,91,86,0.25)",
+                }}
               >
-                {e.event}
-              </span>
-            </div>
-          ))}
-        </div>
+                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                  {s.name}
+                </h3>
+                <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-4">
+                  {s.when}
+                </p>
+                <div className="flex items-baseline gap-4 mb-3">
+                  <div>
+                    <span className="font-[var(--font-hp-display)] text-[#fd5b56]" style={{ fontSize: "28px" }}>
+                      {s.regular}
+                    </span>
+                    <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">regular</span>
+                  </div>
+                  <div>
+                    <span className="font-[var(--font-hp-display)] text-[#00E2E5]" style={{ fontSize: "28px" }}>
+                      {s.vip}
+                    </span>
+                    <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">VIP</span>
+                  </div>
+                </div>
+                {s.note && (
+                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                    {s.note}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Weekly events row */}
+          <div className="max-w-5xl mx-auto mt-8 flex flex-wrap justify-center gap-4">
+            {weeklyEvents.map((e) => (
+              <div
+                key={e.day + e.event}
+                className="flex items-center gap-3 rounded-full px-5 py-2.5"
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${e.color}35`,
+                }}
+              >
+                <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold">
+                  {e.day}
+                </span>
+                <span
+                  className="font-[var(--font-hp-body)] text-sm font-bold"
+                  style={{ color: e.color }}
+                >
+                  {e.event}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -540,14 +615,19 @@ export default function FortMyersPage() {
 
       {/* ====== NEMO'S FOOD & DRINKS ====== */}
       <section id="menu" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
-        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 70% 30%, rgba(253,91,86,0.12) 0%, transparent 50%), radial-gradient(ellipse at 20% 70%, rgba(18,48,117,0.2) 0%, transparent 60%), #0a1628" }} />
+        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 70% 30%, rgba(253,91,86,0.08) 0%, transparent 50%), radial-gradient(ellipse at 20% 70%, rgba(18,48,117,0.15) 0%, transparent 60%), #0a1628" }} />
         <div className="relative z-10 max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
             {/* Left — text */}
             <div>
               <h2
                 className="font-[var(--font-hp-display)] uppercase text-white"
-                style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px" }}
+                style={{
+                  fontSize: "clamp(28px, 6vw, 52px)",
+                  letterSpacing: "3px",
+                  marginBottom: "12px",
+                  textShadow: "0 0 30px rgba(253,91,86,0.25)",
+                }}
               >
                 Nemo&apos;s Food &amp; Drinks
               </h2>
@@ -562,13 +642,17 @@ export default function FortMyersPage() {
               </p>
               <Link
                 href="/menu"
-                className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
+                className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+                style={{ boxShadow: "0 0 20px rgba(253,91,86,0.3)" }}
               >
                 View Full Menu
               </Link>
             </div>
             {/* Right — wings photo */}
-            <div className="relative rounded-2xl overflow-hidden" style={{ aspectRatio: "4/3" }}>
+            <div
+              className="relative rounded-lg overflow-hidden"
+              style={{ aspectRatio: "4/3", border: "1.78px dashed rgba(253,91,86,0.3)" }}
+            >
               <Image
                 src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png"
                 alt="Nemo's famous jumbo wings"
@@ -593,10 +677,19 @@ export default function FortMyersPage() {
           unoptimized
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-black/50 to-black/30" />
+
+        {/* Top accent line */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#123075] via-white/60 to-[#fd5b56]" />
+
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
           <h2
             className="font-[var(--font-hp-display)] uppercase text-white"
-            style={{ fontSize: "clamp(24px, 5vw, 44px)", letterSpacing: "3px", marginBottom: "12px" }}
+            style={{
+              fontSize: "clamp(24px, 5vw, 44px)",
+              letterSpacing: "3px",
+              marginBottom: "12px",
+              textShadow: "0 0 30px rgba(253,91,86,0.3)",
+            }}
           >
             Ready for Some Fun?
           </h2>
@@ -607,6 +700,7 @@ export default function FortMyersPage() {
             <BookingLink
               href="https://www.mybowlingpassport.com/2/9172/book"
               className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
+              style={{ boxShadow: "0 0 16px rgba(253,91,86,0.3)" }}
             >
               Book Bowling
             </BookingLink>

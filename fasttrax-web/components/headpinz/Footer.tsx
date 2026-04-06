@@ -27,7 +27,9 @@ const locations = [
 
 export default function HeadPinzFooter() {
   return (
-    <footer className="bg-gradient-to-b from-[#0a1628] to-[#0d1a2f] border-t border-[#123075]/30 pt-12 pb-8">
+    <footer className="relative bg-gradient-to-b from-[#0a1628] to-[#0d1a2f] pt-12 pb-8">
+      {/* Top accent gradient line */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#fd5b56] via-white/60 to-[#123075]" />
       <div className="max-w-7xl mx-auto px-4">
         {/* Logo + tagline */}
         <div className="text-center mb-10">
