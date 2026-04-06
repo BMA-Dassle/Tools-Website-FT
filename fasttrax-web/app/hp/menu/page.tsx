@@ -8,6 +8,7 @@ import Image from "next/image";
 /* ------------------------------------------------------------------ */
 
 const coral = "#fd5b56";
+const HAPPY_HOUR_PDF = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/nemos-happy-hour.pdf";
 const gold = "#FFD700";
 const cyan = "#00E2E5";
 
@@ -189,6 +190,7 @@ function getCategoryForSection(name: string): string {
 
 export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState("All");
+  const [showHappyHourPdf, setShowHappyHourPdf] = useState(false);
 
   const filtered = activeCategory === "All"
     ? menuSections
@@ -311,55 +313,77 @@ export default function MenuPage() {
           className="max-w-5xl mx-auto rounded-2xl p-6 md:p-8"
           style={{ backgroundColor: "rgba(255,215,0,0.05)", border: `1.78px dashed rgba(255,215,0,0.3)` }}
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+          <div className="text-center mb-6">
+            <h2
+              className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+              style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: "1.05", textShadow: `0 0 30px rgba(255,215,0,0.2)` }}
+            >
+              Happy Hour
+            </h2>
+            <p className="font-[var(--font-hp-body)] text-white/80 text-base mt-2">
+              <strong style={{ color: gold }}>7 Days a Week</strong> &bull;{" "}
+              <span className="font-[var(--font-hp-display)] uppercase tracking-wider" style={{ color: gold }}>
+                11AM &ndash; 6PM
+              </span>
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Food Specials */}
             <div>
-              <h2
-                className="font-[var(--font-hp-hero)] font-black uppercase text-white"
-                style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: "1.05", textShadow: `0 0 30px rgba(255,215,0,0.2)` }}
-              >
-                Happy Hour
-              </h2>
-              <p className="font-[var(--font-hp-body)] text-white/80 text-base mt-2">
-                <strong style={{ color: gold }}>7 Days a Week</strong> &bull;{" "}
-                <span className="font-[var(--font-hp-display)] uppercase tracking-wider" style={{ color: gold }}>
-                  11AM &ndash; 6PM
-                </span>
-              </p>
-              <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-2">
-                Unwind with discounted drinks and apps at Nemo&apos;s Sports Bistro. No reservation needed.
-              </p>
+              <p className="font-[var(--font-hp-display)] uppercase text-white/40 text-[10px] tracking-widest mb-3">Food Specials</p>
+              <div className="space-y-2">
+                {[
+                  { name: "Margherita Flatbread", price: "$10", desc: "Tomato sauce, fresh mozzarella, basil, olive oil drizzle" },
+                  { name: "Flatbread of the Month", price: "$12", desc: "Rotating chef-inspired feature" },
+                  { name: "Pups & Sliders", price: "$16", desc: "Wagyu beef sliders + mini hot dogs" },
+                  { name: "The Sampler", price: "$23", desc: "Meatballs, fried calamari, fried mozzarella" },
+                  { name: "Buy 5 Get 5 Wings", price: "Market", desc: "Jumbo wings, hand breaded, choice of sauce" },
+                ].map((item) => (
+                  <div key={item.name} className="flex justify-between items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,215,0,0.1)" }}>
+                    <div>
+                      <p className="font-[var(--font-hp-body)] text-white font-semibold text-sm">{item.name}</p>
+                      <p className="font-[var(--font-hp-body)] text-white/40 text-[10px]">{item.desc}</p>
+                    </div>
+                    <span className="font-[var(--font-hp-display)] text-sm shrink-0" style={{ color: gold }}>{item.price}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: "Draft Beers", detail: "Discounted pints" },
-                { label: "Well Drinks", detail: "Happy hour pricing" },
-                { label: "Wine", detail: "Select glasses" },
-                { label: "Apps", detail: "Discounted shareables" },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-xl p-3 text-center"
-                  style={{ backgroundColor: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.15)" }}
-                >
-                  <p className="font-[var(--font-hp-body)] text-white font-semibold text-sm">{item.label}</p>
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] mt-0.5">{item.detail}</p>
-                </div>
-              ))}
+
+            {/* Drink Specials */}
+            <div>
+              <p className="font-[var(--font-hp-display)] uppercase text-white/40 text-[10px] tracking-widest mb-3">Drink Specials</p>
+              <div className="space-y-2">
+                {[
+                  { name: "House Wine by the Glass", deal: "$2 Off" },
+                  { name: "Island Oasis Frozen Drinks", deal: "$2 Off" },
+                  { name: "Rum Buckets", deal: "$2 Off" },
+                  { name: "Bloody Mary's", deal: "$2 Off" },
+                  { name: "Craft Draft Beers", deal: "$1 Off" },
+                  { name: "Spirit-Free Cocktails", deal: "$1 Off" },
+                ].map((item) => (
+                  <div key={item.name} className="flex justify-between items-center py-2" style={{ borderBottom: "1px solid rgba(255,215,0,0.1)" }}>
+                    <p className="font-[var(--font-hp-body)] text-white font-semibold text-sm">{item.name}</p>
+                    <span className="font-[var(--font-hp-body)] font-bold text-sm shrink-0" style={{ color: coral }}>{item.deal}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="text-center mt-5">
-            <a
-              href="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/free-wing-friday.pdf"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105"
+
+          <div className="text-center mt-6">
+            <button
+              onClick={() => setShowHappyHourPdf(true)}
+              className="inline-flex items-center gap-2 font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: gold, color: "#0a1628", boxShadow: `0 0 16px rgba(255,215,0,0.3)` }}
             >
-              View Happy Hour &amp; Specials
+              View Full Happy Hour Menu
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
-            </a>
+            </button>
           </div>
         </div>
       </section>
@@ -561,6 +585,26 @@ export default function MenuPage() {
           </a>
         </div>
       </section>
+
+      {/* ====== HAPPY HOUR PDF MODAL ====== */}
+      {showHappyHourPdf && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6" onClick={() => setShowHappyHourPdf(false)}>
+          <div className="relative w-full max-w-3xl h-[85vh] bg-[#0a1628] rounded-2xl border border-white/10 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider">Happy Hour Menu</h3>
+              <button onClick={() => setShowHappyHourPdf(false)} className="text-white/40 hover:text-white transition-colors p-1 cursor-pointer">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <iframe
+              src={HAPPY_HOUR_PDF}
+              className="w-full"
+              style={{ height: "calc(85vh - 52px)" }}
+              title="Happy Hour Menu"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
