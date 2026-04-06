@@ -34,6 +34,16 @@ interface FoundPerson {
   email: string;
 }
 
+interface FoundAccount {
+  personId: string;
+  fullName: string;
+  lastSeen: string;
+  races: number;
+  memberships: string[];
+}
+
+const RELEVANT_MEMBERSHIPS = ["license fee", "qualified intermediate", "qualified pro", "turbo pass", "employee pass", "race credit"];
+
 type ModalPhase = "closed" | "lookup" | "looking" | "found" | "new-person" | "summary" | "paying";
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -49,7 +59,7 @@ export default function RacePacksPage() {
   const [smsCode, setSmsCode] = useState("");
   const [smsError, setSmsError] = useState("");
   const [smsSent, setSmsSent] = useState(false);
-  const [searchResults, setSearchResults] = useState<{ localId: string; description: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<FoundAccount[]>([]);
   const [newPerson, setNewPerson] = useState({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
   const [emailSmsSent, setEmailSmsSent] = useState(false);
   const [emailSmsCode, setEmailSmsCode] = useState("");
@@ -80,6 +90,52 @@ export default function RacePacksPage() {
     setTimeout(() => emailRef.current?.focus(), 200);
   }
 
+  async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
+    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=200`);
+    const results = await searchRes.json();
+    if (!Array.isArray(results) || results.length === 0) return [];
+
+    const withMem = (results as { localId: string; description: string }[]).filter(r => r.description.includes("Memberships:"));
+    const byName = new Map<string, { localId: string; description: string }>();
+    for (const r of (withMem.length > 0 ? withMem : results) as { localId: string; description: string }[]) {
+      const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
+      const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
+      if (!byName.has(name)) byName.set(name, r);
+    }
+    const uniqueEntries = [...byName.values()].slice(0, 10);
+
+    const detailPromises = uniqueEntries.map(async (r) => {
+      try {
+        const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
+        const p = await res.json();
+        const memberships = (p.memberships || [])
+          .filter((m: { stops: string; name: string }) =>
+            (!m.stops || new Date(m.stops) > new Date()) &&
+            RELEVANT_MEMBERSHIPS.some(rel => m.name.toLowerCase().includes(rel))
+          )
+          .map((m: { name: string }) => m.name)
+          .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
+        const lastSeen = p.lastLineUp
+          ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          : "";
+        return {
+          personId: String(p.id),
+          fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
+          lastSeen,
+          races: (p.tags || []).length,
+          memberships,
+        } as FoundAccount;
+      } catch { return null; }
+    });
+    const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null);
+    allDetails.sort((a, b) => {
+      if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
+      if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
+      return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+    });
+    return allDetails.slice(0, 5);
+  }
+
   async function handleEmailSearch() {
     const trimmed = emailInput.trim().toLowerCase();
     if (!trimmed || !trimmed.includes("@")) return;
@@ -87,21 +143,13 @@ export default function RacePacksPage() {
     setModalPhase("looking");
 
     try {
-      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}&max=200`);
-      const results = await res.json();
-      if (!Array.isArray(results) || results.length === 0) {
+      const accounts = await searchAndFetchAccounts(trimmed);
+      if (accounts.length === 0) {
         setError("No accounts found. Try a login code or enter as new person.");
         setModalPhase("lookup");
         return;
       }
-      const withMem = results.filter((r: { description: string }) => r.description.includes("Memberships:"));
-      const byName = new Map<string, { localId: string; description: string }>();
-      for (const r of (withMem.length > 0 ? withMem : results) as { localId: string; description: string }[]) {
-        const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-        if (!byName.has(name)) byName.set(name, r);
-      }
-      setSearchResults([...byName.values()].slice(0, 5));
+      setSearchResults(accounts);
 
       // Send OTP email
       const otpRes = await fetch("/api/sms-verify", {
@@ -145,7 +193,13 @@ export default function RacePacksPage() {
     }
   }
 
-  async function handleSelectPerson(localId: string) {
+  function handleSelectAccount(account: FoundAccount) {
+    setPerson({ personId: account.personId, fullName: account.fullName, email: "" });
+    setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
+    setModalPhase("summary");
+  }
+
+  async function handleSelectPersonById(localId: string) {
     setModalPhase("looking");
     try {
       const res = await fetch(`/api/bmi-office?action=person&id=${localId}`);
@@ -173,7 +227,7 @@ export default function RacePacksPage() {
         setModalPhase("lookup");
         return;
       }
-      await handleSelectPerson(results[0].localId);
+      await handleSelectPersonById(results[0].localId);
     } catch {
       setError("Verification failed.");
       setModalPhase("lookup");
@@ -195,21 +249,13 @@ export default function RacePacksPage() {
     setModalPhase("looking");
 
     try {
-      const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(digits)}&max=200`);
-      const results = await res.json();
-      if (!Array.isArray(results) || results.length === 0) {
+      const accounts = await searchAndFetchAccounts(digits);
+      if (accounts.length === 0) {
         setError("No accounts found with that phone number.");
         setModalPhase("lookup");
         return;
       }
-      const withMem = results.filter((r: { description: string }) => r.description.includes("Memberships:"));
-      const byName = new Map<string, { localId: string; description: string }>();
-      for (const r of (withMem.length > 0 ? withMem : results) as { localId: string; description: string }[]) {
-        const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-        const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-        if (!byName.has(name)) byName.set(name, r);
-      }
-      setSearchResults([...byName.values()].slice(0, 5));
+      setSearchResults(accounts);
 
       // Send SMS code
       const smsRes = await fetch("/api/sms-verify", {
@@ -670,21 +716,30 @@ export default function RacePacksPage() {
             {/* Search results */}
             {modalPhase === "found" && (
               <div className="space-y-3">
-                <p className="text-white/40 text-xs">Select an account:</p>
-                {searchResults.map(r => {
-                  const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-                  const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-                  return (
-                    <button
-                      key={r.localId}
-                      onClick={() => handleSelectPerson(r.localId)}
-                      className="w-full text-left rounded-xl border border-white/10 bg-white/5 hover:border-[#00E2E5]/40 hover:bg-[#00E2E5]/5 transition-colors p-3"
-                    >
-                      <p className="text-white font-semibold text-sm">{name}</p>
-                      <p className="text-white/40 text-xs truncate">{r.description.substring(name.length)}</p>
-                    </button>
-                  );
-                })}
+                <p className="text-white/40 text-xs">Select your account:</p>
+                {searchResults.map(a => (
+                  <button
+                    key={a.personId}
+                    onClick={() => handleSelectAccount(a)}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 hover:border-[#00E2E5]/50 hover:bg-[#00E2E5]/5 p-4 text-left transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-white font-semibold text-sm">{a.fullName}</p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          {a.memberships.slice(0, 3).map((m, i) => (
+                            <span key={i} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
+                          ))}
+                        </div>
+                        {a.lastSeen && <p className="text-white/30 text-[10px] mt-1">Last seen: {a.lastSeen}</p>}
+                      </div>
+                      <div className="text-right shrink-0 ml-3">
+                        <p className="text-[#00E2E5] font-bold text-lg">{a.races}</p>
+                        <p className="text-white/30 text-[9px] uppercase">visits</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
                 <button onClick={() => { setModalPhase("lookup"); setError(""); }} className="text-white/30 text-xs hover:text-white/50 transition-colors">
                   ← Back to search
                 </button>
