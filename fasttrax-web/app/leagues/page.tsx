@@ -29,9 +29,11 @@ type SortField = "points" | "bestLap" | "races";
 
 const LEAGUE = {
   track: "Blue Track",
-  scoreGroup: "Blue League (4/1/26-7/8/26)",
+  // New name coming: "Blue League (April to July 2026)" — fallback to old name with slashes
+  scoreGroup: "Blue League (April to July 2026)",
+  scoreGroupFallback: "Blue League (4/1/26-7/8/26)",
   label: "Blue League",
-  dates: "4/1/26 - 7/8/26",
+  dates: "April - July 2026",
   startDate: "2026-01-01",
   endDate: "2026-12-31",
 };
@@ -357,9 +359,9 @@ function DriverRow({
                           <td className="px-4 py-2">
                             <span
                               className="font-[var(--font-poppins)] font-semibold"
-                              style={{ fontSize: "13px", color: gp ? "#00E2E5" : "rgba(0,226,229,0.5)" }}
+                              style={{ fontSize: "13px", color: gp ? "#00E2E5" : "rgba(255,255,255,0.3)" }}
                             >
-                              {s.points}
+                              {gp ? s.points : "—"}
                             </span>
                           </td>
                           <td className="px-4 py-2">
@@ -428,25 +430,28 @@ export default function LeagueStandingsPage() {
   useEffect(() => {
     async function fetchStandings() {
       try {
-        const baseParams = {
-          action: "summary",
-          track: LEAGUE.track,
-          scoreGroup: LEAGUE.scoreGroup,
-          startDate: LEAGUE.startDate,
-          endDate: LEAGUE.endDate,
-        };
+        // Try new name first, fallback to old name with slashes
+        let scoreGroup = LEAGUE.scoreGroup;
+        const makeParams = (sg: string, excl: string) => new URLSearchParams({
+          action: "summary", track: LEAGUE.track, scoreGroup: sg,
+          startDate: LEAGUE.startDate, endDate: LEAGUE.endDate, excludePractice: excl,
+        });
 
-        // Fetch both: without practice (for standings) and with practice (for detail view)
-        const [standingsRes, fullRes] = await Promise.all([
-          fetch(`/api/leagues?${new URLSearchParams({ ...baseParams, excludePractice: "true" })}`),
-          fetch(`/api/leagues?${new URLSearchParams({ ...baseParams, excludePractice: "false" })}`),
-        ]);
+        let standingsRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "true")}`);
+        let standingsJson = standingsRes.ok ? await standingsRes.json() : null;
 
-        if (!standingsRes.ok) throw new Error(`HTTP ${standingsRes.status}`);
-        const standingsJson = await standingsRes.json();
-        if (!standingsJson.success) throw new Error(standingsJson.error || "API error");
+        // Fallback to old name if new name fails
+        if (!standingsJson?.success && LEAGUE.scoreGroupFallback) {
+          scoreGroup = LEAGUE.scoreGroupFallback;
+          standingsRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "true")}`);
+          standingsJson = standingsRes.ok ? await standingsRes.json() : null;
+        }
+
+        if (!standingsJson?.success) throw new Error(standingsJson?.error || "API error");
         setDrivers(standingsJson.data || []);
 
+        // Fetch full data with practice for detail view
+        const fullRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "false")}`);
         if (fullRes.ok) {
           const fullJson = await fullRes.json();
           if (fullJson.success) setFullDrivers(fullJson.data || []);
