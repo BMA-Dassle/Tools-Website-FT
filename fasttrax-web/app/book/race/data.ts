@@ -151,13 +151,13 @@ export function calculateTotal(subtotal: number): number {
 // SMS-Timing API, keyed by tier + category + packType.
 
 const PRICE_TABLE: Record<string, number> = {
-  // Single races
-  "starter|adult|none": 25.98,
-  "starter|junior|none": 25.98,
-  "intermediate|adult|none": 25.98,
-  "intermediate|junior|none": 25.98,
-  "pro|adult|none": 25.98,
-  "pro|junior|none": 25.98,
+  // Single races (race only — license fee is a separate $4.99 line item)
+  "starter|adult|none": 26.99,
+  "starter|junior|none": 26.99,
+  "intermediate|adult|none": 26.99,
+  "intermediate|junior|none": 26.99,
+  "pro|adult|none": 26.99,
+  "pro|junior|none": 26.99,
   // Combo packs (Mega — 3 races)
   "intermediate|adult|combo": 49.98,
   "pro|adult|combo": 49.98,
