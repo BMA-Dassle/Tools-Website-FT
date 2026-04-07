@@ -124,14 +124,19 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
             ))}
           </div>
           <div className="p-3 border-t border-white/10 space-y-2">
-            {items.length > 0 && !isRaceFlow && (
-              <a
-                href="/book/checkout"
-                className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-              >
-                Checkout →
-              </a>
-            )}
+            {items.length > 0 && (() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const hasRacing = items.some((i: any) => i.attraction === "racing");
+              const checkoutUrl = hasRacing ? "/book/race" : "/book/checkout";
+              return (
+                <a
+                  href={checkoutUrl}
+                  className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
+                >
+                  Checkout →
+                </a>
+              );
+            })()}
             {onStartOver && (
               <button
                 onClick={() => { onStartOver(); setOpen(false); }}
