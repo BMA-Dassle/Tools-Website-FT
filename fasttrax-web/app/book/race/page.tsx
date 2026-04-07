@@ -1264,7 +1264,24 @@ export default function BookRacePage() {
       </div>
 
       {/* Unified floating cart */}
-      {step !== "summary" && <MiniCart />}
+      {step !== "summary" && (
+        <MiniCart onStartOver={() => {
+          cancelActiveOrder();
+          sessionStorage.removeItem("attractionOrderId");
+          sessionStorage.removeItem("attractionCart");
+          setBookings([]);
+          setSelectedAddOns([]);
+          setSelectedPov(null);
+          setSelectedProduct(null);
+          setSelectedProposal(null);
+          setSelectedDate(null);
+          setRacerType(null);
+          setVerifiedPerson(null);
+          setVerifiedRacers([]);
+          setActiveBills([]);
+          setStep("experience");
+        }} />
+      )}
 
       {/* Linked Racer Modal */}
       {showLinkedModal && (

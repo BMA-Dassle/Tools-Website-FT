@@ -29,9 +29,10 @@ function formatDate(iso: string) {
  * Unified floating cart — reads from sessionStorage, matches racing FloatingCart style.
  * Shows on /book landing page and /book/[attraction] flows.
  */
-export default function MiniCart() {
+export default function MiniCart({ onStartOver }: { onStartOver?: () => void } = {}) {
   const [items, setItems] = useState<StoredCartItem[]>([]);
   const [open, setOpen] = useState(false);
+  const [hasActiveBill, setHasActiveBill] = useState(false);
 
   // Poll sessionStorage for cart items
   useEffect(() => {
@@ -40,6 +41,7 @@ export default function MiniCart() {
         const stored = sessionStorage.getItem("attractionCart");
         const parsed: StoredCartItem[] = stored ? JSON.parse(stored) : [];
         setItems(parsed);
+        setHasActiveBill(!!sessionStorage.getItem("attractionOrderId"));
       } catch { setItems([]); }
     }
     loadCart();
@@ -69,7 +71,7 @@ export default function MiniCart() {
     }
   }
 
-  if (items.length === 0) return null;
+  if (items.length === 0 && !hasActiveBill) return null;
 
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
@@ -111,13 +113,42 @@ export default function MiniCart() {
               </div>
             ))}
           </div>
-          <div className="p-3 border-t border-white/10">
-            <a
-              href="/book/checkout"
-              className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-            >
-              Checkout →
-            </a>
+          <div className="p-3 border-t border-white/10 space-y-2">
+            {items.length > 0 && (
+              <a
+                href="/book/checkout"
+                className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
+              >
+                Checkout →
+              </a>
+            )}
+            {onStartOver && (
+              <button
+                onClick={() => { onStartOver(); setOpen(false); }}
+                className="block w-full py-2 rounded-lg font-semibold text-xs text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-colors text-center"
+              >
+                Cancel &amp; Start Over
+              </button>
+            )}
+            {!onStartOver && hasActiveBill && (
+              <button
+                onClick={() => {
+                  const orderId = sessionStorage.getItem("attractionOrderId");
+                  if (orderId) {
+                    fetch(`/api/bmi?endpoint=bill/${orderId}/cancel`, { method: "DELETE" }).catch(() => {});
+                  }
+                  sessionStorage.removeItem("attractionOrderId");
+                  sessionStorage.removeItem("attractionCart");
+                  setItems([]);
+                  setHasActiveBill(false);
+                  setOpen(false);
+                  window.location.href = "/book/race";
+                }}
+                className="block w-full py-2 rounded-lg font-semibold text-xs text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-colors text-center"
+              >
+                Cancel &amp; Start Over
+              </button>
+            )}
           </div>
         </div>
       )}
