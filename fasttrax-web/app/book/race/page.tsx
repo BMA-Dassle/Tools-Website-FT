@@ -457,6 +457,7 @@ export default function BookRacePage() {
       // Sell FastTrax License — ONLY for new racers, never returning racers
       // Triple guard: no selectedRacers (structural), racerType check, and once-per-session ref
       const primaryBillId = activeBills[0]?.billId || createdBills[0]?.billId;
+      console.log("[license check]", { selectedRacers: !!selectedRacers, selectedRacersLen: selectedRacers?.length, racerType, licenseSold: licenseSoldRef.current, primaryBillId });
       if (!selectedRacers && racerType === "new" && !licenseSoldRef.current && primaryBillId) {
         try {
           const totalRacers = adults + juniors;
