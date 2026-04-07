@@ -40,41 +40,70 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
         </p>
       </div>
 
-      {/* Track info — visual only, selection happens on the product cards below */}
-      {products.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
-          <div className="relative rounded-xl overflow-hidden border border-red-500/20 aspect-[4/3]">
-            <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
-              alt="Red Track"
-              fill
-              className="object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-red-900/90 via-red-900/30 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-2.5 text-center">
-              <h3 className="font-display text-white text-base uppercase tracking-wider">Red Track</h3>
-              <p className="text-white/60 text-[10px] leading-snug mt-0.5">
-                Technical hairpins &amp; sharp turns
-              </p>
+      {/* Track info — visual only, adapts to available tracks */}
+      {products.length > 0 && (() => {
+        const hasMega = products.some(p => p.track === "Mega");
+        const hasRedBlue = products.some(p => p.track === "Red") || products.some(p => p.track === "Blue");
+
+        if (hasMega && !hasRedBlue) {
+          // Mega Track Day — both tracks combined
+          return (
+            <div className="max-w-lg mx-auto space-y-3">
+              <div className="relative rounded-xl overflow-hidden border border-purple-500/30 aspect-[2/1]">
+                <Image
+                  src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
+                  alt="Mega Track"
+                  fill
+                  className="object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-purple-900/90 via-purple-900/40 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
+                  <h3 className="font-display text-white text-lg uppercase tracking-wider">Mega Track Day</h3>
+                  <p className="text-white/60 text-xs leading-snug mt-0.5">
+                    Both tracks combined into one epic circuit
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Standard day — Red & Blue tracks
+        return (
+          <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
+            <div className="relative rounded-xl overflow-hidden border border-red-500/20 aspect-[4/3]">
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
+                alt="Red Track"
+                fill
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-red-900/90 via-red-900/30 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-2.5 text-center">
+                <h3 className="font-display text-white text-base uppercase tracking-wider">Red Track</h3>
+                <p className="text-white/60 text-[10px] leading-snug mt-0.5">
+                  Technical hairpins &amp; sharp turns
+                </p>
+              </div>
+            </div>
+            <div className="relative rounded-xl overflow-hidden border border-blue-500/20 aspect-[4/3]">
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg"
+                alt="Blue Track"
+                fill
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/30 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-2.5 text-center">
+                <h3 className="font-display text-white text-base uppercase tracking-wider">Blue Track</h3>
+                <p className="text-white/60 text-[10px] leading-snug mt-0.5">
+                  High-speed banks &amp; sweeping turns
+                </p>
+              </div>
             </div>
           </div>
-          <div className="relative rounded-xl overflow-hidden border border-blue-500/20 aspect-[4/3]">
-            <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg"
-              alt="Blue Track"
-              fill
-              className="object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/30 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-2.5 text-center">
-              <h3 className="font-display text-white text-base uppercase tracking-wider">Blue Track</h3>
-              <p className="text-white/60 text-[10px] leading-snug mt-0.5">
-                High-speed banks &amp; sweeping turns
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* New racer license notice */}
       {racerType === "new" && products.length > 0 && (
