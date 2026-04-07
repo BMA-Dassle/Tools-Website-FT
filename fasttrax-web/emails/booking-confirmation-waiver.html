@@ -1,0 +1,357 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+  <style type="text/css">
+    :root { color-scheme: light; supported-color-schemes: light; }
+    #outlook a { padding: 0; }
+    a img { border: none; }
+    table td { border-collapse: collapse; }
+    body { margin: 0; padding: 0; background-color: #F2F3F5; -webkit-text-size-adjust: 100%; }
+    a { color: #004AAD; }
+
+    .cta-btn {
+      display: inline-block;
+      padding: 14px 28px;
+      background-color: #004AAD;
+      color: #FFFFFF !important;
+      text-decoration: none;
+      border-radius: 555px;
+      font-weight: bold;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .cta-btn.red {
+      background-color: #D71C1C;
+      color: #FFFFFF !important;
+    }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: #004AAD;
+      font-weight: bold;
+    }
+
+    .info-row td {
+      padding: 6px 0;
+      font-size: 13px;
+      color: #333;
+      line-height: 1.5;
+      vertical-align: top;
+    }
+
+    .info-row td:first-child {
+      color: #004AAD;
+      font-weight: bold;
+      padding-right: 12px;
+      white-space: nowrap;
+      width: 1%;
+    }
+  </style>
+</head>
+
+<body style="margin:0; padding:0; background-color:#F2F3F5;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F3F5;">
+<tr>
+<td align="center" style="padding: 20px 10px;">
+
+<table width="600" cellpadding="0" cellspacing="0" style="background-color:#FFFFFF; border-radius:8px; overflow:hidden; border: 1px solid #E0E0E0;">
+
+<!-- HEADER LOGOS -->
+<tr>
+<td style="padding: 24px 40px; background-color: #000418;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="left" width="50%">
+  <img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/hp_logo%201.png" width="130" alt="HeadPinz" style="height:auto;" />
+</td>
+<td align="right" width="50%">
+  <img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png" width="130" alt="FastTrax" style="height:auto;" />
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- HEADLINE -->
+<tr>
+<td align="center" style="padding: 28px 40px 20px 40px; font-family: Arial, sans-serif;">
+<h1 style="margin: 0 0 8px 0; font-size: 24px; color: #1A1A1A; letter-spacing: 1px; text-transform: uppercase;">
+  Your Visit Is Almost Here!
+</h1>
+<p style="margin: 0; font-size: 15px; color: #666666; line-height: 1.6;">
+  Thank you for booking with HeadPinz &amp; FastTrax Fort Myers!
+  Please review the information below so your visit starts smoothly and on time.
+</p>
+</td>
+</tr>
+
+<!-- RESERVATION DETAILS -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p class="section-label" style="margin: 0 0 10px 0; text-align: center;">Your Reservation</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border: 1px solid #E0E0E0; border-radius: 6px; overflow: hidden;">
+<tr>
+  <td style="background-color: #000418; padding: 10px 16px; font-family: Arial, sans-serif; font-size: 12px; font-weight: bold; color: #00E2E5; text-transform: uppercase; letter-spacing: 1px;">
+    ^[ReservationName]$
+  </td>
+</tr>
+<tr>
+  <td style="padding: 14px 16px; font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.8;">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr>
+      <td style="color: #888; font-size: 13px; width: 140px;">Reservation #:</td>
+      <td style="color: #1A1A1A; font-size: 14px; font-weight: bold;">^[ReservationNumber]$</td>
+    </tr>
+    <tr>
+      <td style="color: #888; font-size: 13px; padding-top: 6px;">Date:</td>
+      <td style="color: #1A1A1A; font-size: 14px; padding-top: 6px;">^[ReservationDate]$</td>
+    </tr>
+    <tr>
+      <td style="color: #888; font-size: 13px; padding-top: 6px;">Time:</td>
+      <td style="color: #1A1A1A; font-size: 14px; padding-top: 6px;">^[ReservationTime]$</td>
+    </tr>
+    </table>
+  </td>
+</tr>
+<tr>
+  <td style="border-top: 1px solid #EEEEEE; padding: 12px 16px;">
+    <p style="margin: 0 0 4px 0; font-family: Arial, sans-serif; font-size: 12px; font-weight: bold; color: #004AAD; text-transform: uppercase; letter-spacing: 1px;">Schedule</p>
+    <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+      ^[ReservationSchedule]$
+    </div>
+  </td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- WHERE TO CHECK IN -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p class="section-label" style="margin: 0 0 14px 0; text-align: center;">Where to Check In</p>
+
+<p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0 0 14px 0; text-align: center;">
+  Check in based on your <strong style="color:#1A1A1A;">first scheduled attraction</strong>. Please arrive 30 minutes early.
+</p>
+
+<!-- HeadPinz -->
+<table width="100%" cellpadding="14" cellspacing="0" border="0"
+       style="background-color: #FFF5F5; border: 1px solid #FFCDD2; border-radius: 6px; margin-bottom: 10px;">
+<tr>
+<td style="font-family: Arial, sans-serif;">
+  <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; Check In at HeadPinz</p>
+  <p style="margin: 0 0 4px 0; font-size: 13px; color: #333; line-height: 1.5;">
+    If your first attraction is <strong>Bowling, Gel Blasters, Laser Tag, HeadPinz Shuffly, or HP Arena</strong>
+  </p>
+  <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14513 Global Parkway, Fort Myers</p>
+</td>
+</tr>
+</table>
+
+<!-- FastTrax -->
+<table width="100%" cellpadding="14" cellspacing="0" border="0"
+       style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 6px;">
+<tr>
+<td style="font-family: Arial, sans-serif;">
+  <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #00838F;">&#127937; Check In at FastTrax</p>
+  <p style="margin: 0 0 4px 0; font-size: 13px; color: #333; line-height: 1.5;">
+    If your first attraction is <strong>Duck Pin Bowling, Racing, or FastTrax Shuffly</strong>
+  </p>
+  <p style="margin: 0 0 4px 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor</p>
+  <p style="margin: 0; font-size: 11px; color: #AAA;">On weekends, first-floor event check-in may also be available.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- WAIVER CTA -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0"
+       style="background-color:#FFF0F0; border: 2px solid #D71C1C; border-radius: 6px;">
+<tr>
+<td align="center" style="font-size: 17px; font-weight: bold; color: #D71C1C;">
+  WAIVERS REQUIRED
+</td>
+</tr>
+<tr>
+<td align="center" style="font-size: 14px; color: #333; line-height: 1.6;">
+  Every guest must complete a waiver <strong>before arrival</strong>.
+  Missing waivers are the <strong>#1 cause of delays</strong>.
+</td>
+</tr>
+<tr>
+<td align="center">
+  <a href="^ReservationLink()$" class="cta-btn red">Complete Waiver Now</a>
+</td>
+</tr>
+<tr>
+<td align="center" style="font-size: 11px; color: #999; word-break: break-all;">
+  ^ReservationLink()$
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- QR CODE -->
+<tr>
+<td align="center" style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0"
+       style="border: 2px solid #004AAD; border-radius: 6px;">
+<tr>
+<td align="center" style="font-size: 14px; font-weight: bold; color: #004AAD;">
+  Booking Confirmation QR Code
+</td>
+</tr>
+<tr>
+<td align="center" style="font-size: 13px; color: #666;">
+  Present this at check-in for faster service.
+</td>
+</tr>
+<tr>
+<td align="center">
+  ^BookingConfirmationQr()$
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- VOUCHERS -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p class="section-label" style="margin: 0 0 10px 0;">Voucher(s)</p>
+<div style="font-size: 14px; color: #333; line-height: 1.6;">
+  ^SoldVouchersList()$
+</div>
+</td>
+</tr>
+
+<!-- RACING SECTION -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0"
+       style="background-color: #F8F9FA; border: 1px solid #E0E0E0; border-radius: 6px;">
+<tr>
+<td>
+  <p class="section-label" style="margin: 0 0 6px 0; text-align: center;">Racing at FastTrax?</p>
+  <h2 style="margin: 0 0 6px 0; font-size: 18px; color: #1A1A1A; text-align: center; font-family: Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px;">
+    The Racer's Journey
+  </h2>
+  <p style="font-size: 12px; color: #888; text-align: center; margin: 0 0 16px 0;">
+    This isn't just go-karting &mdash; it's real racing with a motorsport-style progression.
+  </p>
+
+  <!-- 3 Steps -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+  <td style="padding: 8px 0; border-bottom: 1px solid #EEEEEE;">
+    <strong style="color: #C62828; font-size: 16px;">1.</strong>
+    <strong style="color: #1A1A1A; font-size: 13px;">Arrive 30 Minutes Early</strong>
+    <p style="margin: 2px 0 0 22px; font-size: 12px; color: #666; line-height: 1.4;">Give yourself the "Pre-Race Window" so you're cleared for the pits on time.</p>
+  </td>
+  </tr>
+  <tr>
+  <td style="padding: 8px 0; border-bottom: 1px solid #EEEEEE;">
+    <strong style="color: #004AAD; font-size: 16px;">2.</strong>
+    <strong style="color: #1A1A1A; font-size: 13px;">The Pit Gate</strong>
+    <p style="margin: 2px 0 0 22px; font-size: 12px; color: #666; line-height: 1.4;">Guest Services (2nd Floor) &mdash; STOP HERE FIRST for waivers, height checks, and credentials.</p>
+  </td>
+  </tr>
+  <tr>
+  <td style="padding: 8px 0;">
+    <strong style="color: #5E35B1; font-size: 16px;">3.</strong>
+    <strong style="color: #1A1A1A; font-size: 13px;">Trackside Check-In</strong>
+    <p style="margin: 2px 0 0 22px; font-size: 12px; color: #666; line-height: 1.4;"><strong style="color:#D71C1C;">Your race time = check-in time, not race start.</strong> Be downstairs 5 min early for POV camera &amp; safety briefing.</p>
+  </td>
+  </tr>
+  </table>
+
+  <!-- Compact Tiers -->
+  <table width="100%" cellpadding="0" cellspacing="6" border="0" style="margin-top: 14px;">
+  <tr>
+  <td width="33%" align="center" style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 4px; padding: 8px;">
+    <p style="margin: 0; font-size: 14px; font-weight: bold; color: #00838F;">Starter</p>
+    <p style="margin: 2px 0 0 0; font-size: 9px; color: #888;">41s Blue / 46s Red</p>
+  </td>
+  <td width="33%" align="center" style="background-color: #F0EBF8; border: 1px solid #D1C4E9; border-radius: 4px; padding: 8px;">
+    <p style="margin: 0; font-size: 14px; font-weight: bold; color: #5E35B1;">Intermediate</p>
+    <p style="margin: 2px 0 0 0; font-size: 9px; color: #888;">32.5s Blue / 37s Red</p>
+  </td>
+  <td width="33%" align="center" style="background-color: #FFEBEE; border: 1px solid #FFCDD2; border-radius: 4px; padding: 8px;">
+    <p style="margin: 0; font-size: 14px; font-weight: bold; color: #C62828;">Pro</p>
+    <p style="margin: 2px 0 0 0; font-size: 9px; color: #888;">Elite only</p>
+  </td>
+  </tr>
+  </table>
+
+  <p style="font-size: 11px; color: #888; text-align: center; margin: 10px 0 0 0;">
+    Everyone starts in Starter. Hit the qualifying lap time to unlock the next level. Most qualify in 1&ndash;2 heats.
+  </p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- CTA BUTTONS -->
+<tr>
+<td align="center" style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" style="padding-right: 8px;">
+  <a href="^ReservationLink()$" class="cta-btn">View Reservation</a>
+</td>
+<td align="center" style="padding-left: 8px;">
+  <a href="^ActivityBoxLink()$" class="cta-btn red">Download App</a>
+</td>
+</tr>
+</table>
+
+<p style="font-size: 12px; color: #999; margin: 12px 0 0 0;">
+  Questions? Call <strong style="color:#333;">(239) 481-9666</strong>
+</p>
+</td>
+</tr>
+
+<!-- FOOTER -->
+<tr>
+<td style="padding: 20px 40px; background-color: #000418; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td width="50%" style="font-size: 11px; color: #8A8FA0; vertical-align: top;">
+  <strong style="color: #FFFFFF;">HeadPinz Fort Myers</strong><br/>
+  14513 Global Parkway<br/>
+  Fort Myers, FL 33913
+</td>
+<td width="50%" align="right" style="font-size: 11px; color: #8A8FA0; vertical-align: top;">
+  <strong style="color: #FFFFFF;">FastTrax Fort Myers</strong><br/>
+  14501 Global Parkway<br/>
+  Fort Myers, FL 33913
+</td>
+</tr>
+</table>
+<p style="margin: 12px 0 0 0; font-size: 10px; color: #555; text-align: center;">
+  <a href="https://headpinz.com" style="color: #00E2E5; text-decoration: none;">headpinz.com</a> &nbsp;|&nbsp;
+  <a href="https://fasttraxent.com" style="color: #00E2E5; text-decoration: none;">fasttraxent.com</a>
+</p>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+</table>
+</body>
+</html>
