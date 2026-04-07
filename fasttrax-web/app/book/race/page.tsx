@@ -330,8 +330,34 @@ export default function BookRacePage() {
     }
   }
 
-  function handlePartyNext() {
+  async function handlePartyNext() {
     trackBookingParty(adults, juniors);
+    const totalRacers = adults + juniors;
+
+    // New racers: sell license immediately to create the bill
+    if (racerType === "new" && activeBills.length === 0) {
+      try {
+        const sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
+        const res = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: sellBody,
+        });
+        const raw = await res.text();
+        const billMatch = raw.match(/"orderId"\s*:\s*(\d+)/);
+        if (billMatch) {
+          const billId = billMatch[1];
+          console.log("[license] sold at party step, bill:", billId);
+          setActiveBills([{ billId, racerName: "Group", category: adults > 0 ? "adult" : "junior" }]);
+          sessionStorage.setItem("attractionOrderId", billId);
+        } else {
+          console.error("[license] sell failed:", raw.substring(0, 200));
+        }
+      } catch (err) {
+        console.error("[license] sell error:", err);
+      }
+    }
+
     setStep("date");
   }
 
@@ -413,30 +439,8 @@ export default function BookRacePage() {
         }
         console.log("[bookHeatForRacers] returning racers:", selectedRacers.map(r => r.fullName).join(", "), "on bill:", orderId);
       } else {
-        // New racers: sell license first to create bill, then book race onto it
-        let billForRace = existingBillId;
-
-        if (!billForRace && racerType === "new") {
-          // Sell license — creates the bill
-          try {
-            const licSellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${racerCount},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
-            const licRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: licSellBody,
-            });
-            const licRaw = await licRes.text();
-            const licBillMatch = licRaw.match(/"orderId"\s*:\s*(\d+)/);
-            if (licBillMatch) {
-              billForRace = licBillMatch[1];
-              console.log("[license] sold, bill:", billForRace);
-            }
-          } catch (err) {
-            console.error("[license sell failed]", err);
-          }
-        }
-
-        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, billForRace);
+        // New racers: license already sold at party step, bill exists in activeBills
+        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, existingBillId);
         if (!existingBillId) {
           createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
           setActiveBills(prev => [...prev, ...createdBills]);
