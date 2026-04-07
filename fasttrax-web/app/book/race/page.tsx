@@ -107,31 +107,15 @@ export default function BookRacePage() {
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
-  const [activeBills, _setActiveBills] = useState<RacerBill[]>(() => {
+  // Check sessionStorage for existing bill from attractions flow (multi-activity cart)
+  const [activeBills, setActiveBills] = useState<RacerBill[]>(() => {
     if (typeof window === "undefined") return [];
     const existingOrderId = sessionStorage.getItem("attractionOrderId");
-    if (existingOrderId) {
-      return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
-    }
+    if (existingOrderId) return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
     return [];
   });
-  // Keep a ref always in sync so closures never read stale state
-  const activeBillsRef = useRef(activeBills);
-  function setActiveBills(updater: RacerBill[] | ((prev: RacerBill[]) => RacerBill[])) {
-    _setActiveBills(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      activeBillsRef.current = next;
-      // Keep sessionStorage in sync
-      if (next.length > 0) {
-        sessionStorage.setItem("attractionOrderId", next[0].billId);
-      } else {
-        sessionStorage.removeItem("attractionOrderId");
-      }
-      return next;
-    });
-  }
-  // Primary bill ID — always reads from ref for freshness
-  const activeOrderId = activeBillsRef.current.length > 0 ? activeBillsRef.current[0].billId : null;
+  // Convenience: primary bill ID (first bill, used for add-ons/POV/overview)
+  const activeOrderId = activeBills.length > 0 ? activeBills[0].billId : null;
 
   const contentRef = useRef<HTMLDivElement>(null);
   const nextBtnRef = useRef<HTMLDivElement>(null);
@@ -142,8 +126,6 @@ export default function BookRacePage() {
   useEffect(() => {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
-
-
 
   // Sync racing bookings to sessionStorage so the unified MiniCart can display them
   useEffect(() => {
@@ -408,8 +390,7 @@ export default function BookRacePage() {
 
     try {
       let createdBills: RacerBill[] = [];
-      const existingBillId = activeBillsRef.current.length > 0 ? activeBillsRef.current[0].billId : null;
-      console.log("[bookHeatForRacers] existingBillId:", existingBillId);
+      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : null;
 
       if (selectedRacers && selectedRacers.length > 0) {
         // Returning racers: book each racer individually with personId, all on one bill
@@ -432,7 +413,7 @@ export default function BookRacePage() {
         }
         console.log("[bookHeatForRacers] returning racers:", selectedRacers.map(r => r.fullName).join(", "), "on bill:", orderId);
       } else {
-        // New racers: license already sold at party step, bill exists in activeBills
+        // New racers: one bill for the group (unchanged)
         const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, existingBillId);
         if (!existingBillId) {
           createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
@@ -1086,19 +1067,15 @@ export default function BookRacePage() {
             date={selectedDate || ""}
             bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
             initialAddOns={selectedAddOns}
-            isNewRacer={racerType === "new"}
             onContinue={async (addOns) => {
               trackBookingAddOns(addOns.filter(a => a.quantity > 0).map(a => a.shortName));
               // Remove old add-on lines from bill
               for (const old of selectedAddOns.filter(a => a.billLineId)) {
                 await removeBookingLine(activeOrderId!,old.billLineId!).catch(() => {});
               }
-              // License is already on the bill (sold during heat booking for new racers)
-              // Skip it in add-on processing
+              // Book new add-ons onto bill
               const bookedAddOns: AddOnItem[] = [];
-
-              // Book new add-ons onto bill (time-slot products)
-              for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal && a.id !== "11253570")) {
+              for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
                 try {
                   const addonBody: Record<string, unknown> = {
                     productId: String(addon.id),
@@ -1132,7 +1109,7 @@ export default function BookRacePage() {
                 }
               }
               // Also keep add-ons with quantity but no proposal (no time slot needed)
-              for (const addon of addOns.filter(a => a.quantity > 0 && !a.proposal && a.id !== "11253570")) {
+              for (const addon of addOns.filter(a => a.quantity > 0 && !a.proposal)) {
                 bookedAddOns.push(addon);
               }
               setSelectedAddOns(bookedAddOns);
@@ -1211,8 +1188,6 @@ export default function BookRacePage() {
             }}
             onRemoveAddOn={async (index) => {
               const toRemove = selectedAddOns[index];
-              // Don't allow removing the license
-              if (toRemove?.id === "11253570") return;
               if (toRemove?.billLineId) {
                 await removeBookingLine(activeOrderId!, toRemove.billLineId).catch(() => {});
               }
@@ -1220,19 +1195,6 @@ export default function BookRacePage() {
               // Re-enter summary to refresh totals (after removal completes)
               setStep("heat");
               setTimeout(() => setStep("summary"), 200);
-            }}
-            onStartOver={() => {
-              cancelActiveOrder();
-              setBookings([]);
-              setSelectedAddOns([]);
-              setSelectedPov(null);
-              setSelectedProduct(null);
-              setSelectedProposal(null);
-              setSelectedDate(null);
-              setRacerType(null);
-              setVerifiedPerson(null);
-              setVerifiedRacers([]);
-              setStep("experience");
             }}
             onRemovePov={async () => {
               if (selectedPov?.billLineId) {
@@ -1250,24 +1212,7 @@ export default function BookRacePage() {
       </div>
 
       {/* Unified floating cart */}
-      {step !== "summary" && (
-        <MiniCart onStartOver={() => {
-          cancelActiveOrder();
-          sessionStorage.removeItem("attractionOrderId");
-          sessionStorage.removeItem("attractionCart");
-          setBookings([]);
-          setSelectedAddOns([]);
-          setSelectedPov(null);
-          setSelectedProduct(null);
-          setSelectedProposal(null);
-          setSelectedDate(null);
-          setRacerType(null);
-          setVerifiedPerson(null);
-          setVerifiedRacers([]);
-          setActiveBills([]);
-          setStep("experience");
-        }} />
-      )}
+      {step !== "summary" && <MiniCart />}
 
       {/* Linked Racer Modal */}
       {showLinkedModal && (

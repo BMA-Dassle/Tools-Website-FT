@@ -61,8 +61,6 @@ interface OrderSummaryProps {
   onRemoveAddOn?: (index: number) => void;
   /** Callback to remove POV */
   onRemovePov?: () => void;
-  /** Callback to cancel everything and start over */
-  onStartOver?: () => void;
 }
 
 /** Add a memo to each bill listing all related reservations in the group */
@@ -110,10 +108,7 @@ function formatTime(iso: string) {
 }
 
 function formatDate(dateStr: string) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr + "T12:00:00");
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -138,7 +133,6 @@ export default function OrderSummary({
   pov,
   onRemoveAddOn,
   onRemovePov,
-  onStartOver,
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const effectRan = useRef(false);
@@ -673,7 +667,7 @@ export default function OrderSummary({
                       <span className="text-[#00E2E5]/60 ml-2">${(a.price * a.quantity).toFixed(2)}</span>
                     </p>
                   </div>
-                  {onRemoveAddOn && state.status === "booked" && a.id !== "11253570" && xBtn(() => onRemoveAddOn(card.addOnIdx))}
+                  {onRemoveAddOn && state.status === "booked" && xBtn(() => onRemoveAddOn(card.addOnIdx))}
                 </div>
               );
             })}
@@ -742,31 +736,20 @@ export default function OrderSummary({
             </p>
             <p>
               &middot; A{" "}
-              <strong className="text-white/60">$4.99 FastTrax Racing License</strong> per
-              driver is included for first-time racers. Returning racers with a valid license are not charged.
+              <strong className="text-white/60">$4.99 license fee</strong> per
+              driver applies at first check-in.
             </p>
           </div>
 
           {/* Actions */}
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={onBack}
-                disabled={isPaying}
-                className="text-sm text-white/40 hover:text-white/70 disabled:opacity-30 transition-colors"
-              >
-                Back
-              </button>
-              {onStartOver && (
-                <button
-                  onClick={onStartOver}
-                  disabled={isPaying}
-                  className="text-sm text-red-400/60 hover:text-red-400 disabled:opacity-30 transition-colors"
-                >
-                  Start Over
-                </button>
-              )}
-            </div>
+            <button
+              onClick={onBack}
+              disabled={isPaying}
+              className="text-sm text-white/40 hover:text-white/70 disabled:opacity-30 transition-colors"
+            >
+              Back
+            </button>
             <button
               onClick={handleConfirm}
               disabled={isPaying}
