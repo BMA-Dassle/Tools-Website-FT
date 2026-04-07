@@ -147,28 +147,12 @@ export function calculateTotal(subtotal: number): number {
 }
 
 // ── Price lookup ────────────────────────────────────────────────────────────
-// BMI Public API does not return prices. These are the known prices from the
-// SMS-Timing API, keyed by tier + category + packType.
+// BMI Public API product listings don't include prices (prices: null).
+// Real prices come from dayplanner blocks at heat selection time.
+// Return 0 when no API price is available — UI should hide $0 prices.
 
-const PRICE_TABLE: Record<string, number> = {
-  // Single races (race only — license fee is a separate $4.99 line item)
-  "starter|adult|none": 26.99,
-  "starter|junior|none": 26.99,
-  "intermediate|adult|none": 26.99,
-  "intermediate|junior|none": 26.99,
-  "pro|adult|none": 26.99,
-  "pro|junior|none": 26.99,
-  // Combo packs (Mega — 3 races)
-  "intermediate|adult|combo": 49.98,
-  "pro|adult|combo": 49.98,
-  // Sell packs (weekday — 3 races)
-  "intermediate|adult|sell": 49.99,
-  "pro|adult|sell": 49.99,
-};
-
-function lookupPrice(tier: RaceTier, category: RaceCategory, packType: PackType, apiPrice: number): number {
-  if (apiPrice > 0) return apiPrice; // Use API price if available
-  return PRICE_TABLE[`${tier}|${category}|${packType}`] ?? 25.98;
+function lookupPrice(apiPrice: number): number {
+  return apiPrice > 0 ? apiPrice : 0;
 }
 
 // ── Classified product ──────────────────────────────────────────────────────
@@ -227,7 +211,7 @@ export function classifyProducts(pages: BmiPage[]): ClassifiedProduct[] {
       const raceCountMatch = name.match(/(\d+)[- ]?race/i);
       const raceCount = packType !== "none" ? (raceCountMatch ? parseInt(raceCountMatch[1], 10) : 3) : 1;
 
-      const price = lookupPrice(tier, category, packType, apiPrice);
+      const price = lookupPrice(apiPrice);
 
       results.push({
         productId: String(prod.id),

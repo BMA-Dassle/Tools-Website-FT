@@ -160,7 +160,9 @@ function ProductGroup({ items, selected, onSelect }: {
             </span>
           )}
         </div>
-        <span className={`${c.text} font-bold text-sm`}>${representative.price.toFixed(2)}</span>
+        {representative.price > 0 && (
+          <span className={`${c.text} font-bold text-sm`}>${representative.price.toFixed(2)}</span>
+        )}
       </div>
       <p className="text-white/40 text-xs mb-3 leading-relaxed">{TIER_DESCRIPTIONS[representative.tier]}</p>
 
@@ -228,7 +230,9 @@ function ProductCard({ product, isSelected, onSelect }: {
             </span>
           )}
         </div>
-        <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
+        {product.price > 0 && (
+          <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
+        )}
       </div>
 
       <p className="text-white/40 text-xs mt-1 leading-relaxed">{TIER_DESCRIPTIONS[product.tier]}</p>
@@ -237,7 +241,7 @@ function ProductCard({ product, isSelected, onSelect }: {
         <p className="text-white/30 text-xs mt-1">{product.track} Track</p>
       )}
 
-      {isPack && (
+      {isPack && product.price > 0 && (
         <p className="text-amber-400/70 text-xs mt-1">
           ${(product.price / product.raceCount).toFixed(2)}/race — Race more, save more
         </p>
