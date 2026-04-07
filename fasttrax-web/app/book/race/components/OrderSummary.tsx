@@ -683,18 +683,28 @@ export default function OrderSummary({
       <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
         {state.status === "booked" ? (
           <>
-            {state.bmiLines.map((line, i) => (
-              <div key={i} className="flex justify-between text-sm">
-                <div className="text-white/60">
-                  <span>{line.name} x {line.quantity}</span>
-                  {line.racers && line.racers.length > 0 && (
-                    <span className="text-white/30 ml-1">({line.racers.join(", ")})</span>
+            {state.bmiLines.map((line, i) => {
+              const isLicense = line.name.toLowerCase().includes("license");
+              return (
+                <div key={i}>
+                  <div className="flex justify-between text-sm">
+                    <div className="text-white/60">
+                      <span>{line.name} x {line.quantity}</span>
+                      {line.racers && line.racers.length > 0 && (
+                        <span className="text-white/30 ml-1">({line.racers.join(", ")})</span>
+                      )}
+                      {line.time && <span className="text-white/30 ml-1">{formatTime(line.time)}</span>}
+                    </div>
+                    <span className="text-white shrink-0">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
+                  </div>
+                  {isLicense && (
+                    <p className="text-white/30 text-xs mt-0.5 ml-1">
+                      One-year license includes use of head sock, helmet, and access to the FastTrax app for race scheduling.
+                    </p>
                   )}
-                  {line.time && <span className="text-white/30 ml-1">{formatTime(line.time)}</span>}
                 </div>
-                <span className="text-white shrink-0">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
-              </div>
-            ))}
+              );
+            })}
 
             <div className="border-t border-white/10 pt-2 space-y-1">
               <div className="flex justify-between text-sm">
