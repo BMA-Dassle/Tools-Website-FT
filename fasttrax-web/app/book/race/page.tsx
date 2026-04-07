@@ -70,7 +70,16 @@ export default function BookRacePage() {
   const autoCodeRef = useRef<string | null>(searchParams.get("code"));
   const licenseSoldRef = useRef(false); // Track whether FastTrax license has been sold on this bill
   const [licenseSold, setLicenseSold] = useState<{ quantity: number; billLineId: string | null } | null>(null);
-  const [step, setStep] = useState<Step>("experience");
+  const [step, setStepRaw] = useState<Step>("experience");
+  /** Update step state AND push to URL for browser back/forward support */
+  function changeStep(s: Step) {
+    setStepRaw(s);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("step", s);
+      window.history.pushState({ step: s }, "", url.toString());
+    }
+  }
   const [racerType, setRacerType] = useState<RacerType | null>(null);
   const [adults, setAdults] = useState(1);
   const [juniors, setJuniors] = useState(0);
@@ -132,6 +141,36 @@ export default function BookRacePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Initialize step from URL query param on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlStep = params.get("step") as Step | null;
+    if (urlStep && STEPS.includes(urlStep)) {
+      // Only restore early steps that don't need prior state
+      const safeSteps: Step[] = ["experience", "party", "date"];
+      if (safeSteps.includes(urlStep)) {
+        setStepRaw(urlStep);
+      }
+    }
+    // Set initial history state so popstate works on first back
+    window.history.replaceState({ step: urlStep || "experience" }, "");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Browser back/forward button support
+  useEffect(() => {
+    function handlePopState(e: PopStateEvent) {
+      const s = e.state?.step as Step;
+      if (s && STEPS.includes(s)) {
+        setStepRaw(s); // Direct set — don't push to history again
+      } else {
+        setStepRaw("experience");
+      }
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   // Scroll to top of content when step changes
   useEffect(() => {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -141,7 +180,7 @@ export default function BookRacePage() {
   useEffect(() => {
     function handleMiniCartCheckout() {
       if (bookings.length > 0 || packResult) {
-        setStep("contact");
+        changeStep("contact");
       }
     }
     window.addEventListener("miniCartCheckout", handleMiniCartCheckout);
@@ -240,7 +279,7 @@ export default function BookRacePage() {
     sessionStorage.removeItem("attractionOrderId");
     sessionStorage.removeItem("attractionCart");
     if (type === "new") {
-      setTimeout(() => setStep("party"), 300);
+      setTimeout(() => changeStep("party"), 300);
     }
   }
 
@@ -282,7 +321,7 @@ export default function BookRacePage() {
       setLinkedFetching(false);
     }).catch(() => { setLinkedFetching(false); });
     // Go to party step — will show category choice for primary
-    setTimeout(() => setStep("party"), 300);
+    setTimeout(() => changeStep("party"), 300);
   }
 
   async function handleAddLinkedRacer(pandoraId: string, category: "adult" | "junior") {
@@ -372,7 +411,7 @@ export default function BookRacePage() {
 
   function handlePartyNext() {
     trackBookingParty(adults, juniors);
-    setStep("date");
+    changeStep("date");
   }
 
   function handleDateSelect(date: string) {
@@ -384,7 +423,7 @@ export default function BookRacePage() {
     // Don't clear bookings — "Add Another Race" loops back to date
     setBookingCategory(adults > 0 ? "adult" : "junior");
     fetchCatalog(date);
-    setStep("product");
+    changeStep("product");
   }
 
   function handleProductSelect(product: ClassifiedProduct) {
@@ -395,14 +434,14 @@ export default function BookRacePage() {
     setQuantity(Math.max(1, q));
     // Auto-advance to heat selection
     setHeatPickerKey(k => k + 1); // Force fresh HeatPicker mount
-    setTimeout(() => setStep("heat"), 300);
+    setTimeout(() => changeStep("heat"), 300);
   }
 
   function handlePackComplete(result: PackBookingResult) {
     setPackResult(result);
     // Pack bookings create the bill during heat selection, so skip straight to contact
     // (We still need contact info for the reservation)
-    setStep("contact");
+    changeStep("contact");
   }
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
@@ -520,15 +559,15 @@ export default function BookRacePage() {
         setSelectedProduct(null);
         setSelectedProposal(null);
         setSelectedBlock(null);
-        setStep("product");
+        changeStep("product");
       } else if (needJunior) {
         setBookingCategory("junior");
         setSelectedProduct(null);
         setSelectedProposal(null);
         setSelectedBlock(null);
-        setStep("product");
+        changeStep("product");
       } else {
-        setStep("pov");
+        changeStep("pov");
       }
     } catch (err) {
       console.error("[bookHeatForRacers] booking failed:", err);
@@ -576,7 +615,7 @@ export default function BookRacePage() {
       setSelectedProduct(null);
       setSelectedProposal(null);
       setSelectedBlock(null);
-      setStep("date");
+      changeStep("date");
     } catch (err) {
       console.error("[handleAddAnother] booking failed:", err);
       alert("Failed to reserve heat. Please try again.");
@@ -586,7 +625,7 @@ export default function BookRacePage() {
   function handleContactSubmit(info: ContactInfo) {
     trackBookingContact();
     setContact(info);
-    setStep("summary");
+    changeStep("summary");
   }
 
   function cancelActiveOrder() {
@@ -601,7 +640,7 @@ export default function BookRacePage() {
   function goToStep(s: Step) {
     const targetIdx = STEPS.indexOf(s);
     if (targetIdx < currentIdx) {
-      setStep(s);
+      changeStep(s);
       // Reset downstream selections when going back
       if (targetIdx < STEPS.indexOf("product")) {
         setSelectedProduct(null);
@@ -734,7 +773,7 @@ export default function BookRacePage() {
               onJuniorsChange={setJuniors}
             />
             <div className="flex items-center justify-between">
-              <button onClick={() => setStep("experience")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+              <button onClick={() => changeStep("experience")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
                 ← Back
               </button>
               {partyTotal > 0 && (
@@ -932,7 +971,7 @@ export default function BookRacePage() {
                 </div>
 
                 <div className="flex items-center justify-between max-w-md mx-auto">
-                  <button onClick={() => { setStep("experience"); setVerifiedPerson(null); setVerifiedRacers([]); }} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                  <button onClick={() => { changeStep("experience"); setVerifiedPerson(null); setVerifiedRacers([]); }} className="text-sm text-white/40 hover:text-white/70 transition-colors">
                     ← Back
                   </button>
                   <button
@@ -951,7 +990,7 @@ export default function BookRacePage() {
         {step === "date" && (
           <div className="space-y-8">
             <DatePicker selected={selectedDate} onSelect={handleDateSelect} />
-            <button onClick={() => setStep("party")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+            <button onClick={() => changeStep("party")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
               ← Change party size
             </button>
           </div>
@@ -1034,7 +1073,7 @@ export default function BookRacePage() {
                 />
               </>
             )}
-            <button onClick={() => setStep("date")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+            <button onClick={() => changeStep("date")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
               ← Change date
             </button>
           </div>
@@ -1048,7 +1087,7 @@ export default function BookRacePage() {
               date={selectedDate}
               quantity={quantity}
               onComplete={handlePackComplete}
-              onBack={() => setStep("product")}
+              onBack={() => changeStep("product")}
             />
           ) : (
             <HeatPicker
@@ -1059,7 +1098,7 @@ export default function BookRacePage() {
               onQuantityChange={setQuantity}
               onConfirm={handleConfirmHeat}
               onAddAnother={handleAddAnother}
-              onBack={() => setStep("product")}
+              onBack={() => changeStep("product")}
               confirmLabel={
                 bookingCategory === "adult" && juniors > 0
                   ? `Continue to Junior Race${juniors > 1 ? "s" : ""} →`
@@ -1125,9 +1164,9 @@ export default function BookRacePage() {
               } else {
                 setSelectedPov(pov);
               }
-              setStep("addons");
+              changeStep("addons");
             }}
-            onBack={() => setStep("heat")}
+            onBack={() => changeStep("heat")}
           />
         )}
 
@@ -1185,12 +1224,12 @@ export default function BookRacePage() {
               }
               setSelectedAddOns(bookedAddOns);
               if (verifiedPerson && contact) {
-                setStep("summary");
+                changeStep("summary");
               } else {
-                setStep("contact");
+                changeStep("contact");
               }
             }}
-            onBack={() => setStep("pov")}
+            onBack={() => changeStep("pov")}
           />
         )}
 
@@ -1199,7 +1238,7 @@ export default function BookRacePage() {
           <ContactForm
             initial={contact}
             onSubmit={handleContactSubmit}
-            onBack={() => setStep("addons")}
+            onBack={() => changeStep("addons")}
             // ContactForm back goes to addons
           />
         )}
@@ -1212,7 +1251,7 @@ export default function BookRacePage() {
             contact={contact}
             billId={activeOrderId}
             bills={activeBills}
-            onBack={() => setStep("contact")}
+            onBack={() => changeStep("contact")}
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
@@ -1249,10 +1288,10 @@ export default function BookRacePage() {
                 const updated = prev.filter((_, i) => i !== index);
                 if (updated.length === 0) {
                   cancelActiveOrder();
-                  setStep("date");
+                  changeStep("date");
                 } else {
-                  setStep("heat");
-                  setTimeout(() => setStep("summary"), 200);
+                  changeStep("heat");
+                  setTimeout(() => changeStep("summary"), 200);
                 }
                 return updated;
               });
@@ -1264,16 +1303,16 @@ export default function BookRacePage() {
               }
               setSelectedAddOns(prev => prev.filter((_, i) => i !== index));
               // Re-enter summary to refresh totals (after removal completes)
-              setStep("heat");
-              setTimeout(() => setStep("summary"), 200);
+              changeStep("heat");
+              setTimeout(() => changeStep("summary"), 200);
             }}
             onRemovePov={async () => {
               if (selectedPov?.billLineId) {
                 await removeBookingLine(activeOrderId!, selectedPov.billLineId).catch(() => {});
               }
               setSelectedPov(null);
-              setStep("heat");
-              setTimeout(() => setStep("summary"), 200);
+              changeStep("heat");
+              setTimeout(() => changeStep("summary"), 200);
             }}
           />
         )}
