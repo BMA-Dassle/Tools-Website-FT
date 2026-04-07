@@ -225,6 +225,19 @@ export default function OrderSummary({
           if (overview.lines) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             for (const l of overview.lines as any[]) {
+              // Skip BMI's auto-added membership license (kind=3, productId 11253570)
+              // This is NOT our intentional license sell (productId 43473520, kind=1)
+              // BMI auto-adds this for membersOnly races — subtract from totals
+              if (l.kind === 3 && String(l.productId) === "11253570") {
+                const memPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0)?.amount ?? 0;
+                const memTax = l.totalTax ?? 0;
+                bmiTotal -= (memPrice + memTax);
+                bmiSubtotal -= memPrice;
+                bmiTax -= memTax;
+                cashOwed -= (memPrice + memTax);
+                console.log("[bill overview] skipping BMI auto-added membership:", l.name, "subtracted:", memPrice + memTax);
+                continue;
+              }
               const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
               const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
               // Consume `quantity` racer names from the queue (BMI groups into one line with qty>1)
