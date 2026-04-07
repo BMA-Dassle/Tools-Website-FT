@@ -108,7 +108,9 @@ function formatTime(iso: string) {
 }
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+  const dateOnly = dateStr.split("T")[0];
+  const [y, m, d] = dateOnly.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",

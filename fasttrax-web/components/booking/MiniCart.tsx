@@ -91,9 +91,13 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-white text-sm font-semibold">{item.attractionName}: {item.product.name}</p>
-                    <p className="text-white/40 text-xs">
-                      {formatDate(item.date)} · {formatTime(item.time.block.start)}
-                    </p>
+                    {item.date && item.time.block.start ? (
+                      <p className="text-white/40 text-xs">
+                        {formatDate(item.date)} · {formatTime(item.time.block.start)}
+                      </p>
+                    ) : item.date ? (
+                      <p className="text-white/40 text-xs">{formatDate(item.date)}</p>
+                    ) : null}
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-white/50 text-xs">
                         {item.quantity} {item.product.bookingMode === "per-person" ? `person${item.quantity !== 1 ? "s" : ""}` : `table${item.quantity !== 1 ? "s" : ""}`}
@@ -101,14 +105,16 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                       <span className="text-[#00E2E5] text-xs">${(item.product.price * item.quantity).toFixed(2)}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleRemove(i); }}
-                    className="text-red-400/50 hover:text-red-400 transition-colors p-1 shrink-0"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                  {!item.product.name.toLowerCase().includes("license") && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRemove(i); }}
+                      className="text-red-400/50 hover:text-red-400 transition-colors p-1 shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

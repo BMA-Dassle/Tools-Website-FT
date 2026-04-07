@@ -69,6 +69,7 @@ export default function BookRacePage() {
   const searchParams = useSearchParams();
   const autoCodeRef = useRef<string | null>(searchParams.get("code"));
   const licenseSoldRef = useRef(false); // Track whether FastTrax license has been sold on this bill
+  const [licenseSold, setLicenseSold] = useState<{ quantity: number; billLineId: string | null } | null>(null);
   const [step, setStep] = useState<Step>("experience");
   const [racerType, setRacerType] = useState<RacerType | null>(null);
   const [adults, setAdults] = useState(1);
@@ -148,8 +149,22 @@ export default function BookRacePage() {
       color: "#E41C1D",
       racerNames: b.racerNames,
     }));
+    // Add license if sold
+    if (licenseSold) {
+      racingItems.push({
+        attraction: "racing",
+        attractionName: "Racing",
+        product: { name: "FastTrax License", price: 4.99, bookingMode: "per-person" },
+        date: bookings[0]?.block.start.split("T")[0] || "",
+        time: { block: { start: "" } },
+        quantity: licenseSold.quantity,
+        billLineId: licenseSold.billLineId,
+        color: "#3B82F6",
+        racerNames: undefined,
+      });
+    }
     sessionStorage.setItem("attractionCart", JSON.stringify([...nonRacing, ...racingItems]));
-  }, [bookings]);
+  }, [bookings, licenseSold]);
 
   // Fetch product catalog when date is selected
   const fetchCatalog = useCallback(async (date: string) => {
@@ -441,7 +456,9 @@ export default function BookRacePage() {
             const sellResult = JSON.parse(sellRaw);
             if (sellResult.success !== false) {
               licenseSoldRef.current = true;
-              console.log("[license sell] sold", totalRacers, "license(s) on bill", billForSell);
+              const lineId = String(sellRaw.match(/"orderItemId"\s*:\s*(\d+)/)?.[1] || "");
+              setLicenseSold({ quantity: totalRacers, billLineId: lineId || null });
+              console.log("[license sell] sold", totalRacers, "license(s) on bill", billForSell, "lineId:", lineId);
             } else {
               console.warn("[license sell] failed:", sellResult.errorMessage);
             }
@@ -552,6 +569,7 @@ export default function BookRacePage() {
     }
     setActiveBills([]);
     licenseSoldRef.current = false;
+    setLicenseSold(null);
   }
 
   function goToStep(s: Step) {
