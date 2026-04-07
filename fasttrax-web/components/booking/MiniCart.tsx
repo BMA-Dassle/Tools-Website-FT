@@ -127,10 +127,11 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
             {items.length > 0 && (() => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const hasRacing = items.some((i: any) => i.attraction === "racing");
-              const checkoutUrl = hasRacing ? "/book/race" : "/book/checkout";
+              // Race flow has its own checkout steps — only show checkout for attractions
+              if (hasRacing) return null;
               return (
                 <a
-                  href={checkoutUrl}
+                  href="/book/checkout"
                   className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
                 >
                   Checkout →
