@@ -1079,13 +1079,16 @@ export default function BookRacePage() {
               const bookedAddOns: AddOnItem[] = [];
               if (licenseAddon && activeOrderId) {
                 try {
-                  const sellJson = `{"ProductId":11253570,"PageId":43472899,"Quantity":1,"orderId":${activeOrderId},"personId":null}`;
+                  // Use raw string injection for orderId to avoid precision loss
+                  const sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":1,"OrderId":${activeOrderId},"ParentOrderItemId":null,"DynamicLines":[]}`;
+                  console.log("[license sell] body:", sellBody);
                   const sellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
                     method: "POST",
                     headers: { "content-type": "application/json" },
-                    body: sellJson,
+                    body: sellBody,
                   });
                   const sellRaw = await sellRes.text();
+                  console.log("[license sell] response:", sellRaw.substring(0, 300));
                   const lineMatch = sellRaw.match(/"orderItemId"\s*:\s*(\d+)/);
                   console.log("[license sell]", "lineId:", lineMatch?.[1]);
                   bookedAddOns.push({ ...licenseAddon, billLineId: lineMatch?.[1] });

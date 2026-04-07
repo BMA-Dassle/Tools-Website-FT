@@ -281,7 +281,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                 <span className="text-[#00E2E5] font-bold text-lg">$4.99</span>
               </div>
               <p className="text-white/60 text-sm leading-relaxed mb-2">
-                Valid for one year. Includes your head sock, helmet use, access to the FastTrax Racing App, and race scheduling.
+                Valid for one year. Includes use of head sock, helmet, access to the FastTrax Racing App, and race scheduling.
               </p>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-[#004AAD]/30 text-[#00E2E5]">
