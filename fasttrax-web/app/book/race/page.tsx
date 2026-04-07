@@ -439,32 +439,33 @@ export default function BookRacePage() {
           createdBills = activeBills.filter(b => b.category === cat);
         }
         if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
+      }
 
-        // Sell FastTrax License for new racers (once per booking session)
-        const billForSell = existingBillId || rawOrderId;
-        if (racerType === "new" && !licenseSoldRef.current) {
-          try {
-            const totalRacers = adults + juniors;
-            const sellBody = `{"ProductId":43473520,"Quantity":${totalRacers},"orderId":${billForSell}}`;
-            const sellQs = new URLSearchParams({ endpoint: "booking/sell" });
-            const sellRes = await fetch(`/api/bmi?${sellQs.toString()}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: sellBody,
-            });
-            const sellRaw = await sellRes.text();
-            const sellResult = JSON.parse(sellRaw);
-            if (sellResult.success !== false) {
-              licenseSoldRef.current = true;
-              const lineId = String(sellRaw.match(/"orderItemId"\s*:\s*(\d+)/)?.[1] || "");
-              setLicenseSold({ quantity: totalRacers, billLineId: lineId || null });
-              console.log("[license sell] sold", totalRacers, "license(s) on bill", billForSell, "lineId:", lineId);
-            } else {
-              console.warn("[license sell] failed:", sellResult.errorMessage);
-            }
-          } catch (err) {
-            console.warn("[license sell] error (non-fatal):", err);
+      // Sell FastTrax License — ONLY for new racers, never returning racers
+      // Triple guard: no selectedRacers (structural), racerType check, and once-per-session ref
+      const primaryBillId = activeBills[0]?.billId || createdBills[0]?.billId;
+      if (!selectedRacers && racerType === "new" && !licenseSoldRef.current && primaryBillId) {
+        try {
+          const totalRacers = adults + juniors;
+          const sellBody = `{"ProductId":43473520,"Quantity":${totalRacers},"orderId":${primaryBillId}}`;
+          const sellQs = new URLSearchParams({ endpoint: "booking/sell" });
+          const sellRes = await fetch(`/api/bmi?${sellQs.toString()}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: sellBody,
+          });
+          const sellRaw = await sellRes.text();
+          const sellResult = JSON.parse(sellRaw);
+          if (sellResult.success !== false) {
+            licenseSoldRef.current = true;
+            const lineId = String(sellRaw.match(/"orderItemId"\s*:\s*(\d+)/)?.[1] || "");
+            setLicenseSold({ quantity: totalRacers, billLineId: lineId || null });
+            console.log("[license sell] sold", totalRacers, "license(s) on bill", primaryBillId, "lineId:", lineId);
+          } else {
+            console.warn("[license sell] failed:", sellResult.errorMessage);
           }
+        } catch (err) {
+          console.warn("[license sell] error (non-fatal):", err);
         }
       }
 
