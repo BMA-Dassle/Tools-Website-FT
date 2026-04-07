@@ -1,0 +1,323 @@
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+  <title>^Subject()$</title>
+
+  <style type="text/css">
+    :root { color-scheme: light; supported-color-schemes: light; }
+    #outlook a { padding: 0; }
+    a img { border: none; }
+    a { color: #004AAD; }
+    table td { border-collapse: collapse; }
+    body { margin: 0; padding: 0; background-color: #F2F3F5; -webkit-text-size-adjust: 100%; }
+
+    .cta-btn {
+      display: inline-block;
+      padding: 14px 28px;
+      background-color: #004AAD;
+      color: #FFFFFF !important;
+      text-decoration: none;
+      border-radius: 555px;
+      font-weight: bold;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .cta-btn.red {
+      background-color: #D71C1C;
+      color: #FFFFFF !important;
+    }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: #004AAD;
+      font-weight: bold;
+    }
+
+    .login-code {
+      display: inline-block;
+      padding: 10px 16px;
+      background-color: #F4F6FA;
+      border: 2px solid #004AAD;
+      color: #004AAD;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+</head>
+
+<body style="margin:0; padding:0; background-color:#F2F3F5;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F3F5;">
+<tr>
+<td align="center" style="padding: 20px 10px;">
+
+<table width="600" cellpadding="0" cellspacing="0" style="background-color:#FFFFFF; border-radius:8px; overflow:hidden; border: 1px solid #E0E0E0;">
+
+<!-- HEADER -->
+<tr>
+<td align="center" style="padding: 28px 40px; background-color: #000418;">
+<img
+  src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png"
+  alt="FastTrax Entertainment"
+  style="max-width: 180px; height: auto;"
+/>
+</td>
+</tr>
+
+<!-- HEADLINE -->
+<tr>
+<td align="center" style="padding: 28px 40px 12px 40px; font-family: Arial, sans-serif;">
+<h1 style="margin: 0 0 6px 0; font-size: 24px; color: #1A1A1A; letter-spacing: 1px; text-transform: uppercase;">
+  Your Race Results
+</h1>
+<p style="margin: 0; font-size: 15px; color: #666;">
+  Here's how you performed on the track.
+</p>
+</td>
+</tr>
+
+<!-- SESSION INFO -->
+<tr>
+<td align="center" style="padding: 0 40px 20px 40px; font-family: Arial, sans-serif;">
+<table cellpadding="10" cellspacing="0" border="0"
+       style="background-color: #F4F6FA; border: 1px solid #E0E0E0; border-radius: 6px;">
+<tr>
+<td align="center">
+  <p style="margin: 0; font-size: 16px; font-weight: bold; color: #1A1A1A;">^[SessionName]$</p>
+  <p style="margin: 4px 0 0 0; font-size: 13px; color: #888;">^[SessionStartTime]$</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- HEAT OVERVIEW -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p class="section-label" style="margin: 0 0 10px 0; text-align: center;">Heat Overview</p>
+
+<table width="100%" cellpadding="6" cellspacing="0" border="0"
+       style="border: 1px solid #E0E0E0; border-radius: 6px; overflow: hidden; font-size: 14px;">
+<tr>
+  <th colspan="2" align="left" style="background-color: #000418; color: #00E2E5; padding: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Position &amp; Racer</th>
+  <th align="center" style="background-color: #000418; color: #00E2E5; padding: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Best Lap</th>
+</tr>
+^RaceBestLapsOverview()$
+</table>
+</td>
+</tr>
+
+<!-- DETAILED RESULTS -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p class="section-label" style="margin: 0 0 10px 0; text-align: center;">Detailed Results</p>
+
+<div style="overflow-x: auto;">
+^RaceLapsOverview()$
+</div>
+</td>
+</tr>
+
+<!-- BEST SCORES -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p class="section-label" style="margin: 0 0 10px 0; text-align: center;">Your Best Times</p>
+
+<table width="100%" cellpadding="0" cellspacing="6" border="0">
+<tr>
+<td width="25%" align="center" style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 6px; padding: 12px;">
+  <p style="margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #00838F; font-weight: bold;">Today</p>
+  <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #1A1A1A;">^TableBestScoresDay()$</p>
+</td>
+<td width="25%" align="center" style="background-color: #F0EBF8; border: 1px solid #D1C4E9; border-radius: 6px; padding: 12px;">
+  <p style="margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #5E35B1; font-weight: bold;">Week</p>
+  <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #1A1A1A;">^TableBestScoresWeek()$</p>
+</td>
+<td width="25%" align="center" style="background-color: #FFFDE7; border: 1px solid #F9A825; border-radius: 6px; padding: 12px;">
+  <p style="margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #E65100; font-weight: bold;">Month</p>
+  <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #1A1A1A;">^TableBestScoresMonth()$</p>
+</td>
+<td width="25%" align="center" style="background-color: #FFEBEE; border: 1px solid #FFCDD2; border-radius: 6px; padding: 12px;">
+  <p style="margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #C62828; font-weight: bold;">All Time</p>
+  <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #1A1A1A;">^TableBestScoresEver()$</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- DID YOU LEVEL UP? -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0"
+       style="background-color: #F8F9FA; border: 1px solid #E0E0E0; border-radius: 6px;">
+<tr>
+<td>
+  <p class="section-label" style="margin: 0 0 8px 0; text-align: center;">Did You Level Up?</p>
+
+  <p style="font-size: 14px; color: #333; line-height: 1.6; margin: 0 0 12px 0; text-align: center;">
+    Check your qualification status in the <strong>Activity Box app</strong>. If you hit the qualifying time, your next tier is already unlocked!
+  </p>
+
+  <table width="100%" cellpadding="0" cellspacing="6" border="0">
+  <tr>
+  <td width="33%" align="center" style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 4px; padding: 8px;">
+    <p style="margin: 0; font-size: 13px; font-weight: bold; color: #00838F;">Starter</p>
+    <p style="margin: 2px 0 0 0; font-size: 9px; color: #888;">41s Blue / 46s Red</p>
+  </td>
+  <td width="33%" align="center" style="background-color: #F0EBF8; border: 1px solid #D1C4E9; border-radius: 4px; padding: 8px;">
+    <p style="margin: 0; font-size: 13px; font-weight: bold; color: #5E35B1;">Intermediate</p>
+    <p style="margin: 2px 0 0 0; font-size: 9px; color: #888;">32.5s Blue / 37s Red</p>
+  </td>
+  <td width="33%" align="center" style="background-color: #FFEBEE; border: 1px solid #FFCDD2; border-radius: 4px; padding: 8px;">
+    <p style="margin: 0; font-size: 13px; font-weight: bold; color: #C62828;">Pro</p>
+    <p style="margin: 2px 0 0 0; font-size: 9px; color: #888;">Elite only</p>
+  </td>
+  </tr>
+  </table>
+
+  <p style="font-size: 12px; color: #888; text-align: center; margin: 10px 0 0 0;">
+    Didn't qualify this time? That's racing. You had nearly 10 laps to find the gap and put down a clean one. Getting stuck behind other drivers is part of the challenge &mdash; learning to pass is what levels you up. Come back and beat your best.
+  </p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- REMEMBER THIS IS RACING -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="14" cellspacing="0" border="0"
+       style="background-color: #FFFDE7; border: 1px solid #F9A825; border-radius: 6px;">
+<tr>
+<td style="font-size: 13px; color: #333; line-height: 1.6;">
+  <strong style="color: #E65100;">Remember: this is real racing.</strong> Not every driver qualifies for the next level on their first try. Traffic, passing, and clean laps under pressure are all part of the skill. The progression system is designed to reward racers who improve &mdash; and most qualify within 1&ndash;2 heats. Your single fastest lap is what counts.
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- BOOK AGAIN CTA -->
+<tr>
+<td align="center" style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p style="font-size: 16px; color: #1A1A1A; font-weight: bold; margin: 0 0 6px 0;">
+  Think you can beat that time?
+</p>
+<p style="font-size: 13px; color: #666; margin: 0 0 14px 0;">
+  Book your next heat and prove it on the track.
+</p>
+
+<a href="^OnlineBookingLink()$" class="cta-btn red">Book Your Next Race</a>
+</td>
+</tr>
+
+<!-- APP + LOGIN CODE -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="14" cellspacing="0" border="0"
+       style="background-color: #F4F6FA; border: 1px solid #E0E0E0; border-radius: 6px;">
+<tr>
+<td align="center">
+  <p style="font-size: 14px; color: #333; margin: 0 0 8px 0;">
+    View your full results and track your progress in the <strong>Activity Box</strong> app.
+  </p>
+  <a href="^ActivityBoxLink()$" class="cta-btn">Open Activity Box App</a>
+  <p style="font-size: 12px; color: #999; margin: 10px 0 0 0;">
+    If prompted, select <strong style="color:#333;">HeadPinz Ft. Myers</strong>.
+  </p>
+  <p style="font-size: 13px; color: #666; margin: 14px 0 4px 0;">Your login code:</p>
+  <div class="login-code">^[LoginCode]$</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- FEEDBACK -->
+<tr>
+<td align="center" style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif; ^StyleShowOnlyForFirstSessionInDay()$">
+
+<p style="font-size: 15px; color: #1A1A1A; font-weight: bold; margin: 0 0 14px 0;">
+  How was your experience?
+</p>
+
+<table cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" style="padding-right: 16px;">
+  <a href="https://search.google.com/local/writereview?placeid=ChIJw7rUvBSl3YgRZnV1tR0aK9s" style="text-decoration: none;">
+    <table cellpadding="12" cellspacing="0" border="0"
+           style="background-color: #E8F5E9; border: 2px solid #4CAF50; border-radius: 8px;">
+    <tr>
+    <td align="center">
+      <span style="font-size: 32px;">&#128578;</span>
+      <p style="margin: 6px 0 0 0; font-size: 12px; font-weight: bold; color: #2E7D32;">Loved it!</p>
+      <p style="margin: 2px 0 0 0; font-size: 10px; color: #66BB6A;">Leave a Google Review</p>
+    </td>
+    </tr>
+    </table>
+  </a>
+</td>
+
+<td align="center" style="padding-left: 16px;">
+  <a href="sms:+12394819666" style="text-decoration: none;">
+    <table cellpadding="12" cellspacing="0" border="0"
+           style="background-color: #FFF0F0; border: 2px solid #EF9A9A; border-radius: 8px;">
+    <tr>
+    <td align="center">
+      <span style="font-size: 32px;">&#128533;</span>
+      <p style="margin: 6px 0 0 0; font-size: 12px; font-weight: bold; color: #C62828;">Not great</p>
+      <p style="margin: 2px 0 0 0; font-size: 10px; color: #EF5350;">Text us &mdash; we'll make it right</p>
+    </td>
+    </tr>
+    </table>
+  </a>
+</td>
+</tr>
+</table>
+
+</td>
+</tr>
+
+<!-- FOOTER -->
+<tr>
+<td style="padding: 20px 40px; background-color: #000418; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td width="50%" style="font-size: 11px; color: #8A8FA0; vertical-align: top;">
+  <strong style="color: #FFFFFF;">FastTrax Entertainment</strong><br/>
+  14501 Global Parkway<br/>
+  Fort Myers, FL 33913
+</td>
+<td width="50%" align="right" style="font-size: 11px; color: #8A8FA0; vertical-align: top;">
+  <a href="https://fasttraxent.com" style="color: #00E2E5; text-decoration: none;">fasttraxent.com</a><br/>
+  <a href="https://fasttraxent.com/racing" style="color: #00E2E5; text-decoration: none;">Racing Info</a><br/>
+  <a href="https://fasttraxent.com/pricing" style="color: #00E2E5; text-decoration: none;">Pricing</a>
+</td>
+</tr>
+</table>
+<p style="margin: 12px 0 0 0; font-size: 10px; color: #555; text-align: center;">
+  This email was sent by ^[SiteName]$.<br/>
+  <a href="^UnsubscribeLink()$" style="color: #EF9A9A; text-decoration: none;">Unsubscribe</a> &nbsp;|&nbsp;
+  <a href="^AnonymizeLink()$" style="color: #EF9A9A; text-decoration: none;">Remove me</a>
+</p>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+</table>
+</body>
+</html>
