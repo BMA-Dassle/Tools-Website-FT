@@ -137,6 +137,17 @@ export default function BookRacePage() {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
 
+  // Listen for MiniCart "Checkout" button — jump to contact/details step
+  useEffect(() => {
+    function handleMiniCartCheckout() {
+      if (bookings.length > 0 || packResult) {
+        setStep("contact");
+      }
+    }
+    window.addEventListener("miniCartCheckout", handleMiniCartCheckout);
+    return () => window.removeEventListener("miniCartCheckout", handleMiniCartCheckout);
+  }, [bookings, packResult]);
+
   // Sync racing bookings to sessionStorage so the unified MiniCart can display them
   useEffect(() => {
     const existingCart: unknown[] = (() => {
