@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { ClassifiedProduct, RacerType } from "../data";
-import { TIER_COLOR, TIER_LABELS, groupByTrack } from "../data";
+import { TIER_COLOR, TIER_LABELS, TIER_DESCRIPTIONS, groupByTrack } from "../data";
 
 interface ProductPickerProps {
   products: ClassifiedProduct[];
@@ -162,6 +162,7 @@ function ProductGroup({ items, selected, onSelect }: {
         </div>
         <span className={`${c.text} font-bold text-sm`}>${representative.price.toFixed(2)}</span>
       </div>
+      <p className="text-white/40 text-xs mb-3 leading-relaxed">{TIER_DESCRIPTIONS[representative.tier]}</p>
 
       {/* Track selection */}
       <p className="text-white/40 text-xs mb-2">Which track?</p>
@@ -230,8 +231,10 @@ function ProductCard({ product, isSelected, onSelect }: {
         <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
       </div>
 
+      <p className="text-white/40 text-xs mt-1 leading-relaxed">{TIER_DESCRIPTIONS[product.tier]}</p>
+
       {product.track && (
-        <p className="text-white/30 text-xs">{product.track} Track</p>
+        <p className="text-white/30 text-xs mt-1">{product.track} Track</p>
       )}
 
       {isPack && (

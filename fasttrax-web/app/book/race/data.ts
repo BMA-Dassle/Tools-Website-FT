@@ -326,6 +326,20 @@ export const TIER_LABELS: Record<RaceTier, string> = {
   pro: "Pro",
 };
 
+/** Centralized tier descriptions — used on booking page, racing page, and emails */
+export const TIER_DESCRIPTIONS: Record<RaceTier, string> = {
+  starter: "Speed-controlled karts. Everyone starts here — no exceptions. Perfect for first-timers and families.",
+  intermediate: "Higher speed unlock — not for the faint of heart. A real competitive karting experience. Qualified from Starter. Ages 13+.",
+  pro: "Our fastest unlocked speed. Maximum performance for racers who've proven their skill.",
+};
+
+/** Qualifying lap times per tier per track */
+export const TIER_QUALIFYING: Record<RaceTier, string> = {
+  starter: "41s (Blue Track) or 46s (Red Track) to unlock Intermediate",
+  intermediate: "32.5s (Blue Track) or 37s (Red Track) to unlock Pro",
+  pro: "",
+};
+
 // ── Acknowledgements ────────────────────────────────────────────────────────
 
 export function getAcknowledgements(category: RaceCategory): string[] {
