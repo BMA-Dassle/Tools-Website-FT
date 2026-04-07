@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { trackBookingClick } from "@/lib/analytics";
 
 export default function BookingLink({
@@ -13,6 +14,21 @@ export default function BookingLink({
   style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
+  const isInternal = href.startsWith("/");
+
+  if (isInternal) {
+    return (
+      <Link
+        href={href}
+        className={className}
+        style={style}
+        onClick={trackBookingClick}
+      >
+        {children}
+      </Link>
+    );
+  }
+
   return (
     <a
       href={href}
