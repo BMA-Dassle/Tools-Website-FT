@@ -91,7 +91,7 @@ async function addGroupMemo(
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racer?: string; time?: string }[] }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string }[] }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -190,7 +190,7 @@ export default function OrderSummary({
       let bmiTotal = 0;
       let bmiSubtotal = 0;
       let bmiTax = 0;
-      let bmiLines: { name: string; quantity: number; amount: number; racer?: string; time?: string }[] = [];
+      let bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string }[] = [];
       let isCreditOrder = true; // assume credit until proven otherwise
       let cashOwed = 0;
       let creditApplied = 0;
@@ -225,14 +225,18 @@ export default function OrderSummary({
             for (const l of overview.lines as any[]) {
               const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
               const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
-              const racerName = racerQueue[racerIdx] || bill.racerName;
-              racerIdx++;
-              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racer: racerName, time: lineTime || undefined });
+              // Consume `quantity` racer names from the queue (BMI groups into one line with qty>1)
+              const lineRacers: string[] = [];
+              for (let q = 0; q < (l.quantity || 1); q++) {
+                if (racerQueue[racerIdx]) lineRacers.push(racerQueue[racerIdx]);
+                racerIdx++;
+              }
+              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racers: lineRacers.length > 0 ? lineRacers : undefined, time: lineTime || undefined });
             }
           }
         } catch {
           // Fallback for this bill
-          bmiLines.push({ name: "Race", quantity: 1, amount: 0, racer: bill.racerName });
+          bmiLines.push({ name: "Race", quantity: 1, amount: 0, racers: [bill.racerName] });
         }
       }
 
@@ -683,7 +687,6 @@ export default function OrderSummary({
               <div key={i} className="flex justify-between text-sm">
                 <div className="text-white/60">
                   <span>{line.name} x {line.quantity}</span>
-                  {line.racer && <span className="text-white/30 ml-1">({line.racer})</span>}
                   {line.time && <span className="text-white/30 ml-1">{formatTime(line.time)}</span>}
                 </div>
                 <span className="text-white shrink-0">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
