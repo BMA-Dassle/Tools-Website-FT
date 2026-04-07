@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 interface StoredCartItem {
   attractionName: string;
@@ -30,9 +31,12 @@ function formatDate(iso: string) {
  * Shows on /book landing page and /book/[attraction] flows.
  */
 export default function MiniCart({ onStartOver }: { onStartOver?: () => void } = {}) {
+  const pathname = usePathname();
   const [items, setItems] = useState<StoredCartItem[]>([]);
   const [open, setOpen] = useState(false);
   const [hasActiveBill, setHasActiveBill] = useState(false);
+  // Race booking has its own checkout flow — hide the generic checkout button
+  const isRaceFlow = pathname?.startsWith("/book/race");
 
   // Poll sessionStorage for cart items
   useEffect(() => {
@@ -120,7 +124,7 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
             ))}
           </div>
           <div className="p-3 border-t border-white/10 space-y-2">
-            {items.length > 0 && (
+            {items.length > 0 && !isRaceFlow && (
               <a
                 href="/book/checkout"
                 className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
