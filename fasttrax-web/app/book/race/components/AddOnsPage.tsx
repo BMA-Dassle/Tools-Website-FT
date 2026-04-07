@@ -245,9 +245,9 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           block: slot?.block ?? prev?.block,
         };
       });
-    // Prepend license for new racers
+    // Prepend license for new racers — one per person
     if (isNewRacer) {
-      addOns.unshift({ ...LICENSE_ITEM, quantity: 1 });
+      addOns.unshift({ ...LICENSE_ITEM, quantity: racerCount });
     }
     onContinue(addOns);
   }
@@ -538,7 +538,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-white/30 text-sm">No add-ons selected</p>
             <button
-              onClick={() => onContinue(isNewRacer ? [{ ...LICENSE_ITEM, quantity: 1 }] : [])}
+              onClick={() => onContinue(isNewRacer ? [{ ...LICENSE_ITEM, quantity: racerCount }] : [])}
               className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
             >
               Skip — Continue to Checkout →

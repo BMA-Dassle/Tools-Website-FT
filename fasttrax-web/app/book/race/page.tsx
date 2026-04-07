@@ -413,8 +413,30 @@ export default function BookRacePage() {
         }
         console.log("[bookHeatForRacers] returning racers:", selectedRacers.map(r => r.fullName).join(", "), "on bill:", orderId);
       } else {
-        // New racers: one bill for the group (unchanged)
-        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, existingBillId);
+        // New racers: sell license first to create bill, then book race onto it
+        let billForRace = existingBillId;
+
+        if (!billForRace && racerType === "new") {
+          // Sell license — creates the bill
+          try {
+            const licSellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${racerCount},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
+            const licRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: licSellBody,
+            });
+            const licRaw = await licRes.text();
+            const licBillMatch = licRaw.match(/"orderId"\s*:\s*(\d+)/);
+            if (licBillMatch) {
+              billForRace = licBillMatch[1];
+              console.log("[license] sold, bill:", billForRace);
+            }
+          } catch (err) {
+            console.error("[license sell failed]", err);
+          }
+        }
+
+        const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, billForRace);
         if (!existingBillId) {
           createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
           setActiveBills(prev => [...prev, ...createdBills]);
@@ -1074,29 +1096,9 @@ export default function BookRacePage() {
               for (const old of selectedAddOns.filter(a => a.billLineId)) {
                 await removeBookingLine(activeOrderId!,old.billLineId!).catch(() => {});
               }
-              // Sell license onto bill for new racers (uses booking/sell, not booking/book)
-              const licenseAddon = addOns.find(a => a.id === "11253570");
+              // License is already on the bill (sold during heat booking for new racers)
+              // Skip it in add-on processing
               const bookedAddOns: AddOnItem[] = [];
-              if (licenseAddon && activeOrderId) {
-                try {
-                  // Use raw string injection for orderId to avoid precision loss
-                  const sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":1,"OrderId":${activeOrderId},"ParentOrderItemId":null,"DynamicLines":[]}`;
-                  console.log("[license sell] body:", sellBody);
-                  const sellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: sellBody,
-                  });
-                  const sellRaw = await sellRes.text();
-                  console.log("[license sell] response:", sellRaw.substring(0, 300));
-                  const lineMatch = sellRaw.match(/"orderItemId"\s*:\s*(\d+)/);
-                  console.log("[license sell]", "lineId:", lineMatch?.[1]);
-                  bookedAddOns.push({ ...licenseAddon, billLineId: lineMatch?.[1] });
-                } catch (err) {
-                  console.error("[license sell error]", err);
-                  bookedAddOns.push(licenseAddon);
-                }
-              }
 
               // Book new add-ons onto bill (time-slot products)
               for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal && a.id !== "11253570")) {
@@ -1212,6 +1214,8 @@ export default function BookRacePage() {
             }}
             onRemoveAddOn={async (index) => {
               const toRemove = selectedAddOns[index];
+              // Don't allow removing the license
+              if (toRemove?.id === "11253570") return;
               if (toRemove?.billLineId) {
                 await removeBookingLine(activeOrderId!, toRemove.billLineId).catch(() => {});
               }
@@ -1219,6 +1223,19 @@ export default function BookRacePage() {
               // Re-enter summary to refresh totals (after removal completes)
               setStep("heat");
               setTimeout(() => setStep("summary"), 200);
+            }}
+            onStartOver={() => {
+              cancelActiveOrder();
+              setBookings([]);
+              setSelectedAddOns([]);
+              setSelectedPov(null);
+              setSelectedProduct(null);
+              setSelectedProposal(null);
+              setSelectedDate(null);
+              setRacerType(null);
+              setVerifiedPerson(null);
+              setVerifiedRacers([]);
+              setStep("experience");
             }}
             onRemovePov={async () => {
               if (selectedPov?.billLineId) {
