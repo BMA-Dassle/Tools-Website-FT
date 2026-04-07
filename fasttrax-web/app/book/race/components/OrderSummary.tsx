@@ -687,6 +687,9 @@ export default function OrderSummary({
               <div key={i} className="flex justify-between text-sm">
                 <div className="text-white/60">
                   <span>{line.name} x {line.quantity}</span>
+                  {line.racers && line.racers.length > 0 && (
+                    <span className="text-white/30 ml-1">({line.racers.join(", ")})</span>
+                  )}
                   {line.time && <span className="text-white/30 ml-1">{formatTime(line.time)}</span>}
                 </div>
                 <span className="text-white shrink-0">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
