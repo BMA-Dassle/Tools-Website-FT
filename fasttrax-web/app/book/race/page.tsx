@@ -107,20 +107,12 @@ export default function BookRacePage() {
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
+  // Restore from sessionStorage if exists (license bill or multi-activity cart)
   const [activeBills, setActiveBills] = useState<RacerBill[]>(() => {
     if (typeof window === "undefined") return [];
-    // Only restore from sessionStorage if there's an active cart with items
     const existingOrderId = sessionStorage.getItem("attractionOrderId");
-    const existingCart = sessionStorage.getItem("attractionCart");
-    const hasCartItems = existingCart && JSON.parse(existingCart).length > 0;
-    if (existingOrderId && hasCartItems) {
-      return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
-    }
-    // No active cart — cancel any stale bill
     if (existingOrderId) {
-      fetch(`/api/bmi?endpoint=bill/${existingOrderId}/cancel`, { method: "DELETE" }).catch(() => {});
-      sessionStorage.removeItem("attractionOrderId");
-      sessionStorage.removeItem("attractionCart");
+      return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
     }
     return [];
   });

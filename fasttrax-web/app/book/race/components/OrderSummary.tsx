@@ -742,8 +742,8 @@ export default function OrderSummary({
             </p>
             <p>
               &middot; A{" "}
-              <strong className="text-white/60">$4.99 license fee</strong> per
-              driver applies at first check-in.
+              <strong className="text-white/60">$4.99 FastTrax Racing License</strong> per
+              driver is included for first-time racers. Returning racers with a valid license are not charged.
             </p>
           </div>
 
