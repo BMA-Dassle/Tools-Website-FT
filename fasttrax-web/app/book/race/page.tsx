@@ -333,6 +333,7 @@ export default function BookRacePage() {
   async function handlePartyNext() {
     trackBookingParty(adults, juniors);
     const totalRacers = adults + juniors;
+    console.log("[handlePartyNext]", { racerType, totalRacers, activeBillsCount: activeBills.length });
 
     // New racers: sell license immediately to create the bill
     if (racerType === "new" && activeBills.length === 0) {
