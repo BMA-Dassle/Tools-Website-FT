@@ -109,13 +109,9 @@ export default function BookRacePage() {
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
-  // Check sessionStorage for existing bill from attractions flow (multi-activity cart)
-  const [activeBills, setActiveBills] = useState<RacerBill[]>(() => {
-    if (typeof window === "undefined") return [];
-    const existingOrderId = sessionStorage.getItem("attractionOrderId");
-    if (existingOrderId) return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
-    return [];
-  });
+  // Always start fresh — bills are created during heat selection.
+  // Stale sessionStorage bills from prior sessions caused license bleed-through.
+  const [activeBills, setActiveBills] = useState<RacerBill[]>([]);
   // Convenience: primary bill ID (first bill, used for add-ons/POV/overview)
   const activeOrderId = activeBills.length > 0 ? activeBills[0].billId : null;
 
@@ -123,6 +119,18 @@ export default function BookRacePage() {
   const nextBtnRef = useRef<HTMLDivElement>(null);
 
   const currentIdx = STEPS.indexOf(step);
+
+  // Cancel any stale bill from a previous session on mount
+  useEffect(() => {
+    const staleOrderId = sessionStorage.getItem("attractionOrderId");
+    if (staleOrderId) {
+      bmiDelete(`bill/${staleOrderId}/cancel`).catch(() => {});
+      sessionStorage.removeItem("attractionOrderId");
+      sessionStorage.removeItem("attractionCart");
+      console.log("[mount] cancelled stale bill:", staleOrderId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Scroll to top of content when step changes
   useEffect(() => {
