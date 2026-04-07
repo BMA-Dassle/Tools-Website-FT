@@ -740,11 +740,13 @@ export default function OrderSummary({
               <strong className="text-white/60">30 minutes early</strong> for
               check-in and kart assignment.
             </p>
-            <p>
-              &middot; A{" "}
-              <strong className="text-white/60">$4.99 license fee</strong> per
-              driver applies at first check-in.
-            </p>
+            {state.status === "booked" && !state.bmiLines.some(l => l.name.toLowerCase().includes("license")) && (
+              <p>
+                &middot; A{" "}
+                <strong className="text-white/60">$4.99 license fee</strong> per
+                driver applies at first check-in.
+              </p>
+            )}
           </div>
 
           {/* Actions */}

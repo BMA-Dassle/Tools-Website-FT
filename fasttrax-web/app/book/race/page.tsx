@@ -68,6 +68,7 @@ const STEP_LABELS: Record<Step, string> = {
 export default function BookRacePage() {
   const searchParams = useSearchParams();
   const autoCodeRef = useRef<string | null>(searchParams.get("code"));
+  const licenseSoldRef = useRef(false); // Track whether FastTrax license has been sold on this bill
   const [step, setStep] = useState<Step>("experience");
   const [racerType, setRacerType] = useState<RacerType | null>(null);
   const [adults, setAdults] = useState(1);
@@ -413,7 +414,7 @@ export default function BookRacePage() {
         }
         console.log("[bookHeatForRacers] returning racers:", selectedRacers.map(r => r.fullName).join(", "), "on bill:", orderId);
       } else {
-        // New racers: one bill for the group (unchanged)
+        // New racers: one bill for the group
         const { rawOrderId, billLineId } = await bookRaceHeat(selectedProduct!, racerCount, proposal, existingBillId);
         if (!existingBillId) {
           createdBills.push({ billId: rawOrderId, racerName: "Group", category: cat });
@@ -423,6 +424,31 @@ export default function BookRacePage() {
           createdBills = activeBills.filter(b => b.category === cat);
         }
         if (billLineId) bookingBillLineIds.push({ billId: rawOrderId, lineId: billLineId });
+
+        // Sell FastTrax License for new racers (once per booking session)
+        const billForSell = existingBillId || rawOrderId;
+        if (racerType === "new" && !licenseSoldRef.current) {
+          try {
+            const totalRacers = adults + juniors;
+            const sellBody = `{"ProductId":43473520,"Quantity":${totalRacers},"orderId":${billForSell}}`;
+            const sellQs = new URLSearchParams({ endpoint: "booking/sell" });
+            const sellRes = await fetch(`/api/bmi?${sellQs.toString()}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: sellBody,
+            });
+            const sellRaw = await sellRes.text();
+            const sellResult = JSON.parse(sellRaw);
+            if (sellResult.success !== false) {
+              licenseSoldRef.current = true;
+              console.log("[license sell] sold", totalRacers, "license(s) on bill", billForSell);
+            } else {
+              console.warn("[license sell] failed:", sellResult.errorMessage);
+            }
+          } catch (err) {
+            console.warn("[license sell] error (non-fatal):", err);
+          }
+        }
       }
 
       const booking: Booking = {
@@ -525,6 +551,7 @@ export default function BookRacePage() {
       bmiDelete(`bill/${bill.billId}/cancel`).catch(() => {});
     }
     setActiveBills([]);
+    licenseSoldRef.current = false;
   }
 
   function goToStep(s: Step) {
