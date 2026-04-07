@@ -127,6 +127,21 @@ export default function BookRacePage() {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
 
+  // Cancel stale bills on page load (bill exists but no bookings = abandoned)
+  useEffect(() => {
+    const staleOrderId = sessionStorage.getItem("attractionOrderId");
+    const staleCart = sessionStorage.getItem("attractionCart");
+    const hasItems = staleCart && JSON.parse(staleCart).length > 0;
+    if (staleOrderId && !hasItems) {
+      console.log("[cleanup] cancelling stale bill:", staleOrderId);
+      fetch(`/api/bmi?endpoint=bill/${staleOrderId}/cancel`, { method: "DELETE" }).catch(() => {});
+      sessionStorage.removeItem("attractionOrderId");
+      sessionStorage.removeItem("attractionCart");
+      setActiveBills([]);
+    }
+  }, []);
+
+
   // Sync racing bookings to sessionStorage so the unified MiniCart can display them
   useEffect(() => {
     const existingCart: unknown[] = (() => {
