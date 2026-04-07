@@ -40,30 +40,6 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
         </p>
       </div>
 
-      {/* License fee notice */}
-      {products.length > 0 && (
-        <div className="max-w-lg mx-auto rounded-xl border-2 border-[#004AAD]/40 bg-[#004AAD]/8 p-4">
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 w-10 h-10 rounded-full bg-[#004AAD]/20 flex items-center justify-center mt-0.5">
-              <svg className="w-5 h-5 text-[#004AAD]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-white font-bold text-sm mb-1">
-                Race price includes a <span className="text-[#00E2E5]">$4.99 FastTrax Racing License</span>
-              </p>
-              <p className="text-white/50 text-xs leading-relaxed">
-                Valid for one year. Includes head sock, helmet use, app access &amp; race scheduling.
-              </p>
-              <p className="text-[#00E2E5] text-xs font-semibold mt-1.5">
-                Already have a valid license? $4.99 will be removed at checkout automatically.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Track info — visual only, selection happens on the product cards below */}
       {products.length > 0 && (
         <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">

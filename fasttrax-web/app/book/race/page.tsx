@@ -1067,15 +1067,36 @@ export default function BookRacePage() {
             date={selectedDate || ""}
             bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
             initialAddOns={selectedAddOns}
+            isNewRacer={racerType === "new"}
             onContinue={async (addOns) => {
               trackBookingAddOns(addOns.filter(a => a.quantity > 0).map(a => a.shortName));
               // Remove old add-on lines from bill
               for (const old of selectedAddOns.filter(a => a.billLineId)) {
                 await removeBookingLine(activeOrderId!,old.billLineId!).catch(() => {});
               }
-              // Book new add-ons onto bill
+              // Sell license onto bill for new racers (uses booking/sell, not booking/book)
+              const licenseAddon = addOns.find(a => a.id === "11253570");
               const bookedAddOns: AddOnItem[] = [];
-              for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal)) {
+              if (licenseAddon && activeOrderId) {
+                try {
+                  const sellJson = `{"ProductId":11253570,"PageId":43472899,"Quantity":1,"orderId":${activeOrderId},"personId":null}`;
+                  const sellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: sellJson,
+                  });
+                  const sellRaw = await sellRes.text();
+                  const lineMatch = sellRaw.match(/"orderItemId"\s*:\s*(\d+)/);
+                  console.log("[license sell]", "lineId:", lineMatch?.[1]);
+                  bookedAddOns.push({ ...licenseAddon, billLineId: lineMatch?.[1] });
+                } catch (err) {
+                  console.error("[license sell error]", err);
+                  bookedAddOns.push(licenseAddon);
+                }
+              }
+
+              // Book new add-ons onto bill (time-slot products)
+              for (const addon of addOns.filter(a => a.quantity > 0 && a.proposal && a.id !== "11253570")) {
                 try {
                   const addonBody: Record<string, unknown> = {
                     productId: String(addon.id),
@@ -1109,7 +1130,7 @@ export default function BookRacePage() {
                 }
               }
               // Also keep add-ons with quantity but no proposal (no time slot needed)
-              for (const addon of addOns.filter(a => a.quantity > 0 && !a.proposal)) {
+              for (const addon of addOns.filter(a => a.quantity > 0 && !a.proposal && a.id !== "11253570")) {
                 bookedAddOns.push(addon);
               }
               setSelectedAddOns(bookedAddOns);

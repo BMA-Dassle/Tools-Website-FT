@@ -41,7 +41,22 @@ interface AddOnsPageProps {
   onContinue: (addOns: AddOnItem[]) => void;
   onBack: () => void;
   initialAddOns?: AddOnItem[];
+  isNewRacer?: boolean;
 }
+
+// FastTrax License — sold via booking/sell, not a time-slot product
+const LICENSE_ITEM: AddOnItem = {
+  id: "11253570",
+  name: "FastTrax Racing License",
+  shortName: "License",
+  description: "Required for all first-time racers. Valid for one year.",
+  price: 4.99,
+  image: "",
+  perPerson: true,
+  color: "#004AAD",
+  location: "fasttrax",
+  quantity: 1,
+};
 
 const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabel?: string })[] = [
   {
@@ -123,7 +138,7 @@ function conflictsWithRace(slotStart: string, slotStop: string, heats: { start: 
   });
 }
 
-export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, onBack, initialAddOns }: AddOnsPageProps) {
+export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, onBack, initialAddOns, isNewRacer }: AddOnsPageProps) {
   // Restore previous selections if navigating back
   const [selections, setSelections] = useState<Record<string, number>>(() => {
     if (!initialAddOns) return {};
@@ -230,6 +245,10 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           block: slot?.block ?? prev?.block,
         };
       });
+    // Prepend license for new racers
+    if (isNewRacer) {
+      addOns.unshift({ ...LICENSE_ITEM, quantity: 1 });
+    }
     onContinue(addOns);
   }
 
@@ -246,6 +265,36 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           Add more fun to your race day. These combos are exclusive to online booking.
         </p>
       </div>
+
+      {/* FastTrax License — required for new racers */}
+      {isNewRacer && (
+        <div className="rounded-xl border-2 border-[#004AAD] bg-[#004AAD]/10 p-5">
+          <div className="flex items-start gap-4">
+            <div className="shrink-0 w-12 h-12 rounded-full bg-[#004AAD]/20 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[#004AAD]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-white font-bold text-base">FastTrax Racing License</h3>
+                <span className="text-[#00E2E5] font-bold text-lg">$4.99</span>
+              </div>
+              <p className="text-white/60 text-sm leading-relaxed mb-2">
+                Valid for one year. Includes your head sock, helmet use, access to the FastTrax Racing App, and race scheduling.
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-[#004AAD]/30 text-[#00E2E5]">
+                  Required for first-time racers
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-green-500/20 text-green-400">
+                  ✓ Included
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Show booked race times for reference */}
       {bookedHeats.length > 0 && (
@@ -489,7 +538,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-white/30 text-sm">No add-ons selected</p>
             <button
-              onClick={() => onContinue([])}
+              onClick={() => onContinue(isNewRacer ? [{ ...LICENSE_ITEM, quantity: 1 }] : [])}
               className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
             >
               Skip — Continue to Checkout →
