@@ -107,11 +107,21 @@ export default function BookRacePage() {
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
-  // Check sessionStorage for existing bill from attractions flow (multi-activity cart)
   const [activeBills, setActiveBills] = useState<RacerBill[]>(() => {
     if (typeof window === "undefined") return [];
+    // Only restore from sessionStorage if there's an active cart with items
     const existingOrderId = sessionStorage.getItem("attractionOrderId");
-    if (existingOrderId) return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
+    const existingCart = sessionStorage.getItem("attractionCart");
+    const hasCartItems = existingCart && JSON.parse(existingCart).length > 0;
+    if (existingOrderId && hasCartItems) {
+      return [{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }];
+    }
+    // No active cart — cancel any stale bill
+    if (existingOrderId) {
+      fetch(`/api/bmi?endpoint=bill/${existingOrderId}/cancel`, { method: "DELETE" }).catch(() => {});
+      sessionStorage.removeItem("attractionOrderId");
+      sessionStorage.removeItem("attractionCart");
+    }
     return [];
   });
   // Convenience: primary bill ID (first bill, used for add-ons/POV/overview)
@@ -127,19 +137,6 @@ export default function BookRacePage() {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
 
-  // Cancel stale bills on page load (bill exists but no bookings = abandoned)
-  useEffect(() => {
-    const staleOrderId = sessionStorage.getItem("attractionOrderId");
-    const staleCart = sessionStorage.getItem("attractionCart");
-    const hasItems = staleCart && JSON.parse(staleCart).length > 0;
-    if (staleOrderId && !hasItems) {
-      console.log("[cleanup] cancelling stale bill:", staleOrderId);
-      fetch(`/api/bmi?endpoint=bill/${staleOrderId}/cancel`, { method: "DELETE" }).catch(() => {});
-      sessionStorage.removeItem("attractionOrderId");
-      sessionStorage.removeItem("attractionCart");
-      setActiveBills([]);
-    }
-  }, []);
 
 
   // Sync racing bookings to sessionStorage so the unified MiniCart can display them
