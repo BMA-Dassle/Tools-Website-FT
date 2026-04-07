@@ -339,17 +339,21 @@ export default function BookRacePage() {
     const totalRacers = adults + juniors;
     console.log("[handlePartyNext]", { racerType, totalRacers, activeBillsCount: activeBills.length });
 
-    // New racers: sell license to create or add to the bill
+    // New racers: cancel any stale bill, then sell license to create a fresh bill
     if (racerType === "new") {
+      // Cancel stale bill if one exists
+      const staleBill = sessionStorage.getItem("attractionOrderId");
+      if (staleBill) {
+        console.log("[license] cancelling stale bill:", staleBill);
+        fetch(`/api/bmi?endpoint=bill/${staleBill}/cancel`, { method: "DELETE" }).catch(() => {});
+        sessionStorage.removeItem("attractionOrderId");
+        sessionStorage.removeItem("attractionCart");
+      }
+
       try {
-        const existingBill = activeBills.length > 0 ? activeBills[0].billId : null;
-        let sellBody: string;
-        if (existingBill) {
-          sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":${existingBill},"ParentOrderItemId":null,"DynamicLines":[]}`;
-        } else {
-          sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
-        }
-        console.log("[license] selling...", { totalRacers, existingBill });
+        // Always create a FRESH bill with the license — never reuse stale bills
+        const sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
+        console.log("[license] selling fresh...", { totalRacers });
         const res = await fetch("/api/bmi?endpoint=booking%2Fsell", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -358,9 +362,9 @@ export default function BookRacePage() {
         const raw = await res.text();
         console.log("[license] response:", raw.substring(0, 200));
         const billMatch = raw.match(/"orderId"\s*:\s*(\d+)/);
-        if (billMatch && !existingBill) {
+        if (billMatch) {
           const billId = billMatch[1];
-          console.log("[license] new bill created:", billId);
+          console.log("[license] bill created:", billId);
           setActiveBills([{ billId, racerName: "Group", category: adults > 0 ? "adult" : "junior" }]);
           sessionStorage.setItem("attractionOrderId", billId);
         }
