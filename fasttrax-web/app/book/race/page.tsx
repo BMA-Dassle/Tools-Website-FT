@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
 import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine, isRelevantMembership, getRacerTier } from "./data";
@@ -65,6 +66,8 @@ const STEP_LABELS: Record<Step, string> = {
 };
 
 export default function BookRacePage() {
+  const searchParams = useSearchParams();
+  const autoCodeRef = useRef<string | null>(searchParams.get("code"));
   const [step, setStep] = useState<Step>("experience");
   const [racerType, setRacerType] = useState<RacerType | null>(null);
   const [adults, setAdults] = useState(1);
@@ -183,6 +186,14 @@ export default function BookRacePage() {
       return person;
     }
   }
+
+  // Auto-select "existing" if login code is in URL
+  useEffect(() => {
+    if (autoCodeRef.current && !racerType) {
+      setRacerType("existing");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleExperienceSelect(type: RacerType) {
     trackBookingExperience(type);
@@ -636,6 +647,7 @@ export default function BookRacePage() {
               <ReturningRacerLookup
                 onVerified={handlePersonVerified}
                 onSwitchToNew={() => handleExperienceSelect("new")}
+                autoCode={autoCodeRef.current}
               />
             )}
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { bmiGet, isRelevantMembership } from "../data";
 
 export interface PersonData {
@@ -33,9 +33,10 @@ interface FoundAccount {
 interface Props {
   onVerified: (person: PersonData) => void;
   onSwitchToNew: () => void;
+  autoCode?: string | null;
 }
 
-export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Props) {
+export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Props) {
   const [mode, setMode] = useState<"choose" | "email" | "code" | "phone">("choose");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -47,6 +48,21 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
   const [phone, setPhone] = useState("");
   const [smsCode, setSmsCode] = useState("");
   const [smsError, setSmsError] = useState("");
+
+  // Auto-login from email link with ?code= parameter
+  const autoCodeUsed = useRef(false);
+  useEffect(() => {
+    if (autoCode && !autoCodeUsed.current) {
+      autoCodeUsed.current = true;
+      setCode(autoCode);
+      setMode("code");
+      // Trigger code verification after a short delay for render
+      setTimeout(() => {
+        handleCodeVerify(autoCode);
+      }, 300);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCode]);
 
   /** Shared search + fetch person details logic for both phone and email */
   async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
@@ -147,8 +163,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
     }
   }
 
-  async function handleCodeVerify() {
-    const trimmed = code.trim().toLowerCase();
+  async function handleCodeVerify(overrideCode?: string) {
+    const trimmed = (overrideCode || code).trim().toLowerCase();
     if (!trimmed) return;
 
     setCodeError("");
@@ -525,7 +541,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew }: Prop
           />
           {codeError && <p className="text-red-400 text-xs text-center">{codeError}</p>}
           <button
-            onClick={handleCodeVerify}
+            onClick={() => handleCodeVerify()}
             disabled={!code.trim() || phase === "verifying"}
             className="w-full py-3 rounded-xl font-bold text-sm bg-[#8652FF] text-white hover:bg-[#9b6fff] transition-colors disabled:opacity-40"
           >
