@@ -10,6 +10,7 @@ export default function RacePackConfirmation() {
   const [personName, setPersonName] = useState("");
   const [amount, setAmount] = useState("");
   const [resNumber, setResNumber] = useState("");
+  const [loginCode, setLoginCode] = useState("");
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function RacePackConfirmation() {
           setPackName(details.race || "Race Pack");
           setPersonName(details.name || "");
           setAmount(details.amount || "0");
+          if (details.loginCode) setLoginCode(details.loginCode);
         }
 
         // Confirm payment with BMI
@@ -148,7 +150,7 @@ export default function RacePackConfirmation() {
             {/* Actions */}
             <div className="flex flex-col gap-3 pt-2">
               <a
-                href="/book/race"
+                href={loginCode ? `/book/race?code=${encodeURIComponent(loginCode)}` : "/book/race"}
                 className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 text-center"
               >
                 Book a Race Now

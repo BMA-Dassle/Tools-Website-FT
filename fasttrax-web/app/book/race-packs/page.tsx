@@ -32,6 +32,7 @@ interface FoundPerson {
   personId: string;
   fullName: string;
   email: string;
+  loginCode?: string;
 }
 
 interface FoundAccount {
@@ -41,6 +42,7 @@ interface FoundAccount {
   races: number;
   memberships: string[];
   creditBalances?: { kind: string; balance: number }[];
+  loginCode?: string;
 }
 
 
@@ -129,11 +131,16 @@ export default function RacePacksPage() {
               .map(d => ({ kind: d.depositKind, balance: d.balance }));
           }
         } catch {}
+        const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
+          (b.lastSeen || "").localeCompare(a.lastSeen || "")
+        );
+        const loginCode = tags[0]?.tag || "";
         return {
           personId: String(p.id),
           fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
           lastSeen,
-          races: (p.tags || []).length,
+          loginCode,
+          races: tags.length,
           memberships,
           creditBalances,
         } as FoundAccount;
@@ -206,7 +213,7 @@ export default function RacePacksPage() {
   }
 
   function handleSelectAccount(account: FoundAccount) {
-    setPerson({ personId: account.personId, fullName: account.fullName, email: "" });
+    setPerson({ personId: account.personId, fullName: account.fullName, email: "", loginCode: account.loginCode });
     setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
     setModalPhase("summary");
   }
@@ -424,6 +431,7 @@ export default function RacePacksPage() {
         qty: String(selectedPack.raceCount),
         isCreditOrder: "false",
         type: "race-pack",
+        loginCode: person.loginCode || "",
       };
       await fetch("/api/booking-store", {
         method: "POST",
