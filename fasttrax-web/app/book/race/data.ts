@@ -262,8 +262,8 @@ export function filterProducts(
   const hasQualifiedIntermediate = mems.some(m => m.includes("intermediate"));
 
   return products.filter(p => {
-    // Hide race packs for now
-    if (p.packType !== "none") return false;
+    // Hide sell-type race packs (bought separately via /book/race-packs)
+    if (p.packType === "sell") return false;
     if (p.category === "adult" && adultCount === 0) return false;
     if (p.category === "junior" && juniorCount === 0) return false;
 
