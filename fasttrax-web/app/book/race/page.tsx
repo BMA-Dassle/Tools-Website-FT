@@ -335,24 +335,30 @@ export default function BookRacePage() {
     const totalRacers = adults + juniors;
     console.log("[handlePartyNext]", { racerType, totalRacers, activeBillsCount: activeBills.length });
 
-    // New racers: sell license immediately to create the bill
-    if (racerType === "new" && activeBills.length === 0) {
+    // New racers: sell license to create or add to the bill
+    if (racerType === "new") {
       try {
-        const sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
+        const existingBill = activeBills.length > 0 ? activeBills[0].billId : null;
+        let sellBody: string;
+        if (existingBill) {
+          sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":${existingBill},"ParentOrderItemId":null,"DynamicLines":[]}`;
+        } else {
+          sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
+        }
+        console.log("[license] selling...", { totalRacers, existingBill });
         const res = await fetch("/api/bmi?endpoint=booking%2Fsell", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: sellBody,
         });
         const raw = await res.text();
+        console.log("[license] response:", raw.substring(0, 200));
         const billMatch = raw.match(/"orderId"\s*:\s*(\d+)/);
-        if (billMatch) {
+        if (billMatch && !existingBill) {
           const billId = billMatch[1];
-          console.log("[license] sold at party step, bill:", billId);
+          console.log("[license] new bill created:", billId);
           setActiveBills([{ billId, racerName: "Group", category: adults > 0 ? "adult" : "junior" }]);
           sessionStorage.setItem("attractionOrderId", billId);
-        } else {
-          console.error("[license] sell failed:", raw.substring(0, 200));
         }
       } catch (err) {
         console.error("[license] sell error:", err);
