@@ -215,6 +215,11 @@ export default function BookRacePage() {
     trackBookingExperience(type);
     setRacerType(type);
     setVerifiedPerson(null);
+    // Clear any stale bill from a previous booking session
+    cancelActiveOrder();
+    setBookings([]);
+    sessionStorage.removeItem("attractionOrderId");
+    sessionStorage.removeItem("attractionCart");
     if (type === "new") {
       setTimeout(() => setStep("party"), 300);
     }
