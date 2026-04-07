@@ -334,45 +334,8 @@ export default function BookRacePage() {
     }
   }
 
-  async function handlePartyNext() {
+  function handlePartyNext() {
     trackBookingParty(adults, juniors);
-    const totalRacers = adults + juniors;
-    console.log("[handlePartyNext]", { racerType, totalRacers, activeBillsCount: activeBills.length });
-
-    // New racers: cancel any stale bill, then sell license to create a fresh bill
-    if (racerType === "new") {
-      // Cancel stale bill if one exists
-      const staleBill = sessionStorage.getItem("attractionOrderId");
-      if (staleBill) {
-        console.log("[license] cancelling stale bill:", staleBill);
-        fetch(`/api/bmi?endpoint=bill/${staleBill}/cancel`, { method: "DELETE" }).catch(() => {});
-        sessionStorage.removeItem("attractionOrderId");
-        sessionStorage.removeItem("attractionCart");
-      }
-
-      try {
-        // Always create a FRESH bill with the license — never reuse stale bills
-        const sellBody = `{"ProductId":11253570,"PageId":43472899,"Quantity":${totalRacers},"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`;
-        console.log("[license] selling fresh...", { totalRacers });
-        const res = await fetch("/api/bmi?endpoint=booking%2Fsell", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: sellBody,
-        });
-        const raw = await res.text();
-        console.log("[license] response:", raw.substring(0, 200));
-        const billMatch = raw.match(/"orderId"\s*:\s*(\d+)/);
-        if (billMatch) {
-          const billId = billMatch[1];
-          console.log("[license] bill created:", billId);
-          setActiveBills([{ billId, racerName: "Group", category: adults > 0 ? "adult" : "junior" }]);
-          sessionStorage.setItem("attractionOrderId", billId);
-        }
-      } catch (err) {
-        console.error("[license] sell error:", err);
-      }
-    }
-
     setStep("date");
   }
 
@@ -431,7 +394,9 @@ export default function BookRacePage() {
 
     try {
       let createdBills: RacerBill[] = [];
-      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : null;
+      // Also check sessionStorage as fallback (React state may be stale from closure)
+      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : (sessionStorage.getItem("attractionOrderId") || null);
+      console.log("[bookHeatForRacers] existingBillId:", existingBillId, "activeBills:", activeBills.length, "sessionStorage:", sessionStorage.getItem("attractionOrderId"));
 
       if (selectedRacers && selectedRacers.length > 0) {
         // Returning racers: book each racer individually with personId, all on one bill

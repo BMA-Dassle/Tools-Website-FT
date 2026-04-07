@@ -203,9 +203,8 @@ export default function OrderSummary({
 
       for (const bill of bills) {
         try {
-          const overviewRes = await fetch(`/api/bmi?endpoint=order/${bill.billId}/overview`);
+          const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}`);
           const overview = await overviewRes.json();
-          console.log("[overview]", bill.billId, "lines:", overview.lines?.length, "total:", JSON.stringify(overview.total));
 
           const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
           // Sum ALL credit entries (BMI may return multiple credit types as separate dk=2 entries)
