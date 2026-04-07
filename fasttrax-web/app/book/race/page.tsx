@@ -107,8 +107,7 @@ export default function BookRacePage() {
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
-  // Restore from sessionStorage if exists (license bill or multi-activity cart)
-  const [activeBills, setActiveBills] = useState<RacerBill[]>(() => {
+  const [activeBills, _setActiveBills] = useState<RacerBill[]>(() => {
     if (typeof window === "undefined") return [];
     const existingOrderId = sessionStorage.getItem("attractionOrderId");
     if (existingOrderId) {
@@ -116,8 +115,23 @@ export default function BookRacePage() {
     }
     return [];
   });
-  // Convenience: primary bill ID (first bill, used for add-ons/POV/overview)
-  const activeOrderId = activeBills.length > 0 ? activeBills[0].billId : null;
+  // Keep a ref always in sync so closures never read stale state
+  const activeBillsRef = useRef(activeBills);
+  function setActiveBills(updater: RacerBill[] | ((prev: RacerBill[]) => RacerBill[])) {
+    _setActiveBills(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      activeBillsRef.current = next;
+      // Keep sessionStorage in sync
+      if (next.length > 0) {
+        sessionStorage.setItem("attractionOrderId", next[0].billId);
+      } else {
+        sessionStorage.removeItem("attractionOrderId");
+      }
+      return next;
+    });
+  }
+  // Primary bill ID — always reads from ref for freshness
+  const activeOrderId = activeBillsRef.current.length > 0 ? activeBillsRef.current[0].billId : null;
 
   const contentRef = useRef<HTMLDivElement>(null);
   const nextBtnRef = useRef<HTMLDivElement>(null);
@@ -394,9 +408,8 @@ export default function BookRacePage() {
 
     try {
       let createdBills: RacerBill[] = [];
-      // Also check sessionStorage as fallback (React state may be stale from closure)
-      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : (sessionStorage.getItem("attractionOrderId") || null);
-      console.log("[bookHeatForRacers] existingBillId:", existingBillId, "activeBills:", activeBills.length, "sessionStorage:", sessionStorage.getItem("attractionOrderId"));
+      const existingBillId = activeBillsRef.current.length > 0 ? activeBillsRef.current[0].billId : null;
+      console.log("[bookHeatForRacers] existingBillId:", existingBillId);
 
       if (selectedRacers && selectedRacers.length > 0) {
         // Returning racers: book each racer individually with personId, all on one bill
