@@ -220,7 +220,7 @@ export default function GroupEventsPage() {
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-10 items-center">
           <div className="flex-1">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowRed }}
             >
               Host an Unforgettable Event at the Destination.
@@ -266,7 +266,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             How It Works
@@ -300,7 +300,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowRed }}
           >
             Event Spaces
@@ -338,7 +338,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowBlue }}
           >
             Activities
@@ -371,7 +371,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowRed }}
           >
             Exclusive Racing Heat Pricing
@@ -435,7 +435,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowBlue }}
           >
             Activity Pricing
@@ -464,7 +464,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowRed }}
           >
             Catering by Nemo&apos;s Trackside Bistro
@@ -552,7 +552,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             Event Formats: Elite Access
@@ -580,7 +580,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-3xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowBlue }}
           >
             Frequently Asked Questions
@@ -636,7 +636,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/80" />
         <div className="relative z-10 max-w-3xl mx-auto px-8 text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(134,82,255,0.4) 0px 0px 30px" }}
           >
             Get the Complete Event Guide
@@ -662,7 +662,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/80" />
         <div className="relative z-10 max-w-3xl mx-auto px-8 text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowBlue }}
           >
             Start Your Quote

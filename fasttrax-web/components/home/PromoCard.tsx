@@ -16,7 +16,7 @@ export default function PromoCard() {
                   Add More Fun For Just $10
                 </div>
                 <h2
-                  className="font-heading italic text-white uppercase leading-tight mb-3"
+                  className="font-heading font-bold text-white uppercase leading-tight mb-3"
                   style={{ fontSize: "clamp(1.8rem, 4.5vw, 3rem)" }}
                 >
                   Level Up Your Race Day

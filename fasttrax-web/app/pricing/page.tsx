@@ -51,7 +51,7 @@ export default function PricingPage() {
           {/* Left column: heading + promo cards + disclaimer */}
           <div className="flex-1">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
             >
               FastTrax Pricing
@@ -139,7 +139,7 @@ export default function PricingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(40px, 8vw, 70px) clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Racing Rates
@@ -202,7 +202,7 @@ export default function PricingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-10">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 48px)", lineHeight: "1.1", letterSpacing: "2px", textShadow: glowShadow }}
             >
               Race Packs — Save More, Race More
@@ -301,7 +301,7 @@ export default function PricingPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             FastTrax: The 63,000 Sq. Ft. Racing Hub
@@ -400,7 +400,7 @@ export default function PricingPage() {
           {/* Right column: heading + how to book + combo cards */}
           <div style={{ flex: "0 0 54%" }}>
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               fastTrax Combos
@@ -479,7 +479,7 @@ export default function PricingPage() {
       <section style={{ backgroundColor: "#000418", padding: "clamp(48px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-4xl mx-auto text-center">
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(28px, 6vw, 48px)", lineHeight: "1.1", letterSpacing: "2px", textShadow: glowShadow }}
           >
             Give the Gift of Speed
@@ -514,7 +514,7 @@ export default function PricingPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/80 via-[#000418]/60 to-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",

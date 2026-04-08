@@ -29,7 +29,7 @@ export default function GroupEvents() {
 
         {/* Heading */}
         <h2
-          className="font-heading italic uppercase text-white leading-[0.9] mb-6"
+          className="font-heading font-black uppercase text-white leading-[0.9] mb-6"
           style={{ fontSize: "clamp(2.5rem, 7vw, 72px)" }}
         >
           EVENTS FOR 14 TO 1,000+ GUESTS

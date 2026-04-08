@@ -53,7 +53,7 @@ export default function MenuPage() {
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-10 items-center">
           <div className="flex-1">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               Artisan Pizza. Italian Tradition. Front-Row Seats
@@ -106,7 +106,7 @@ export default function MenuPage() {
         <div className="relative z-10 max-w-7xl mx-auto px-8 flex items-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <div style={{ maxWidth: "600px" }}>
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
             >
               The Star of the Show: Brick Oven Mastery
@@ -122,7 +122,7 @@ export default function MenuPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             Trackside Dining Experience
@@ -188,7 +188,7 @@ export default function MenuPage() {
       <section id="events" className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Upcoming Events &amp; Watch Parties
@@ -288,7 +288,7 @@ export default function MenuPage() {
         <div className="absolute inset-0 bg-[#000418]/80" />
         <div className="relative z-10 max-w-3xl mx-auto text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
           >
             Planning a visit with 10+ guests?

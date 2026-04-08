@@ -33,14 +33,14 @@ export default function Hero() {
           {/* Headline */}
           <div>
             <h1
-              className="font-heading font-bold italic uppercase text-white leading-[0.9] tracking-wide"
-              style={{ fontSize: "clamp(2.2rem, 5.5vw, 5rem)" }}
+              className="font-heading font-black uppercase text-white"
+              style={{ fontSize: "clamp(2.5rem, 7vw, 5.5rem)", lineHeight: "1.05", letterSpacing: "-1px" }}
             >
               LIVE LIFE IN THE
             </h1>
             <h1
-              className="font-heading font-bold italic uppercase leading-[0.9] tracking-wide"
-              style={{ fontSize: "clamp(2.2rem, 5.5vw, 5rem)", color: "rgb(228,28,29)", textShadow: "0 0 40px rgba(228,28,29,0.5)" }}
+              className="font-heading font-black uppercase"
+              style={{ fontSize: "clamp(2.5rem, 7vw, 5.5rem)", lineHeight: "1.05", letterSpacing: "-1px", color: "rgb(228,28,29)", textShadow: "0 0 40px rgba(228,28,29,0.5)" }}
             >
               FASTTRAX
             </h1>

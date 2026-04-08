@@ -138,7 +138,7 @@ export default function Attractions() {
 
         {/* Title */}
         <h2
-          className="font-heading italic uppercase text-white text-center mb-8"
+          className="font-heading font-black uppercase text-white text-center mb-8"
           style={{ fontSize: "clamp(2.5rem, 6vw, 72px)" }}
         >
           THE ATTRACTION POWER-GRID

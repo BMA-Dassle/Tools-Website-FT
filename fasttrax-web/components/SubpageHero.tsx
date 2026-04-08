@@ -21,8 +21,8 @@ export default function SubpageHero({ title, backgroundImage }: SubpageHeroProps
       {/* No overlay - live site has none */}
       <div className="relative z-10 flex items-center justify-center px-8" style={{ minHeight: "575px" }}>
         <h1
-          className="font-heading italic uppercase text-white text-center"
-          style={{ fontSize: "clamp(3rem, 8vw, 100px)", fontWeight: 600, lineHeight: "1.25", letterSpacing: "3.4px" }}
+          className="font-heading font-black uppercase text-white text-center"
+          style={{ fontSize: "clamp(3rem, 8vw, 100px)", lineHeight: "1.05", letterSpacing: "-1px" }}
         >
           {title}
         </h1>

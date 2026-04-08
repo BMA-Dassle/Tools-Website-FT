@@ -4,13 +4,13 @@ export default function NotFound() {
   return (
     <div className="min-h-screen bg-[#000418] flex flex-col items-center justify-center text-center px-4">
       <h1
-        className="font-heading italic uppercase text-white mb-4"
+        className="font-heading font-black uppercase text-white mb-4"
         style={{ fontSize: "clamp(80px, 20vw, 200px)", lineHeight: "1", textShadow: "rgba(229,0,0,0.48) 0px 0px 30px" }}
       >
         404
       </h1>
       <h2
-        className="font-heading italic uppercase text-white mb-6"
+        className="font-heading font-black uppercase text-white mb-6"
         style={{ fontSize: "clamp(24px, 5vw, 48px)", lineHeight: "1", letterSpacing: "3px" }}
       >
         Wrong Turn, Racer

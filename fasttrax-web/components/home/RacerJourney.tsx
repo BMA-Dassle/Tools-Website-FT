@@ -65,7 +65,7 @@ export default function RacerJourney() {
         {/* LEFT COL: Heading + Track Status + CTAs */}
         <div className="flex-1 flex flex-col gap-6 justify-center">
           <h2
-            className="font-heading italic uppercase text-white leading-[0.9]"
+            className="font-heading font-black uppercase text-white leading-[0.9]"
             style={{ fontSize: "clamp(2.5rem, 6vw, 72px)" }}
           >
             THE RACER&apos;S JOURNEY ARRIVE TO DRIVE
@@ -74,7 +74,7 @@ export default function RacerJourney() {
           {/* Live Track Status */}
           <div>
             <p
-              className="font-heading italic uppercase mb-3"
+              className="font-heading font-black uppercase mb-3"
               style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(22px, 5vw, 32px)" }}
             >
               LIVE TRACK STATUS

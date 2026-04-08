@@ -159,7 +159,7 @@ export default function AttractionsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Two Buildings. One Massive Destination
@@ -202,7 +202,7 @@ export default function AttractionsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             FastTrax: The 63,000 Sq. Ft. Racing Hub
@@ -271,7 +271,7 @@ export default function AttractionsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             headPinz: The 50,000 Sq. Ft. Social Flagship
@@ -333,7 +333,7 @@ export default function AttractionsPage() {
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               Dining: Nemo&apos;s Trackside Bistro
@@ -376,7 +376,7 @@ export default function AttractionsPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/80 via-[#000418]/60 to-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(28,0,255,0.4) 0px 0px 30px" }}
           >
             Destination Combo Packages (Best Value)

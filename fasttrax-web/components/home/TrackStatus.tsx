@@ -15,7 +15,7 @@ export default function TrackStatus() {
     <section className="bg-[#010A20] border-y border-white/10 py-4">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-8">
-          <span className="font-heading italic text-white/40 text-sm uppercase tracking-widest">
+          <span className="font-heading font-bold text-white/40 text-sm uppercase tracking-widest">
             Live Track Status
           </span>
           <div className="flex flex-wrap gap-4">

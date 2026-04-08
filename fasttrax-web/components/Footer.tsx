@@ -43,7 +43,7 @@ export default function Footer() {
 
         {/* Quick Links */}
         <div>
-          <h3 className="font-heading italic text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Quick Links</h3>
+          <h3 className="font-heading font-bold text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Quick Links</h3>
           <ul className="space-y-2">
             {quickLinks.map((l) => (
               <li key={l.label}>
@@ -63,7 +63,7 @@ export default function Footer() {
 
         {/* Connect */}
         <div>
-          <h3 className="font-heading italic text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Connect</h3>
+          <h3 className="font-heading font-bold text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Connect</h3>
           <div className="space-y-3 text-sm text-white/60">
             <p className="leading-relaxed">
               14501 Global Parkway<br />

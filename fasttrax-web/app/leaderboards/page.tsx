@@ -643,7 +643,7 @@ export default function LeaderboardsPage() {
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
           <div className="flex-1">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{
                 fontSize: "clamp(32px, 8vw, 72px)",
                 lineHeight: "1",
@@ -699,7 +699,7 @@ export default function LeaderboardsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-2 sm:px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -719,7 +719,7 @@ export default function LeaderboardsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -818,7 +818,7 @@ export default function LeaderboardsPage() {
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -913,7 +913,7 @@ export default function LeaderboardsPage() {
           </div>
           <div className="flex-1">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{
                 fontSize: "clamp(32px, 8vw, 72px)",
                 lineHeight: "1",
@@ -971,7 +971,7 @@ export default function LeaderboardsPage() {
         <div className="absolute inset-0 bg-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",

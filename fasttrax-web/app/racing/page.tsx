@@ -26,7 +26,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -151,7 +151,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -260,7 +260,7 @@ export default function RacingPage() {
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -366,7 +366,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -452,7 +452,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -674,7 +674,7 @@ export default function RacingPage() {
           {/* Left: Title */}
           <div className="lg:w-2/5 shrink-0">
             <h2
-              className="font-heading italic uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{
                 fontSize: "clamp(32px, 8vw, 72px)",
                 lineHeight: "1",
@@ -785,7 +785,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-heading italic uppercase text-white text-center"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -887,7 +887,7 @@ export default function RacingPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/80 via-[#000418]/60 to-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-heading italic uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
