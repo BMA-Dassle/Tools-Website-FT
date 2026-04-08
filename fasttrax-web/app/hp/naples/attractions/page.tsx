@@ -172,13 +172,13 @@ export default function NaplesAttractionsPage() {
           style={{ minHeight: "80vh" }}
         >
           <p
-            className="font-[var(--font-hp-body)] text-[#fd5b56] uppercase tracking-[0.3em] mb-4"
+            className="font-body text-[#fd5b56] uppercase tracking-[0.3em] mb-4"
             style={{ fontSize: "clamp(11px, 1.8vw, 14px)" }}
           >
             HeadPinz Naples
           </p>
           <h1
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(40px, 10vw, 90px)",
               lineHeight: "1.05",
@@ -190,7 +190,7 @@ export default function NaplesAttractionsPage() {
             What&apos;s Inside
           </h1>
           <p
-            className="font-[var(--font-hp-body)] text-white/70 uppercase tracking-widest"
+            className="font-body text-white/70 uppercase tracking-widest"
             style={{
               fontSize: "clamp(12px, 2vw, 16px)",
               letterSpacing: "3px",
@@ -255,7 +255,7 @@ export default function NaplesAttractionsPage() {
 
                     {a.badge && (
                       <span
-                        className="absolute top-4 left-4 text-white text-xs font-bold font-[var(--font-hp-body)] uppercase tracking-wider px-3 py-1.5 rounded-full"
+                        className="absolute top-4 left-4 text-white text-xs font-bold font-body uppercase tracking-wider px-3 py-1.5 rounded-full"
                         style={{ backgroundColor: a.accent }}
                       >
                         {a.badge}
@@ -271,7 +271,7 @@ export default function NaplesAttractionsPage() {
                     />
 
                     <h2
-                      className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+                      className="font-heading font-black uppercase text-white"
                       style={{
                         fontSize: "clamp(24px, 4vw, 40px)",
                         lineHeight: "1.1",
@@ -283,25 +283,25 @@ export default function NaplesAttractionsPage() {
                     </h2>
 
                     <p
-                      className="font-[var(--font-hp-body)] uppercase tracking-wider mb-4"
+                      className="font-body uppercase tracking-wider mb-4"
                       style={{ color: a.accent, fontSize: "clamp(11px, 1.5vw, 13px)" }}
                     >
                       {a.subtitle}
                     </p>
 
                     <p
-                      className="font-[var(--font-hp-body)] text-white/70 leading-relaxed mb-4"
+                      className="font-body text-white/70 leading-relaxed mb-4"
                       style={{ fontSize: "clamp(14px, 1.8vw, 17px)" }}
                     >
                       {a.description}
                     </p>
 
-                    <p className="font-[var(--font-hp-body)] text-white/40 text-sm mb-2">
+                    <p className="font-body text-white/40 text-sm mb-2">
                       {a.details}
                     </p>
 
                     <p
-                      className="font-[var(--font-hp-body)] font-bold mb-6"
+                      className="font-body font-bold mb-6"
                       style={{ color: a.accent, fontSize: "clamp(14px, 1.8vw, 17px)" }}
                     >
                       {a.pricing}
@@ -311,7 +311,7 @@ export default function NaplesAttractionsPage() {
                       {a.external ? (
                         <BookingLink
                           href={a.ctaHref}
-                          className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+                          className="inline-flex items-center justify-center text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
                           style={{
                             backgroundColor: a.accent,
                             boxShadow: `0 0 20px ${a.accent}50`,
@@ -322,7 +322,7 @@ export default function NaplesAttractionsPage() {
                       ) : (
                         <Link
                           href={a.ctaHref}
-                          className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+                          className="inline-flex items-center justify-center text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
                           style={{
                             backgroundColor: a.accent,
                             boxShadow: `0 0 20px ${a.accent}50`,
@@ -364,7 +364,7 @@ export default function NaplesAttractionsPage() {
           style={{ minHeight: "clamp(350px, 50vh, 500px)" }}
         >
           <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 7vw, 60px)",
               lineHeight: "1.05",
@@ -375,19 +375,19 @@ export default function NaplesAttractionsPage() {
           >
             Ready to Play?
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-8 max-w-md mx-auto">
+          <p className="font-body text-white/60 text-sm mb-8 max-w-md mx-auto">
             Reserve your lanes, book your battles, or just show up and play.
           </p>
           <BookingLink
             href="/hp/book/bowling?location=naples"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 mb-4"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 mb-4"
             style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
             Book Now
           </BookingLink>
           <a
             href="tel:+12394553755"
-            className="font-[var(--font-hp-body)] text-white/50 hover:text-white transition-colors text-sm"
+            className="font-body text-white/50 hover:text-white transition-colors text-sm"
           >
             Or call (239) 455-3755
           </a>

@@ -31,7 +31,7 @@ export default function AttractionVideo({ videoUrl, accent }: AttractionVideoPro
       {/* Play button */}
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105 border"
+        className="inline-flex items-center gap-2 font-body font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105 border"
         style={{
           color: accent,
           borderColor: `${accent}60`,
@@ -57,7 +57,7 @@ export default function AttractionVideo({ videoUrl, accent }: AttractionVideoPro
             {/* Close button */}
             <button
               onClick={() => setOpen(false)}
-              className="absolute -top-10 right-0 text-white/60 hover:text-white transition-colors text-sm font-[var(--font-hp-body)] uppercase tracking-wider flex items-center gap-1"
+              className="absolute -top-10 right-0 text-white/60 hover:text-white transition-colors text-sm font-body uppercase tracking-wider flex items-center gap-1"
             >
               Close
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

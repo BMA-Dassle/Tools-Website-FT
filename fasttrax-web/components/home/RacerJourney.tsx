@@ -65,7 +65,7 @@ export default function RacerJourney() {
         {/* LEFT COL: Heading + Track Status + CTAs */}
         <div className="flex-1 flex flex-col gap-6 justify-center">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white leading-[0.9]"
+            className="font-heading italic uppercase text-white leading-[0.9]"
             style={{ fontSize: "clamp(2.5rem, 6vw, 72px)" }}
           >
             THE RACER&apos;S JOURNEY ARRIVE TO DRIVE
@@ -74,7 +74,7 @@ export default function RacerJourney() {
           {/* Live Track Status */}
           <div>
             <p
-              className="font-[var(--font-anton)] italic uppercase mb-3"
+              className="font-heading italic uppercase mb-3"
               style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(22px, 5vw, 32px)" }}
             >
               LIVE TRACK STATUS
@@ -86,17 +86,17 @@ export default function RacerJourney() {
                   className="flex items-center justify-between px-4 py-3 rounded-xl"
                   style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}80` }}
                 >
-                  <span style={{ color: t.colors.trackIdentity, fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>{t.trackName}</span>
+                  <span style={{ color: t.colors.trackIdentity, fontSize: "18px", fontFamily: "var(--font-body)", fontWeight: 600 }}>{t.trackName}</span>
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
-                    <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>{t.delayFormatted}</span>
+                    <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{t.delayFormatted}</span>
                   </div>
                 </div>
               ))}
               {!trackData && (
                 <>
                   <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                    <span className="font-[var(--font-poppins)] text-white/30 text-sm">Loading status...</span>
+                    <span className="font-body text-white/30 text-sm">Loading status...</span>
                   </div>
                 </>
               )}
@@ -108,14 +108,14 @@ export default function RacerJourney() {
             <a
               href="/book/race"
               onClick={trackBookingClick}
-              className="font-[var(--font-poppins)] font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
+              className="font-body font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)" }}
             >
               BOOK YOUR RACE NOW
             </a>
             <Link
               href="/attractions"
-              className="font-[var(--font-poppins)] font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
+              className="font-body font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(0,74,173)" }}
             >
               EXPLORE DESTINATION COMBOS
@@ -138,7 +138,7 @@ export default function RacerJourney() {
             >
               {/* Number badge */}
               <div
-                className="shrink-0 flex items-center justify-center font-[var(--font-anton)] text-white text-2xl"
+                className="shrink-0 flex items-center justify-center font-heading text-white text-2xl"
                 style={{
                   backgroundColor: s.badgeBg,
                   borderRadius: "8px",
@@ -152,17 +152,17 @@ export default function RacerJourney() {
               {/* Text */}
               <div>
                 <h3
-                  className="font-[var(--font-anton)] uppercase"
+                  className="font-heading uppercase"
                   style={{ color: s.titleColor, fontSize: "24px", marginBottom: s.subtitle ? "4px" : "8px" }}
                 >
                   {s.title}
                 </h3>
                 {s.subtitle && (
-                  <p style={{ color: "rgba(245,236,238,0.5)", fontSize: "13px", fontFamily: "var(--font-poppins)", marginBottom: "8px" }}>
+                  <p style={{ color: "rgba(245,236,238,0.5)", fontSize: "13px", fontFamily: "var(--font-body)", marginBottom: "8px" }}>
                     {s.subtitle}
                   </p>
                 )}
-                <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-poppins)", lineHeight: "1.5" }}>
+                <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-body)", lineHeight: "1.5" }}>
                   {s.desc}
                 </p>
               </div>

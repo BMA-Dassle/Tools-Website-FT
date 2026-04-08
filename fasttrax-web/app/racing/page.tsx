@@ -26,7 +26,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -38,7 +38,7 @@ export default function RacingPage() {
             Race Types &amp; Qualifications
           </h2>
           <p
-            className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
+            className="text-center mx-auto mb-10 font-body"
             style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
             Every racer starts in Starter. Prove your speed to unlock faster tiers.
@@ -106,10 +106,10 @@ export default function RacingPage() {
                   padding: "24px 20px",
                 }}
               >
-                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: rt.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                <h3 className="font-heading uppercase mb-3" style={{ color: rt.color, fontSize: "24px", letterSpacing: "1.2px" }}>
                   {rt.title}
                 </h3>
-                <div className="font-[var(--font-poppins)] mb-3 flex flex-col gap-1" style={{ fontSize: "14px" }}>
+                <div className="font-body mb-3 flex flex-col gap-1" style={{ fontSize: "14px" }}>
                   <p style={{ color: "rgba(245,236,238,0.6)" }}>
                     <strong style={{ color: "rgba(245,236,238,0.9)" }}>Age/Height:</strong> {rt.age}
                   </p>
@@ -117,11 +117,11 @@ export default function RacingPage() {
                     <strong style={{ color: "rgba(245,236,238,0.9)" }}>Qualification:</strong> {rt.qual}
                   </p>
                 </div>
-                <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+                <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
                   {rt.desc}
                 </p>
                 {"note" in rt && (
-                  <p className="font-[var(--font-poppins)] font-semibold mt-3" style={{ color: "rgb(255,193,7)", fontSize: "12px" }}>
+                  <p className="font-body font-semibold mt-3" style={{ color: "rgb(255,193,7)", fontSize: "12px" }}>
                     ⚠ {(rt as { note: string }).note}
                   </p>
                 )}
@@ -130,7 +130,7 @@ export default function RacingPage() {
           </div>
 
           <p
-            className="font-[var(--font-poppins)] text-center mt-10 mx-auto"
+            className="font-body text-center mt-10 mx-auto"
             style={{
               color: "rgb(255,193,7)",
               fontSize: "15px",
@@ -151,7 +151,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -163,7 +163,7 @@ export default function RacingPage() {
             Racer Requirements
           </h2>
           <p
-            className="text-center mx-auto mb-10 font-[var(--font-poppins)]"
+            className="text-center mx-auto mb-10 font-body"
             style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
             All racers must meet the age and height requirements for their kart class. A $4.99 Racing License (valid for one year) is required.
@@ -212,12 +212,12 @@ export default function RacingPage() {
                   padding: "24px 20px",
                 }}
               >
-                <h3 className="font-[var(--font-anton)] uppercase mb-4" style={{ color: kart.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                <h3 className="font-heading uppercase mb-4" style={{ color: kart.color, fontSize: "24px", letterSpacing: "1.2px" }}>
                   {kart.title}
                 </h3>
                 <div className="flex flex-col gap-2">
                   {kart.items.map((item) => (
-                    <div key={item.label} className="font-[var(--font-poppins)] flex justify-between gap-3" style={{ fontSize: "15px", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "8px" }}>
+                    <div key={item.label} className="font-body flex justify-between gap-3" style={{ fontSize: "15px", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "8px" }}>
                       <span style={{ color: "rgba(245,236,238,0.6)" }}>{item.label}</span>
                       <span style={{ color: "rgba(245,236,238,0.95)", fontWeight: 500, textAlign: "right" }}>{item.value}</span>
                     </div>
@@ -228,7 +228,7 @@ export default function RacingPage() {
           </div>
 
           <p
-            className="font-[var(--font-poppins)] text-center mt-10 mx-auto"
+            className="font-body text-center mt-10 mx-auto"
             style={{
               color: "rgb(255,193,7)",
               fontSize: "15px",
@@ -260,7 +260,7 @@ export default function RacingPage() {
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -303,7 +303,7 @@ export default function RacingPage() {
                 }}
               >
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgb(134,82,255)",
                     fontSize: "18px",
@@ -314,7 +314,7 @@ export default function RacingPage() {
                   {f.title}
                 </p>
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgb(245,236,238)",
                     fontSize: "16px",
@@ -334,7 +334,7 @@ export default function RacingPage() {
               href="https://smstim.in/headpinzftmyers"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(134,82,255)",
                 borderRadius: "555px",
@@ -348,7 +348,7 @@ export default function RacingPage() {
               href="https://smstim.in/headpinzftmyers"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(134,82,255)",
                 borderRadius: "555px",
@@ -366,7 +366,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -421,7 +421,7 @@ export default function RacingPage() {
                   />
                 </div>
                 <h3
-                  className="font-[var(--font-anton)] uppercase"
+                  className="font-heading uppercase"
                   style={{
                     color: card.borderColor,
                     fontSize: "24px",
@@ -432,7 +432,7 @@ export default function RacingPage() {
                   {card.title}
                 </h3>
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgba(245,236,238,0.898)",
                     fontSize: "16px",
@@ -452,7 +452,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -468,7 +468,7 @@ export default function RacingPage() {
           <div className="flex justify-center gap-8 mb-8">
             <button
               onClick={() => setActiveTrack("split")}
-              className="font-[var(--font-anton)] uppercase cursor-pointer bg-transparent border-none"
+              className="font-heading uppercase cursor-pointer bg-transparent border-none"
               style={{
                 fontSize: "24px",
                 letterSpacing: "1.2px",
@@ -483,7 +483,7 @@ export default function RacingPage() {
             </button>
             <button
               onClick={() => setActiveTrack("mega")}
-              className="font-[var(--font-anton)] uppercase cursor-pointer bg-transparent border-none"
+              className="font-heading uppercase cursor-pointer bg-transparent border-none"
               style={{
                 fontSize: "24px",
                 letterSpacing: "1.2px",
@@ -515,7 +515,7 @@ export default function RacingPage() {
                 {/* Blue Track */}
                 <div className="flex-1 flex flex-col gap-3">
                   <h3
-                    className="font-[var(--font-anton)] uppercase"
+                    className="font-heading uppercase"
                     style={{
                       color: "rgb(0,74,173)",
                       fontSize: "24px",
@@ -526,7 +526,7 @@ export default function RacingPage() {
                     The Blue Track (1,095 ft)
                   </h3>
                   <p
-                    className="font-[var(--font-poppins)]"
+                    className="font-body"
                     style={{
                       color: "rgba(245,236,238,0.898)",
                       fontSize: "18px",
@@ -538,7 +538,7 @@ export default function RacingPage() {
                 {/* Red Track */}
                 <div className="flex-1 flex flex-col gap-3">
                   <h3
-                    className="font-[var(--font-anton)] uppercase"
+                    className="font-heading uppercase"
                     style={{
                       color: "rgb(228,28,29)",
                       fontSize: "24px",
@@ -549,7 +549,7 @@ export default function RacingPage() {
                     The Red Track (1,013 ft)
                   </h3>
                   <p
-                    className="font-[var(--font-poppins)]"
+                    className="font-body"
                     style={{
                       color: "rgba(245,236,238,0.898)",
                       fontSize: "18px",
@@ -588,7 +588,7 @@ export default function RacingPage() {
             >
               <div className="flex flex-col gap-3">
                 <h3
-                  className="font-[var(--font-anton)] uppercase"
+                  className="font-heading uppercase"
                   style={{
                     color: "rgb(134,82,255)",
                     fontSize: "24px",
@@ -599,7 +599,7 @@ export default function RacingPage() {
                   The Mega Track (2,108 ft)
                 </h3>
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgba(245,236,238,0.898)",
                     fontSize: "18px",
@@ -608,7 +608,7 @@ export default function RacingPage() {
                   Tuesdays Only: Florida&apos;s longest multi-level track.
                 </p>
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgb(255,193,7)",
                     fontSize: "16px",
@@ -643,7 +643,7 @@ export default function RacingPage() {
             <a
               href="/book/race"
               onClick={trackBookingClick}
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",
                 borderRadius: "555px",
@@ -674,7 +674,7 @@ export default function RacingPage() {
           {/* Left: Title */}
           <div className="lg:w-2/5 shrink-0">
             <h2
-              className="font-[var(--font-anton)] italic uppercase text-white"
+              className="font-heading italic uppercase text-white"
               style={{
                 fontSize: "clamp(32px, 8vw, 72px)",
                 lineHeight: "1",
@@ -737,7 +737,7 @@ export default function RacingPage() {
                 }}
               >
                 <div
-                  className="font-[var(--font-anton)] shrink-0"
+                  className="font-heading shrink-0"
                   style={{
                     width: "48px",
                     height: "48px",
@@ -754,7 +754,7 @@ export default function RacingPage() {
                 </div>
                 <div>
                   <h3
-                    className="font-[var(--font-anton)] uppercase"
+                    className="font-heading uppercase"
                     style={{
                       color: rule.titleColor,
                       fontSize: "clamp(16px, 3vw, 22px)",
@@ -765,7 +765,7 @@ export default function RacingPage() {
                     {rule.title}
                   </h3>
                   <p
-                    className="font-[var(--font-poppins)]"
+                    className="font-body"
                     style={{
                       color: "rgba(255,255,255,0.9)",
                       fontSize: "clamp(14px, 2.5vw, 16px)",
@@ -785,7 +785,7 @@ export default function RacingPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -830,7 +830,7 @@ export default function RacingPage() {
                 }}
               >
                 <div
-                  className="font-[var(--font-anton)]"
+                  className="font-heading"
                   style={{
                     width: "48px",
                     height: "48px",
@@ -847,7 +847,7 @@ export default function RacingPage() {
                   {step.num}
                 </div>
                 <h3
-                  className="font-[var(--font-anton)] uppercase mb-2"
+                  className="font-heading uppercase mb-2"
                   style={{
                     color: "rgb(255,255,255)",
                     fontSize: "24px",
@@ -857,7 +857,7 @@ export default function RacingPage() {
                   {step.title}
                 </h3>
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgba(245,236,238,0.8)",
                     fontSize: "16px",
@@ -887,7 +887,7 @@ export default function RacingPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/80 via-[#000418]/60 to-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -901,7 +901,7 @@ export default function RacingPage() {
           <a
             href="/book/race"
             onClick={trackBookingClick}
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+            className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{
               backgroundColor: "rgb(228,28,29)",
               borderRadius: "555px",

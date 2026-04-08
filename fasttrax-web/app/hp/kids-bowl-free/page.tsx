@@ -77,7 +77,7 @@ export default function KidsBowlFreePage() {
           </div>
 
           <h1
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1.05",
@@ -89,26 +89,26 @@ export default function KidsBowlFreePage() {
             Kids Bowl Free
           </h1>
           <p
-            className="font-[var(--font-hp-body)] text-white/80 max-w-xl mx-auto"
+            className="font-body text-white/80 max-w-xl mx-auto"
             style={{ fontSize: "clamp(14px, 2.5vw, 20px)", lineHeight: "1.5", marginBottom: "12px" }}
           >
             2 free games every weekday for kids 15 &amp; under
           </p>
-          <p className="font-[var(--font-hp-body)] text-white/50 text-sm mb-8">
+          <p className="font-body text-white/50 text-sm mb-8">
             HeadPinz Fort Myers &bull; HeadPinz Naples &bull; FastTrax Fort Myers
           </p>
 
           <div className="flex flex-wrap justify-center gap-3">
             <Link
               href="/hp/kids-bowl-free/register"
-              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-4 rounded-full transition-all hover:scale-105"
+              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-8 py-4 rounded-full transition-all hover:scale-105"
               style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
             >
               Register Now
             </Link>
             <Link
               href="/hp/kids-bowl-free/book"
-              className="inline-flex items-center text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-4 rounded-full transition-all hover:scale-105 border border-white/20 hover:border-white/40"
+              className="inline-flex items-center text-white font-body font-bold text-base uppercase tracking-wider px-8 py-4 rounded-full transition-all hover:scale-105 border border-white/20 hover:border-white/40"
               style={{ backgroundColor: "rgba(255,255,255,0.1)" }}
             >
               Book a Lane
@@ -124,7 +124,7 @@ export default function KidsBowlFreePage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(253,91,86,0.25)" }}
             >
               How It Works
@@ -144,15 +144,15 @@ export default function KidsBowlFreePage() {
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${s.accent}30` }}
               >
                 <span
-                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-[var(--font-hp-display)] text-xl mb-4"
+                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-heading text-xl mb-4"
                   style={{ backgroundColor: `${s.accent}20`, color: s.accent, border: `1.78px solid ${s.accent}40` }}
                 >
                   {s.step}
                 </span>
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+                <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
                   {s.title}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{s.desc}</p>
+                <p className="font-body text-white/60 text-sm leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -172,10 +172,10 @@ export default function KidsBowlFreePage() {
                 <Image src={f.image} alt={f.title} fill className="object-cover" sizes="33vw" unoptimized />
               </div>
               <div className="p-5">
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-2">
+                <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-2">
                   {f.title}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{f.desc}</p>
+                <p className="font-body text-white/60 text-sm leading-relaxed">{f.desc}</p>
               </div>
             </div>
           ))}
@@ -187,7 +187,7 @@ export default function KidsBowlFreePage() {
         <div className="max-w-3xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(255,215,0,0.25)" }}
             >
               When Can Kids Bowl Free?
@@ -205,9 +205,9 @@ export default function KidsBowlFreePage() {
                 { day: "Saturday \u2013 Sunday", time: "Not Available", available: false },
               ].map((row) => (
                 <div key={row.day} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                  <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{row.day}</span>
+                  <span className="font-body text-white font-bold text-sm">{row.day}</span>
                   <span
-                    className="font-[var(--font-hp-body)] text-sm font-bold"
+                    className="font-body text-sm font-bold"
                     style={{ color: row.available ? "#FFD700" : "rgba(255,255,255,0.3)" }}
                   >
                     {row.time}
@@ -224,7 +224,7 @@ export default function KidsBowlFreePage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(0,226,229,0.25)" }}
             >
               Participating Locations
@@ -242,11 +242,11 @@ export default function KidsBowlFreePage() {
                 className="rounded-lg p-5 text-center"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(0,226,229,0.25)" }}
               >
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-2" style={{ color: "#00E2E5" }}>
+                <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-2" style={{ color: "#00E2E5" }}>
                   {loc.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-1">{loc.address}</p>
-                <a href={`tel:${loc.phoneTel}`} className="font-[var(--font-hp-body)] text-white/70 text-sm hover:text-white transition-colors">
+                <p className="font-body text-white/50 text-xs mb-1">{loc.address}</p>
+                <a href={`tel:${loc.phoneTel}`} className="font-body text-white/70 text-sm hover:text-white transition-colors">
                   {loc.phone}
                 </a>
               </div>
@@ -270,7 +270,7 @@ export default function KidsBowlFreePage() {
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(300px, 40vh, 400px)" }}>
           <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(28px, 6vw, 52px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "16px", textShadow: "0 0 30px rgba(253,91,86,0.3)" }}
           >
             Ready to Sign Up?
@@ -278,14 +278,14 @@ export default function KidsBowlFreePage() {
           <div className="flex flex-wrap justify-center gap-3">
             <Link
               href="/hp/kids-bowl-free/register"
-              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
               style={{ boxShadow: "0 0 20px rgba(253,91,86,0.3)" }}
             >
               Register Now
             </Link>
             <Link
               href="/hp/kids-bowl-free/book"
-              className="inline-flex items-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105 border border-white/20 hover:border-white/40"
+              className="inline-flex items-center text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105 border border-white/20 hover:border-white/40"
               style={{ backgroundColor: "rgba(255,255,255,0.1)" }}
             >
               Book a Lane

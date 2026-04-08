@@ -230,10 +230,10 @@ export default function BowlingConfirmationPage() {
         {status === "loading" && (
           <div className="text-center">
             <div className="inline-block w-12 h-12 border-2 border-white/20 border-t-[#fd5b56] rounded-full animate-spin mb-6" />
-            <h1 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 36px)", textShadow: `0 0 30px ${coral}30` }}>
+            <h1 className="font-heading font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 36px)", textShadow: `0 0 30px ${coral}30` }}>
               Confirming...
             </h1>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-2">Processing your payment. Please don&apos;t close this page.</p>
+            <p className="font-body text-white/50 text-sm mt-2">Processing your payment. Please don&apos;t close this page.</p>
           </div>
         )}
 
@@ -246,7 +246,7 @@ export default function BowlingConfirmationPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
               </div>
-              <h1 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 36px)", textShadow: `0 0 30px ${gold}30` }}>
+              <h1 className="font-heading font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 36px)", textShadow: `0 0 30px ${gold}30` }}>
                 You&apos;re Booked!
               </h1>
             </div>
@@ -254,38 +254,38 @@ export default function BowlingConfirmationPage() {
             {/* Booking Details */}
             {reservation && (
               <div className="rounded-lg p-5 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}>
-                <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">{reservation.offer}</h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">{reservation.centerName}</p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">
+                <h3 className="font-body text-white font-bold text-sm mb-1">{reservation.offer}</h3>
+                <p className="font-body text-white/60 text-sm">{reservation.centerName}</p>
+                <p className="font-body text-white/60 text-sm">
                   {dateFormatted} {reservation.time ? `at ${formatTimeStr(reservation.time)}` : ""}
                 </p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">{reservation.players} bowlers</p>
+                <p className="font-body text-white/60 text-sm">{reservation.players} bowlers</p>
 
                 {/* Line items */}
                 <div className="mt-3 pt-3 border-t border-white/10 space-y-1">
                   {reservation.tariffPrice && (
                     <div className="flex justify-between">
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-xs">{reservation.offer}</span>
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-xs">${reservation.tariffPrice.toFixed(2)}</span>
+                      <span className="font-body text-white/50 text-xs">{reservation.offer}</span>
+                      <span className="font-body text-white/50 text-xs">${reservation.tariffPrice.toFixed(2)}</span>
                     </div>
                   )}
                   {reservation.shoes && reservation.shoePrice && (
                     <div className="flex justify-between">
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-xs">Bowling Shoes x{reservation.players}</span>
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-xs">${((reservation.shoePrice || 0) * (reservation.players || 1)).toFixed(2)}</span>
+                      <span className="font-body text-white/50 text-xs">Bowling Shoes x{reservation.players}</span>
+                      <span className="font-body text-white/50 text-xs">${((reservation.shoePrice || 0) * (reservation.players || 1)).toFixed(2)}</span>
                     </div>
                   )}
                   {reservation.addons?.map((a, i) => (
                     <div key={i} className="flex justify-between">
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                      <span className="font-body text-white/50 text-xs">
                         {a.name} {a.time ? `at ${formatBmiTime(a.time)}` : ""} {a.qty > 1 ? `x${a.qty}` : ""}
                       </span>
-                      <span className="font-[var(--font-hp-body)] text-white/50 text-xs">${(a.price * a.qty).toFixed(2)}</span>
+                      <span className="font-body text-white/50 text-xs">${(a.price * a.qty).toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
 
-                <p className="font-[var(--font-hp-body)] text-white/30 text-xs mt-3">Confirmation: {key}</p>
+                <p className="font-body text-white/30 text-xs mt-3">Confirmation: {key}</p>
               </div>
             )}
 
@@ -293,18 +293,18 @@ export default function BowlingConfirmationPage() {
             {reservation?.addons && reservation.addons.length > 0 && bmiStatus === "booking" && (
               <div className="rounded-lg p-4 mb-6 flex items-center gap-3" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1px solid ${cyan}30` }}>
                 <div className="w-4 h-4 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin shrink-0" />
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm">Reserving your add-on activities...</p>
+                <p className="font-body text-white/60 text-sm">Reserving your add-on activities...</p>
               </div>
             )}
             {reservation?.addons && reservation.addons.length > 0 && bmiStatus === "done" && (
               <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: `${cyan}10`, border: `1px solid ${cyan}30` }}>
-                <p className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: cyan }}>Add-on activities confirmed!</p>
+                <p className="font-body text-sm font-bold" style={{ color: cyan }}>Add-on activities confirmed!</p>
               </div>
             )}
             {reservation?.addons && reservation.addons.length > 0 && bmiStatus === "error" && (
               <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: "rgba(253,91,86,0.1)", border: `1px solid rgba(253,91,86,0.3)` }}>
-                <p className="font-[var(--font-hp-body)] text-white text-sm font-bold mb-1">No worries!</p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-xs">We&apos;ll take care of your add-on activities at guest services when you arrive. Just mention your confirmation number.</p>
+                <p className="font-body text-white text-sm font-bold mb-1">No worries!</p>
+                <p className="font-body text-white/60 text-xs">We&apos;ll take care of your add-on activities at guest services when you arrive. Just mention your confirmation number.</p>
               </div>
             )}
 
@@ -318,15 +318,15 @@ export default function BowlingConfirmationPage() {
                     </svg>
                   </div>
                   <div>
-                    <p className="font-[var(--font-hp-body)] text-amber-300 font-bold text-sm mb-1">Waiver Required</p>
-                    <p className="font-[var(--font-hp-body)] text-amber-200/60 text-xs leading-relaxed">
+                    <p className="font-body text-amber-300 font-bold text-sm mb-1">Waiver Required</p>
+                    <p className="font-body text-amber-200/60 text-xs leading-relaxed">
                       All participants must complete a waiver before playing laser tag or gel blasters. You can do this online ahead of time or at the check-in kiosk.
                     </p>
                     <a
                       href={waiverUrl || "https://kiosk.bmileisure.com/headpinzftmyers"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 mt-3 font-[var(--font-hp-body)] text-amber-300 text-xs font-bold hover:text-amber-200 transition-colors"
+                      className="inline-flex items-center gap-1.5 mt-3 font-body text-amber-300 text-xs font-bold hover:text-amber-200 transition-colors"
                     >
                       Complete Waiver Now
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -338,12 +338,12 @@ export default function BowlingConfirmationPage() {
               </div>
             )}
 
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm mb-6 text-center">
+            <p className="font-body text-white/50 text-sm mb-6 text-center">
               A confirmation email has been sent. Please arrive 15 minutes before your reservation time.
             </p>
 
             <div className="text-center">
-              <Link href="/hp/fort-myers" className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105" style={{ boxShadow: `0 0 16px ${coral}30` }}>
+              <Link href="/hp/fort-myers" className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105" style={{ boxShadow: `0 0 16px ${coral}30` }}>
                 Back to HeadPinz
               </Link>
             </div>
@@ -352,14 +352,14 @@ export default function BowlingConfirmationPage() {
 
         {status === "failed" && (
           <div className="text-center">
-            <h1 className="font-[var(--font-hp-hero)] font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 36px)", textShadow: `0 0 30px ${coral}30` }}>
+            <h1 className="font-heading font-black uppercase text-white" style={{ fontSize: "clamp(24px, 5vw, 36px)", textShadow: `0 0 30px ${coral}30` }}>
               Something Went Wrong
             </h1>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm mt-2 mb-6">
+            <p className="font-body text-white/50 text-sm mt-2 mb-6">
               {transactionId ? "Your payment was received but we couldn't confirm the reservation. Please contact us." : "We couldn't confirm your booking. Please contact us directly."}
             </p>
-            {key && <p className="font-[var(--font-hp-body)] text-white/30 text-xs mb-4">Reference: {key}</p>}
-            <a href="tel:+12393022155" className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105">
+            {key && <p className="font-body text-white/30 text-xs mb-4">Reference: {key}</p>}
+            <a href="tel:+12393022155" className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105">
               Call (239) 302-2155
             </a>
           </div>

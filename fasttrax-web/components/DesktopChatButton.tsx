@@ -10,7 +10,7 @@ export default function DesktopChatButton() {
   return (
     <button
       onClick={openChat}
-      className="hidden md:flex fixed bottom-6 right-6 z-50 items-center gap-2 bg-[#00E2E5] hover:bg-[#00c8cb] text-[#000418] font-[var(--font-poppins)] font-bold text-sm py-3 px-5 rounded-full shadow-lg shadow-[#00E2E5]/20 transition-all hover:scale-105 cursor-pointer"
+      className="hidden md:flex fixed bottom-6 right-6 z-50 items-center gap-2 bg-[#00E2E5] hover:bg-[#00c8cb] text-[#000418] font-body font-bold text-sm py-3 px-5 rounded-full shadow-lg shadow-[#00E2E5]/20 transition-all hover:scale-105 cursor-pointer"
       aria-label="Live Chat"
     >
       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

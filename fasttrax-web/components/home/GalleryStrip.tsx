@@ -17,7 +17,7 @@ export default function GalleryStrip() {
   return (
     <section className="bg-[#000418] py-12 overflow-hidden">
       <div className="text-center mb-8 px-4">
-        <p className="font-[var(--font-jakarta)] text-[#00E2E5] text-xs font-bold uppercase tracking-[0.3em]">
+        <p className="font-heading text-[#00E2E5] text-xs font-bold uppercase tracking-[0.3em]">
           See It For Yourself
         </p>
       </div>

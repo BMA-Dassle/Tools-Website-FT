@@ -27,9 +27,9 @@ export default function GroupEvents() {
     <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
       <div className="max-w-7xl mx-auto px-8 text-center">
 
-        {/* Heading — Anton italic 72px white */}
+        {/* Heading */}
         <h2
-          className="font-[var(--font-anton)] italic uppercase text-white leading-[0.9] mb-6"
+          className="font-heading italic uppercase text-white leading-[0.9] mb-6"
           style={{ fontSize: "clamp(2.5rem, 7vw, 72px)" }}
         >
           EVENTS FOR 14 TO 1,000+ GUESTS
@@ -41,7 +41,7 @@ export default function GroupEvents() {
           style={{
             color: "rgba(245,236,238,0.898)",
             fontSize: "20px",
-            fontFamily: "var(--font-poppins)",
+            fontFamily: "var(--font-body)",
             lineHeight: "1.6",
             maxWidth: "700px",
           }}
@@ -68,12 +68,12 @@ export default function GroupEvents() {
                 }}
               >
                 <h3
-                  className="font-[var(--font-anton)] uppercase mb-3"
+                  className="font-heading uppercase mb-3"
                   style={{ color: e.titleColor, fontSize: "24px" }}
                 >
                   {e.title}
                 </h3>
-                <p style={{ color: "rgba(245,236,238,0.698)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>
+                <p style={{ color: "rgba(245,236,238,0.698)", fontSize: "16px", fontFamily: "var(--font-body)" }}>
                   {e.desc}
                 </p>
               </div>
@@ -84,7 +84,7 @@ export default function GroupEvents() {
         {/* CTA */}
         <Link
           href="/group-events"
-          className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
+          className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
           style={{
             backgroundColor: "rgb(0,74,173)",
             borderRadius: "555px",

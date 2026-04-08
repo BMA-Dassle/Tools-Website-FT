@@ -264,7 +264,7 @@ export default function NaplesPage() {
           </div>
 
           <h1
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(36px, 8vw, 80px)",
               lineHeight: "1.05",
@@ -277,7 +277,7 @@ export default function NaplesPage() {
           </h1>
 
           <p
-            className="font-[var(--font-hp-body)] text-white/70 uppercase tracking-widest"
+            className="font-body text-white/70 uppercase tracking-widest"
             style={{ fontSize: "clamp(11px, 1.8vw, 15px)", marginBottom: "20px", letterSpacing: "3px" }}
           >
             Bowling &bull; Laser Tag &bull; Gel Blasters &bull; Arcade &bull; Dining
@@ -287,7 +287,7 @@ export default function NaplesPage() {
 
           <Link
             href="/hp/book/bowling?location=naples"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
             Book Now
@@ -315,7 +315,7 @@ export default function NaplesPage() {
 
           <div className="space-y-4">
             <h2
-              className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(20px, 3vw, 28px)", textShadow: "0 0 30px rgba(253,91,86,0.25)" }}
             >
               HeadPinz Naples
@@ -359,7 +359,7 @@ export default function NaplesPage() {
       <section id="attractions" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 56px)" }}>
           <h2
-            className="font-[var(--font-hp-display)] uppercase text-white"
+            className="font-heading uppercase text-white"
             style={{
               fontSize: "clamp(28px, 6vw, 52px)",
               letterSpacing: "3px",
@@ -395,7 +395,7 @@ export default function NaplesPage() {
 
                 {a.badge && (
                   <span
-                    className="absolute top-3 right-3 text-white text-[10px] font-bold font-[var(--font-hp-body)] uppercase tracking-wider px-3 py-1.5 rounded-full"
+                    className="absolute top-3 right-3 text-white text-[10px] font-bold font-body uppercase tracking-wider px-3 py-1.5 rounded-full"
                     style={{ backgroundColor: a.accent }}
                   >
                     {a.badge}
@@ -403,7 +403,7 @@ export default function NaplesPage() {
                 )}
 
                 <span
-                  className="absolute bottom-3 left-4 font-[var(--font-hp-body)] font-bold text-sm px-3 py-1 rounded-full"
+                  className="absolute bottom-3 left-4 font-body font-bold text-sm px-3 py-1 rounded-full"
                   style={{ backgroundColor: a.accent, color: "#fff" }}
                 >
                   {a.price}
@@ -412,7 +412,7 @@ export default function NaplesPage() {
 
               <div className="flex flex-col flex-1 p-5">
                 <h3
-                  className="font-[var(--font-hp-display)] uppercase text-white"
+                  className="font-heading uppercase text-white"
                   style={{
                     fontSize: "clamp(16px, 2.5vw, 20px)",
                     letterSpacing: "1.5px",
@@ -422,15 +422,15 @@ export default function NaplesPage() {
                 >
                   {a.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-xs uppercase tracking-wider mb-3" style={{ color: a.accent }}>
+                <p className="font-body text-xs uppercase tracking-wider mb-3" style={{ color: a.accent }}>
                   {a.tagline}
                 </p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed flex-1 mb-4">
+                <p className="font-body text-white/60 text-sm leading-relaxed flex-1 mb-4">
                   {a.description}
                 </p>
                 <Link
                   href={a.ctaHref}
-                  className="inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
+                  className="inline-flex items-center justify-center text-white font-body font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:scale-105"
                   style={{ backgroundColor: a.accent, boxShadow: `0 0 16px ${a.accent}40` }}
                 >
                   {a.cta}
@@ -443,7 +443,7 @@ export default function NaplesPage() {
         <div className="text-center mt-10">
           <Link
             href="/hp/naples/attractions"
-            className="inline-flex items-center gap-2 font-[var(--font-hp-body)] text-white/60 hover:text-white text-sm uppercase tracking-wider transition-colors"
+            className="inline-flex items-center gap-2 font-body text-white/60 hover:text-white text-sm uppercase tracking-wider transition-colors"
           >
             View All Attractions
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -469,11 +469,11 @@ export default function NaplesPage() {
         <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/70 via-[#0a1628]/50 to-[#0a1628]/80" />
 
         <div className="relative z-10 max-w-5xl mx-auto text-center">
-          <p className="font-[var(--font-hp-body)] text-[#FFD700] text-xs uppercase tracking-[0.3em] mb-3">
+          <p className="font-body text-[#FFD700] text-xs uppercase tracking-[0.3em] mb-3">
             Exclusive to HeadPinz
           </p>
           <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 7vw, 60px)",
               lineHeight: "1.05",
@@ -496,16 +496,16 @@ export default function NaplesPage() {
                 WebkitBackdropFilter: "blur(4px)",
               }}
             >
-              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#FFD700] px-3 py-1 rounded-full mb-4 font-bold">
+              <span className="inline-block font-body text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#FFD700] px-3 py-1 rounded-full mb-4 font-bold">
                 VIP Exclusive
               </span>
               <h3
-                className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-3"
+                className="font-heading uppercase text-white tracking-wider mb-3"
                 style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
               >
                 NeoVerse
               </h3>
-              <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
+              <p className="font-body text-white/60 text-sm leading-relaxed">
                 Interactive LED video wall that transforms your bowling experience.
                 Exclusive to VIP lanes.
               </p>
@@ -520,16 +520,16 @@ export default function NaplesPage() {
                 WebkitBackdropFilter: "blur(4px)",
               }}
             >
-              <span className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#00E2E5] px-3 py-1 rounded-full mb-4 font-bold">
+              <span className="inline-block font-body text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#00E2E5] px-3 py-1 rounded-full mb-4 font-bold">
                 VIP Exclusive
               </span>
               <h3
-                className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-3"
+                className="font-heading uppercase text-white tracking-wider mb-3"
                 style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(0,226,229,0.25)" }}
               >
                 HyperBowling
               </h3>
-              <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
+              <p className="font-body text-white/60 text-sm leading-relaxed">
                 LED targets in the bumpers — hit them for points while you bowl.
                 Skill meets spectacle.
               </p>
@@ -538,7 +538,7 @@ export default function NaplesPage() {
 
           <Link
             href="/hp/book/bowling?location=naples"
-            className="inline-flex items-center bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
+            className="inline-flex items-center bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-body font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(255,215,0,0.35)" }}
           >
             Book VIP Lanes
@@ -552,7 +552,7 @@ export default function NaplesPage() {
         <div className="relative z-10">
           <div className="text-center" style={{ marginBottom: "16px" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{
                 fontSize: "clamp(28px, 6vw, 52px)",
                 letterSpacing: "3px",
@@ -564,7 +564,7 @@ export default function NaplesPage() {
             </h2>
             <div className="mx-auto h-1 w-24 rounded-full" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
           </div>
-          <p className="font-[var(--font-hp-body)] text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
+          <p className="font-body text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
             Bowling specials run all week long. All prices per lane, 1.5 hours unless noted.
           </p>
 
@@ -578,28 +578,28 @@ export default function NaplesPage() {
                   border: "1.78px dashed rgba(253,91,86,0.25)",
                 }}
               >
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                   {s.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-4">
+                <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-4">
                   {s.when}
                 </p>
                 <div className="flex items-baseline gap-4 mb-3">
                   <div>
-                    <span className="font-[var(--font-hp-display)] text-[#fd5b56]" style={{ fontSize: "28px" }}>
+                    <span className="font-heading text-[#fd5b56]" style={{ fontSize: "28px" }}>
                       {s.regular}
                     </span>
-                    <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">regular</span>
+                    <span className="font-body text-white/40 text-xs ml-1">regular</span>
                   </div>
                   <div>
-                    <span className="font-[var(--font-hp-display)] text-[#00E2E5]" style={{ fontSize: "28px" }}>
+                    <span className="font-heading text-[#00E2E5]" style={{ fontSize: "28px" }}>
                       {s.vip}
                     </span>
-                    <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-1">VIP</span>
+                    <span className="font-body text-white/40 text-xs ml-1">VIP</span>
                   </div>
                 </div>
                 {s.note && (
-                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                  <p className="font-body text-white/50 text-xs">
                     {s.note}
                   </p>
                 )}
@@ -612,15 +612,15 @@ export default function NaplesPage() {
               className="rounded-lg p-6 transition-all duration-300 hover:scale-[1.01] flex flex-col justify-center"
               style={{ backgroundColor: "rgba(255,215,0,0.06)", border: "1.78px dashed rgba(255,215,0,0.35)" }}
             >
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                 Nemo&apos;s Happy Hour
               </h3>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-3">
+              <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-3">
                 Every Day &bull; Open &ndash; 6PM
               </p>
-              <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">$0.99 wings &bull; $10 flatbreads</p>
-              <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">$1-$2 off drinks</p>
-              <span className="font-[var(--font-hp-body)] text-xs font-semibold" style={{ color: "#FFD700" }}>
+              <p className="font-body text-white/60 text-sm mb-1">$0.99 wings &bull; $10 flatbreads</p>
+              <p className="font-body text-white/60 text-sm mb-3">$1-$2 off drinks</p>
+              <span className="font-body text-xs font-semibold" style={{ color: "#FFD700" }}>
                 View Happy Hour Menu &rarr;
               </span>
             </Link>
@@ -634,17 +634,17 @@ export default function NaplesPage() {
               <div className="absolute top-3 right-3">
                 <span className="text-[8px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-2 py-0.5 rounded-full animate-pulse">New!</span>
               </div>
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                 Free Wing Friday
               </h3>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-xs uppercase tracking-wider mb-3">
+              <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-3">
                 Every Friday &bull; 4 &ndash; 6PM
               </p>
-              <p className="font-[var(--font-hp-body)] text-white/80 text-sm mb-1">
+              <p className="font-body text-white/80 text-sm mb-1">
                 <strong className="text-[#fd5b56]">5 FREE Wings</strong> with any purchase
               </p>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-3">HeadPinz Rewards required</p>
-              <span className="font-[var(--font-hp-body)] text-xs font-semibold text-[#fd5b56]">
+              <p className="font-body text-white/40 text-xs mb-3">HeadPinz Rewards required</p>
+              <span className="font-body text-xs font-semibold text-[#fd5b56]">
                 Learn More &rarr;
               </span>
             </Link>
@@ -683,7 +683,7 @@ export default function NaplesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
             <div>
               <h2
-                className="font-[var(--font-hp-display)] uppercase text-white"
+                className="font-heading uppercase text-white"
                 style={{
                   fontSize: "clamp(28px, 6vw, 52px)",
                   letterSpacing: "3px",
@@ -695,7 +695,7 @@ export default function NaplesPage() {
               </h2>
               <div className="h-1 w-24 rounded-full mb-6" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
               <p
-                className="font-[var(--font-hp-body)] text-white/70 mb-8"
+                className="font-body text-white/70 mb-8"
                 style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
               >
                 Fresh cooked pizza, famous jumbo wings, and a full menu of appetizers,
@@ -704,7 +704,7 @@ export default function NaplesPage() {
               </p>
               <Link
                 href="/hp/menu"
-                className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+                className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
                 style={{ boxShadow: "0 0 20px rgba(253,91,86,0.3)" }}
               >
                 View Full Menu
@@ -742,7 +742,7 @@ export default function NaplesPage() {
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
           <h2
-            className="font-[var(--font-hp-display)] uppercase text-white"
+            className="font-heading uppercase text-white"
             style={{
               fontSize: "clamp(24px, 5vw, 44px)",
               letterSpacing: "3px",
@@ -752,20 +752,20 @@ export default function NaplesPage() {
           >
             Ready for Some Fun?
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-8 max-w-md mx-auto">
+          <p className="font-body text-white/60 text-sm mb-8 max-w-md mx-auto">
             Reserve your lanes, book your battles, or just show up and play. We&apos;re open 7 days a week.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link
               href="/hp/book/bowling?location=naples"
-              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
+              className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
               style={{ boxShadow: "0 0 16px rgba(253,91,86,0.3)" }}
             >
               Book Bowling
             </Link>
             <Link
               href="/hp/book/laser-tag"
-              className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
+              className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
             >
               Book Laser Tag
             </Link>

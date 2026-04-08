@@ -43,16 +43,16 @@ export default function Footer() {
 
         {/* Quick Links */}
         <div>
-          <h3 className="font-[var(--font-anton)] italic text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Quick Links</h3>
+          <h3 className="font-heading italic text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Quick Links</h3>
           <ul className="space-y-2">
             {quickLinks.map((l) => (
               <li key={l.label}>
                 {l.href.startsWith("http") ? (
-                  <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-white/50 hover:text-white text-sm transition-colors font-[var(--font-jakarta)]">
+                  <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-white/50 hover:text-white text-sm transition-colors font-heading">
                     {l.label}
                   </a>
                 ) : (
-                  <Link href={l.href} className="text-white/50 hover:text-white text-sm transition-colors font-[var(--font-jakarta)]">
+                  <Link href={l.href} className="text-white/50 hover:text-white text-sm transition-colors font-heading">
                     {l.label}
                   </Link>
                 )}
@@ -63,7 +63,7 @@ export default function Footer() {
 
         {/* Connect */}
         <div>
-          <h3 className="font-[var(--font-anton)] italic text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Connect</h3>
+          <h3 className="font-heading italic text-lg text-[#00E2E5] uppercase tracking-widest mb-4">Connect</h3>
           <div className="space-y-3 text-sm text-white/60">
             <p className="leading-relaxed">
               14501 Global Parkway<br />

@@ -26,20 +26,20 @@ export default function Hero() {
         {/* LEFT COL — label + headline + description + hours */}
         <div className="flex-1 flex flex-col gap-5">
           {/* Label */}
-          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>
+          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "16px", fontFamily: "var(--font-body)" }}>
             Florida&apos;s Largest Indoor Racing Destination
           </p>
 
           {/* Headline */}
           <div>
             <h1
-              className="font-[var(--font-anton)] font-bold italic uppercase text-white leading-[0.9] tracking-wide"
+              className="font-heading font-bold italic uppercase text-white leading-[0.9] tracking-wide"
               style={{ fontSize: "clamp(2.2rem, 5.5vw, 5rem)" }}
             >
               LIVE LIFE IN THE
             </h1>
             <h1
-              className="font-[var(--font-anton)] font-bold italic uppercase leading-[0.9] tracking-wide"
+              className="font-heading font-bold italic uppercase leading-[0.9] tracking-wide"
               style={{ fontSize: "clamp(2.2rem, 5.5vw, 5rem)", color: "rgb(228,28,29)", textShadow: "0 0 40px rgba(228,28,29,0.5)" }}
             >
               FASTTRAX
@@ -47,7 +47,7 @@ export default function Hero() {
           </div>
 
           {/* Description */}
-          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(16px, 4vw, 20px)", fontFamily: "var(--font-poppins)", maxWidth: "520px", lineHeight: "1.6" }}>
+          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(16px, 4vw, 20px)", fontFamily: "var(--font-body)", maxWidth: "520px", lineHeight: "1.6" }}>
             63,000 sq. ft. of high-powered electric karting, elite gaming, and
             trackside dining. Don&apos;t just watch the action—be the action.
           </p>
@@ -56,14 +56,14 @@ export default function Hero() {
           <div className="flex flex-wrap gap-3">
             <BookingLink
               href="/book/race"
-              className="font-[var(--font-poppins)] font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm transition-all hover:scale-105"
+              className="font-body font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)", boxShadow: "0 0 20px rgba(228,28,29,0.4)" }}
             >
               Book Your Race Now
             </BookingLink>
             <Link
               href="/attractions"
-              className="font-[var(--font-poppins)] font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm border transition-all hover:bg-white/10"
+              className="font-body font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm border transition-all hover:bg-white/10"
               style={{ borderColor: "rgba(255,255,255,0.4)" }}
             >
               Explore Destination Combos

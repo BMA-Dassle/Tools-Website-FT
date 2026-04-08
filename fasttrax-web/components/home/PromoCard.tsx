@@ -12,16 +12,16 @@ export default function PromoCard() {
             {/* Left: info */}
             <div className="p-8 md:p-10 flex flex-col justify-between gap-6">
               <div>
-                <div className="inline-block bg-[#8652FF]/20 text-[#8652FF] font-[var(--font-jakarta)] font-bold text-xs uppercase tracking-widest px-3 py-1.5 rounded-full mb-5">
+                <div className="inline-block bg-[#8652FF]/20 text-[#8652FF] font-heading font-bold text-xs uppercase tracking-widest px-3 py-1.5 rounded-full mb-5">
                   Add More Fun For Just $10
                 </div>
                 <h2
-                  className="font-[var(--font-anton)] italic text-white uppercase leading-tight mb-3"
+                  className="font-heading italic text-white uppercase leading-tight mb-3"
                   style={{ fontSize: "clamp(1.8rem, 4.5vw, 3rem)" }}
                 >
                   Level Up Your Race Day
                 </h2>
-                <p className="text-white/70 text-base mt-2 font-[var(--font-poppins)] leading-relaxed">
+                <p className="text-white/70 text-base mt-2 font-body leading-relaxed">
                   When you book a race, add one of these experiences for just $10 more:
                 </p>
 
@@ -34,10 +34,10 @@ export default function PromoCard() {
                       border: "1px solid rgba(134,82,255,0.3)",
                     }}
                   >
-                    <h3 className="font-[var(--font-anton)] uppercase text-[#8652FF] text-lg tracking-wide mb-1">
+                    <h3 className="font-heading uppercase text-[#8652FF] text-lg tracking-wide mb-1">
                       Nexus Gel Blaster Arena
                     </h3>
-                    <p className="font-[var(--font-poppins)] text-white/60 text-sm">
+                    <p className="font-body text-white/60 text-sm">
                       $10 per person &mdash; at HeadPinz
                     </p>
                   </div>
@@ -50,10 +50,10 @@ export default function PromoCard() {
                       border: "1px solid rgba(0,74,173,0.3)",
                     }}
                   >
-                    <h3 className="font-[var(--font-anton)] uppercase text-[#004AAD] text-lg tracking-wide mb-1">
+                    <h3 className="font-heading uppercase text-[#004AAD] text-lg tracking-wide mb-1">
                       Shuffly at FastTrax
                     </h3>
-                    <p className="font-[var(--font-poppins)] text-white/60 text-sm">
+                    <p className="font-body text-white/60 text-sm">
                       $10 per group &mdash; at FastTrax
                     </p>
                   </div>
@@ -64,11 +64,11 @@ export default function PromoCard() {
                 <a
                   href="/book/race"
                   onClick={trackBookingClick}
-                  className="bg-[#E53935] hover:bg-[#c62828] text-white font-[var(--font-jakarta)] font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors"
+                  className="bg-[#E53935] hover:bg-[#c62828] text-white font-heading font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors"
                 >
                   Book Your Race + Add-On
                 </a>
-                <Link href="/pricing" className="bg-[#003580] hover:bg-[#004aaa] text-white font-[var(--font-jakarta)] font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors">
+                <Link href="/pricing" className="bg-[#003580] hover:bg-[#004aaa] text-white font-heading font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors">
                   View All Combos
                 </Link>
               </div>

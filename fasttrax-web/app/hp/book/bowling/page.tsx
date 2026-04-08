@@ -974,7 +974,7 @@ export default function BowlingBookingPage() {
                 return (
                   <div key={s} className="flex items-center">
                     <div
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-[var(--font-hp-body)] font-bold transition-all ${
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-body font-bold transition-all ${
                         isCurrent ? `text-[${coral}]` :
                         isPast ? "text-white/60" :
                         "text-white/20"
@@ -1000,7 +1000,7 @@ export default function BowlingBookingPage() {
               {/* Lane held indicator */}
               {reservationKey && countdown && (
                 <span
-                  className="ml-auto inline-flex items-center gap-1.5 font-[var(--font-hp-body)] text-xs px-3 py-1 rounded-full shrink-0"
+                  className="ml-auto inline-flex items-center gap-1.5 font-body text-xs px-3 py-1 rounded-full shrink-0"
                   style={{
                     backgroundColor: countdown === "Expired" ? "rgba(253,91,86,0.15)" : "rgba(255,215,0,0.1)",
                     color: countdown === "Expired" ? coral : gold,
@@ -1020,14 +1020,14 @@ export default function BowlingBookingPage() {
       {centerName && step !== "location" && (
         <div className="bg-[#071027] border-b border-white/5">
           <div className="max-w-4xl mx-auto px-4 py-2 flex items-center justify-center gap-3 flex-wrap text-center">
-            <span className="inline-flex items-center gap-1.5 font-[var(--font-hp-body)] text-xs text-white/60">
+            <span className="inline-flex items-center gap-1.5 font-body text-xs text-white/60">
               <svg className="w-3.5 h-3.5 text-[#fd5b56]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               {centerName}
             </span>
             {selectedDate && (
               <>
                 <span className="text-white/20">|</span>
-                <span className="inline-flex items-center gap-1.5 font-[var(--font-hp-body)] text-xs text-white/60">
+                <span className="inline-flex items-center gap-1.5 font-body text-xs text-white/60">
                   <svg className="w-3.5 h-3.5 text-[#00E2E5]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                   {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                 </span>
@@ -1036,7 +1036,7 @@ export default function BowlingBookingPage() {
             {selectedTime && (
               <>
                 <span className="text-white/20">|</span>
-                <span className="inline-flex items-center gap-1.5 font-[var(--font-hp-body)] text-xs text-white/60">
+                <span className="inline-flex items-center gap-1.5 font-body text-xs text-white/60">
                   <svg className="w-3.5 h-3.5 text-[#FFD700]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   {formatTimeStr(selectedTime)}
                 </span>
@@ -1045,7 +1045,7 @@ export default function BowlingBookingPage() {
             {playerCount > 0 && selectedDate && (
               <>
                 <span className="text-white/20">|</span>
-                <span className="inline-flex items-center gap-1.5 font-[var(--font-hp-body)] text-xs text-white/60">
+                <span className="inline-flex items-center gap-1.5 font-body text-xs text-white/60">
                   <svg className="w-3.5 h-3.5 text-white/40" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   {playerCount} bowler{playerCount !== 1 ? "s" : ""}
                 </span>
@@ -1058,7 +1058,7 @@ export default function BowlingBookingPage() {
       {error && (
         <div className="max-w-lg mx-auto px-4 mb-4">
           <div className="bg-[#fd5b56]/10 border border-[#fd5b56]/30 rounded-lg px-4 py-3 text-center">
-            <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm">{error}</p>
+            <p className="font-body text-[#fd5b56] text-sm">{error}</p>
           </div>
         </div>
       )}
@@ -1075,17 +1075,17 @@ export default function BowlingBookingPage() {
         {step === "location" && !loading && centerId && (
           <div className="text-center">
             <div className="rounded-lg p-6 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}>
-              <p className="font-[var(--font-hp-body)] text-white/50 text-xs uppercase tracking-wider mb-2">You&apos;re booking at</p>
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-xl tracking-wider" style={{ textShadow: `0 0 20px ${gold}25` }}>
+              <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">You&apos;re booking at</p>
+              <h3 className="font-heading uppercase text-white text-xl tracking-wider" style={{ textShadow: `0 0 20px ${gold}25` }}>
                 {centerName}
               </h3>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-sm mt-1">
+              <p className="font-body text-white/40 text-sm mt-1">
                 {LOCATIONS.find(l => l.id === centerId)?.address}
               </p>
             </div>
             <button
               onClick={() => setShowLocationConfirm(true)}
-              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
             >
               Continue
@@ -1095,7 +1095,7 @@ export default function BowlingBookingPage() {
                 const other = LOCATIONS.find(l => l.id !== centerId)!;
                 setCenterId(other.id); setCenterName(other.name); setHasOldTime(other.hasOldTime);
               }}
-              className="mt-3 font-[var(--font-hp-body)] text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+              className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
             >
               Switch to {LOCATIONS.find(l => l.id !== centerId)?.name}
             </button>
@@ -1109,16 +1109,16 @@ export default function BowlingBookingPage() {
           const minutesForHour = selectedHour ? filteredTimeSlots.filter(t => t.startsWith(selectedHour + ":")) : [];
           return (
             <div>
-              <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">When do you want to bowl?</h2>
+              <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">When do you want to bowl?</h2>
 
               <div className="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left: Calendar */}
                 <div>
-                  <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Date</p>
+                  <p className="font-body text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Date</p>
                   <div className="flex items-center justify-between mb-3">
                     <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
                       className="text-white/50 hover:text-white p-2 cursor-pointer">&larr;</button>
-                    <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{monthName}</span>
+                    <span className="font-body text-white font-bold text-sm">{monthName}</span>
                     <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); }}
                       className="text-white/50 hover:text-white p-2 cursor-pointer">&rarr;</button>
                   </div>
@@ -1161,17 +1161,17 @@ export default function BowlingBookingPage() {
                 <div ref={timePickerRef}>
                   {!selectedDate ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="font-[var(--font-hp-body)] text-white/30 text-sm">Select a date first</p>
+                      <p className="font-body text-white/30 text-sm">Select a date first</p>
                     </div>
                   ) : filteredTimeSlots.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center">
+                      <p className="font-body text-white/40 text-sm text-center">
                         {isToday ? "No more times available today. Try tomorrow." : "No times available for this date."}
                       </p>
                     </div>
                   ) : (
                     <>
-                      <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Hour</p>
+                      <p className="font-body text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Hour</p>
                       <div className="flex flex-wrap justify-center gap-2 mb-4">
                         {hours.map(h => {
                           const hr = parseInt(h, 10);
@@ -1185,7 +1185,7 @@ export default function BowlingBookingPage() {
                                 const firstSlot = filteredTimeSlots.find(t => t.startsWith(h + ":"));
                                 if (firstSlot) setSelectedTime(firstSlot);
                               }}
-                              className="rounded-lg px-4 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
+                              className="rounded-lg px-4 py-2.5 text-sm font-body font-bold transition-all cursor-pointer"
                               style={{
                                 backgroundColor: isActive ? gold : "rgba(7,16,39,0.5)",
                                 color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
@@ -1200,7 +1200,7 @@ export default function BowlingBookingPage() {
 
                       {selectedHour && minutesForHour.length > 1 && (
                         <>
-                          <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Minutes</p>
+                          <p className="font-body text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Minutes</p>
                           <div className="flex justify-center gap-2 mb-4">
                             {minutesForHour.map(t => {
                               const min = t.split(":")[1];
@@ -1209,7 +1209,7 @@ export default function BowlingBookingPage() {
                                 <button
                                   key={t}
                                   onClick={() => setSelectedTime(t)}
-                                  className="rounded-lg px-5 py-2.5 text-sm font-[var(--font-hp-body)] font-bold transition-all cursor-pointer"
+                                  className="rounded-lg px-5 py-2.5 text-sm font-body font-bold transition-all cursor-pointer"
                                   style={{
                                     backgroundColor: isActive ? cyan : "rgba(7,16,39,0.5)",
                                     color: isActive ? "#0a1628" : "rgba(255,255,255,0.6)",
@@ -1225,7 +1225,7 @@ export default function BowlingBookingPage() {
                       )}
 
                       {selectedTime && (
-                        <p className="font-[var(--font-hp-display)] text-center text-2xl mt-2" style={{ color: gold }}>
+                        <p className="font-heading text-center text-2xl mt-2" style={{ color: gold }}>
                           {formatTimeStr(selectedTime)}
                         </p>
                       )}
@@ -1239,7 +1239,7 @@ export default function BowlingBookingPage() {
                 <div className="max-w-md mx-auto mt-6">
                   <button
                     onClick={fetchOffersAndGoToLaneType}
-                    className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                    className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
                     style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
                   >
                     See Available Packages
@@ -1247,7 +1247,7 @@ export default function BowlingBookingPage() {
                 </div>
               )}
 
-              <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+              <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
             </div>
           );
         })()}
@@ -1255,28 +1255,28 @@ export default function BowlingBookingPage() {
         {/* ── PLAYERS ── */}
         {step === "players" && !loading && (
           <div className="text-center">
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2">How Many Bowlers?</h2>
-            <p className="font-[var(--font-hp-body)] text-white/40 text-sm mb-6">Up to 6 per lane</p>
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-2">How Many Bowlers?</h2>
+            <p className="font-body text-white/40 text-sm mb-6">Up to 6 per lane</p>
             <div className="flex items-center justify-center gap-6 mb-8">
               <button onClick={() => setPlayerCount(Math.max(1, playerCount - 1))}
                 className="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white cursor-pointer transition-all hover:scale-105"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>-</button>
-              <span className="font-[var(--font-hp-display)] text-white text-5xl" style={{ color: gold }}>{playerCount}</span>
+              <span className="font-heading text-white text-5xl" style={{ color: gold }}>{playerCount}</span>
               <button onClick={() => setPlayerCount(Math.min(24, playerCount + 1))}
                 className="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white cursor-pointer transition-all hover:scale-105"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}>+</button>
             </div>
             <button onClick={fetchDatesAndGoToDate}
-              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Continue</button>
-            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+            <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
 
         {/* ── LANE TYPE ── */}
         {step === "lane-type" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
             <div className="space-y-4">
               {getLaneTypes(centerId).map(lt => {
                 const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime, selectedDate).length > 0).length;
@@ -1302,8 +1302,8 @@ export default function BowlingBookingPage() {
                           <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70" />
                           {lt.key === "vip" && lt.videos && lt.videos.length > 1 && (
                             <div className="absolute bottom-2 left-3 flex gap-1">
-                              <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
-                              <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
+                              <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
+                              <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
                             </div>
                           )}
                         </div>
@@ -1312,28 +1312,28 @@ export default function BowlingBookingPage() {
                       {/* Content side */}
                       <div className="flex-1 p-5">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
+                          <h3 className="font-heading uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${lt.accent}25` }}>
                             {lt.label}
                           </h3>
                           {count === 0 && !nextTime && (
-                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(253,91,86,0.2)", color: coral, border: `1px solid ${coral}40` }}>
+                            <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(253,91,86,0.2)", color: coral, border: `1px solid ${coral}40` }}>
                               Sold Out
                             </span>
                           )}
                           {count === 0 && nextTime && (
-                            <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(255,215,0,0.15)", color: gold, border: `1px solid rgba(255,215,0,0.3)` }}>
+                            <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(255,215,0,0.15)", color: gold, border: `1px solid rgba(255,215,0,0.3)` }}>
                               Next: {formatTimeStr(nextTime)}
                             </span>
                           )}
                         </div>
-                        <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-3">{lt.desc}</p>
+                        <p className="font-body text-white/60 text-sm mb-3">{lt.desc}</p>
 
                         {lt.details && (
                           <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
                             {lt.details.map(d => (
                               <span key={d} className="flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lt.accent }} />
-                                <span className="font-[var(--font-hp-body)] text-white/40 text-xs">{d}</span>
+                                <span className="font-body text-white/40 text-xs">{d}</span>
                               </span>
                             ))}
                           </div>
@@ -1342,7 +1342,7 @@ export default function BowlingBookingPage() {
                         {count > 0 && (
                           <button
                             onClick={() => { setLaneType(lt.key); trackBowlingStep("Lane Type Selected", { type: lt.label }); setStep("offer"); }}
-                            className="font-[var(--font-hp-body)] text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full cursor-pointer transition-all hover:scale-105"
+                            className="font-body text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full cursor-pointer transition-all hover:scale-105"
                             style={{ backgroundColor: lt.accent, color: "#0a1628" }}
                           >
                             {count} package{count !== 1 ? "s" : ""} available &rarr;
@@ -1350,12 +1350,12 @@ export default function BowlingBookingPage() {
                         )}
                         {nextTime && count === 0 && (
                           <div className="space-y-2">
-                            <p className="font-[var(--font-hp-body)] text-xs text-white/40">
+                            <p className="font-body text-xs text-white/40">
                               Sold out at {formatTimeStr(selectedTime)}
                             </p>
                             <button
                               onClick={() => setPendingTimeSwitch({ laneType: lt.key, laneLabel: lt.label, fromTime: selectedTime, toTime: nextTime })}
-                              className="font-[var(--font-hp-body)] text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full cursor-pointer transition-all hover:scale-105"
+                              className="font-body text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full cursor-pointer transition-all hover:scale-105"
                               style={{ backgroundColor: gold, color: "#0a1628" }}
                             >
                               Switch to {formatTimeStr(nextTime)} &rarr;
@@ -1363,7 +1363,7 @@ export default function BowlingBookingPage() {
                           </div>
                         )}
                         {isSoldOut && (
-                          <span className="font-[var(--font-hp-body)] text-xs font-bold uppercase tracking-wider" style={{ color: coral }}>
+                          <span className="font-body text-xs font-bold uppercase tracking-wider" style={{ color: coral }}>
                             Not available today
                           </span>
                         )}
@@ -1373,15 +1373,15 @@ export default function BowlingBookingPage() {
                 );
               })}
             </div>
-            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
+            <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
         )}
 
         {/* ── OFFER ── */}
         {step === "offer" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2 text-center">Choose a Package</h2>
-            <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-4">Showing packages near {formatTimeStr(selectedTime)}</p>
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-2 text-center">Choose a Package</h2>
+            <p className="font-body text-white/40 text-xs text-center mb-4">Showing packages near {formatTimeStr(selectedTime)}</p>
             <div className="space-y-4">
               {filteredOffers.map(offer => {
                 const validItems = filterOfferItems(offer, selectedTime, selectedDate);
@@ -1427,15 +1427,15 @@ export default function BowlingBookingPage() {
                       <div className="relative w-full sm:w-72 h-40 shrink-0 overflow-hidden sm:min-h-[200px]">
                         <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/80" />
-                        <span className="absolute top-2 right-2 font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
+                        <span className="absolute top-2 right-2 font-body text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
                           style={{ backgroundColor: perPerson ? `${coral}90` : `${gold}90`, color: "#fff" }}>
                           {perPerson ? "Per Person" : "Per Lane"}
                         </span>
                       </div>
                     )}
                     <div className="p-4">
-                      <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
-                      {offer.Description && <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
+                      <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
+                      {offer.Description && <p className="font-body text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
 
                       <div className="grid gap-2 grid-cols-3">
                         {validItems.map(item => {
@@ -1448,20 +1448,20 @@ export default function BowlingBookingPage() {
                               style={{ border: `1px solid ${timeShift ? "rgba(255,215,0,0.3)" : "rgba(255,255,255,0.1)"}` }}
                             >
                               {hasMultipleItems && (
-                                <span className="font-[var(--font-hp-display)] text-white text-sm tracking-wider mb-1">{formatDuration(item.Quantity, item.QuantityType)}</span>
+                                <span className="font-heading text-white text-sm tracking-wider mb-1">{formatDuration(item.Quantity, item.QuantityType)}</span>
                               )}
-                              <span className="font-[var(--font-hp-display)] text-xl mb-1" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
+                              <span className="font-heading text-xl mb-1" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
                               {perPerson && (
-                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px]">${perPersonPrice.toFixed(2)}/person</span>
+                                <span className="font-body text-white/40 text-[10px]">${perPersonPrice.toFixed(2)}/person</span>
                               )}
                               {!perPerson && (
-                                <span className="font-[var(--font-hp-body)] text-white/40 text-[10px]">per lane</span>
+                                <span className="font-body text-white/40 text-[10px]">per lane</span>
                               )}
                               {item.Remaining > 0 && !item.Reason && (
-                                <span className="font-[var(--font-hp-body)] text-white/20 text-[10px] mt-1">{item.Remaining} left</span>
+                                <span className="font-body text-white/20 text-[10px] mt-1">{item.Remaining} left</span>
                               )}
                               {timeShift && (
-                                <span className="font-[var(--font-hp-body)] text-[10px] mt-1" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
+                                <span className="font-body text-[10px] mt-1" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
                               )}
                             </button>
                           );
@@ -1474,22 +1474,22 @@ export default function BowlingBookingPage() {
               }).filter(Boolean)}
             </div>
             {filteredOffers.filter(o => filterOfferItems(o, selectedTime, selectedDate).length > 0).length === 0 && (
-              <p className="font-[var(--font-hp-body)] text-white/40 text-sm text-center py-8">No packages available within an hour of {formatTimeStr(selectedTime)}. Try a different time.</p>
+              <p className="font-body text-white/40 text-sm text-center py-8">No packages available within an hour of {formatTimeStr(selectedTime)}. Try a different time.</p>
             )}
-            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer">&larr; Back</button>
+            <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer">&larr; Back</button>
           </div>
         )}
 
         {/* ── EXTRAS ── */}
         {step === "extras" && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2 text-center">Level Up Your Visit</h2>
-            <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-6">Add activities to your bowling session</p>
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-2 text-center">Level Up Your Visit</h2>
+            <p className="font-body text-white/40 text-xs text-center mb-6">Add activities to your bowling session</p>
 
             {/* Bowling time reference */}
             <div className="rounded-lg p-3 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] uppercase tracking-wider mb-1">Your Bowling Time</p>
-              <p className="font-[var(--font-hp-body)] text-white text-sm font-bold">
+              <p className="font-body text-white/40 text-[10px] uppercase tracking-wider mb-1">Your Bowling Time</p>
+              <p className="font-body text-white text-sm font-bold">
                 {formatTimeStr(selectedTime)} &bull; {selectedOffer?.Name} &bull; {playerCount} bowlers
               </p>
             </div>
@@ -1497,10 +1497,10 @@ export default function BowlingBookingPage() {
             {/* VIP Chips & Salsa included */}
             {selectedOffer && classifyOffer(selectedOffer.Name) === "vip" && (
               <div className="rounded-lg p-4 mb-4 flex items-center gap-3" style={{ backgroundColor: `${gold}08`, border: `1.78px dashed ${gold}25` }}>
-                <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>&#x1f37f;</span>
+                <span className="font-body text-sm" style={{ color: gold }}>&#x1f37f;</span>
                 <div>
-                  <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">Complimentary Chips &amp; Salsa</span>
-                  <span className="font-[var(--font-hp-body)] text-white/40 text-xs ml-2">Included with VIP</span>
+                  <span className="font-body text-white font-bold text-sm">Complimentary Chips &amp; Salsa</span>
+                  <span className="font-body text-white/40 text-xs ml-2">Included with VIP</span>
                 </div>
               </div>
             )}
@@ -1510,8 +1510,8 @@ export default function BowlingBookingPage() {
               <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${cyan}25` }}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">Bowling Shoes</h3>
-                    <p className="font-[var(--font-hp-body)] text-white/40 text-xs">${shoes[0].Price}/person</p>
+                    <h3 className="font-body text-white font-bold text-sm">Bowling Shoes</h3>
+                    <p className="font-body text-white/40 text-xs">${shoes[0].Price}/person</p>
                   </div>
                   <button onClick={() => setWantShoes(!wantShoes)}
                     className="w-12 h-7 rounded-full transition-all cursor-pointer" style={{ backgroundColor: wantShoes ? coral : "rgba(255,255,255,0.1)" }}>
@@ -1551,19 +1551,19 @@ export default function BowlingBookingPage() {
 
                         <div className="flex-1 p-4">
                           <div className="flex items-start justify-between gap-2 mb-1">
-                            <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">{addon.name}</h3>
-                            <span className="font-[var(--font-hp-body)] text-sm font-bold shrink-0" style={{ color: addon.accent }}>
+                            <h3 className="font-body text-white font-bold text-sm">{addon.name}</h3>
+                            <span className="font-body text-sm font-bold shrink-0" style={{ color: addon.accent }}>
                               {addon.perPerson ? `$${addon.price}/person` : `$${addon.price}${addon.maxPerGroup ? ` (up to ${addon.maxPerGroup})` : ""}`}
                             </span>
                           </div>
-                          <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-3">{addon.desc}</p>
+                          <p className="font-body text-white/40 text-xs mb-3">{addon.desc}</p>
 
                           {/* Add/quantity controls */}
                           {addon.perPerson ? (
                             qty === 0 ? (
                               <button
                                 onClick={() => setBmiQty(addon.productId, playerCount)}
-                                className="w-full py-2.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-colors cursor-pointer"
+                                className="w-full py-2.5 rounded-lg text-xs font-bold font-body transition-colors cursor-pointer"
                                 style={{ backgroundColor: `${addon.accent}15`, color: addon.accent, border: `1px solid ${addon.accent}30` }}
                               >
                                 Add for all {playerCount} bowlers &mdash; ${(addon.price * playerCount).toFixed(2)}
@@ -1576,16 +1576,16 @@ export default function BowlingBookingPage() {
                                   <span className="w-6 text-center text-white font-bold text-xs">{qty}</span>
                                   <button onClick={() => setBmiQty(addon.productId, qty + 1)}
                                     className="w-7 h-7 rounded border border-white/20 text-white/50 hover:text-white text-sm cursor-pointer flex items-center justify-center">+</button>
-                                  <span className="font-[var(--font-hp-body)] text-white/30 text-[10px]">{qty} people</span>
+                                  <span className="font-body text-white/30 text-[10px]">{qty} people</span>
                                 </div>
-                                <span className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: addon.accent }}>${(addon.price * qty).toFixed(2)}</span>
+                                <span className="font-body text-sm font-bold" style={{ color: addon.accent }}>${(addon.price * qty).toFixed(2)}</span>
                               </div>
                             )
                           ) : (
                             <div className="flex items-center justify-between">
                               <button
                                 onClick={() => setBmiQty(addon.productId, qty > 0 ? 0 : 1)}
-                                className="px-4 py-2 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-colors cursor-pointer"
+                                className="px-4 py-2 rounded-lg text-xs font-bold font-body transition-colors cursor-pointer"
                                 style={{
                                   backgroundColor: isSelected ? addon.accent : "rgba(255,255,255,0.1)",
                                   color: isSelected ? "#0a1628" : "rgba(255,255,255,0.6)",
@@ -1593,7 +1593,7 @@ export default function BowlingBookingPage() {
                               >
                                 {isSelected ? "Added \u2713" : "Add to Booking"}
                               </button>
-                              {isSelected && <span className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: addon.accent }}>${addon.price.toFixed(2)}</span>}
+                              {isSelected && <span className="font-body text-sm font-bold" style={{ color: addon.accent }}>${addon.price.toFixed(2)}</span>}
                             </div>
                           )}
 
@@ -1601,15 +1601,15 @@ export default function BowlingBookingPage() {
                           {isSelected && (
                             <div className="mt-3 pt-3 border-t border-white/10">
                               {isLoadingSlots ? (
-                                <div className="flex items-center gap-2 font-[var(--font-hp-body)] text-white/40 text-xs">
+                                <div className="flex items-center gap-2 font-body text-white/40 text-xs">
                                   <div className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin" />
                                   Loading times...
                                 </div>
                               ) : slots.length === 0 ? (
-                                <p className="font-[var(--font-hp-body)] text-amber-400/70 text-xs">No times available on this date</p>
+                                <p className="font-body text-amber-400/70 text-xs">No times available on this date</p>
                               ) : (
                                 <div>
-                                  <p className="font-[var(--font-hp-body)] text-white/50 text-[10px] uppercase tracking-wider mb-2">Select a time</p>
+                                  <p className="font-body text-white/50 text-[10px] uppercase tracking-wider mb-2">Select a time</p>
                                   <div className="flex flex-wrap gap-1.5">
                                     {(() => {
                                       // Merge bowling time into timeline
@@ -1623,7 +1623,7 @@ export default function BowlingBookingPage() {
                                       return items.map((item, i) => {
                                         if (item.type === "bowling") {
                                           return (
-                                            <span key="bowling" className="px-3 py-1.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)]"
+                                            <span key="bowling" className="px-3 py-1.5 rounded-lg text-xs font-bold font-body"
                                               style={{ backgroundColor: `${coral}20`, color: coral, border: `1px solid ${coral}40` }}>
                                               {formatTimeStr(selectedTime)} Bowling
                                             </span>
@@ -1633,7 +1633,7 @@ export default function BowlingBookingPage() {
                                           <button
                                             key={item.slot!.start}
                                             onClick={() => setBmiSelectedTime(prev => ({ ...prev, [addon.productId]: item.idx! }))}
-                                            className="px-3 py-1.5 rounded-lg text-xs font-bold font-[var(--font-hp-body)] transition-all cursor-pointer"
+                                            className="px-3 py-1.5 rounded-lg text-xs font-bold font-body transition-all cursor-pointer"
                                             style={{
                                               backgroundColor: selectedIdx === item.idx ? addon.accent : "rgba(7,16,39,0.5)",
                                               color: selectedIdx === item.idx ? "#0a1628" : "rgba(255,255,255,0.6)",
@@ -1659,90 +1659,90 @@ export default function BowlingBookingPage() {
             )}
 
             <button onClick={goToReview}
-              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Review Order</button>
-            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+            <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
 
         {/* ── REVIEW ── */}
         {step === "review" && !loading && cartSummary && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Order Summary</h2>
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">Order Summary</h2>
             <div className="rounded-lg p-5 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}>
               <div className="space-y-2 mb-4 pb-4 border-b border-white/10">
                 <div className="flex justify-between">
-                  <span className="font-[var(--font-hp-body)] text-white text-sm">{selectedOffer?.Name}</span>
-                  <span className="font-[var(--font-hp-body)] text-white text-sm">${selectedTariff?.Price.toFixed(2)}</span>
+                  <span className="font-body text-white text-sm">{selectedOffer?.Name}</span>
+                  <span className="font-body text-white text-sm">${selectedTariff?.Price.toFixed(2)}</span>
                 </div>
-                <p className="font-[var(--font-hp-body)] text-white/50 text-xs">
+                <p className="font-body text-white/50 text-xs">
                   {new Date(calYear, calMonth, parseInt(selectedDate.split("-")[2])).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at {formatTimeStr(selectedTime)} &bull; {playerCount} bowlers
                 </p>
                 {wantShoes && shoes.length > 0 && (
                   <div className="flex justify-between mt-1">
-                    <span className="font-[var(--font-hp-body)] text-white/70 text-sm">Bowling Shoes x{playerCount}</span>
-                    <span className="font-[var(--font-hp-body)] text-white/70 text-sm">${(shoes[0].Price * playerCount).toFixed(2)}</span>
+                    <span className="font-body text-white/70 text-sm">Bowling Shoes x{playerCount}</span>
+                    <span className="font-body text-white/70 text-sm">${(shoes[0].Price * playerCount).toFixed(2)}</span>
                   </div>
                 )}
                 {selectedOffer && classifyOffer(selectedOffer.Name) === "vip" && (
                   <div className="flex justify-between mt-1">
-                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>Chips &amp; Salsa x{Math.ceil(playerCount / 6)} (per lane)</span>
-                    <span className="font-[var(--font-hp-body)] text-sm" style={{ color: gold }}>FREE</span>
+                    <span className="font-body text-sm" style={{ color: gold }}>Chips &amp; Salsa x{Math.ceil(playerCount / 6)} (per lane)</span>
+                    <span className="font-body text-sm" style={{ color: gold }}>FREE</span>
                   </div>
                 )}
               </div>
               {/* BMI add-ons with prices */}
               {getBmiAddons().length > 0 && (
                 <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-[10px] uppercase tracking-wider mb-2">Add-On Activities</p>
+                  <p className="font-body text-white/40 text-[10px] uppercase tracking-wider mb-2">Add-On Activities</p>
                   {getBmiAddons().map(a => (
                     <div key={a.productId} className="flex justify-between">
-                      <span className="font-[var(--font-hp-body)] text-white/70 text-sm">
+                      <span className="font-body text-white/70 text-sm">
                         {a.name} {a.selectedTime ? `at ${formatBmiTime(a.selectedTime)}` : ""} {a.perPerson ? `x${a.quantity}` : ""}
                       </span>
-                      <span className="font-[var(--font-hp-body)] text-white text-sm">${(a.price * a.quantity).toFixed(2)}</span>
+                      <span className="font-body text-white text-sm">${(a.price * a.quantity).toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
               )}
 
               <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
-                <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Subtotal</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.TotalItems.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Tax</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.AddedTaxes.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="font-body text-white/60 text-sm">Subtotal</span><span className="font-body text-white text-sm">${cartSummary.TotalItems.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="font-body text-white/60 text-sm">Tax</span><span className="font-body text-white text-sm">${cartSummary.AddedTaxes.toFixed(2)}</span></div>
                 {cartSummary.Fee > 0 && (
-                  <div className="flex justify-between"><span className="font-[var(--font-hp-body)] text-white/60 text-sm">Service Fee</span><span className="font-[var(--font-hp-body)] text-white text-sm">${cartSummary.Fee.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="font-body text-white/60 text-sm">Service Fee</span><span className="font-body text-white text-sm">${cartSummary.Fee.toFixed(2)}</span></div>
                 )}
               </div>
               <div className="flex justify-between">
-                <span className="font-[var(--font-hp-body)] text-white font-bold">Total Due</span>
-                <span className="font-[var(--font-hp-display)] text-xl" style={{ color: gold }}>${cartSummary.Total.toFixed(2)}</span>
+                <span className="font-body text-white font-bold">Total Due</span>
+                <span className="font-heading text-xl" style={{ color: gold }}>${cartSummary.Total.toFixed(2)}</span>
               </div>
             </div>
             <button onClick={() => setStep("details")}
-              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Continue to Payment</button>
-            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+            <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
 
         {/* ── DETAILS ── */}
         {step === "details" && !redirectingToPayment && !loading && (
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-4 text-center">Your Details</h2>
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">Your Details</h2>
             <div className="space-y-3 mb-6">
               <input type="text" placeholder="Full Name" value={guestName} onChange={e => setGuestName(e.target.value)}
-                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
+                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
               <input type="email" placeholder="Email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)}
-                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
+                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
               <input type="tel" placeholder="Phone Number" value={guestPhone} onChange={e => setGuestPhone(e.target.value)}
-                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-[var(--font-hp-body)] text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
+                className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
             </div>
             <button onClick={submitBooking} disabled={loading}
-              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
               style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}>
               {loading ? "Processing..." : "Pay & Confirm"}
             </button>
-            <button onClick={goBack} className="mt-4 font-[var(--font-hp-body)] text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+            <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
 
@@ -1755,10 +1755,10 @@ export default function BowlingBookingPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2">
+            <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-2">
               Loading Secure Payment
             </h2>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+            <p className="font-body text-white/50 text-sm">
               Opening secure checkout — please wait...
             </p>
           </div>
@@ -1769,16 +1769,16 @@ export default function BowlingBookingPage() {
       {showLocationConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4" onClick={() => setShowLocationConfirm(false)}>
           <div className="rounded-lg p-6 max-w-sm w-full text-center" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${coral}40` }} onClick={e => e.stopPropagation()}>
-            <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+            <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
               Confirm Location
             </h3>
-            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">
+            <p className="font-body text-white/60 text-sm mb-1">
               You&apos;re booking at:
             </p>
-            <p className="font-[var(--font-hp-hero)] font-black uppercase text-white text-xl mb-1" style={{ textShadow: `0 0 20px ${coral}30` }}>
+            <p className="font-heading font-black uppercase text-white text-xl mb-1" style={{ textShadow: `0 0 20px ${coral}30` }}>
               {centerName}
             </p>
-            <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-6">
+            <p className="font-body text-white/40 text-xs mb-6">
               {LOCATIONS.find(l => l.id === centerId)?.address}
             </p>
             <button
@@ -1786,7 +1786,7 @@ export default function BowlingBookingPage() {
                 setShowLocationConfirm(false);
                 selectLocation(LOCATIONS.find(l => l.id === centerId)!);
               }}
-              className="w-full py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
               style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
             >
               Yes, this is correct
@@ -1809,26 +1809,26 @@ export default function BowlingBookingPage() {
                 </video>
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0a1628]" />
                 <div className="absolute bottom-3 left-4 flex gap-2">
-                  <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${gold}50`, color: gold }}>NeoVerse</span>
-                  <span className="font-[var(--font-hp-body)] text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${cyan}50`, color: cyan }}>HyperBowling</span>
+                  <span className="font-body text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${gold}50`, color: gold }}>NeoVerse</span>
+                  <span className="font-body text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${cyan}50`, color: cyan }}>HyperBowling</span>
                 </div>
               </div>
 
               <div className="p-6 text-center">
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-lg tracking-wider mb-2" style={{ textShadow: `0 0 20px ${gold}30` }}>
+                <h3 className="font-heading uppercase text-white text-lg tracking-wider mb-2" style={{ textShadow: `0 0 20px ${gold}30` }}>
                   Upgrade to VIP?
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-2">
+                <p className="font-body text-white/60 text-sm mb-2">
                   NeoVerse interactive LED walls and HyperBowling LED target scoring in our private VIP suite.
                 </p>
-                <p className="font-[var(--font-hp-body)] text-white/40 text-xs mb-6">
+                <p className="font-body text-white/40 text-xs mb-6">
                   8 VIP lanes &bull; Complimentary Chips &amp; Salsa &bull; Private lounge
                 </p>
 
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowVipUpgrade(false)}
-                    className="flex-1 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+                    className="flex-1 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
                   >
                     No Thanks
                   </button>
@@ -1837,7 +1837,7 @@ export default function BowlingBookingPage() {
                       setShowVipUpgrade(false);
                       selectOffer(upgrade.offer, { Id: upgrade.item.ItemId, Name: upgrade.offer.Name, Price: upgrade.item.Total, Duration: formatDuration(upgrade.item.Quantity, upgrade.item.QuantityType) });
                     }}
-                    className="flex-1 py-3.5 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                    className="flex-1 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
                     style={{ backgroundColor: gold, boxShadow: `0 0 20px ${gold}30` }}
                   >
                     Upgrade +${upgrade.priceDiff.toFixed(2)}
@@ -1860,19 +1860,19 @@ export default function BowlingBookingPage() {
             style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+            <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
               Time Change
             </h3>
-            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-4">
+            <p className="font-body text-white/60 text-sm mb-4">
               <strong>{pendingOffer.offer.Name}</strong> is not available at {formatTimeStr(selectedTime)} but is available at:
             </p>
-            <p className="font-[var(--font-hp-display)] text-2xl mb-6" style={{ color: gold }}>
+            <p className="font-heading text-2xl mb-6" style={{ color: gold }}>
               {formatTimeStr(pendingOffer.newTime)}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setPendingOffer(null)}
-                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
               >
                 Cancel
               </button>
@@ -1882,7 +1882,7 @@ export default function BowlingBookingPage() {
                   setPendingOffer(null);
                   selectOffer(offer, tariff, newTime);
                 }}
-                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
                 style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
               >
                 Accept {formatTimeStr(pendingOffer.newTime)}
@@ -1903,22 +1903,22 @@ export default function BowlingBookingPage() {
             style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+            <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
               Switch Time?
             </h3>
-            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-1">
+            <p className="font-body text-white/60 text-sm mb-1">
               <strong className="text-white">{pendingTimeSwitch.laneLabel}</strong> is sold out at {formatTimeStr(pendingTimeSwitch.fromTime)}
             </p>
-            <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-4">
+            <p className="font-body text-white/60 text-sm mb-4">
               The next available time is:
             </p>
-            <p className="font-[var(--font-hp-display)] text-3xl mb-6" style={{ color: gold }}>
+            <p className="font-heading text-3xl mb-6" style={{ color: gold }}>
               {formatTimeStr(pendingTimeSwitch.toTime)}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setPendingTimeSwitch(null)}
-                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
               >
                 Cancel
               </button>
@@ -1931,7 +1931,7 @@ export default function BowlingBookingPage() {
                   setPendingTimeSwitch(null);
                   setStep("offer");
                 }}
-                className="flex-1 py-3 rounded-full font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
                 style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}
               >
                 Switch to {formatTimeStr(pendingTimeSwitch.toTime)}

@@ -93,13 +93,13 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
       }}
     >
       <span
-        className="font-[var(--font-anton)] uppercase"
+        className="font-heading uppercase"
         style={{ fontSize: "clamp(28px, 5vw, 40px)", color: accent || "#00E2E5", lineHeight: 1.1 }}
       >
         {value}
       </span>
       <span
-        className="font-[var(--font-poppins)] mt-1"
+        className="font-body mt-1"
         style={{ fontSize: "13px", color: "rgba(245,236,238,0.55)", letterSpacing: "0.5px" }}
       >
         {label}
@@ -125,7 +125,7 @@ function SortBtn({
   return (
     <button
       onClick={() => onClick(field)}
-      className="font-[var(--font-poppins)] font-medium transition-colors"
+      className="font-body font-medium transition-colors"
       style={{
         fontSize: "13px",
         padding: "6px 14px",
@@ -200,7 +200,7 @@ function DriverRow({
         {/* Rank */}
         <td className="px-3 py-3 sm:px-4">
           <span
-            className="font-[var(--font-anton)] inline-flex items-center justify-center"
+            className="font-heading inline-flex items-center justify-center"
             style={{
               width: "32px",
               height: "32px",
@@ -217,7 +217,7 @@ function DriverRow({
         {/* Driver */}
         <td className="px-2 py-3 sm:px-4">
           <span
-            className="font-[var(--font-poppins)]"
+            className="font-body"
             style={{
               fontSize: "15px",
               color: rank <= 3 ? rankColor : "rgba(245,236,238,0.9)",
@@ -231,7 +231,7 @@ function DriverRow({
         {/* Total Points */}
         <td className="px-2 py-3 sm:px-4 text-center">
           <span
-            className="font-[var(--font-poppins)] font-semibold"
+            className="font-body font-semibold"
             style={{ fontSize: "15px", color: "#00E2E5" }}
           >
             {driver.totalPoints}
@@ -241,7 +241,7 @@ function DriverRow({
         {/* Races */}
         <td className="px-2 py-3 sm:px-4 text-center hidden sm:table-cell">
           <span
-            className="font-[var(--font-poppins)]"
+            className="font-body"
             style={{ fontSize: "14px", color: "rgba(245,236,238,0.6)" }}
           >
             {raceCount}
@@ -251,7 +251,7 @@ function DriverRow({
         {/* Best Lap */}
         <td className="px-2 py-3 sm:px-4 text-center hidden md:table-cell">
           <span
-            className="font-[var(--font-poppins)] font-medium"
+            className="font-body font-medium"
             style={{ fontSize: "14px", color: "rgba(245,236,238,0.8)" }}
           >
             {bestLap < Infinity ? formatLapTime(bestLap) : "--"}
@@ -261,7 +261,7 @@ function DriverRow({
         {/* Gap */}
         <td className="px-2 py-3 sm:px-4 text-right hidden sm:table-cell">
           <span
-            className="font-[var(--font-poppins)]"
+            className="font-body"
             style={{ fontSize: "13px", color: rank === 1 ? "#FFD700" : "rgba(245,236,238,0.4)" }}
           >
             {gapDisplay}
@@ -302,7 +302,7 @@ function DriverRow({
                       {["Session", "Pos", "Points", "Best Lap", "Laps"].map((h) => (
                         <th
                           key={h}
-                          className="font-[var(--font-poppins)] text-left px-4 py-2"
+                          className="font-body text-left px-4 py-2"
                           style={{
                             fontSize: "11px",
                             color: "rgba(255,255,255,0.3)",
@@ -328,7 +328,7 @@ function DriverRow({
                         >
                           <td className="px-4 py-2">
                             <span
-                              className="font-[var(--font-poppins)]"
+                              className="font-body"
                               style={{
                                 fontSize: "13px",
                                 fontWeight: gp ? 600 : 400,
@@ -340,7 +340,7 @@ function DriverRow({
                           </td>
                           <td className="px-4 py-2">
                             <span
-                              className="font-[var(--font-poppins)] font-medium"
+                              className="font-body font-medium"
                               style={{
                                 fontSize: "13px",
                                 color:
@@ -358,7 +358,7 @@ function DriverRow({
                           </td>
                           <td className="px-4 py-2">
                             <span
-                              className="font-[var(--font-poppins)] font-semibold"
+                              className="font-body font-semibold"
                               style={{ fontSize: "13px", color: gp ? "#00E2E5" : "rgba(255,255,255,0.3)" }}
                             >
                               {gp ? s.points : "—"}
@@ -366,7 +366,7 @@ function DriverRow({
                           </td>
                           <td className="px-4 py-2">
                             <span
-                              className="font-[var(--font-poppins)]"
+                              className="font-body"
                               style={{ fontSize: "13px", color: "rgba(245,236,238,0.6)" }}
                             >
                               {s.bestLap > 0 ? formatLapTime(s.bestLap) : "--"}
@@ -374,7 +374,7 @@ function DriverRow({
                           </td>
                           <td className="px-4 py-2">
                             <span
-                              className="font-[var(--font-poppins)]"
+                              className="font-body"
                               style={{ fontSize: "13px", color: "rgba(245,236,238,0.45)" }}
                             >
                               {s.laps}
@@ -409,7 +409,7 @@ function Spinner() {
           borderRadius: "50%",
         }}
       />
-      <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.5)", fontSize: "14px" }}>
+      <p className="font-body" style={{ color: "rgba(245,236,238,0.5)", fontSize: "14px" }}>
         Loading standings...
       </p>
     </div>
@@ -506,7 +506,7 @@ export default function LeagueStandingsPage() {
           {/* League badge */}
           <div className="flex justify-center mb-8">
             <div
-              className="font-[var(--font-poppins)] inline-flex items-center gap-2"
+              className="font-body inline-flex items-center gap-2"
               style={{
                 fontSize: "14px",
                 fontWeight: 600,
@@ -527,12 +527,12 @@ export default function LeagueStandingsPage() {
             <Spinner />
           ) : error ? (
             <div className="text-center py-20">
-              <p className="font-[var(--font-poppins)]" style={{ color: "#E41C1D", fontSize: "16px" }}>
+              <p className="font-body" style={{ color: "#E41C1D", fontSize: "16px" }}>
                 {error}
               </p>
               <button
                 onClick={() => window.location.reload()}
-                className="font-[var(--font-poppins)] mt-4"
+                className="font-body mt-4"
                 style={{
                   color: "#00E2E5",
                   fontSize: "14px",
@@ -548,7 +548,7 @@ export default function LeagueStandingsPage() {
             </div>
           ) : drivers.length === 0 ? (
             <div className="text-center py-20">
-              <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.5)", fontSize: "16px" }}>
+              <p className="font-body" style={{ color: "rgba(245,236,238,0.5)", fontSize: "16px" }}>
                 No standings data available yet. Races start soon!
               </p>
             </div>
@@ -585,7 +585,7 @@ export default function LeagueStandingsPage() {
                       ].map((col, i) => (
                         <th
                           key={i}
-                          className={`font-[var(--font-poppins)] py-3 ${col.className} ${col.hideOn ? `hidden ${col.hideOn}:table-cell` : ""}`}
+                          className={`font-body py-3 ${col.className} ${col.hideOn ? `hidden ${col.hideOn}:table-cell` : ""}`}
                           style={{
                             fontSize: "11px",
                             color: "rgba(255,255,255,0.35)",
@@ -621,7 +621,7 @@ export default function LeagueStandingsPage() {
 
               {/* Footer note */}
               <p
-                className="font-[var(--font-poppins)] text-center mt-6"
+                className="font-body text-center mt-6"
                 style={{ fontSize: "13px", color: "rgba(245,236,238,0.35)" }}
               >
                 Tap any driver to view session breakdown. Standings update after each race night.

@@ -66,12 +66,12 @@ export default function KBFRegisterPage() {
             <Image src={`https://www.kidsbowlfree.com/img/kbf-logo-23.png`} alt="Kids Bowl Free" fill className="object-contain" sizes="80px" unoptimized />
           </div>
 
-          <p className="font-[var(--font-hp-body)] text-[#FFD700] text-xs uppercase tracking-[0.3em] mb-3">
+          <p className="font-body text-[#FFD700] text-xs uppercase tracking-[0.3em] mb-3">
             Step 1 of 2
           </p>
 
           <h1
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(28px, 7vw, 56px)",
               lineHeight: "1.05",
@@ -82,7 +82,7 @@ export default function KBFRegisterPage() {
           >
             Register Your Kids
           </h1>
-          <p className="font-[var(--font-hp-body)] text-white/70 text-sm max-w-lg mx-auto">
+          <p className="font-body text-white/70 text-sm max-w-lg mx-auto">
             Sign up through the Kids Bowl Free portal, then book your lane. It only takes a minute per child.
           </p>
         </div>
@@ -95,7 +95,7 @@ export default function KBFRegisterPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(24px, 5vw, 44px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(255,215,0,0.25)" }}
             >
               How Registration Works
@@ -115,15 +115,15 @@ export default function KBFRegisterPage() {
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${s.accent}30` }}
               >
                 <span
-                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-[var(--font-hp-display)] text-xl mb-4"
+                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-heading text-xl mb-4"
                   style={{ backgroundColor: `${s.accent}20`, color: s.accent, border: `1.78px solid ${s.accent}40` }}
                 >
                   {s.step}
                 </span>
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+                <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
                   {s.title}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{s.desc}</p>
+                <p className="font-body text-white/60 text-sm leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -136,7 +136,7 @@ export default function KBFRegisterPage() {
           className="max-w-3xl mx-auto rounded-lg p-6"
           style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
         >
-          <h2 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-4" style={{ textShadow: "0 0 15px rgba(255,215,0,0.2)" }}>
+          <h2 className="font-heading uppercase text-white text-base tracking-wider mb-4" style={{ textShadow: "0 0 15px rgba(255,215,0,0.2)" }}>
             Who Can Register?
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -152,7 +152,7 @@ export default function KBFRegisterPage() {
                 <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-[#FFD700]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
-                <span className="font-[var(--font-hp-body)] text-white/70 text-sm">{item}</span>
+                <span className="font-body text-white/70 text-sm">{item}</span>
               </div>
             ))}
           </div>
@@ -165,7 +165,7 @@ export default function KBFRegisterPage() {
           className="max-w-3xl mx-auto rounded-lg p-6"
           style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(0,226,229,0.25)" }}
         >
-          <h2 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-4" style={{ color: "#00E2E5" }}>
+          <h2 className="font-heading uppercase text-white text-base tracking-wider mb-4" style={{ color: "#00E2E5" }}>
             When Can Kids Bowl?
           </h2>
           <div className="space-y-2">
@@ -175,14 +175,14 @@ export default function KBFRegisterPage() {
               { day: "Saturday \u2013 Sunday", time: "Not Available", on: false },
             ].map((row) => (
               <div key={row.day} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                <span className="font-[var(--font-hp-body)] text-white font-bold text-sm">{row.day}</span>
-                <span className="font-[var(--font-hp-body)] text-sm font-bold" style={{ color: row.on ? "#00E2E5" : "rgba(255,255,255,0.3)" }}>
+                <span className="font-body text-white font-bold text-sm">{row.day}</span>
+                <span className="font-body text-sm font-bold" style={{ color: row.on ? "#00E2E5" : "rgba(255,255,255,0.3)" }}>
                   {row.time}
                 </span>
               </div>
             ))}
           </div>
-          <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-3">
+          <p className="font-body text-white/40 text-xs mt-3">
             2 free games per child per day. Shoe rental not included.
           </p>
         </div>
@@ -193,12 +193,12 @@ export default function KBFRegisterPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(24px, 5vw, 44px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(253,91,86,0.25)" }}
             >
               Choose Your Location
             </h2>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+            <p className="font-body text-white/50 text-sm">
               You&apos;ll be taken to the Kids Bowl Free portal to complete registration
             </p>
           </div>
@@ -215,13 +215,13 @@ export default function KBFRegisterPage() {
 
                 <div className="p-6 text-center flex flex-col flex-1">
                   <h3
-                    className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2"
+                    className="font-heading uppercase text-white text-base tracking-wider mb-2"
                     style={{ textShadow: `0 0 15px ${loc.accent}25` }}
                   >
                     {loc.name}
                   </h3>
-                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs mb-1">{loc.address}</p>
-                  <a href={`tel:${loc.phone.replace(/\D/g, "")}`} className="font-[var(--font-hp-body)] text-white/60 text-sm hover:text-white transition-colors mb-6">
+                  <p className="font-body text-white/50 text-xs mb-1">{loc.address}</p>
+                  <a href={`tel:${loc.phone.replace(/\D/g, "")}`} className="font-body text-white/60 text-sm hover:text-white transition-colors mb-6">
                     {loc.phone}
                   </a>
 
@@ -229,7 +229,7 @@ export default function KBFRegisterPage() {
                     href={loc.registerUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-auto w-full inline-flex items-center justify-center text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-3.5 rounded-full transition-all hover:scale-105"
+                    className="mt-auto w-full inline-flex items-center justify-center text-white font-body font-bold text-sm uppercase tracking-wider px-6 py-3.5 rounded-full transition-all hover:scale-105"
                     style={{ backgroundColor: loc.accent, boxShadow: `0 0 16px ${loc.accent}35` }}
                   >
                     Register Here
@@ -256,17 +256,17 @@ export default function KBFRegisterPage() {
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(250px, 35vh, 350px)" }}>
           <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{ fontSize: "clamp(24px, 5vw, 44px)", lineHeight: "1.05", letterSpacing: "-0.5px", marginBottom: "12px", textShadow: "0 0 30px rgba(253,91,86,0.3)" }}
           >
             Already Registered?
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-6">
+          <p className="font-body text-white/60 text-sm mb-6">
             Step 2: Reserve your lane up to 24 hours in advance
           </p>
           <Link
             href="/hp/kids-bowl-free/book"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-8 py-4 rounded-full transition-all hover:scale-105"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-8 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 20px rgba(253,91,86,0.3)" }}
           >
             Book a Lane

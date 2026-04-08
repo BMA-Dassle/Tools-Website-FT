@@ -275,12 +275,12 @@ export default function RewardsPortal() {
           style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
         >
           <h2
-            className="font-[var(--font-hp-display)] uppercase text-white text-xl tracking-wider mb-2"
+            className="font-heading uppercase text-white text-xl tracking-wider mb-2"
             style={{ textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
           >
             Sign In or Sign Up
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/50 text-sm mb-6">
+          <p className="font-body text-white/50 text-sm mb-6">
             Enter your phone number to check your balance or create a new account
           </p>
 
@@ -291,18 +291,18 @@ export default function RewardsPortal() {
               onChange={(e) => setPhone(formatPhone(e.target.value))}
               onKeyDown={(e) => e.key === "Enter" && handleSendCode()}
               placeholder="(239) 555-0123"
-              className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white text-center text-lg font-[var(--font-hp-body)] tracking-wider placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
+              className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white text-center text-lg font-body tracking-wider placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
             />
           </div>
 
           {error && (
-            <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm mb-4">{error}</p>
+            <p className="font-body text-[#fd5b56] text-sm mb-4">{error}</p>
           )}
 
           <button
             onClick={handleSendCode}
             disabled={codeSending || rawDigits(phone).length !== 10}
-            className="w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider py-3.5 rounded-full transition-all hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
+            className="w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-body font-bold text-base uppercase tracking-wider py-3.5 rounded-full transition-all hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
             style={{ boxShadow: "0 0 20px rgba(255,215,0,0.3)" }}
           >
             {codeSending ? "Sending..." : "Send Verification Code"}
@@ -317,12 +317,12 @@ export default function RewardsPortal() {
           style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
         >
           <h2
-            className="font-[var(--font-hp-display)] uppercase text-white text-xl tracking-wider mb-2"
+            className="font-heading uppercase text-white text-xl tracking-wider mb-2"
             style={{ textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
           >
             Enter Code
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/50 text-sm mb-6">
+          <p className="font-body text-white/50 text-sm mb-6">
             We sent a 6-digit code to {phone}
           </p>
 
@@ -339,29 +339,29 @@ export default function RewardsPortal() {
                 onChange={(e) => handleCodeInput(i, e.target.value)}
                 onKeyDown={(e) => handleCodeKeyDown(i, e)}
                 onPaste={i === 0 ? handleCodePaste : undefined}
-                className="w-12 h-14 bg-[#0a1628] border border-white/20 rounded-lg text-white text-center text-xl font-[var(--font-hp-body)] font-bold focus:outline-none focus:border-[#FFD700]/50 transition-colors"
+                className="w-12 h-14 bg-[#0a1628] border border-white/20 rounded-lg text-white text-center text-xl font-body font-bold focus:outline-none focus:border-[#FFD700]/50 transition-colors"
               />
             ))}
           </div>
 
           {error && (
-            <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm mb-4">{error}</p>
+            <p className="font-body text-[#fd5b56] text-sm mb-4">{error}</p>
           )}
 
           {loading && (
-            <p className="font-[var(--font-hp-body)] text-[#FFD700] text-sm mb-4">Verifying...</p>
+            <p className="font-body text-[#FFD700] text-sm mb-4">Verifying...</p>
           )}
 
           <div className="flex items-center justify-between mt-6">
             <button
               onClick={() => { setStep("phone"); setError(""); }}
-              className="font-[var(--font-hp-body)] text-white/40 hover:text-white text-sm transition-colors"
+              className="font-body text-white/40 hover:text-white text-sm transition-colors"
             >
               &larr; Change Number
             </button>
             <button
               onClick={handleSendCode}
-              className="font-[var(--font-hp-body)] text-[#FFD700] hover:text-[#ffe44d] text-sm transition-colors"
+              className="font-body text-[#FFD700] hover:text-[#ffe44d] text-sm transition-colors"
             >
               Resend Code
             </button>
@@ -379,7 +379,7 @@ export default function RewardsPortal() {
           >
             {isNewUser && !bonusAwarded && (
               <div className="bg-[#FFD700]/10 border border-[#FFD700]/30 rounded-lg px-4 py-3 mb-6">
-                <p className="font-[var(--font-hp-body)] text-[#FFD700] text-sm font-bold">
+                <p className="font-body text-[#FFD700] text-sm font-bold">
                   Welcome to HeadPinz Rewards!
                 </p>
               </div>
@@ -387,30 +387,30 @@ export default function RewardsPortal() {
 
             {bonusAwarded && (
               <div className="bg-[#FFD700]/10 border border-[#FFD700]/30 rounded-lg px-4 py-3 mb-6">
-                <p className="font-[var(--font-hp-body)] text-[#FFD700] text-sm font-bold">
+                <p className="font-body text-[#FFD700] text-sm font-bold">
                   +500 {termPlural} bonus added!
                 </p>
               </div>
             )}
 
             {customer?.firstName && (
-              <p className="font-[var(--font-hp-body)] text-white/50 text-sm mb-1">
+              <p className="font-body text-white/50 text-sm mb-1">
                 {customer.firstName} {customer.lastName}
               </p>
             )}
 
             <div className="mb-2">
               <span
-                className="font-[var(--font-hp-display)] text-[#FFD700]"
+                className="font-heading text-[#FFD700]"
                 style={{ fontSize: "clamp(48px, 10vw, 72px)", textShadow: "0 0 30px rgba(255,215,0,0.35)" }}
               >
                 {account.balance.toLocaleString()}
               </span>
             </div>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm uppercase tracking-wider">
+            <p className="font-body text-white/50 text-sm uppercase tracking-wider">
               {termPlural} Balance
             </p>
-            <p className="font-[var(--font-hp-body)] text-white/30 text-xs mt-2">
+            <p className="font-body text-white/30 text-xs mt-2">
               {account.lifetimePoints.toLocaleString()} lifetime {termPlural.toLowerCase()} earned
             </p>
           </div>
@@ -421,10 +421,10 @@ export default function RewardsPortal() {
               className="rounded-lg p-6"
               style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.3)" }}
             >
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                 Complete Your Profile
               </h3>
-              <p className="font-[var(--font-hp-body)] text-[#FFD700] text-sm font-bold mb-4">
+              <p className="font-body text-[#FFD700] text-sm font-bold mb-4">
                 Get 500 bonus {termPlural}!
               </p>
 
@@ -434,32 +434,32 @@ export default function RewardsPortal() {
                   value={profileFirstName}
                   onChange={(e) => setProfileFirstName(e.target.value)}
                   placeholder="First Name"
-                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white text-sm font-[var(--font-hp-body)] placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
+                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white text-sm font-body placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
                 />
                 <input
                   type="text"
                   value={profileLastName}
                   onChange={(e) => setProfileLastName(e.target.value)}
                   placeholder="Last Name"
-                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white text-sm font-[var(--font-hp-body)] placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
+                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white text-sm font-body placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
                 />
                 <input
                   type="email"
                   value={profileEmail}
                   onChange={(e) => setProfileEmail(e.target.value)}
                   placeholder="Email (optional)"
-                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white text-sm font-[var(--font-hp-body)] placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
+                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white text-sm font-body placeholder:text-white/20 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
                 />
               </div>
 
               {error && (
-                <p className="font-[var(--font-hp-body)] text-[#fd5b56] text-sm mb-3">{error}</p>
+                <p className="font-body text-[#fd5b56] text-sm mb-3">{error}</p>
               )}
 
               <button
                 onClick={handleCompleteProfile}
                 disabled={profileSaving}
-                className="w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider py-3 rounded-full transition-all hover:scale-[1.02] disabled:opacity-50"
+                className="w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-body font-bold text-sm uppercase tracking-wider py-3 rounded-full transition-all hover:scale-[1.02] disabled:opacity-50"
                 style={{ boxShadow: "0 0 16px rgba(255,215,0,0.3)" }}
               >
                 {profileSaving ? "Saving..." : `Claim 500 ${termPlural}`}
@@ -473,7 +473,7 @@ export default function RewardsPortal() {
               className="rounded-lg p-6"
               style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.2)" }}
             >
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-4">
+              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-4">
                 Rewards
               </h3>
 
@@ -487,11 +487,11 @@ export default function RewardsPortal() {
                     return (
                       <div key={tier.id}>
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-[var(--font-hp-body)] text-white text-sm">
+                          <span className="font-body text-white text-sm">
                             {tier.name}
                           </span>
                           <span
-                            className="font-[var(--font-hp-body)] text-xs font-bold"
+                            className="font-body text-xs font-bold"
                             style={{ color: canRedeem ? "#FFD700" : "rgba(255,255,255,0.4)" }}
                           >
                             {tier.points.toLocaleString()} {termPlural}
@@ -509,7 +509,7 @@ export default function RewardsPortal() {
                           />
                         </div>
                         {canRedeem && (
-                          <p className="font-[var(--font-hp-body)] text-[#FFD700] text-xs mt-1">
+                          <p className="font-body text-[#FFD700] text-xs mt-1">
                             Ready to redeem!
                           </p>
                         )}
@@ -526,16 +526,16 @@ export default function RewardsPortal() {
               className="rounded-lg p-6"
               style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.15)" }}
             >
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-3">
+              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-3">
                 How to Earn
               </h3>
               <div className="space-y-2">
                 {program.accrualRules.map((rule, i) => (
                   <div key={i} className="flex items-center gap-3">
-                    <span className="font-[var(--font-hp-body)] text-[#FFD700] text-sm font-bold whitespace-nowrap">
+                    <span className="font-body text-[#FFD700] text-sm font-bold whitespace-nowrap">
                       +{rule.points} {termPlural}
                     </span>
-                    <span className="font-[var(--font-hp-body)] text-white/50 text-sm">
+                    <span className="font-body text-white/50 text-sm">
                       {rule.type === "SPEND"
                         ? `per $${((rule.spendAmountCents || 100) / 100).toFixed(0)} spent`
                         : rule.type === "VISIT"
@@ -562,7 +562,7 @@ export default function RewardsPortal() {
                 setBonusAwarded(false);
                 setError("");
               }}
-              className="font-[var(--font-hp-body)] text-white/30 hover:text-white/60 text-sm transition-colors"
+              className="font-body text-white/30 hover:text-white/60 text-sm transition-colors"
             >
               Sign Out
             </button>

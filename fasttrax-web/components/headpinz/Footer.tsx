@@ -35,11 +35,11 @@ export default function HeadPinzFooter() {
         <div className="text-center mb-10">
           <Link
             href="/hp"
-            className="font-[var(--font-hp-display)] text-3xl uppercase tracking-widest text-white inline-block"
+            className="font-heading text-3xl uppercase tracking-widest text-white inline-block"
           >
             HEADPINZ
           </Link>
-          <p className="text-white/40 text-sm mt-1 font-[var(--font-hp-body)]">
+          <p className="text-white/40 text-sm mt-1 font-body">
             Where Fun Comes Together
           </p>
         </div>
@@ -51,10 +51,10 @@ export default function HeadPinzFooter() {
               key={loc.name}
               className="text-center md:text-left space-y-2"
             >
-              <h3 className="font-[var(--font-hp-display)] text-lg text-[#fd5b56] uppercase tracking-wider">
+              <h3 className="font-heading text-lg text-[#fd5b56] uppercase tracking-wider">
                 {loc.name}
               </h3>
-              <p className="text-white/60 text-sm font-[var(--font-hp-body)] leading-relaxed">
+              <p className="text-white/60 text-sm font-body leading-relaxed">
                 <a
                   href={loc.mapUrl}
                   target="_blank"
@@ -66,7 +66,7 @@ export default function HeadPinzFooter() {
                   {loc.city}
                 </a>
               </p>
-              <p className="text-white/60 text-sm font-[var(--font-hp-body)]">
+              <p className="text-white/60 text-sm font-body">
                 <a
                   href={`tel:${loc.phoneTel}`}
                   className="hover:text-white transition-colors"
@@ -74,7 +74,7 @@ export default function HeadPinzFooter() {
                   {loc.phone}
                 </a>
               </p>
-              <p className="text-white/40 text-xs font-[var(--font-hp-body)]">
+              <p className="text-white/40 text-xs font-body">
                 {loc.hours}
               </p>
             </div>
@@ -122,14 +122,14 @@ export default function HeadPinzFooter() {
         <div className="text-center mb-6">
           <a
             href="mailto:guestservices@headpinz.com"
-            className="text-white/40 hover:text-white text-sm font-[var(--font-hp-body)] transition-colors"
+            className="text-white/40 hover:text-white text-sm font-body transition-colors"
           >
             guestservices@headpinz.com
           </a>
         </div>
 
         {/* Copyright */}
-        <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30 font-[var(--font-hp-body)]">
+        <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30 font-body">
           <p>&copy; 2026 BMA Leisure. All rights reserved.</p>
           <p>
             <a

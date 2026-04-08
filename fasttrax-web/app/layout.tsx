@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bebas_Neue, Inter, Plus_Jakarta_Sans } from "next/font/google";
+import { Exo_2, Barlow, Outfit, DM_Sans } from "next/font/google";
 import Script from "next/script";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -11,24 +11,33 @@ import { LocalBusinessJsonLd } from "@/components/seo/JsonLd";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 
-const bebasNeue = Bebas_Neue({
-  weight: "400",
+/* FastTrax fonts */
+const exo2 = Exo_2({
   subsets: ["latin"],
-  variable: "--font-anton",
+  weight: ["400", "500", "600", "700", "800", "900"],
+  variable: "--font-exo2",
   display: "swap",
 });
 
-const inter = Inter({
+const barlow = Barlow({
+  subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
-  subsets: ["latin"],
-  variable: "--font-poppins",
+  variable: "--font-barlow",
   display: "swap",
 });
 
-const jakarta = Plus_Jakarta_Sans({
-  weight: ["600", "700"],
+/* HeadPinz fonts */
+const outfit = Outfit({
   subsets: ["latin"],
-  variable: "--font-jakarta",
+  weight: ["400", "500", "600", "700", "800", "900"],
+  variable: "--font-outfit",
+  display: "swap",
+});
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-dmsans",
   display: "swap",
 });
 
@@ -115,11 +124,11 @@ export default async function RootLayout({
   const isHeadPinz = hdrs.get("x-brand") === "headpinz";
 
   return (
-    <html lang="en" className={`${bebasNeue.variable} ${inter.variable} ${jakarta.variable}`}>
+    <html lang="en" className={`${exo2.variable} ${barlow.variable} ${outfit.variable} ${dmSans.variable}`}>
       <head>
         {!isHeadPinz && <LocalBusinessJsonLd />}
       </head>
-      <body className={`${isHeadPinz ? "bg-[#0a1628]" : "bg-[#000418]"} text-white font-[var(--font-poppins)] antialiased`}>
+      <body className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}>
         {!isHeadPinz && <Nav />}
         <main>{children}</main>
         {!isHeadPinz && <Footer />}

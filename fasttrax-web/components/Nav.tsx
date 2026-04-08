@@ -57,7 +57,7 @@ export default function Nav() {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-          <span className="font-[var(--font-poppins)] font-semibold text-white tracking-wider text-xs">{todayHours}</span>
+          <span className="font-body font-semibold text-white tracking-wider text-xs">{todayHours}</span>
         </div>
       </div>
 
@@ -97,7 +97,7 @@ export default function Nav() {
                   href={l.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white"
+                  className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white"
                   style={{ fontSize: "14px" }}
                 >
                   {l.label}
@@ -106,7 +106,7 @@ export default function Nav() {
                 <Link
                   key={l.href}
                   href={l.href}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider transition-colors whitespace-nowrap"
+                  className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap"
                   style={{
                     fontSize: "14px",
                     color: pathname === l.href ? "rgb(228,28,29)" : "rgb(255,255,255)",
@@ -123,7 +123,7 @@ export default function Nav() {
             <a
               href="/book/race"
               onClick={trackBookingClick}
-              className="hidden sm:inline-flex items-center gap-2 bg-[#E41C1D] hover:bg-[#c62828] text-white font-[var(--font-poppins)] font-bold uppercase tracking-wider transition-colors"
+              className="hidden sm:inline-flex items-center gap-2 bg-[#E41C1D] hover:bg-[#c62828] text-white font-body font-bold uppercase tracking-wider transition-colors"
               style={{ fontSize: "14px", padding: "16px 24px", borderRadius: "166px" }}
             >
               Book Now
@@ -151,7 +151,7 @@ export default function Nav() {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setOpen(false)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
+                  className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
                   style={{ color: "rgba(255,255,255,0.8)" }}
                 >
                   {l.label}
@@ -161,7 +161,7 @@ export default function Nav() {
                   key={l.href}
                   href={l.href}
                   onClick={() => setOpen(false)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
+                  className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
                   style={{ color: pathname === l.href ? "rgb(228,28,29)" : "rgba(255,255,255,0.8)" }}
                 >
                   {l.label}
@@ -171,7 +171,7 @@ export default function Nav() {
             <a
               href="/book/race"
               onClick={trackBookingClick}
-              className="mt-2 bg-[#E41C1D] text-white font-[var(--font-poppins)] font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
+              className="mt-2 bg-[#E41C1D] text-white font-body font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
             >
               Book Now
             </a>

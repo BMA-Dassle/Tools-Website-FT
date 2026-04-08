@@ -15,7 +15,7 @@ export default function TrackStatus() {
     <section className="bg-[#010A20] border-y border-white/10 py-4">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-8">
-          <span className="font-[var(--font-anton)] italic text-white/40 text-sm uppercase tracking-widest">
+          <span className="font-heading italic text-white/40 text-sm uppercase tracking-widest">
             Live Track Status
           </span>
           <div className="flex flex-wrap gap-4">
@@ -25,10 +25,10 @@ export default function TrackStatus() {
                 style={{ borderColor: "rgba(134,82,255,0.4)" }}
               >
                 <span className={`w-2 h-2 rounded-full ${dotColor(data.tracks[0]?.status || "ok")} animate-pulse`} />
-                <span className="font-[var(--font-poppins)] font-semibold text-white text-sm">
+                <span className="font-body font-semibold text-white text-sm">
                   Mega Track
                 </span>
-                <span className="font-[var(--font-poppins)] text-xs font-bold" style={{ color: "rgb(134,82,255)" }}>
+                <span className="font-body text-xs font-bold" style={{ color: "rgb(134,82,255)" }}>
                   {data.tracks[0]?.delayFormatted || "On Time"}
                 </span>
               </div>
@@ -40,11 +40,11 @@ export default function TrackStatus() {
                   style={{ borderColor: `${t.colors.trackIdentity}40` }}
                 >
                   <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
-                  <span className="font-[var(--font-poppins)] font-semibold text-white text-sm">
+                  <span className="font-body font-semibold text-white text-sm">
                     {t.trackName}
                   </span>
                   <span
-                    className="font-[var(--font-poppins)] text-xs font-bold"
+                    className="font-body text-xs font-bold"
                     style={{ color: t.colors.trackIdentity }}
                   >
                     {t.delayFormatted}

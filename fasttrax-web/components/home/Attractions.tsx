@@ -87,19 +87,19 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
       {/* Text content */}
       <div className="flex flex-col gap-3 p-5 flex-1">
         <h3
-          className="font-[var(--font-anton)] uppercase"
+          className="font-heading uppercase"
           style={{ color: card.border.replace("0.59", "1").replace("rgba", "rgb").replace(/,\s*[0-9.]+\)/, ")"), fontSize: "24px" }}
         >
           {card.title}
         </h3>
-        <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-poppins)", lineHeight: "1.5" }}>
+        <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-body)", lineHeight: "1.5" }}>
           {card.desc}
         </p>
         <div className="mt-auto">
           {card.href.startsWith("http") ? (
             <BookingLink
               href={card.href}
-              className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white transition-all hover:scale-105"
+              className="inline-block font-body font-bold uppercase text-white transition-all hover:scale-105"
               style={{
                 backgroundColor: card.ctaBg,
                 borderRadius: "555px",
@@ -113,7 +113,7 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
           ) : (
             <a
               href={card.href}
-              className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white transition-all hover:scale-105"
+              className="inline-block font-body font-bold uppercase text-white transition-all hover:scale-105"
               style={{
                 backgroundColor: card.ctaBg,
                 borderRadius: "555px",
@@ -138,7 +138,7 @@ export default function Attractions() {
 
         {/* Title */}
         <h2
-          className="font-[var(--font-anton)] italic uppercase text-white text-center mb-8"
+          className="font-heading italic uppercase text-white text-center mb-8"
           style={{ fontSize: "clamp(2.5rem, 6vw, 72px)" }}
         >
           THE ATTRACTION POWER-GRID
@@ -152,8 +152,8 @@ export default function Attractions() {
               className="flex items-center gap-3 px-4 py-3 rounded-xl"
               style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${h.border}` }}
             >
-              <span style={{ color: h.color, fontSize: "18px", fontFamily: "var(--font-poppins)", fontWeight: 600 }}>{h.day}</span>
-              <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-poppins)" }}>{h.time}</span>
+              <span style={{ color: h.color, fontSize: "18px", fontFamily: "var(--font-body)", fontWeight: 600 }}>{h.day}</span>
+              <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{h.time}</span>
             </div>
           ))}
         </div>

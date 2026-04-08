@@ -102,7 +102,7 @@ export default function HeadPinzNav() {
           <span className="text-white/20">|</span>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-            <span className="font-[var(--font-poppins)] font-semibold text-white tracking-wider text-xs">{todayHours}</span>
+            <span className="font-body font-semibold text-white tracking-wider text-xs">{todayHours}</span>
           </div>
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function HeadPinzNav() {
                   href={l.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white hover:text-[#fd5b56]"
+                  className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white hover:text-[#fd5b56]"
                   style={{ fontSize: "14px" }}
                 >
                   {l.label}
@@ -153,7 +153,7 @@ export default function HeadPinzNav() {
                 <Link
                   key={l.label}
                   href={l.href}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider transition-colors whitespace-nowrap hover:text-[#fd5b56]"
+                  className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap hover:text-[#fd5b56]"
                   style={{
                     fontSize: "14px",
                     color: pathname.includes(l.href.split("#")[0]) && !l.href.includes("#") ? "#fd5b56" : "rgb(255,255,255)",
@@ -169,7 +169,7 @@ export default function HeadPinzNav() {
           <div className="flex items-center gap-3 shrink-0">
             <a
               href={currentLoc.booking}
-              className="hidden sm:inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-poppins)] font-bold uppercase tracking-wider transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.5)]"
+              className="hidden sm:inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold uppercase tracking-wider transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.5)]"
               style={{ fontSize: "14px", padding: "16px 24px", borderRadius: "166px" }}
             >
               Book Now
@@ -210,7 +210,7 @@ export default function HeadPinzNav() {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setOpen(false)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors text-white/80 hover:text-[#fd5b56]"
+                  className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors text-white/80 hover:text-[#fd5b56]"
                 >
                   {l.label}
                 </a>
@@ -219,7 +219,7 @@ export default function HeadPinzNav() {
                   key={l.label}
                   href={l.href}
                   onClick={() => setOpen(false)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
+                  className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
                   style={{ color: "rgba(255,255,255,0.8)" }}
                 >
                   {l.label}
@@ -228,7 +228,7 @@ export default function HeadPinzNav() {
             )}
             <a
               href={currentLoc.booking}
-              className="mt-2 bg-[#fd5b56] text-white font-[var(--font-poppins)] font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
+              className="mt-2 bg-[#fd5b56] text-white font-body font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
             >
               Book Now
             </a>

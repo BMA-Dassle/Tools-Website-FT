@@ -22,9 +22,8 @@ const config: Config = {
         "ft-light":   "#F5ECEE",
       },
       fontFamily: {
-        anton:   ['"Bebas Neue"', "sans-serif"],
-        poppins: ["Inter", "sans-serif"],
-        jakarta: ['"Plus Jakarta Sans"', "sans-serif"],
+        heading: ["var(--font-heading)", "sans-serif"],
+        body:    ["var(--font-body)", "sans-serif"],
       },
       backgroundImage: {
         "hero-gradient": "linear-gradient(to right, rgba(0,4,24,0.85) 40%, rgba(0,4,24,0.4) 100%)",

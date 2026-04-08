@@ -154,7 +154,7 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
     >
       <div style={{ padding: "16px 20px", borderBottom: `1px solid ${category.border}` }}>
         <h3
-          className="font-[var(--font-anton)] uppercase"
+          className="font-heading uppercase"
           style={{ color: category.color, fontSize: "20px", letterSpacing: "1.2px" }}
         >
           {category.label}
@@ -163,11 +163,11 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
 
       {loading ? (
         <div className="p-6 text-center">
-          <p className="font-[var(--font-poppins)] text-white/50 text-sm">Loading...</p>
+          <p className="font-body text-white/50 text-sm">Loading...</p>
         </div>
       ) : records.length === 0 ? (
         <div className="p-6 text-center">
-          <p className="font-[var(--font-poppins)] text-white/40 text-sm">No records for this period</p>
+          <p className="font-body text-white/40 text-sm">No records for this period</p>
         </div>
       ) : (
         <div className="flex flex-col">
@@ -181,7 +181,7 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
               }}
             >
               <span
-                className="font-[var(--font-anton)] shrink-0 text-center"
+                className="font-heading shrink-0 text-center"
                 style={{
                   width: "28px",
                   fontSize: "16px",
@@ -191,19 +191,19 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
                 {r.position}
               </span>
               <span
-                className="font-[var(--font-poppins)] flex-1 truncate"
+                className="font-body flex-1 truncate"
                 style={{ fontSize: "14px", color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}
               >
                 {r.participant}
               </span>
               <span
-                className="font-[var(--font-poppins)] font-semibold shrink-0"
+                className="font-body font-semibold shrink-0"
                 style={{ fontSize: "14px", color: category.color }}
               >
                 {formatTime(r.score)}
               </span>
               <span
-                className="font-[var(--font-poppins)] shrink-0 hidden sm:inline"
+                className="font-body shrink-0 hidden sm:inline"
                 style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)", width: "50px", textAlign: "right" }}
               >
                 {formatDate(r.date)}
@@ -433,7 +433,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
           <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
           <path d="M12 6v6l4 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-        <p className="font-[var(--font-poppins)] text-white/40 text-sm">
+        <p className="font-body text-white/40 text-sm">
           {wsStatus === "connecting" ? "Connecting..." : wsStatus === "reconnecting" ? "Reconnecting..." : "No races running"}
         </p>
       </div>
@@ -472,7 +472,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
             }}
           />
         )}
-        <span className="font-[var(--font-anton)] uppercase tracking-wider text-base relative z-10 flex items-center gap-2">
+        <span className="font-heading uppercase tracking-wider text-base relative z-10 flex items-center gap-2">
           {heatName}
           <span
             className={`inline-block w-2 h-2 rounded-full ${
@@ -481,7 +481,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
             title={wsStatus === "connected" ? "Live" : "Reconnecting..."}
           />
         </span>
-        <span className="font-[var(--font-poppins)] font-semibold text-sm relative z-10">
+        <span className="font-body font-semibold text-sm relative z-10">
           {wsStatus === "reconnecting" && "RECONNECTING..."}
           {wsStatus !== "reconnecting" && heatState === "running" && displayTime > 0 && msToCountdown(displayTime)}
           {wsStatus !== "reconnecting" && heatState === "paused" && "PAUSED"}
@@ -491,7 +491,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
       {/* Table header — mobile: Pos/Driver/Kart/Laps/Best/Last  desktop: + Avg + Gap */}
       <div
-        className="grid font-[var(--font-poppins)] font-semibold uppercase text-[9px] sm:text-xs tracking-wider px-3 sm:px-4 py-2.5 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+        className="grid font-body font-semibold uppercase text-[9px] sm:text-xs tracking-wider px-3 sm:px-4 py-2.5 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
         style={{
           color: "rgba(255,255,255,0.5)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -511,7 +511,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
       {drivers.map((d, i) => (
         <div
           key={`${d.name}-${d.kart}`}
-          className={`grid font-[var(--font-poppins)] px-3 sm:px-4 py-2 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px] ${d.delta !== 0 ? "animate-pulse" : ""}`}
+          className={`grid font-body px-3 sm:px-4 py-2 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px] ${d.delta !== 0 ? "animate-pulse" : ""}`}
           style={{
             fontSize: "13px",
             borderBottom: i < drivers.length - 1 ? "1px solid rgba(255,255,255,0.05)" : undefined,
@@ -522,7 +522,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
             borderLeft: d.delta > 0 ? "3px solid rgb(34,197,94)" : d.delta < 0 ? "3px solid rgb(239,68,68)" : undefined,
           }}
         >
-          <span className="font-[var(--font-anton)] flex items-center gap-0.5">
+          <span className="font-heading flex items-center gap-0.5">
             <span
               style={{
                 color: i === 0 ? "rgb(255,215,0)" : i === 1 ? "rgb(192,192,192)" : i === 2 ? "rgb(205,127,50)" : "rgba(255,255,255,0.4)",
@@ -561,7 +561,7 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
       {isMega && (
         <div className="flex items-center justify-center gap-3 mb-6">
           <h3
-            className="font-[var(--font-anton)] uppercase"
+            className="font-heading uppercase"
             style={{ color: "rgb(134,82,255)", fontSize: "24px", letterSpacing: "1.2px" }}
           >
             Mega Track Live
@@ -570,7 +570,7 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
             href={`https://modules.bmileisure.com/Livetiming/?key=${BMI_LIVE_KEY}&resourceId=-1`}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-[var(--font-poppins)] text-xs transition-opacity hover:opacity-100"
+            className="font-body text-xs transition-opacity hover:opacity-100"
             style={{ color: "rgba(255,255,255,0.5)", opacity: 0.7 }}
             title="Open full live timing in a new window"
           >
@@ -587,7 +587,7 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
               {!isMega && (
                 <div className="flex items-center justify-center gap-3 mb-4">
                   <h4
-                    className="font-[var(--font-anton)] uppercase"
+                    className="font-heading uppercase"
                     style={{ color: t.accent, fontSize: "20px", letterSpacing: "1.2px" }}
                   >
                     {`${t.label} Live`}
@@ -596,7 +596,7 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
                     href={fullscreenUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-[var(--font-poppins)] text-xs transition-opacity hover:opacity-100"
+                    className="font-body text-xs transition-opacity hover:opacity-100"
                     style={{ color: "rgba(255,255,255,0.5)", opacity: 0.7 }}
                     title="Open full live timing in a new window"
                   >
@@ -612,7 +612,7 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
 
       {/* Attribution */}
       <p
-        className="font-[var(--font-poppins)] text-center mt-6"
+        className="font-body text-center mt-6"
         style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px" }}
       >
         Powered by BMI Leisure &middot; Live timing data overlay
@@ -643,7 +643,7 @@ export default function LeaderboardsPage() {
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-6 lg:gap-10 items-center">
           <div className="flex-1">
             <h2
-              className="font-[var(--font-anton)] italic uppercase text-white"
+              className="font-heading italic uppercase text-white"
               style={{
                 fontSize: "clamp(32px, 8vw, 72px)",
                 lineHeight: "1",
@@ -655,7 +655,7 @@ export default function LeaderboardsPage() {
               Who&apos;s Leading the Pack?
             </h2>
             <p
-              className="mb-8 font-[var(--font-poppins)]"
+              className="mb-8 font-body"
               style={{
                 color: "rgba(255,255,255,0.898)",
                 fontSize: "18px",
@@ -669,7 +669,7 @@ export default function LeaderboardsPage() {
             <a
               href="/book/race"
               onClick={trackBookingClick}
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",
                 borderRadius: "555px",
@@ -699,7 +699,7 @@ export default function LeaderboardsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-2 sm:px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -719,7 +719,7 @@ export default function LeaderboardsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -731,7 +731,7 @@ export default function LeaderboardsPage() {
             Hall of Fame
           </h2>
           <p
-            className="text-center mx-auto mb-8 font-[var(--font-poppins)]"
+            className="text-center mx-auto mb-8 font-body"
             style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
             Top 10 fastest lap times by race type. Think you can crack the list?
@@ -743,7 +743,7 @@ export default function LeaderboardsPage() {
               <button
                 key={t.key}
                 onClick={() => setActiveTrack(t.key)}
-                className="font-[var(--font-anton)] uppercase tracking-wider text-base px-6 py-3 transition-all cursor-pointer"
+                className="font-heading uppercase tracking-wider text-base px-6 py-3 transition-all cursor-pointer"
                 style={{
                   backgroundColor: activeTrack === t.key ? "rgba(7,16,39,0.7)" : "transparent",
                   color: activeTrack === t.key ? t.accent : "rgba(255,255,255,0.4)",
@@ -762,7 +762,7 @@ export default function LeaderboardsPage() {
                 <button
                   key={r}
                   onClick={() => setTimeRange(r)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-full transition-all cursor-pointer"
+                  className="font-body font-semibold uppercase text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-full transition-all cursor-pointer"
                   style={{
                     backgroundColor: timeRange === r ? "rgb(228,28,29)" : "rgba(7,16,39,0.5)",
                     color: timeRange === r ? "white" : "rgba(255,255,255,0.6)",
@@ -781,7 +781,7 @@ export default function LeaderboardsPage() {
                 <button
                   key={f}
                   onClick={() => setClassFilter(f)}
-                  className="font-[var(--font-poppins)] font-semibold uppercase text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-full transition-all cursor-pointer"
+                  className="font-body font-semibold uppercase text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-full transition-all cursor-pointer"
                   style={{
                     backgroundColor: classFilter === f ? "rgb(134,82,255)" : "rgba(7,16,39,0.5)",
                     color: classFilter === f ? "white" : "rgba(255,255,255,0.6)",
@@ -818,7 +818,7 @@ export default function LeaderboardsPage() {
           style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -865,13 +865,13 @@ export default function LeaderboardsPage() {
                 }}
               >
                 <p
-                  className="font-[var(--font-anton)] text-white mb-2"
+                  className="font-heading text-white mb-2"
                   style={{ fontSize: "24px" }}
                 >
                   {step.num}
                 </p>
                 <h3
-                  className="font-[var(--font-anton)] uppercase mb-3"
+                  className="font-heading uppercase mb-3"
                   style={{
                     color: step.titleColor,
                     fontSize: "24px",
@@ -881,7 +881,7 @@ export default function LeaderboardsPage() {
                   {step.title}
                 </h3>
                 <p
-                  className="font-[var(--font-poppins)]"
+                  className="font-body"
                   style={{
                     color: "rgba(245,236,238,0.8)",
                     fontSize: "16px",
@@ -913,7 +913,7 @@ export default function LeaderboardsPage() {
           </div>
           <div className="flex-1">
             <h2
-              className="font-[var(--font-anton)] italic uppercase text-white"
+              className="font-heading italic uppercase text-white"
               style={{
                 fontSize: "clamp(32px, 8vw, 72px)",
                 lineHeight: "1",
@@ -933,7 +933,7 @@ export default function LeaderboardsPage() {
               }}
             >
               <h3
-                className="font-[var(--font-anton)] uppercase mb-3"
+                className="font-heading uppercase mb-3"
                 style={{
                   color: "rgb(134,82,255)",
                   fontSize: "30px",
@@ -943,7 +943,7 @@ export default function LeaderboardsPage() {
                 Tuesday Mega Track
               </h3>
               <p
-                className="font-[var(--font-poppins)]"
+                className="font-body"
                 style={{
                   color: "rgb(245,236,238)",
                   fontSize: "18px",
@@ -971,7 +971,7 @@ export default function LeaderboardsPage() {
         <div className="absolute inset-0 bg-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -986,7 +986,7 @@ export default function LeaderboardsPage() {
             <a
               href="/book/race"
               onClick={trackBookingClick}
-              className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",
                 borderRadius: "555px",
@@ -1000,7 +1000,7 @@ export default function LeaderboardsPage() {
               href="https://smstim.in/headpinzftmyers"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block font-[var(--font-poppins)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(0,74,173)",
                 borderRadius: "555px",
@@ -1031,7 +1031,7 @@ export default function LeaderboardsPage() {
               League Standings
             </h3>
             <p
-              className="font-[var(--font-poppins)]"
+              className="font-body"
               style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)", maxWidth: "400px" }}
             >
               Track the Blue League championship race. See cumulative points, session breakdowns, and fastest laps.
@@ -1039,7 +1039,7 @@ export default function LeaderboardsPage() {
           </div>
           <a
             href="/leagues"
-            className="font-[var(--font-poppins)] font-bold uppercase tracking-wider text-white shrink-0"
+            className="font-body font-bold uppercase tracking-wider text-white shrink-0"
             style={{
               backgroundColor: "#00E2E5",
               color: "#000418",

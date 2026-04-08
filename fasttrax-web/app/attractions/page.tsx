@@ -159,13 +159,13 @@ export default function AttractionsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
           >
             Two Buildings. One Massive Destination
           </h2>
           <p
-            className="font-[var(--font-poppins)]"
+            className="font-body"
             style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
             Explore over 113,000 sq. ft. of adrenaline-pumping action. Start at the high-speed racing hub of FastTrax, then step next door to the premier social entertainment of HeadPinz.
@@ -202,7 +202,7 @@ export default function AttractionsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             FastTrax: The 63,000 Sq. Ft. Racing Hub
@@ -227,17 +227,17 @@ export default function AttractionsPage() {
                 </div>
                 {/* Card content */}
                 <div className="flex flex-col flex-1" style={{ padding: "24px 20px" }}>
-                  <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                  <h3 className="font-heading uppercase mb-3" style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}>
                     {card.title}
                   </h3>
-                  <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}>
+                  <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}>
                     {card.desc}
                   </p>
                   {card.cta && (
                     card.cta.href.startsWith("http") ? (
                       <BookingLink
                         href={card.cta.href}
-                        className="inline-block mt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        className="inline-block mt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
                         style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                       >
                         {card.cta.label}
@@ -245,7 +245,7 @@ export default function AttractionsPage() {
                     ) : (
                       <a
                         href={card.cta.href}
-                        className="inline-block mt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        className="inline-block mt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
                         style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                       >
                         {card.cta.label}
@@ -271,7 +271,7 @@ export default function AttractionsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
           >
             headPinz: The 50,000 Sq. Ft. Social Flagship
@@ -296,17 +296,17 @@ export default function AttractionsPage() {
                 </div>
                 {/* Card content */}
                 <div className="flex flex-col flex-1" style={{ padding: "24px 20px" }}>
-                  <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                  <h3 className="font-heading uppercase mb-3" style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}>
                     {card.title}
                   </h3>
-                  <p className="font-[var(--font-poppins)] flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}>
+                  <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}>
                     {card.desc}
                   </p>
                   {card.cta && (
                     card.cta.href.startsWith("http") ? (
                       <BookingLink
                         href={card.cta.href}
-                        className="inline-block mt-auto pt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        className="inline-block mt-auto pt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
                         style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                       >
                         {card.cta.label}
@@ -314,7 +314,7 @@ export default function AttractionsPage() {
                     ) : (
                       <a
                         href={card.cta.href}
-                        className="inline-block mt-auto pt-4 font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                        className="inline-block mt-auto pt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
                         style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
                       >
                         {card.cta.label}
@@ -333,20 +333,20 @@ export default function AttractionsPage() {
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <h2
-              className="font-[var(--font-anton)] italic uppercase text-white"
+              className="font-heading italic uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
               Dining: Nemo&apos;s Trackside Bistro
             </h2>
             <p
-              className="font-[var(--font-poppins)] mb-6"
+              className="font-body mb-6"
               style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "600px" }}
             >
               Located on-site to serve both buildings, Nemo&apos;s is the campus&apos;s official fueling station.
             </p>
             <Link
               href="/menu"
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
               VIEW MENU &amp; DINING
@@ -376,20 +376,20 @@ export default function AttractionsPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/80 via-[#000418]/60 to-[#000418]/40" />
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(28,0,255,0.4) 0px 0px 30px" }}
           >
             Destination Combo Packages (Best Value)
           </h2>
           <p
-            className="font-[var(--font-poppins)] mb-8 mx-auto"
+            className="font-body mb-8 mx-auto"
             style={{ color: "rgb(255,255,255)", fontSize: "16px", lineHeight: "1.6", maxWidth: "600px" }}
           >
             Why limit the fun? Our Destination Combos let you mix and match FastTrax Racing with HeadPinz Bowling, Laser Tag, and Gaming
           </p>
           <Link
             href="/pricing"
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+            className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
           >
             VIEW DESTINATION COMBOS

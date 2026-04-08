@@ -228,7 +228,7 @@ export default function MenuPage() {
           </div>
 
           <h1
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 7vw, 64px)",
               lineHeight: "1.05",
@@ -239,7 +239,7 @@ export default function MenuPage() {
           >
             Nemo&apos;s Sports Bistro
           </h1>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-sm max-w-md mx-auto">
+          <p className="font-body text-white/60 text-sm max-w-md mx-auto">
             Fresh cooked pizza, famous jumbo wings, burgers, handhelds &amp; more. Pair it with craft beers, cocktails, or signature mocktails.
           </p>
         </div>
@@ -273,32 +273,32 @@ export default function MenuPage() {
               {/* Details */}
               <div className="p-6 md:p-8 flex flex-col justify-center" style={{ backgroundColor: "rgba(253,91,86,0.08)" }}>
                 <h2
-                  className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+                  className="font-heading font-black uppercase text-white"
                   style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: "1.05", textShadow: `0 0 30px ${coral}30` }}
                 >
                   Free Wing Friday
                 </h2>
-                <p className="font-[var(--font-hp-body)] text-white/90 text-base mt-3">
+                <p className="font-body text-white/90 text-base mt-3">
                   Get <strong className="text-[#fd5b56] text-lg">5 FREE Wings</strong> every Friday
                 </p>
                 <p
-                  className="font-[var(--font-hp-display)] uppercase tracking-wider mt-2"
+                  className="font-heading uppercase tracking-wider mt-2"
                   style={{ color: coral, fontSize: "clamp(20px, 4vw, 28px)" }}
                 >
                   4 &ndash; 6 PM
                 </p>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm mt-2">
+                <p className="font-body text-white/60 text-sm mt-2">
                   With any food or beverage purchase
                 </p>
                 <div className="flex items-center gap-2 mt-4">
                   <svg className="w-4 h-4 text-[#FFD700] shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                   </svg>
-                  <a href="/hp/rewards" className="font-[var(--font-hp-body)] text-[#FFD700] text-sm font-semibold hover:text-white transition-colors underline underline-offset-2">
+                  <a href="/hp/rewards" className="font-body text-[#FFD700] text-sm font-semibold hover:text-white transition-colors underline underline-offset-2">
                     HeadPinz Rewards Required &mdash; Join Free
                   </a>
                 </div>
-                <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] mt-4">
+                <p className="font-body text-white/30 text-[10px] mt-4">
                   Dine-in only. Available while supplies last.
                 </p>
               </div>
@@ -315,14 +315,14 @@ export default function MenuPage() {
         >
           <div className="text-center mb-6">
             <h2
-              className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: "1.05", textShadow: `0 0 30px rgba(255,215,0,0.2)` }}
             >
               Happy Hour
             </h2>
-            <p className="font-[var(--font-hp-body)] text-white/80 text-base mt-2">
+            <p className="font-body text-white/80 text-base mt-2">
               <strong style={{ color: gold }}>Every Day</strong> &bull;{" "}
-              <span className="font-[var(--font-hp-display)] uppercase tracking-wider" style={{ color: gold }}>
+              <span className="font-heading uppercase tracking-wider" style={{ color: gold }}>
                 Open &ndash; 6PM
               </span>
             </p>
@@ -331,7 +331,7 @@ export default function MenuPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Food Specials */}
             <div>
-              <p className="font-[var(--font-hp-display)] uppercase text-white/40 text-[10px] tracking-widest mb-3">Food Specials</p>
+              <p className="font-heading uppercase text-white/40 text-[10px] tracking-widest mb-3">Food Specials</p>
               <div className="space-y-2">
                 {[
                   { name: "Margherita Flatbread", price: "$10", desc: "Tomato sauce, fresh mozzarella, basil, olive oil drizzle" },
@@ -343,10 +343,10 @@ export default function MenuPage() {
                 ].map((item) => (
                   <div key={item.name} className="flex justify-between items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,215,0,0.1)" }}>
                     <div>
-                      <p className="font-[var(--font-hp-body)] text-white font-semibold text-sm">{item.name}</p>
-                      <p className="font-[var(--font-hp-body)] text-white/40 text-[10px]">{item.desc}</p>
+                      <p className="font-body text-white font-semibold text-sm">{item.name}</p>
+                      <p className="font-body text-white/40 text-[10px]">{item.desc}</p>
                     </div>
-                    <span className="font-[var(--font-hp-display)] text-sm shrink-0" style={{ color: gold }}>{item.price}</span>
+                    <span className="font-heading text-sm shrink-0" style={{ color: gold }}>{item.price}</span>
                   </div>
                 ))}
               </div>
@@ -354,7 +354,7 @@ export default function MenuPage() {
 
             {/* Drink Specials */}
             <div>
-              <p className="font-[var(--font-hp-display)] uppercase text-white/40 text-[10px] tracking-widest mb-3">Drink Specials</p>
+              <p className="font-heading uppercase text-white/40 text-[10px] tracking-widest mb-3">Drink Specials</p>
               <div className="space-y-2">
                 {[
                   { name: "House Wine by the Glass", deal: "$2 Off" },
@@ -365,8 +365,8 @@ export default function MenuPage() {
                   { name: "Spirit-Free Cocktails", deal: "$1 Off" },
                 ].map((item) => (
                   <div key={item.name} className="flex justify-between items-center py-2" style={{ borderBottom: "1px solid rgba(255,215,0,0.1)" }}>
-                    <p className="font-[var(--font-hp-body)] text-white font-semibold text-sm">{item.name}</p>
-                    <span className="font-[var(--font-hp-body)] font-bold text-sm shrink-0" style={{ color: coral }}>{item.deal}</span>
+                    <p className="font-body text-white font-semibold text-sm">{item.name}</p>
+                    <span className="font-body font-bold text-sm shrink-0" style={{ color: coral }}>{item.deal}</span>
                   </div>
                 ))}
               </div>
@@ -376,7 +376,7 @@ export default function MenuPage() {
           <div className="text-center mt-6">
             <button
               onClick={() => setShowHappyHourPdf(true)}
-              className="inline-flex items-center gap-2 font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105 cursor-pointer"
+              className="inline-flex items-center gap-2 font-body font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: gold, color: "#0a1628", boxShadow: `0 0 16px rgba(255,215,0,0.3)` }}
             >
               View Full Happy Hour Menu
@@ -396,10 +396,10 @@ export default function MenuPage() {
           style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}30` }}
         >
           <div>
-            <h2 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider">
+            <h2 className="font-heading uppercase text-white text-base tracking-wider">
               Order Pickup &amp; Delivery
             </h2>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+            <p className="font-body text-white/50 text-sm">
               Skip the wait &mdash; order ahead for pickup or delivery
             </p>
           </div>
@@ -407,7 +407,7 @@ export default function MenuPage() {
             href="https://cash.app/order/$headpinzfasttra"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105 whitespace-nowrap"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105 whitespace-nowrap"
             style={{ boxShadow: `0 0 16px ${coral}30` }}
           >
             Order Now
@@ -423,7 +423,7 @@ export default function MenuPage() {
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className="font-[var(--font-hp-body)] font-bold text-xs uppercase tracking-wider px-4 py-2 rounded-full transition-all cursor-pointer"
+                className="font-body font-bold text-xs uppercase tracking-wider px-4 py-2 rounded-full transition-all cursor-pointer"
                 style={{
                   backgroundColor: activeCategory === cat ? coral : "rgba(7,16,39,0.5)",
                   color: activeCategory === cat ? "#fff" : "rgba(255,255,255,0.5)",
@@ -443,7 +443,7 @@ export default function MenuPage() {
           href="https://cash.app/order/$headpinzfasttra"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 font-[var(--font-hp-body)] text-[#00E2E5] text-sm font-semibold hover:text-white transition-colors underline underline-offset-4"
+          className="inline-flex items-center gap-2 font-body text-[#00E2E5] text-sm font-semibold hover:text-white transition-colors underline underline-offset-4"
         >
           View Full Menu &amp; Order Online
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -460,14 +460,14 @@ export default function MenuPage() {
               {/* Section header */}
               <div className="mb-4">
                 <h2
-                  className="font-[var(--font-hp-display)] uppercase text-white tracking-wider"
+                  className="font-heading uppercase text-white tracking-wider"
                   style={{ fontSize: "clamp(18px, 3.5vw, 26px)", textShadow: `0 0 20px ${section.accent}30` }}
                 >
                   {section.name}
                 </h2>
                 <div className="h-0.5 w-16 rounded-full mt-2" style={{ backgroundColor: section.accent }} />
                 {section.note && (
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-2 max-w-lg">
+                  <p className="font-body text-white/40 text-xs mt-2 max-w-lg">
                     {section.note}
                   </p>
                 )}
@@ -481,18 +481,18 @@ export default function MenuPage() {
                     className="flex items-start justify-between gap-4 py-3 border-b border-white/5"
                   >
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">
+                      <h3 className="font-body text-white font-bold text-sm">
                         {item.name}
                       </h3>
                       {item.desc && (
-                        <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-0.5 leading-relaxed">
+                        <p className="font-body text-white/40 text-xs mt-0.5 leading-relaxed">
                           {item.desc}
                         </p>
                       )}
                     </div>
                     {item.price && (
                       <span
-                        className="font-[var(--font-hp-display)] text-base whitespace-nowrap"
+                        className="font-heading text-base whitespace-nowrap"
                         style={{ color: section.accent }}
                       >
                         ${item.price}
@@ -509,13 +509,13 @@ export default function MenuPage() {
             <div>
               <div className="mb-6">
                 <h2
-                  className="font-[var(--font-hp-display)] uppercase text-white tracking-wider"
+                  className="font-heading uppercase text-white tracking-wider"
                   style={{ fontSize: "clamp(20px, 4vw, 32px)", textShadow: `0 0 20px ${gold}30` }}
                 >
                   Lunch Specials
                 </h2>
                 <div className="h-0.5 w-16 rounded-full mt-2" style={{ backgroundColor: gold }} />
-                <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-2">
+                <p className="font-body text-white/40 text-xs mt-2">
                   11AM &ndash; 3PM Monday &ndash; Friday. All sandwiches served with fresh cooked potato chips. Choice of white, wheat, rye bread or hoagie roll.
                 </p>
               </div>
@@ -528,19 +528,19 @@ export default function MenuPage() {
                   {lunchSpecials.map((item) => (
                     <div key={item.name} className="flex items-start justify-between gap-4 py-2 border-b border-white/5 last:border-0">
                       <div className="flex-1">
-                        <h3 className="font-[var(--font-hp-body)] text-white font-bold text-sm">{item.name}</h3>
-                        {item.desc && <p className="font-[var(--font-hp-body)] text-white/40 text-xs mt-0.5">{item.desc}</p>}
+                        <h3 className="font-body text-white font-bold text-sm">{item.name}</h3>
+                        {item.desc && <p className="font-body text-white/40 text-xs mt-0.5">{item.desc}</p>}
                       </div>
-                      {item.price && <span className="font-[var(--font-hp-display)] text-base" style={{ color: gold }}>${item.price}</span>}
+                      {item.price && <span className="font-heading text-base" style={{ color: gold }}>${item.price}</span>}
                     </div>
                   ))}
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-white/10">
-                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs font-bold uppercase tracking-wider mb-2">
+                  <p className="font-body text-white/50 text-xs font-bold uppercase tracking-wider mb-2">
                     Make It a Combo
                   </p>
-                  <div className="flex flex-wrap gap-4 text-xs font-[var(--font-hp-body)] text-white/40">
+                  <div className="flex flex-wrap gap-4 text-xs font-body text-white/40">
                     <span>Pizza Slice <span style={{ color: gold }}>+2</span></span>
                     <span>Cheese Slice <span style={{ color: gold }}>+0.5</span></span>
                     <span>2 Slices + Toppings <span style={{ color: gold }}>+3.5</span></span>
@@ -567,19 +567,19 @@ export default function MenuPage() {
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(250px, 40vh, 350px)" }}>
           <h2
-            className="font-[var(--font-hp-display)] uppercase text-white"
+            className="font-heading uppercase text-white"
             style={{ fontSize: "clamp(24px, 5vw, 44px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}30` }}
           >
             Hungry?
           </h2>
-          <p className="font-[var(--font-hp-body)] text-white/60 text-sm mb-6 max-w-md mx-auto">
+          <p className="font-body text-white/60 text-sm mb-6 max-w-md mx-auto">
             Order ahead for pickup or delivery, or just come in and grab a seat.
           </p>
           <a
             href="https://cash.app/order/$headpinzfasttra"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: `0 0 20px ${coral}30` }}
           >
             Order Now
@@ -592,7 +592,7 @@ export default function MenuPage() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6" onClick={() => setShowHappyHourPdf(false)}>
           <div className="relative w-full max-w-3xl h-[85vh] bg-[#0a1628] rounded-2xl border border-white/10 overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-              <h3 className="font-[var(--font-hp-display)] uppercase text-white text-sm tracking-wider">Happy Hour Menu</h3>
+              <h3 className="font-heading uppercase text-white text-sm tracking-wider">Happy Hour Menu</h3>
               <button onClick={() => setShowHappyHourPdf(false)} className="text-white/40 hover:text-white transition-colors p-1 cursor-pointer">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>

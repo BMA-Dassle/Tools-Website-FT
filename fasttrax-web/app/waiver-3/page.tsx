@@ -10,7 +10,7 @@ export default function WaiverPage() {
   return (
     <div className="min-h-screen bg-[#000418] pt-32 pb-20">
       <div className="max-w-3xl mx-auto px-4 sm:px-6">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 sm:p-10 space-y-6 text-white/80 text-sm leading-relaxed font-[var(--font-poppins)]">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 sm:p-10 space-y-6 text-white/80 text-sm leading-relaxed font-body">
 
           <h1 className="text-white font-bold text-lg sm:text-xl text-center uppercase tracking-wider">
             Release and Waiver of Liability, Indemnity, Confidentiality, and Credit Card Dispute Agreement

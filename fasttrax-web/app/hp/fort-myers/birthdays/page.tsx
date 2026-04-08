@@ -230,14 +230,14 @@ export default function HeadPinzBirthdaysPage() {
           style={{ minHeight: "100vh" }}
         >
           <span
-            className="inline-block font-[var(--font-hp-body)] text-[10px] uppercase tracking-[0.3em] px-4 py-1.5 rounded-full mb-6 font-bold"
+            className="inline-block font-body text-[10px] uppercase tracking-[0.3em] px-4 py-1.5 rounded-full mb-6 font-bold"
             style={{ backgroundColor: `${coral}20`, color: coral, border: `1px solid ${coral}40` }}
           >
             Ages 17 &amp; Under
           </span>
 
           <h1
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1.05",
@@ -249,14 +249,14 @@ export default function HeadPinzBirthdaysPage() {
             All the Fun.<br />None of the Stress.
           </h1>
           <p
-            className="font-[var(--font-hp-body)] text-white/70 max-w-xl mx-auto"
+            className="font-body text-white/70 max-w-xl mx-auto"
             style={{ fontSize: "clamp(14px, 2.5vw, 20px)", lineHeight: "1.5", marginBottom: "32px" }}
           >
             We handle everything &mdash; you enjoy the party
           </p>
           <button
             onClick={() => setShowForm(true)}
-            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-[var(--font-hp-body)] font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 cursor-pointer"
+            className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 cursor-pointer"
             style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >
             Start Planning
@@ -281,7 +281,7 @@ export default function HeadPinzBirthdaysPage() {
           ].map((stat, i) => (
             <span key={stat.label} className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: stat.color }} />
-              <span className="font-[var(--font-hp-body)] text-white/80 text-sm font-bold uppercase tracking-wider whitespace-nowrap">
+              <span className="font-body text-white/80 text-sm font-bold uppercase tracking-wider whitespace-nowrap">
                 {stat.label}
               </span>
               {i < 4 && <span className="text-white/20 ml-2 hidden sm:inline">&bull;</span>}
@@ -303,12 +303,12 @@ export default function HeadPinzBirthdaysPage() {
                 {vp.icon}
               </div>
               <h3
-                className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2"
+                className="font-heading uppercase text-white text-base tracking-wider mb-2"
                 style={{ textShadow: `0 0 20px ${vp.accent}30` }}
               >
                 {vp.title}
               </h3>
-              <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">
+              <p className="font-body text-white/60 text-sm leading-relaxed">
                 {vp.desc}
               </p>
             </div>
@@ -336,7 +336,7 @@ export default function HeadPinzBirthdaysPage() {
         >
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{
                 fontSize: "clamp(28px, 6vw, 52px)",
                 letterSpacing: "3px",
@@ -363,7 +363,7 @@ export default function HeadPinzBirthdaysPage() {
                 {/* Badge */}
                 {pkg.badge && (
                   <div
-                    className="text-center font-[var(--font-hp-body)] font-bold text-xs uppercase tracking-widest py-2.5"
+                    className="text-center font-body font-bold text-xs uppercase tracking-widest py-2.5"
                     style={{ backgroundColor: pkg.accent, color: bg }}
                   >
                     {pkg.badge}
@@ -372,12 +372,12 @@ export default function HeadPinzBirthdaysPage() {
 
                 <div className="p-6 flex flex-col flex-1">
                   <h3
-                    className="font-[var(--font-hp-display)] uppercase text-white tracking-wider mb-1"
+                    className="font-heading uppercase text-white tracking-wider mb-1"
                     style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: `0 0 20px ${pkg.accent}30` }}
                   >
                     {pkg.name}
                   </h3>
-                  <p className="font-[var(--font-hp-body)] text-white/50 text-xs uppercase tracking-wider mb-5">
+                  <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-5">
                     Starting at {pkg.startingAt} ({pkg.laneLabel})
                   </p>
 
@@ -388,7 +388,7 @@ export default function HeadPinzBirthdaysPage() {
                         <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: pkg.accent }} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
-                        <span className="font-[var(--font-hp-body)] text-white/70 text-sm leading-snug">{item}</span>
+                        <span className="font-body text-white/70 text-sm leading-snug">{item}</span>
                       </li>
                     ))}
                   </ul>
@@ -401,16 +401,16 @@ export default function HeadPinzBirthdaysPage() {
                         className="flex items-center justify-between px-4 py-2.5"
                         style={{ backgroundColor: i % 2 === 0 ? "rgba(255,255,255,0.03)" : "transparent" }}
                       >
-                        <span className="font-[var(--font-hp-body)] text-white/60 text-sm">{row.lanes}</span>
-                        <span className="font-[var(--font-hp-display)] text-lg" style={{ color: pkg.accent }}>{row.price}</span>
+                        <span className="font-body text-white/60 text-sm">{row.lanes}</span>
+                        <span className="font-heading text-lg" style={{ color: pkg.accent }}>{row.price}</span>
                       </div>
                     ))}
                   </div>
-                  <p className="font-[var(--font-hp-body)] text-white/40 text-xs text-center mb-5">{pkg.guestsNote}</p>
+                  <p className="font-body text-white/40 text-xs text-center mb-5">{pkg.guestsNote}</p>
 
                   <button
                     onClick={() => setShowForm(true)}
-                    className="w-full inline-flex items-center justify-center font-[var(--font-hp-body)] font-bold uppercase tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full text-sm py-3.5"
+                    className="w-full inline-flex items-center justify-center font-body font-bold uppercase tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full text-sm py-3.5"
                     style={{
                       backgroundColor: pkg.accent,
                       color: pkg.featured ? bg : "#fff",
@@ -431,7 +431,7 @@ export default function HeadPinzBirthdaysPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(0,226,229,0.25)" }}
             >
               Every Package Includes
@@ -449,7 +449,7 @@ export default function HeadPinzBirthdaysPage() {
                 <svg className="w-5 h-5 flex-shrink-0" style={{ color: cyan }} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
-                <span className="font-[var(--font-hp-body)] text-white/70 text-sm">{item}</span>
+                <span className="font-body text-white/70 text-sm">{item}</span>
               </div>
             ))}
           </div>
@@ -461,12 +461,12 @@ export default function HeadPinzBirthdaysPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${gold}25` }}
             >
               Fuel the Fun
             </h2>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+            <p className="font-body text-white/50 text-sm">
               Pick one menu option for your whole party &mdash; all served with unlimited soda
             </p>
           </div>
@@ -479,10 +479,10 @@ export default function HeadPinzBirthdaysPage() {
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}25` }}
               >
                 <div className="flex justify-center mb-3" style={{ color: gold }}>{food.icon}</div>
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-1">
+                <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                   {food.name}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/50 text-sm">{food.desc}</p>
+                <p className="font-body text-white/50 text-sm">{food.desc}</p>
               </div>
             ))}
           </div>
@@ -494,12 +494,12 @@ export default function HeadPinzBirthdaysPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px rgba(155,81,224,0.25)` }}
             >
               Make It Even Bigger
             </h2>
-            <p className="font-[var(--font-hp-body)] text-white/50 text-sm">
+            <p className="font-body text-white/50 text-sm">
               Ask our events team about these popular upgrades
             </p>
           </div>
@@ -512,8 +512,8 @@ export default function HeadPinzBirthdaysPage() {
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(155,81,224,0.2)" }}
               >
                 <div className="flex justify-center mb-2" style={{ color: "#9b51e0" }}>{addon.icon}</div>
-                <h4 className="font-[var(--font-hp-body)] text-white font-bold text-sm mb-1">{addon.name}</h4>
-                <p className="font-[var(--font-hp-body)] text-white/40 text-xs">{addon.desc}</p>
+                <h4 className="font-body text-white font-bold text-sm mb-1">{addon.name}</h4>
+                <p className="font-body text-white/40 text-xs">{addon.desc}</p>
               </div>
             ))}
           </div>
@@ -543,7 +543,7 @@ export default function HeadPinzBirthdaysPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}25` }}
             >
               How It Works
@@ -563,15 +563,15 @@ export default function HeadPinzBirthdaysPage() {
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
               >
                 <span
-                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-[var(--font-hp-display)] text-xl mb-4"
+                  className="inline-flex items-center justify-center w-12 h-12 rounded-full font-heading text-xl mb-4"
                   style={{ backgroundColor: `${coral}20`, color: coral, border: `1.78px solid ${coral}40` }}
                 >
                   {s.step}
                 </span>
-                <h3 className="font-[var(--font-hp-display)] uppercase text-white text-base tracking-wider mb-2">
+                <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
                   {s.title}
                 </h3>
-                <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{s.desc}</p>
+                <p className="font-body text-white/60 text-sm leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -583,7 +583,7 @@ export default function HeadPinzBirthdaysPage() {
         <div className="max-w-3xl mx-auto">
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
-              className="font-[var(--font-hp-display)] uppercase text-white"
+              className="font-heading uppercase text-white"
               style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}25` }}
             >
               Questions?
@@ -600,7 +600,7 @@ export default function HeadPinzBirthdaysPage() {
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
                 >
-                  <span className="font-[var(--font-hp-body)] font-bold text-white text-sm pr-4">{f.q}</span>
+                  <span className="font-body font-bold text-white text-sm pr-4">{f.q}</span>
                   <svg
                     className="w-5 h-5 flex-shrink-0 transition-transform"
                     style={{ color: coral, transform: openFaq === i ? "rotate(180deg)" : "rotate(0deg)" }}
@@ -614,7 +614,7 @@ export default function HeadPinzBirthdaysPage() {
                   style={{ maxHeight: openFaq === i ? "300px" : "0px", opacity: openFaq === i ? 1 : 0 }}
                 >
                   <div className="px-5 pb-4">
-                    <p className="font-[var(--font-hp-body)] text-white/60 text-sm leading-relaxed">{f.a}</p>
+                    <p className="font-body text-white/60 text-sm leading-relaxed">{f.a}</p>
                   </div>
                 </div>
               </div>
@@ -641,7 +641,7 @@ export default function HeadPinzBirthdaysPage() {
           style={{ padding: "clamp(80px, 12vw, 140px) clamp(16px, 4vw, 32px)" }}
         >
           <h2
-            className="font-[var(--font-hp-hero)] font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(28px, 7vw, 56px)",
               lineHeight: "1.05",
@@ -653,7 +653,7 @@ export default function HeadPinzBirthdaysPage() {
             Ready to Plan the Best Birthday Ever?
           </h2>
           <p
-            className="font-[var(--font-hp-body)] text-white/70 mx-auto mb-8"
+            className="font-body text-white/70 mx-auto mb-8"
             style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
           >
             Fill out our quick form and our events team will help you build the perfect party.
@@ -661,14 +661,14 @@ export default function HeadPinzBirthdaysPage() {
           <div className="flex flex-wrap justify-center gap-3">
             <button
               onClick={() => setShowForm(true)}
-              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full"
+              className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full"
               style={{ backgroundColor: coral, padding: "16px 28px", fontSize: "15px", boxShadow: `0 0 20px ${coral}40` }}
             >
               Start Planning
             </button>
             <a
               href="tel:+12393022155"
-              className="inline-flex items-center font-[var(--font-hp-body)] font-bold uppercase text-white tracking-wider transition-all hover:scale-105 rounded-full border border-white/20 hover:border-white/40"
+              className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 rounded-full border border-white/20 hover:border-white/40"
               style={{ padding: "16px 28px", fontSize: "15px", backgroundColor: "rgba(255,255,255,0.1)" }}
             >
               Call (239) 302-2155

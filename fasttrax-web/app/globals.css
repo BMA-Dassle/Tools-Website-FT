@@ -22,12 +22,26 @@ html {
 body {
   background-color: var(--color-bg-deep);
   color: #ffffff;
-  font-family: "Inter", sans-serif;
+  font-family: var(--font-body), sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
+/* Brand-specific font mapping */
+.brand-fasttrax {
+  --font-heading: var(--font-exo2);
+  --font-body: var(--font-barlow);
+}
+.brand-headpinz {
+  --font-heading: var(--font-outfit);
+  --font-body: var(--font-dmsans);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading), sans-serif;
+}
+
 .font-display {
-  font-family: "Bebas Neue", sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-style: italic;
   line-height: 0.9;
   text-transform: uppercase;

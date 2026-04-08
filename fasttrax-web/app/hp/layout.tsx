@@ -1,27 +1,5 @@
 import type { Metadata } from "next";
-import { Dela_Gothic_One, Varela_Round, Outfit } from "next/font/google";
 import HeadPinzMobileBookBar from "@/components/headpinz/MobileBookBar";
-
-const delaGothicOne = Dela_Gothic_One({
-  weight: "400",
-  subsets: ["latin"],
-  variable: "--font-hp-display",
-  display: "swap",
-});
-
-const varelaRound = Varela_Round({
-  weight: "400",
-  subsets: ["latin"],
-  variable: "--font-hp-body",
-  display: "swap",
-});
-
-const outfit = Outfit({
-  weight: ["700", "800", "900"],
-  subsets: ["latin"],
-  variable: "--font-hp-hero",
-  display: "swap",
-});
 
 const OG_IMAGE =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp";
@@ -79,7 +57,7 @@ export default function HeadPinzLayout({
 }) {
   // Minimal layout — just fonts. Nav/Footer rendered by individual pages or nested layouts.
   return (
-    <div className={`${delaGothicOne.variable} ${varelaRound.variable} ${outfit.variable}`}>
+    <div>
       {children}
       <HeadPinzMobileBookBar />
     </div>

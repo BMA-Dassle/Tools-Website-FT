@@ -152,7 +152,7 @@ export default function HeadPinzHome() {
 
         {/* Headline */}
         <h1
-          className="font-[var(--font-hp-hero)] font-black uppercase text-white mb-3"
+          className="font-heading font-black uppercase text-white mb-3"
           style={{ fontSize: "clamp(28px, 6vw, 64px)", lineHeight: "1.05", letterSpacing: "-1px" }}
         >
           Your Destination for Fun
@@ -162,7 +162,7 @@ export default function HeadPinzHome() {
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mb-10">
           {activities.map((act, i) => (
             <span key={act} className="flex items-center">
-              <span className="font-[var(--font-hp-body)] text-white/60 uppercase tracking-widest" style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}>
+              <span className="font-body text-white/60 uppercase tracking-widest" style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}>
                 {act}
               </span>
               {i < activities.length - 1 && (
@@ -173,7 +173,7 @@ export default function HeadPinzHome() {
         </div>
 
         {/* Location selector — glass buttons */}
-        <p className="font-[var(--font-hp-body)] text-white/30 text-[10px] uppercase tracking-[0.3em] mb-4">
+        <p className="font-body text-white/30 text-[10px] uppercase tracking-[0.3em] mb-4">
           Select Your Location
         </p>
 
@@ -190,10 +190,10 @@ export default function HeadPinzHome() {
               }}
             >
               <div>
-                <h2 className="font-[var(--font-hp-hero)] font-black uppercase text-white text-lg tracking-wide">
+                <h2 className="font-heading font-black uppercase text-white text-lg tracking-wide">
                   {loc.name}
                 </h2>
-                <p className="text-white/40 text-[11px] font-[var(--font-hp-body)]">{loc.address}</p>
+                <p className="text-white/40 text-[11px] font-body">{loc.address}</p>
               </div>
               <div className="w-9 h-9 rounded-full bg-[#fd5b56] flex items-center justify-center shrink-0 group-hover:bg-[#ff7a77] group-hover:shadow-[0_0_16px_rgba(253,91,86,0.4)] transition-all">
                 <svg className="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -216,7 +216,7 @@ export default function HeadPinzHome() {
               unoptimized
             />
           </div>
-          <span className="font-[var(--font-hp-body)] text-white text-[10px] tracking-widest uppercase">Celebrating 10 Years</span>
+          <span className="font-body text-white text-[10px] tracking-widest uppercase">Celebrating 10 Years</span>
         </div>
       </div>
     </div>

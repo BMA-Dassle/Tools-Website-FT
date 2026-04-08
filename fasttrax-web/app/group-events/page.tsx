@@ -220,18 +220,18 @@ export default function GroupEventsPage() {
         <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-10 items-center">
           <div className="flex-1">
             <h2
-              className="font-[var(--font-anton)] italic uppercase text-white"
+              className="font-heading italic uppercase text-white"
               style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowRed }}
             >
               Host an Unforgettable Event at the Destination.
             </h2>
-            <p className="font-[var(--font-poppins)] mb-8" style={{ color: "rgba(255,255,255,0.898)", fontSize: "17px", lineHeight: "1.6", maxWidth: "700px" }}>
+            <p className="font-body mb-8" style={{ color: "rgba(255,255,255,0.898)", fontSize: "17px", lineHeight: "1.6", maxWidth: "700px" }}>
               From executive buyouts to high-octane team building. Southwest Florida&apos;s premier event campus offers 113,000 sq. ft. of adrenaline, elite catering, and VIP amenities for groups of 14 to 1,000+
             </p>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
-                className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
+                className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
                 style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
                 Request an Event Quote
@@ -240,7 +240,7 @@ export default function GroupEventsPage() {
                 href={EVENT_GUIDE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
                 style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
                 Download Event Guide
@@ -266,7 +266,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             How It Works
@@ -279,15 +279,15 @@ export default function GroupEventsPage() {
                 style={{ backgroundColor: "rgba(7,16,39,0.6)", border: `1.78px dashed ${s.color}`, borderRadius: "8px", padding: "32px 20px" }}
               >
                 <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center font-[var(--font-anton)] text-white text-2xl mb-4"
+                  className="w-14 h-14 rounded-full flex items-center justify-center font-heading text-white text-2xl mb-4"
                   style={{ backgroundColor: s.color }}
                 >
                   {s.step}
                 </div>
-                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: s.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                <h3 className="font-heading uppercase mb-3" style={{ color: s.color, fontSize: "22px", letterSpacing: "1.2px" }}>
                   {s.title}
                 </h3>
-                <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+                <p className="font-body" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
                   {s.desc}
                 </p>
               </div>
@@ -300,7 +300,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowRed }}
           >
             Event Spaces
@@ -316,13 +316,13 @@ export default function GroupEventsPage() {
                   <Image src={s.img} alt={s.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" unoptimized />
                 </div>
                 <div className="p-5 flex flex-col flex-1">
-                  <h3 className="font-[var(--font-anton)] uppercase mb-1" style={{ color: s.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                  <h3 className="font-heading uppercase mb-1" style={{ color: s.color, fontSize: "22px", letterSpacing: "1.2px" }}>
                     {s.title}
                   </h3>
-                  <span className="text-xs font-[var(--font-poppins)] font-semibold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>
+                  <span className="text-xs font-body font-semibold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>
                     {s.capacity}
                   </span>
-                  <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+                  <p className="font-body" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
                     {s.desc}
                   </p>
                 </div>
@@ -338,7 +338,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowBlue }}
           >
             Activities
@@ -354,10 +354,10 @@ export default function GroupEventsPage() {
                   <Image src={a.img} alt={a.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" unoptimized />
                 </div>
                 <div className="p-5">
-                  <h3 className="font-[var(--font-anton)] uppercase mb-2" style={{ color: a.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                  <h3 className="font-heading uppercase mb-2" style={{ color: a.color, fontSize: "22px", letterSpacing: "1.2px" }}>
                     {a.title}
                   </h3>
-                  <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+                  <p className="font-body" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
                     {a.desc}
                   </p>
                 </div>
@@ -371,17 +371,17 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowRed }}
           >
             Exclusive Racing Heat Pricing
           </h2>
-          <p className="font-[var(--font-poppins)] text-center mx-auto mb-10" style={{ color: "rgba(255,255,255,0.7)", fontSize: "16px", maxWidth: "600px", lineHeight: "1.6" }}>
+          <p className="font-body text-center mx-auto mb-10" style={{ color: "rgba(255,255,255,0.7)", fontSize: "16px", maxWidth: "600px", lineHeight: "1.6" }}>
             Prices are per heat. Exclusive heats ensure your group races only against each other.
           </p>
 
           <div className="overflow-x-auto mb-8">
-            <table className="w-full text-left font-[var(--font-poppins)] text-sm" style={{ minWidth: "500px" }}>
+            <table className="w-full text-left font-body text-sm" style={{ minWidth: "500px" }}>
               <thead>
                 <tr style={{ backgroundColor: "rgba(228,28,29,0.72)" }}>
                   <th className="px-4 py-3 text-white font-semibold uppercase tracking-wider text-xs">Kart Class</th>
@@ -403,16 +403,16 @@ export default function GroupEventsPage() {
             </table>
           </div>
 
-          <p className="font-[var(--font-poppins)] text-center mb-8" style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px" }}>
+          <p className="font-body text-center mb-8" style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px" }}>
             +$100 per heat for Mega Track events
           </p>
 
           {/* Kart Requirements Callout */}
           <div style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,193,7,0.6)", borderRadius: "8px", padding: "20px" }}>
-            <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(255,193,7)", fontSize: "20px", letterSpacing: "1.2px" }}>
+            <h3 className="font-heading uppercase mb-3" style={{ color: "rgb(255,193,7)", fontSize: "20px", letterSpacing: "1.2px" }}>
               Kart Requirements
             </h3>
-            <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px" }}>
+            <p className="font-body" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px" }}>
               Group event racing uses Adult karts only. Racers must be at least 59&quot; tall (typically ages 13+). Younger guests can enjoy bowling, arcade, shuffleboard, and other activities.
             </p>
           </div>
@@ -420,7 +420,7 @@ export default function GroupEventsPage() {
           <div className="text-center mt-10">
             <button
               onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
               Request a Custom Quote
@@ -435,7 +435,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowBlue }}
           >
             Activity Pricing
@@ -447,11 +447,11 @@ export default function GroupEventsPage() {
                 className="text-center"
                 style={{ backgroundColor: "rgba(7,16,39,0.6)", border: "1.78px dashed rgba(0,226,229,0.4)", borderRadius: "8px", padding: "24px 16px" }}
               >
-                <h3 className="font-[var(--font-anton)] uppercase text-white mb-1" style={{ fontSize: "18px", letterSpacing: "1px" }}>
+                <h3 className="font-heading uppercase text-white mb-1" style={{ fontSize: "18px", letterSpacing: "1px" }}>
                   {a.name}
                 </h3>
-                <p className="text-[#00E2E5] font-[var(--font-poppins)] font-bold text-2xl mb-2">{a.price}</p>
-                <p className="font-[var(--font-poppins)]" style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
+                <p className="text-[#00E2E5] font-body font-bold text-2xl mb-2">{a.price}</p>
+                <p className="font-body" style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
                   {a.note}
                 </p>
               </div>
@@ -464,7 +464,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowRed }}
           >
             Catering by Nemo&apos;s Trackside Bistro
@@ -485,10 +485,10 @@ export default function GroupEventsPage() {
 
             {/* Content */}
             <div className="lg:w-3/5">
-              <h3 className="font-[var(--font-anton)] uppercase mb-4" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
+              <h3 className="font-heading uppercase mb-4" style={{ color: "rgb(228,28,29)", fontSize: "24px", letterSpacing: "1.2px" }}>
                 Buffet Packages
               </h3>
-              <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
+              <p className="font-body mb-4" style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
                 Per guest &middot; 20 person minimum &middot; Served for 1 hour
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
@@ -498,24 +498,24 @@ export default function GroupEventsPage() {
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(228,28,29,0.3)", borderRadius: "8px", padding: "16px" }}
                   >
                     <div className="flex justify-between items-start mb-1">
-                      <span className="font-[var(--font-poppins)] font-semibold text-white text-sm">{b.name}</span>
-                      <span className="text-[#00E2E5] font-[var(--font-poppins)] font-bold text-sm">{b.price}</span>
+                      <span className="font-body font-semibold text-white text-sm">{b.name}</span>
+                      <span className="text-[#00E2E5] font-body font-bold text-sm">{b.price}</span>
                     </div>
-                    <p className="font-[var(--font-poppins)]" style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", lineHeight: "1.4" }}>
+                    <p className="font-body" style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", lineHeight: "1.4" }}>
                       {b.desc}
                     </p>
                   </div>
                 ))}
               </div>
 
-              <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(134,82,255)", fontSize: "20px", letterSpacing: "1.2px" }}>
+              <h3 className="font-heading uppercase mb-3" style={{ color: "rgb(134,82,255)", fontSize: "20px", letterSpacing: "1.2px" }}>
                 Premium Entrees Available
               </h3>
-              <p className="font-[var(--font-poppins)] mb-8" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+              <p className="font-body mb-8" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
                 Filet Mignon &middot; Parmesan Chicken &middot; Baby Back Ribs &middot; Lamb Racks &middot; Lobster Tails
               </p>
 
-              <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: "rgb(0,74,173)", fontSize: "20px", letterSpacing: "1.2px" }}>
+              <h3 className="font-heading uppercase mb-3" style={{ color: "rgb(0,74,173)", fontSize: "20px", letterSpacing: "1.2px" }}>
                 Bar Packages
               </h3>
               <div className="flex flex-wrap gap-3 mb-8">
@@ -525,9 +525,9 @@ export default function GroupEventsPage() {
                     className="text-center"
                     style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(0,74,173,0.4)", borderRadius: "8px", padding: "12px 20px" }}
                   >
-                    <span className="font-[var(--font-poppins)] font-semibold text-white text-sm block">{d.name}</span>
-                    <span className="text-[#00E2E5] font-[var(--font-poppins)] font-bold text-lg">{d.price}</span>
-                    <span className="font-[var(--font-poppins)] block" style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px" }}>{d.desc}</span>
+                    <span className="font-body font-semibold text-white text-sm block">{d.name}</span>
+                    <span className="text-[#00E2E5] font-body font-bold text-lg">{d.price}</span>
+                    <span className="font-body block" style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px" }}>{d.desc}</span>
                   </div>
                 ))}
               </div>
@@ -536,7 +536,7 @@ export default function GroupEventsPage() {
                 href={EVENT_GUIDE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
                 style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
                 Download Full Menu
@@ -552,7 +552,7 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/85" />
         <div className="relative z-10 max-w-7xl mx-auto px-8" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
           >
             Event Formats: Elite Access
@@ -564,10 +564,10 @@ export default function GroupEventsPage() {
                 className="flex flex-col h-full"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${e.borderColor}`, borderRadius: "8px", padding: "24px" }}
               >
-                <h3 className="font-[var(--font-anton)] uppercase mb-3" style={{ color: e.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                <h3 className="font-heading uppercase mb-3" style={{ color: e.color, fontSize: "24px", letterSpacing: "1.2px" }}>
                   {e.title}
                 </h3>
-                <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}>
+                <p className="font-body" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}>
                   {e.desc}
                 </p>
               </div>
@@ -580,7 +580,7 @@ export default function GroupEventsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-3xl mx-auto px-8">
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white text-center"
+            className="font-heading italic uppercase text-white text-center"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowBlue }}
           >
             Frequently Asked Questions
@@ -595,7 +595,7 @@ export default function GroupEventsPage() {
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
                 >
-                  <span className="font-[var(--font-poppins)] font-semibold text-white text-sm pr-4">{f.q}</span>
+                  <span className="font-body font-semibold text-white text-sm pr-4">{f.q}</span>
                   <svg
                     className="w-5 h-5 flex-shrink-0 text-[#00E2E5] transition-transform"
                     style={{ transform: openFaq === i ? "rotate(180deg)" : "rotate(0deg)" }}
@@ -609,19 +609,19 @@ export default function GroupEventsPage() {
                 </button>
                 {openFaq === i && (
                   <div className="px-5 pb-4">
-                    <p className="font-[var(--font-poppins)]" style={{ color: "rgba(245,236,238,0.7)", fontSize: "14px", lineHeight: "1.6" }} dangerouslySetInnerHTML={{ __html: f.a }} />
+                    <p className="font-body" style={{ color: "rgba(245,236,238,0.7)", fontSize: "14px", lineHeight: "1.6" }} dangerouslySetInnerHTML={{ __html: f.a }} />
                   </div>
                 )}
               </div>
             ))}
           </div>
           <div className="text-center mt-10">
-            <p className="font-[var(--font-poppins)] mb-4" style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px" }}>
+            <p className="font-body mb-4" style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px" }}>
               Still have questions?
             </p>
             <button
               onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
-              className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
+              className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
               Request a Quote
@@ -636,19 +636,19 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/80" />
         <div className="relative z-10 max-w-3xl mx-auto px-8 text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(134,82,255,0.4) 0px 0px 30px" }}
           >
             Get the Complete Event Guide
           </h2>
-          <p className="mx-auto mb-10 font-[var(--font-poppins)]" style={{ color: "rgba(255,255,255,0.898)", fontSize: "17px", lineHeight: "1.6", maxWidth: "600px" }}>
+          <p className="mx-auto mb-10 font-body" style={{ color: "rgba(255,255,255,0.898)", fontSize: "17px", lineHeight: "1.6", maxWidth: "600px" }}>
             Download our detailed event planning guide with full menus, floor plans, pricing, and package options.
           </p>
           <a
             href={EVENT_GUIDE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+            className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
             style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
           >
             Download Event Guide
@@ -662,22 +662,22 @@ export default function GroupEventsPage() {
         <div className="absolute inset-0 bg-[#000418]/80" />
         <div className="relative z-10 max-w-3xl mx-auto px-8 text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
           <h2
-            className="font-[var(--font-anton)] italic uppercase text-white"
+            className="font-heading italic uppercase text-white"
             style={{ fontSize: "clamp(28px, 7vw, 60px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowBlue }}
           >
             Start Your Quote
           </h2>
-          <p className="mx-auto mb-10 font-[var(--font-poppins)]" style={{ color: "rgba(255,255,255,0.898)", fontSize: "17px", lineHeight: "1.6", maxWidth: "600px" }}>
+          <p className="mx-auto mb-10 font-body" style={{ color: "rgba(255,255,255,0.898)", fontSize: "17px", lineHeight: "1.6", maxWidth: "600px" }}>
             Tell us about your event and our team will craft a custom package.
           </p>
           <button
             onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
-            className="inline-block font-[var(--font-poppins)] font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
+            className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
             style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
           >
             Request an Event Quote
           </button>
-          <p className="font-[var(--font-poppins)] mt-4" style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px" }}>
+          <p className="font-body mt-4" style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px" }}>
             Prefer to talk? Call us at{" "}
             <a href="tel:+12394819666" className="text-[#00E2E5] hover:underline">(239) 481-9666</a>
           </p>
