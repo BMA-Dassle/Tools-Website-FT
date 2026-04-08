@@ -115,6 +115,8 @@ export default function BookRacePage() {
   // Racer selector: pending heat waiting for racer selection (returning racers only)
   const [pendingHeat, setPendingHeat] = useState<{ proposal: BmiProposal; block: BmiBlock } | null>(null);
   const [showRacerSelector, setShowRacerSelector] = useState(false);
+  // After returning racers book a heat, show choice: continue or add another
+  const [showPostBookChoice, setShowPostBookChoice] = useState(false);
   // Pack booking state — when a pack is booked, the bill is already created
   const [packResult, setPackResult] = useState<PackBookingResult | null>(null);
   // Active BMI bills — one per racer. First bill is the "primary" for add-ons/POV.
@@ -566,6 +568,9 @@ export default function BookRacePage() {
         setSelectedProposal(null);
         setSelectedBlock(null);
         changeStep("product");
+      } else if (selectedRacers && selectedRacers.length > 0) {
+        // Returning racers: show choice to continue or add another race
+        setShowPostBookChoice(true);
       } else {
         changeStep("pov");
       }
@@ -576,10 +581,12 @@ export default function BookRacePage() {
   }
 
   /** Called when racer selector confirms which racers to add */
-  function handleRacerSelectorConfirm(selectedRacers: PersonData[]) {
+  async function handleRacerSelectorConfirm(selectedRacers: PersonData[]) {
     if (!pendingHeat) return;
+    // Keep racer selector visible as overlay while heat books — don't clear pendingHeat yet
+    await bookHeatForRacers(pendingHeat.proposal, pendingHeat.block, selectedRacers);
+    // Now close both — post-book choice modal is already showing
     setShowRacerSelector(false);
-    bookHeatForRacers(pendingHeat.proposal, pendingHeat.block, selectedRacers);
     setPendingHeat(null);
   }
 
@@ -1112,6 +1119,41 @@ export default function BookRacePage() {
               immediateConfirm={racerType === "existing" && verifiedRacers.length > 0}
             />
           )
+        )}
+
+        {/* Post-book choice — shown after returning racers book a heat */}
+        {showPostBookChoice && step === "heat" && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+            <div className="bg-[#0a1628] border border-white/15 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+              <div className="text-center">
+                <div className="text-3xl mb-2">🏁</div>
+                <h3 className="text-white font-display text-xl uppercase tracking-widest">Heat Booked!</h3>
+                <p className="text-white/50 text-sm mt-1">
+                  {bookings.length > 0 && `${bookings[bookings.length - 1]?.product.name} — ${bookings[bookings.length - 1]?.block.name}`}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={() => { setShowPostBookChoice(false); changeStep("pov"); }}
+                  className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+                >
+                  Continue to Checkout →
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPostBookChoice(false);
+                    setSelectedProposal(null);
+                    setSelectedBlock(null);
+                    setHeatPickerKey(k => k + 1);
+                    // Stay on heat step with same product — just reset the picker
+                  }}
+                  className="w-full py-3 rounded-xl font-semibold text-xs border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
+                >
+                  + Add Another Race
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Racer Selector overlay — shown after heat selected for returning racers */}
