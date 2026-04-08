@@ -527,7 +527,7 @@ export default function GroupEventsPage() {
                   >
                     <span className="font-body font-semibold text-white text-sm block">{d.name}</span>
                     <span className="text-[#00E2E5] font-body font-bold text-lg">{d.price}</span>
-                    <span className="font-body block" style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px" }}>{d.desc}</span>
+                    <span className="font-body block" style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>{d.desc}</span>
                   </div>
                 ))}
               </div>

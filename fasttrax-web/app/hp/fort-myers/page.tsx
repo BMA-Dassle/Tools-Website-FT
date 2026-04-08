@@ -418,7 +418,7 @@ export default function FortMyersPage() {
                 {/* Badge */}
                 {a.badge && (
                   <span
-                    className="absolute top-3 right-3 text-white text-[10px] font-bold font-body uppercase tracking-wider px-3 py-1.5 rounded-full"
+                    className="absolute top-3 right-3 text-white text-xs font-bold font-body uppercase tracking-wider px-3 py-1.5 rounded-full"
                     style={{ backgroundColor: a.accent }}
                   >
                     {a.badge}
@@ -527,7 +527,7 @@ export default function FortMyersPage() {
                 WebkitBackdropFilter: "blur(4px)",
               }}
             >
-              <span className="inline-block font-body text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#FFD700] px-3 py-1 rounded-full mb-4 font-bold">
+              <span className="inline-block font-body text-xs uppercase tracking-[0.2em] text-[#0a1628] bg-[#FFD700] px-3 py-1 rounded-full mb-4 font-bold">
                 VIP Exclusive
               </span>
               <h3
@@ -552,7 +552,7 @@ export default function FortMyersPage() {
                 WebkitBackdropFilter: "blur(4px)",
               }}
             >
-              <span className="inline-block font-body text-[10px] uppercase tracking-[0.2em] text-[#0a1628] bg-[#00E2E5] px-3 py-1 rounded-full mb-4 font-bold">
+              <span className="inline-block font-body text-xs uppercase tracking-[0.2em] text-[#0a1628] bg-[#00E2E5] px-3 py-1 rounded-full mb-4 font-bold">
                 VIP Exclusive
               </span>
               <h3

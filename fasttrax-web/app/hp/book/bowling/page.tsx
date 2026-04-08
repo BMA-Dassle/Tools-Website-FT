@@ -982,7 +982,7 @@ export default function BowlingBookingPage() {
                       style={{ color: isCurrent ? coral : undefined }}
                     >
                       <span
-                        className="w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold"
+                        className="w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold"
                         style={{
                           backgroundColor: isCurrent ? coral : isPast ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)",
                           color: isCurrent ? "#fff" : isPast ? "#fff" : "rgba(255,255,255,0.2)",
@@ -1114,7 +1114,7 @@ export default function BowlingBookingPage() {
               <div className="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left: Calendar */}
                 <div>
-                  <p className="font-body text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Date</p>
+                  <p className="font-body text-white/30 text-xs uppercase tracking-widest mb-3 text-center">Date</p>
                   <div className="flex items-center justify-between mb-3">
                     <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}
                       className="text-white/50 hover:text-white p-2 cursor-pointer">&larr;</button>
@@ -1124,7 +1124,7 @@ export default function BowlingBookingPage() {
                   </div>
                   <div className="grid grid-cols-7 mb-1">
                     {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
-                      <div key={d} className="text-center text-[11px] text-white/30 py-1">{d}</div>
+                      <div key={d} className="text-center text-[13px] text-white/30 py-1">{d}</div>
                     ))}
                   </div>
                   <div className="grid grid-cols-7 gap-1">
@@ -1171,7 +1171,7 @@ export default function BowlingBookingPage() {
                     </div>
                   ) : (
                     <>
-                      <p className="font-body text-white/30 text-[10px] uppercase tracking-widest mb-3 text-center">Hour</p>
+                      <p className="font-body text-white/30 text-xs uppercase tracking-widest mb-3 text-center">Hour</p>
                       <div className="flex flex-wrap justify-center gap-2 mb-4">
                         {hours.map(h => {
                           const hr = parseInt(h, 10);
@@ -1200,7 +1200,7 @@ export default function BowlingBookingPage() {
 
                       {selectedHour && minutesForHour.length > 1 && (
                         <>
-                          <p className="font-body text-white/30 text-[10px] uppercase tracking-widest mb-2 text-center">Minutes</p>
+                          <p className="font-body text-white/30 text-xs uppercase tracking-widest mb-2 text-center">Minutes</p>
                           <div className="flex justify-center gap-2 mb-4">
                             {minutesForHour.map(t => {
                               const min = t.split(":")[1];
@@ -1302,8 +1302,8 @@ export default function BowlingBookingPage() {
                           <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70" />
                           {lt.key === "vip" && lt.videos && lt.videos.length > 1 && (
                             <div className="absolute bottom-2 left-3 flex gap-1">
-                              <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
-                              <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
+                              <span className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${lt.accent}30`, color: lt.accent }}>NeoVerse</span>
+                              <span className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${cyan}30`, color: cyan }}>HyperBowling</span>
                             </div>
                           )}
                         </div>
@@ -1316,12 +1316,12 @@ export default function BowlingBookingPage() {
                             {lt.label}
                           </h3>
                           {count === 0 && !nextTime && (
-                            <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(253,91,86,0.2)", color: coral, border: `1px solid ${coral}40` }}>
+                            <span className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(253,91,86,0.2)", color: coral, border: `1px solid ${coral}40` }}>
                               Sold Out
                             </span>
                           )}
                           {count === 0 && nextTime && (
-                            <span className="font-body text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(255,215,0,0.15)", color: gold, border: `1px solid rgba(255,215,0,0.3)` }}>
+                            <span className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(255,215,0,0.15)", color: gold, border: `1px solid rgba(255,215,0,0.3)` }}>
                               Next: {formatTimeStr(nextTime)}
                             </span>
                           )}
@@ -1427,7 +1427,7 @@ export default function BowlingBookingPage() {
                       <div className="relative w-full sm:w-72 h-40 shrink-0 overflow-hidden sm:min-h-[200px]">
                         <img src={offer.ImageUrl} alt={offer.Name} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/80" />
-                        <span className="absolute top-2 right-2 font-body text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold"
+                        <span className="absolute top-2 right-2 font-body text-xs uppercase tracking-wider px-2 py-1 rounded-full font-bold"
                           style={{ backgroundColor: perPerson ? `${coral}90` : `${gold}90`, color: "#fff" }}>
                           {perPerson ? "Per Person" : "Per Lane"}
                         </span>
@@ -1452,16 +1452,16 @@ export default function BowlingBookingPage() {
                               )}
                               <span className="font-heading text-xl mb-1" style={{ color: gold }}>${item.Total.toFixed(2)}</span>
                               {perPerson && (
-                                <span className="font-body text-white/40 text-[10px]">${perPersonPrice.toFixed(2)}/person</span>
+                                <span className="font-body text-white/40 text-xs">${perPersonPrice.toFixed(2)}/person</span>
                               )}
                               {!perPerson && (
-                                <span className="font-body text-white/40 text-[10px]">per lane</span>
+                                <span className="font-body text-white/40 text-xs">per lane</span>
                               )}
                               {item.Remaining > 0 && !item.Reason && (
-                                <span className="font-body text-white/20 text-[10px] mt-1">{item.Remaining} left</span>
+                                <span className="font-body text-white/20 text-xs mt-1">{item.Remaining} left</span>
                               )}
                               {timeShift && (
-                                <span className="font-body text-[10px] mt-1" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
+                                <span className="font-body text-xs mt-1" style={{ color: gold }}>at {formatTimeStr(timeShift)}</span>
                               )}
                             </button>
                           );
@@ -1488,7 +1488,7 @@ export default function BowlingBookingPage() {
 
             {/* Bowling time reference */}
             <div className="rounded-lg p-3 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <p className="font-body text-white/40 text-[10px] uppercase tracking-wider mb-1">Your Bowling Time</p>
+              <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-1">Your Bowling Time</p>
               <p className="font-body text-white text-sm font-bold">
                 {formatTimeStr(selectedTime)} &bull; {selectedOffer?.Name} &bull; {playerCount} bowlers
               </p>
@@ -1544,7 +1544,7 @@ export default function BowlingBookingPage() {
                         {/* Image */}
                         <div className="relative w-full sm:w-36 h-28 sm:h-auto shrink-0 overflow-hidden">
                           <img src={addon.image} alt={addon.shortName} className="w-full h-full object-cover" />
-                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: addon.accent }}>
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ backgroundColor: addon.accent }}>
                             {addon.shortName}
                           </span>
                         </div>
@@ -1576,7 +1576,7 @@ export default function BowlingBookingPage() {
                                   <span className="w-6 text-center text-white font-bold text-xs">{qty}</span>
                                   <button onClick={() => setBmiQty(addon.productId, qty + 1)}
                                     className="w-7 h-7 rounded border border-white/20 text-white/50 hover:text-white text-sm cursor-pointer flex items-center justify-center">+</button>
-                                  <span className="font-body text-white/30 text-[10px]">{qty} people</span>
+                                  <span className="font-body text-white/30 text-xs">{qty} people</span>
                                 </div>
                                 <span className="font-body text-sm font-bold" style={{ color: addon.accent }}>${(addon.price * qty).toFixed(2)}</span>
                               </div>
@@ -1609,7 +1609,7 @@ export default function BowlingBookingPage() {
                                 <p className="font-body text-amber-400/70 text-xs">No times available on this date</p>
                               ) : (
                                 <div>
-                                  <p className="font-body text-white/50 text-[10px] uppercase tracking-wider mb-2">Select a time</p>
+                                  <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">Select a time</p>
                                   <div className="flex flex-wrap gap-1.5">
                                     {(() => {
                                       // Merge bowling time into timeline
@@ -1694,7 +1694,7 @@ export default function BowlingBookingPage() {
               {/* BMI add-ons with prices */}
               {getBmiAddons().length > 0 && (
                 <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
-                  <p className="font-body text-white/40 text-[10px] uppercase tracking-wider mb-2">Add-On Activities</p>
+                  <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-2">Add-On Activities</p>
                   {getBmiAddons().map(a => (
                     <div key={a.productId} className="flex justify-between">
                       <span className="font-body text-white/70 text-sm">
@@ -1809,8 +1809,8 @@ export default function BowlingBookingPage() {
                 </video>
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0a1628]" />
                 <div className="absolute bottom-3 left-4 flex gap-2">
-                  <span className="font-body text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${gold}50`, color: gold }}>NeoVerse</span>
-                  <span className="font-body text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${cyan}50`, color: cyan }}>HyperBowling</span>
+                  <span className="font-body text-xs uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${gold}50`, color: gold }}>NeoVerse</span>
+                  <span className="font-body text-xs uppercase tracking-wider px-2 py-1 rounded-full font-bold" style={{ backgroundColor: `${cyan}50`, color: cyan }}>HyperBowling</span>
                 </div>
               </div>
 

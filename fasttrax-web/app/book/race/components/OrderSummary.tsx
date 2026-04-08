@@ -553,7 +553,7 @@ export default function OrderSummary({
         <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.08]">
           <div className="p-4">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
                 {packResult.schedules.length}-Race Pack
               </span>
             </div>
@@ -661,7 +661,7 @@ export default function OrderSummary({
                   <div key="pov" className="px-4 py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-[#00E2E5] text-[9px] font-bold uppercase tracking-wider shrink-0">Add-On</span>
+                        <span className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider shrink-0">Add-On</span>
                         <span className="text-white font-semibold text-sm truncate">POV Video</span>
                         <span className="text-white/20 text-xs shrink-0">x{pov!.quantity}</span>
                       </div>
@@ -677,7 +677,7 @@ export default function OrderSummary({
                 <div key={`addon-${a.id}`} className="px-4 py-3 flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[#00E2E5] text-[9px] font-bold uppercase tracking-wider shrink-0">Add-On</span>
+                      <span className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider shrink-0">Add-On</span>
                       <span className="text-white font-semibold text-sm truncate">{a.name}</span>
                       {a.quantity > 1 && <span className="text-white/20 text-xs shrink-0">x{a.quantity}</span>}
                     </div>

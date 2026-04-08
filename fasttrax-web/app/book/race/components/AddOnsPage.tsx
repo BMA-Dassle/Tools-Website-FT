@@ -250,7 +250,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
       {/* Show booked race times for reference */}
       {bookedHeats.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-          <p className="text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-2">Your Race Schedule</p>
+          <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-2">Your Race Schedule</p>
           <div className="flex flex-wrap gap-2">
             {bookedHeats.map((h, i) => {
               const color = h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5";
@@ -265,7 +265,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
               );
             })}
           </div>
-          <p className="text-white/30 text-[10px] mt-1.5">Pick add-on times that don&apos;t overlap with your races</p>
+          <p className="text-white/30 text-xs mt-1.5">Pick add-on times that don&apos;t overlap with your races</p>
         </div>
       )}
 
@@ -299,7 +299,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                     />
                     <div className="absolute top-2 left-2">
                       <span
-                        className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
+                        className="px-2 py-0.5 rounded-full text-xs font-bold text-white"
                         style={{ backgroundColor: addon.color }}
                       >
                         {addon.shortName}
@@ -319,17 +319,17 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                     {(addon.discountLabel || addon.saveLabel) && (
                       <div className="mt-1.5 flex items-center gap-2">
                         {addon.discountLabel && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-400/15 text-yellow-400 border border-yellow-400/30">
+                          <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-yellow-400/15 text-yellow-400 border border-yellow-400/30">
                             {addon.discountLabel}
                           </span>
                         )}
                         {addon.saveLabel && (
-                          <span className="text-yellow-400/70 text-[10px]">{addon.saveLabel}</span>
+                          <span className="text-yellow-400/70 text-xs">{addon.saveLabel}</span>
                         )}
                       </div>
                     )}
                     {addon.location === "headpinz" && (
-                      <p className="text-amber-400/80 text-[10px] font-semibold mt-1 flex items-center gap-1">
+                      <p className="text-amber-400/80 text-xs font-semibold mt-1 flex items-center gap-1">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -366,7 +366,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                           >
                             +
                           </button>
-                          <span className="text-white/30 text-[10px] ml-1">{qty} {qty === 1 ? "person" : "people"}</span>
+                          <span className="text-white/30 text-xs ml-1">{qty} {qty === 1 ? "person" : "people"}</span>
                         </div>
                         <span className="text-[#00E2E5] text-sm font-semibold">${(addon.price * qty).toFixed(2)}</span>
                       </div>
@@ -404,7 +404,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                         <p className="text-amber-400/70 text-xs">No times available on this date</p>
                       ) : (
                         <div className="space-y-1.5">
-                          <p className="text-white/50 text-[10px] uppercase tracking-wider font-semibold">Select a time</p>
+                          <p className="text-white/50 text-xs uppercase tracking-wider font-semibold">Select a time</p>
                           <div className="flex flex-wrap gap-1.5">
                             {(() => {
                               const slots = timeSlots[addon.id] || [];
@@ -451,7 +451,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                             })()}
                           </div>
                           {selectedTimes[addon.id] !== undefined && (
-                            <p className="text-white/30 text-[10px]">
+                            <p className="text-white/30 text-xs">
                               {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].start)} — {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].stop)}
                             </p>
                           )}

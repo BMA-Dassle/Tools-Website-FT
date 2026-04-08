@@ -173,7 +173,7 @@ export default function HeadPinzHome() {
         </div>
 
         {/* Location selector — glass buttons */}
-        <p className="font-body text-white/30 text-[10px] uppercase tracking-[0.3em] mb-4">
+        <p className="font-body text-white/30 text-xs uppercase tracking-[0.3em] mb-4">
           Select Your Location
         </p>
 
@@ -193,7 +193,7 @@ export default function HeadPinzHome() {
                 <h2 className="font-heading font-black uppercase text-white text-lg tracking-wide">
                   {loc.name}
                 </h2>
-                <p className="text-white/40 text-[11px] font-body">{loc.address}</p>
+                <p className="text-white/40 text-[13px] font-body">{loc.address}</p>
               </div>
               <div className="w-9 h-9 rounded-full bg-[#fd5b56] flex items-center justify-center shrink-0 group-hover:bg-[#ff7a77] group-hover:shadow-[0_0_16px_rgba(253,91,86,0.4)] transition-all">
                 <svg className="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -216,7 +216,7 @@ export default function HeadPinzHome() {
               unoptimized
             />
           </div>
-          <span className="font-body text-white text-[10px] tracking-widest uppercase">Celebrating 10 Years</span>
+          <span className="font-body text-white text-xs tracking-widest uppercase">Celebrating 10 Years</span>
         </div>
       </div>
     </div>

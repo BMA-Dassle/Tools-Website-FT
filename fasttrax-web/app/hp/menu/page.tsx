@@ -265,7 +265,7 @@ export default function MenuPage() {
                   sizes="(max-width: 768px) 100vw, 50vw"
                 />
                 <div className="absolute top-4 left-4">
-                  <span className="text-[10px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-3 py-1.5 rounded-full animate-pulse shadow-lg">
+                  <span className="text-xs font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-3 py-1.5 rounded-full animate-pulse shadow-lg">
                     New!
                   </span>
                 </div>
@@ -298,7 +298,7 @@ export default function MenuPage() {
                     HeadPinz Rewards Required &mdash; Join Free
                   </a>
                 </div>
-                <p className="font-body text-white/30 text-[10px] mt-4">
+                <p className="font-body text-white/30 text-xs mt-4">
                   Dine-in only. Available while supplies last.
                 </p>
               </div>
@@ -331,7 +331,7 @@ export default function MenuPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Food Specials */}
             <div>
-              <p className="font-heading uppercase text-white/40 text-[10px] tracking-widest mb-3">Food Specials</p>
+              <p className="font-heading uppercase text-white/40 text-xs tracking-widest mb-3">Food Specials</p>
               <div className="space-y-2">
                 {[
                   { name: "Margherita Flatbread", price: "$10", desc: "Tomato sauce, fresh mozzarella, basil, olive oil drizzle" },
@@ -344,7 +344,7 @@ export default function MenuPage() {
                   <div key={item.name} className="flex justify-between items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,215,0,0.1)" }}>
                     <div>
                       <p className="font-body text-white font-semibold text-sm">{item.name}</p>
-                      <p className="font-body text-white/40 text-[10px]">{item.desc}</p>
+                      <p className="font-body text-white/40 text-xs">{item.desc}</p>
                     </div>
                     <span className="font-heading text-sm shrink-0" style={{ color: gold }}>{item.price}</span>
                   </div>
@@ -354,7 +354,7 @@ export default function MenuPage() {
 
             {/* Drink Specials */}
             <div>
-              <p className="font-heading uppercase text-white/40 text-[10px] tracking-widest mb-3">Drink Specials</p>
+              <p className="font-heading uppercase text-white/40 text-xs tracking-widest mb-3">Drink Specials</p>
               <div className="space-y-2">
                 {[
                   { name: "House Wine by the Glass", deal: "$2 Off" },

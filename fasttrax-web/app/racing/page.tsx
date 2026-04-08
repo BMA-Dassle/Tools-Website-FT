@@ -121,7 +121,7 @@ export default function RacingPage() {
                   {rt.desc}
                 </p>
                 {"note" in rt && (
-                  <p className="font-body font-semibold mt-3" style={{ color: "rgb(255,193,7)", fontSize: "12px" }}>
+                  <p className="font-body font-semibold mt-3" style={{ color: "rgb(255,193,7)", fontSize: "13px" }}>
                     ⚠ {(rt as { note: string }).note}
                   </p>
                 )}

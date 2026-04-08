@@ -447,7 +447,7 @@ export default function ConfirmationPage() {
                           <p className="text-white font-display text-lg uppercase tracking-wider">{c.racerName}</p>
                         </div>
                         {ci === 0 && confirmations.length > 1 && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>
                         )}
                       </div>
                     )}
@@ -460,7 +460,7 @@ export default function ConfirmationPage() {
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={qr} alt={`QR ${c.resNumber}`} width={140} height={140} className={`${confirmations.length <= 1 ? "w-[120px] h-[120px] sm:w-[160px] sm:h-[160px]" : "w-[80px] h-[80px]"}`} />
                           </div>
-                          <p className="text-white/20 text-[9px] text-center mt-1">Tap to enlarge</p>
+                          <p className="text-white/20 text-xs text-center mt-1">Tap to enlarge</p>
                         </button>
                       )}
                       <div className="min-w-0 flex-1">
@@ -468,9 +468,9 @@ export default function ConfirmationPage() {
                         {heatStart && <p className={`text-white/50 ${confirmations.length <= 1 ? "text-sm mt-1" : "text-xs"}`}>{formatDate(heatStart)}</p>}
                         {heatStart && (
                           <div className={`${confirmations.length <= 1 ? "mt-3" : "mt-1.5"}`}>
-                            <p className="text-red-400 text-[9px] font-bold uppercase tracking-wider">Check In By</p>
+                            <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
                             <p className={`text-white font-display uppercase tracking-widest ${confirmations.length <= 1 ? "text-3xl sm:text-4xl" : "text-xl"}`}>{checkinTime(heatStart)}</p>
-                            <p className="text-white/30 text-[10px]">Guest Services, 2nd Floor</p>
+                            <p className="text-white/30 text-xs">Guest Services, 2nd Floor</p>
                           </div>
                         )}
                       </div>
@@ -585,7 +585,7 @@ function RacerJourneySteps() {
       {/* Live Track Status */}
       {trackData && (
         <div className="space-y-1.5">
-          <p className="text-white/30 text-[10px] uppercase tracking-wider font-semibold">Live Track Status</p>
+          <p className="text-white/30 text-xs uppercase tracking-wider font-semibold">Live Track Status</p>
           {trackData.tracks.map((t) => (
             <div
               key={t.trackName}
@@ -618,7 +618,7 @@ function RacerJourneySteps() {
             </div>
             <div>
               <h3 className="font-display uppercase text-sm" style={{ color: s.color }}>{s.title}</h3>
-              {s.subtitle && <p className="text-white/40 text-[11px]">{s.subtitle}</p>}
+              {s.subtitle && <p className="text-white/40 text-[13px]">{s.subtitle}</p>}
               <p className="text-white/70 text-xs leading-relaxed mt-1">{s.desc}</p>
             </div>
           </div>

@@ -115,7 +115,7 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
                 <p className="text-white font-semibold text-sm truncate">{r.fullName}</p>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   {/* Tier badge */}
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                     tier === "Pro"
                       ? "bg-red-500/20 text-red-400"
                       : tier === "Intermediate"
@@ -127,14 +127,14 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
 
                   {/* Not qualified message */}
                   {!qualified && !alreadyBooked && (
-                    <span className="text-[10px] text-red-400/70">
+                    <span className="text-xs text-red-400/70">
                       Not qualified for {raceTier.charAt(0).toUpperCase() + raceTier.slice(1)}
                     </span>
                   )}
 
                   {/* Already booked */}
                   {alreadyBooked && (
-                    <span className="text-[10px] text-white/30">Already on this heat</span>
+                    <span className="text-xs text-white/30">Already on this heat</span>
                   )}
                 </div>
 
@@ -142,7 +142,7 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
                 {r.hasCredits && r.creditBalances && r.creditBalances.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {r.creditBalances.map((cb, i) => (
-                      <span key={i} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
+                      <span key={i} className="text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
                         {cb.kind}: {cb.balance}
                       </span>
                     ))}

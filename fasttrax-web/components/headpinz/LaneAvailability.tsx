@@ -141,7 +141,7 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
           </div>
         ))}
       </div>
-      <p className="text-white/30 text-[10px] leading-relaxed">
+      <p className="text-white/30 text-xs leading-relaxed">
         Live availability changes as guests check in. For guaranteed lanes, always book ahead.
       </p>
       {bookingUrl && (

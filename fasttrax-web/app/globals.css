@@ -23,7 +23,17 @@ body {
   background-color: var(--color-bg-deep);
   color: #ffffff;
   font-family: var(--font-body), sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Generous mobile text — match Topgolf/Main Event sizing */
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  p, span, li, td, th, label, input, select, textarea, button {
+    font-size: inherit;
+  }
 }
 
 /* Brand-specific font mapping */

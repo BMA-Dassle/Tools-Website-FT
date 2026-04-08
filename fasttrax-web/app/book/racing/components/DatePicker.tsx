@@ -161,7 +161,7 @@ export default function DatePicker({ productId, pageId, selected, onSelect }: Da
         {/* Day-of-week headers */}
         <div className="grid grid-cols-7 mb-1">
           {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
-            <div key={d} className="text-center text-[11px] text-white/30 py-1">{d}</div>
+            <div key={d} className="text-center text-[13px] text-white/30 py-1">{d}</div>
           ))}
         </div>
 
@@ -223,7 +223,7 @@ export default function DatePicker({ productId, pageId, selected, onSelect }: Da
         )}
 
         {/* Legend */}
-        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-4 text-[11px] text-white/40">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-4 text-[13px] text-white/40">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-[#00E2E5]/15" />
             <span>Available</span>
@@ -242,7 +242,7 @@ export default function DatePicker({ productId, pageId, selected, onSelect }: Da
         {megaDates.size > 0 && (
           <div className="mt-3 rounded-xl border border-[#A855F7]/20 bg-[#A855F7]/5 p-3 text-center">
             <p className="text-[#C084FC] text-xs font-semibold mb-0.5">Mega Track Tuesdays</p>
-            <p className="text-white/40 text-[11px] leading-relaxed">
+            <p className="text-white/40 text-[13px] leading-relaxed">
               Blue &amp; Red tracks combine into one massive circuit!
             </p>
           </div>

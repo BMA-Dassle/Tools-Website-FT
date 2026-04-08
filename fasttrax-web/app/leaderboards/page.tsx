@@ -204,7 +204,7 @@ function LeaderboardCard({ category, timeRange }: { category: Category; timeRang
               </span>
               <span
                 className="font-body shrink-0 hidden sm:inline"
-                style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)", width: "50px", textAlign: "right" }}
+                style={{ fontSize: "13px", color: "rgba(255,255,255,0.3)", width: "50px", textAlign: "right" }}
               >
                 {formatDate(r.date)}
               </span>
@@ -491,7 +491,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
 
       {/* Table header — mobile: Pos/Driver/Kart/Laps/Best/Last  desktop: + Avg + Gap */}
       <div
-        className="grid font-body font-semibold uppercase text-[9px] sm:text-xs tracking-wider px-3 sm:px-4 py-2.5 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
+        className="grid font-body font-semibold uppercase text-xs sm:text-xs tracking-wider px-3 sm:px-4 py-2.5 gap-x-1.5 sm:gap-x-0 grid-cols-[22px_1fr_26px_22px_54px_54px] sm:grid-cols-[36px_1fr_44px_44px_80px_80px_80px_56px]"
         style={{
           color: "rgba(255,255,255,0.5)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -531,8 +531,8 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
             >
               {d.position}
             </span>
-            {d.delta > 0 && <span style={{ color: "rgb(34,197,94)", fontSize: "11px" }}>▲</span>}
-            {d.delta < 0 && <span style={{ color: "rgb(239,68,68)", fontSize: "11px" }}>▼</span>}
+            {d.delta > 0 && <span style={{ color: "rgb(34,197,94)", fontSize: "13px" }}>▲</span>}
+            {d.delta < 0 && <span style={{ color: "rgb(239,68,68)", fontSize: "13px" }}>▼</span>}
           </span>
           <span className="truncate" style={{ color: "rgba(245,236,238,0.9)", fontWeight: i === 0 ? 600 : 400 }}>
             {d.name}
@@ -542,7 +542,7 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
           <span className="text-right font-semibold" style={{ color: accent }}>{msToLap(d.bestLap)}</span>
           <span className="text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{msToLap(d.lastLap)}</span>
           <span className="hidden sm:block text-right" style={{ color: "rgba(255,255,255,0.5)" }}>{msToLap(d.avgLap)}</span>
-          <span className="hidden sm:block text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+          <span className="hidden sm:block text-right" style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>
             {i === 0 ? "" : d.gap}
           </span>
         </div>
@@ -613,7 +613,7 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
       {/* Attribution */}
       <p
         className="font-body text-center mt-6"
-        style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px" }}
+        style={{ color: "rgba(255,255,255,0.3)", fontSize: "13px" }}
       >
         Powered by BMI Leisure &middot; Live timing data overlay
       </p>

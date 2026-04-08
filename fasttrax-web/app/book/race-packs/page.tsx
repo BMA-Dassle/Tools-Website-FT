@@ -518,8 +518,8 @@ export default function RacePacksPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16">
         {/* Column headers */}
         <div className="grid grid-cols-2 gap-4 mb-3">
-          <p className="text-center text-white/30 text-[10px] font-bold uppercase tracking-widest">Monday – Thursday</p>
-          <p className="text-center text-white/30 text-[10px] font-bold uppercase tracking-widest">Anytime</p>
+          <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">Monday – Thursday</p>
+          <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">Anytime</p>
         </div>
 
         {/* Pack rows */}
@@ -549,7 +549,7 @@ export default function RacePacksPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest">
                   {selectedPack.raceCount}-Race Pack · {selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"}
                 </p>
                 <p className="text-white font-bold text-lg">${selectedPack.price.toFixed(2)}</p>
@@ -748,23 +748,23 @@ export default function RacePacksPage() {
                         <p className="text-white font-semibold text-sm">{a.fullName}</p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           {a.memberships.slice(0, 3).map((m, i) => (
-                            <span key={i} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
+                            <span key={i} className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
                           ))}
                         </div>
                         {a.creditBalances && a.creditBalances.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {a.creditBalances.map((cb, ci) => (
-                              <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
+                              <span key={ci} className="text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
                                 {cb.kind}: {cb.balance}
                               </span>
                             ))}
                           </div>
                         )}
-                        {a.lastSeen && <p className="text-white/30 text-[10px] mt-1">Last seen: {a.lastSeen}</p>}
+                        {a.lastSeen && <p className="text-white/30 text-xs mt-1">Last seen: {a.lastSeen}</p>}
                       </div>
                       <div className="text-right shrink-0 ml-3">
                         <p className="text-[#00E2E5] font-bold text-lg">{a.races}</p>
-                        <p className="text-white/30 text-[9px] uppercase">visits</p>
+                        <p className="text-white/30 text-xs uppercase">visits</p>
                       </div>
                     </div>
                   </button>
@@ -787,7 +787,7 @@ export default function RacePacksPage() {
                 <div className="space-y-4">
                   {/* Pack info */}
                   <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 text-center">
-                    <p className="text-[#00E2E5] text-[10px] font-bold uppercase tracking-widest">{selectedPack.type === "weekday" ? "Monday – Thursday" : "Anytime"}</p>
+                    <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest">{selectedPack.type === "weekday" ? "Monday – Thursday" : "Anytime"}</p>
                     <p className="text-white font-display text-xl uppercase tracking-wider mt-1">{selectedPack.raceCount}-Race Pack</p>
                     <p className="text-white/50 text-xs mt-1">{selectedPack.raceCount} race credits · ${(selectedPack.price / selectedPack.raceCount).toFixed(2)}/race</p>
                   </div>

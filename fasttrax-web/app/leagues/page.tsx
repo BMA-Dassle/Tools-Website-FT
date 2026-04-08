@@ -275,7 +275,7 @@ function DriverRow({
             style={{
               transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
               color: "rgba(255,255,255,0.3)",
-              fontSize: "12px",
+              fontSize: "13px",
             }}
           >
             &#9660;
@@ -304,7 +304,7 @@ function DriverRow({
                           key={h}
                           className="font-body text-left px-4 py-2"
                           style={{
-                            fontSize: "11px",
+                            fontSize: "13px",
                             color: "rgba(255,255,255,0.3)",
                             fontWeight: 500,
                             textTransform: "uppercase",
@@ -518,7 +518,7 @@ export default function LeagueStandingsPage() {
                 letterSpacing: "0.3px",
               }}
             >
-              <span style={{ fontSize: "10px" }}>&#9679;</span>
+              <span style={{ fontSize: "13px" }}>&#9679;</span>
               {LEAGUE.label} &middot; {LEAGUE.dates}
             </div>
           </div>
@@ -587,7 +587,7 @@ export default function LeagueStandingsPage() {
                           key={i}
                           className={`font-body py-3 ${col.className} ${col.hideOn ? `hidden ${col.hideOn}:table-cell` : ""}`}
                           style={{
-                            fontSize: "11px",
+                            fontSize: "13px",
                             color: "rgba(255,255,255,0.35)",
                             fontWeight: 500,
                             textTransform: "uppercase",

@@ -215,7 +215,7 @@ export default function BookRacingPage() {
                         "text-white/20 cursor-not-allowed"
                       }`}
                     >
-                      <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
+                      <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold ${
                         isCurrent ? "bg-[#00E2E5] text-[#000418]" :
                         isPast ? "bg-white/20 text-white" :
                         "bg-white/8 text-white/20"
@@ -368,7 +368,7 @@ export default function BookRacingPage() {
           />
         )}
         {/* Dev tag */}
-        <p className="text-white/10 text-[10px] text-center mt-12">SMS-Timing API</p>
+        <p className="text-white/10 text-xs text-center mt-12">SMS-Timing API</p>
       </div>
     </div>
   );

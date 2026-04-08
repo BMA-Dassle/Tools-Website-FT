@@ -731,7 +731,7 @@ export default function BookRacePage() {
                         "text-white/20 cursor-not-allowed"
                       }`}
                     >
-                      <span className={`w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold ${
+                      <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold ${
                         isCurrent ? "bg-[#00E2E5] text-[#000418]" :
                         isPast ? "bg-white/20 text-white" :
                         "bg-white/8 text-white/20"
@@ -813,14 +813,14 @@ export default function BookRacePage() {
                     className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
                   >
                     <span className="block">Adult</span>
-                    <span className="text-white/30 text-[10px]">13+ &middot; 59&quot;+ tall</span>
+                    <span className="text-white/30 text-xs">13+ &middot; 59&quot;+ tall</span>
                   </button>
                   <button
                     onClick={() => handlePrimaryCategorySelect("junior")}
                     className="py-3 rounded-lg border border-white/15 bg-white/5 text-white text-sm font-semibold hover:border-[#00E2E5]/50 transition-colors"
                   >
                     <span className="block">Junior</span>
-                    <span className="text-white/30 text-[10px]">7-13 &middot; 49&quot;+ tall</span>
+                    <span className="text-white/30 text-xs">7-13 &middot; 49&quot;+ tall</span>
                   </button>
                 </div>
               </div>
@@ -841,10 +841,10 @@ export default function BookRacePage() {
                         {i === 0 && <span className="text-white/30 text-xs ml-2">(primary)</span>}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/50">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/50">
                           {r.category === "junior" ? "Junior" : "Adult"}
                         </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                           getRacerTier(r.memberships || []) === "Pro"
                             ? "bg-red-500/20 text-red-400"
                             : getRacerTier(r.memberships || []) === "Intermediate"
@@ -854,14 +854,14 @@ export default function BookRacePage() {
                           {getRacerTier(r.memberships || [])}
                         </span>
                         {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
-                          <span className="text-[10px] text-green-400/60">License ✓</span>
+                          <span className="text-xs text-green-400/60">License ✓</span>
                         )}
                       </div>
                       {/* Credit balances */}
                       {r.hasCredits && r.creditBalances && r.creditBalances.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {r.creditBalances.map((cb, ci) => (
-                            <span key={ci} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
+                            <span key={ci} className="text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/80">
                               {cb.kind}: {cb.balance}
                             </span>
                           ))}
@@ -950,7 +950,7 @@ export default function BookRacePage() {
                             className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${isUnder13 ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#00E2E5]/50"}`}
                           >
                             <span className="block">Adult</span>
-                            <span className={`text-[10px] ${isUnder13 ? "text-white/10" : "text-white/30"}`}>13+ · 59&quot;+ tall</span>
+                            <span className={`text-xs ${isUnder13 ? "text-white/10" : "text-white/30"}`}>13+ · 59&quot;+ tall</span>
                           </button>
                           <button
                             onClick={() => { handleAddRacer(addingFoundPerson, "junior"); setAddingRacer(false); setAddingCategory(null); setAddingFoundPerson(null); }}
@@ -958,7 +958,7 @@ export default function BookRacePage() {
                             className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${is13OrOver ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#8652FF]/50"}`}
                           >
                             <span className="block">Junior</span>
-                            <span className={`text-[10px] ${is13OrOver ? "text-white/10" : "text-white/30"}`}>7-12 · 49&quot;+ tall</span>
+                            <span className={`text-xs ${is13OrOver ? "text-white/10" : "text-white/30"}`}>7-12 · 49&quot;+ tall</span>
                           </button>
                         </div>
                       </div>
@@ -1358,7 +1358,7 @@ export default function BookRacePage() {
         )}
 
         {/* Dev tag */}
-        <p className="text-white/10 text-[10px] text-center mt-12">BMI Public API</p>
+        <p className="text-white/10 text-xs text-center mt-12">BMI Public API</p>
       </div>
 
       {/* Unified floating cart */}
@@ -1453,7 +1453,7 @@ export default function BookRacePage() {
                       className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${isUnder13 ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#00E2E5]/50"}`}
                     >
                       <span className="block">Adult</span>
-                      <span className={`text-[10px] ${isUnder13 ? "text-white/10" : "text-white/30"}`}>13+ · 59&quot;+ tall</span>
+                      <span className={`text-xs ${isUnder13 ? "text-white/10" : "text-white/30"}`}>13+ · 59&quot;+ tall</span>
                     </button>
                     <button
                       onClick={() => { handleAddLinkedRacer(linkedSelected.id, "junior"); setLinkedSelected(null); }}
@@ -1461,7 +1461,7 @@ export default function BookRacePage() {
                       className={`py-3 rounded-lg border text-sm font-semibold transition-colors ${is13OrOver ? "border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed" : "border-white/15 bg-white/5 text-white hover:border-[#8652FF]/50"}`}
                     >
                       <span className="block">Junior</span>
-                      <span className={`text-[10px] ${is13OrOver ? "text-white/10" : "text-white/30"}`}>7-12 · 49&quot;+ tall</span>
+                      <span className={`text-xs ${is13OrOver ? "text-white/10" : "text-white/30"}`}>7-12 · 49&quot;+ tall</span>
                     </button>
                   </div>
                   <button onClick={() => setLinkedSelected(null)} className="text-white/30 text-xs hover:text-white/50 transition-colors block mx-auto">

@@ -99,7 +99,7 @@ function StepIndicator({ steps, current, color }: { steps: { key: Step; label: s
             {i > 0 && <div className={`w-4 sm:w-6 h-px ${isDone ? "bg-white/30" : "bg-white/10"}`} />}
             <div className="flex items-center gap-1.5">
               <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
                   isActive
                     ? "text-[#000418] shadow-lg"
                     : isDone
@@ -116,7 +116,7 @@ function StepIndicator({ steps, current, color }: { steps: { key: Step; label: s
                   i + 1
                 )}
               </div>
-              <span className={`text-[10px] sm:text-xs font-medium hidden sm:inline ${isActive ? "text-white" : isDone ? "text-white/50" : "text-white/25"}`}>
+              <span className={`text-xs sm:text-xs font-medium hidden sm:inline ${isActive ? "text-white" : isDone ? "text-white/50" : "text-white/25"}`}>
                 {s.label}
               </span>
             </div>
@@ -235,7 +235,7 @@ function ProductPickerStep({
               </div>
               <div className="text-right">
                 <p className="text-white font-bold text-lg">${p.price.toFixed(2)}</p>
-                <p className="text-white/40 text-[10px]">
+                <p className="text-white/40 text-xs">
                   {p.bookingMode === "per-person" ? "per person" : "per table"}
                 </p>
               </div>
@@ -329,7 +329,7 @@ function AttractionDatePicker({
       {/* Day headers */}
       <div className="grid grid-cols-7 gap-1 text-center">
         {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-          <div key={i} className="text-white/30 text-[10px] font-bold py-1">{d}</div>
+          <div key={i} className="text-white/30 text-xs font-bold py-1">{d}</div>
         ))}
       </div>
 
@@ -535,7 +535,7 @@ function TimeSlotPicker({
                   <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
                   <div className="text-white/40 text-xs mb-2">{block.stop ? `→ ${formatTime(block.stop)}` : ""}</div>
                   <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-                  <div className={`text-[11px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
+                  <div className={`text-[13px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
                     {isFull ? "Full" : spots.label}
                   </div>
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
@@ -1315,7 +1315,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
                         className="rounded-lg border border-white/10 bg-white/[0.03] p-3 hover:border-white/20 hover:bg-white/[0.06] transition-all text-center"
                       >
                         <p className="text-white font-semibold text-xs">{a.shortName}</p>
-                        <p className="text-white/30 text-[10px] mt-0.5">{a.durationLabel}</p>
+                        <p className="text-white/30 text-xs mt-0.5">{a.durationLabel}</p>
                       </a>
                     ))}
                 </div>

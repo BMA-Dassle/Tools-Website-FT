@@ -81,7 +81,7 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
               <div className="absolute inset-0 bg-gradient-to-t from-red-900/90 via-red-900/30 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-2.5 text-center">
                 <h3 className="font-display text-white text-base uppercase tracking-wider">Red Track</h3>
-                <p className="text-white/60 text-[10px] leading-snug mt-0.5">
+                <p className="text-white/60 text-xs leading-snug mt-0.5">
                   Technical hairpins &amp; sharp turns
                 </p>
               </div>
@@ -96,7 +96,7 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
               <div className="absolute inset-0 bg-gradient-to-t from-blue-900/90 via-blue-900/30 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-2.5 text-center">
                 <h3 className="font-display text-white text-base uppercase tracking-wider">Blue Track</h3>
-                <p className="text-white/60 text-[10px] leading-snug mt-0.5">
+                <p className="text-white/60 text-xs leading-snug mt-0.5">
                   High-speed banks &amp; sweeping turns
                 </p>
               </div>
@@ -119,7 +119,7 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
               <p className="text-white/40 text-xs mt-1 leading-relaxed">
                 Required for all first-time racers. Valid for one year and includes use of head sock, helmet, and access to the FastTrax app for race scheduling.
               </p>
-              <p className="text-white/25 text-[10px] mt-1.5">Automatically added to your order at checkout.</p>
+              <p className="text-white/25 text-xs mt-1.5">Automatically added to your order at checkout.</p>
             </div>
           </div>
         </div>
@@ -200,11 +200,11 @@ function ProductGroup({ items, selected, onSelect }: {
           <span className="font-bold text-white text-sm">
             {representative.name.replace(/\s+(Red|Blue)$/i, "").trim()}
           </span>
-          <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
+          <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
             {tierLabel}
           </span>
           {representative.packType !== "none" && (
-            <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+            <span className="ml-1 text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
               {representative.raceCount}-Race Pack
             </span>
           )}
@@ -241,7 +241,7 @@ function ProductGroup({ items, selected, onSelect }: {
       </div>
 
       {representative.raw.message && (
-        <p className="text-amber-400/60 text-[10px] mt-2">{representative.raw.message}</p>
+        <p className="text-amber-400/60 text-xs mt-2">{representative.raw.message}</p>
       )}
     </div>
   );
@@ -270,11 +270,11 @@ function ProductCard({ product, isSelected, onSelect }: {
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-white text-sm">{product.name}</span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
             {tierLabel}
           </span>
           {isPack && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
               {product.raceCount}-Race Pack
             </span>
           )}
@@ -297,7 +297,7 @@ function ProductCard({ product, isSelected, onSelect }: {
       )}
 
       {product.raw.message && !isPack && (
-        <p className="text-amber-400/60 text-[10px] mt-1.5">{product.raw.message}</p>
+        <p className="text-amber-400/60 text-xs mt-1.5">{product.raw.message}</p>
       )}
     </button>
   );

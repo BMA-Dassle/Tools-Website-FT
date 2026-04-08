@@ -72,7 +72,7 @@ function HeatGrid({
             <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
             <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
             <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-            <div className={`text-[11px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
+            <div className={`text-[13px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
               {isFull ? `Need ${quantity}, only ${block.freeSpots} left` : spots.label}
             </div>
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">

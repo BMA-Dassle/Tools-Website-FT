@@ -114,11 +114,11 @@ function ProductGroup({ items, selected, onSelect }: {
           <span className="font-bold text-white text-sm">
             {representative.name.replace(/\s+(Red|Blue)$/i, "").trim()}
           </span>
-          <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
+          <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
             {tierLabel}
           </span>
           {representative.packType !== "none" && (
-            <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+            <span className="ml-1 text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
               {representative.raceCount}-Race Pack
             </span>
           )}
@@ -150,7 +150,7 @@ function ProductGroup({ items, selected, onSelect }: {
       </div>
 
       {representative.raw.message && (
-        <p className="text-amber-400/60 text-[10px] mt-2">{representative.raw.message}</p>
+        <p className="text-amber-400/60 text-xs mt-2">{representative.raw.message}</p>
       )}
     </div>
   );
@@ -179,11 +179,11 @@ function ProductCard({ product, isSelected, onSelect }: {
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-white text-sm">{product.name}</span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
             {tierLabel}
           </span>
           {isPack && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
               {product.raceCount}-Race Pack
             </span>
           )}
@@ -202,7 +202,7 @@ function ProductCard({ product, isSelected, onSelect }: {
       )}
 
       {product.raw.message && !isPack && (
-        <p className="text-amber-400/60 text-[10px] mt-1.5">{product.raw.message}</p>
+        <p className="text-amber-400/60 text-xs mt-1.5">{product.raw.message}</p>
       )}
     </button>
   );

@@ -352,7 +352,7 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
         <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
           <div className="p-4">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
                 {packResult.schedules.length}-Race Pack
               </span>
             </div>

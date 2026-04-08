@@ -74,7 +74,7 @@ export default function RewardsPage() {
                   sizes="(max-width: 768px) 100vw, 50vw"
                 />
                 <div className="absolute top-4 left-4">
-                  <span className="text-[10px] font-bold uppercase tracking-widest bg-[#FFD700] text-[#0a1628] px-3 py-1.5 rounded-full shadow-lg">
+                  <span className="text-xs font-bold uppercase tracking-widest bg-[#FFD700] text-[#0a1628] px-3 py-1.5 rounded-full shadow-lg">
                     Rewards Exclusive
                   </span>
                 </div>
@@ -106,7 +106,7 @@ export default function RewardsPage() {
                     Rewards Members Only
                   </span>
                 </div>
-                <p className="font-body text-white/30 text-[10px] mt-4">
+                <p className="font-body text-white/30 text-xs mt-4">
                   Dine-in only. Available while supplies last.
                 </p>
               </div>

@@ -228,12 +228,12 @@ export default function PricingPage() {
                 </p>
                 <div className="flex justify-center gap-4">
                   <div>
-                    <p className="font-body text-white/40 text-[10px] uppercase tracking-wider">Mon–Thu</p>
+                    <p className="font-body text-white/40 text-xs uppercase tracking-wider">Mon–Thu</p>
                     <p className="font-body text-white font-bold text-lg">{pack.weekday}</p>
                   </div>
                   <div className="w-px bg-white/10" />
                   <div>
-                    <p className="font-body text-white/40 text-[10px] uppercase tracking-wider">Anytime</p>
+                    <p className="font-body text-white/40 text-xs uppercase tracking-wider">Anytime</p>
                     <p className="font-body font-bold text-lg" style={{ color: "#00E2E5" }}>{pack.anytime}</p>
                   </div>
                 </div>

@@ -230,7 +230,7 @@ export default function HeadPinzBirthdaysPage() {
           style={{ minHeight: "100vh" }}
         >
           <span
-            className="inline-block font-body text-[10px] uppercase tracking-[0.3em] px-4 py-1.5 rounded-full mb-6 font-bold"
+            className="inline-block font-body text-xs uppercase tracking-[0.3em] px-4 py-1.5 rounded-full mb-6 font-bold"
             style={{ backgroundColor: `${coral}20`, color: coral, border: `1px solid ${coral}40` }}
           >
             Ages 17 &amp; Under
