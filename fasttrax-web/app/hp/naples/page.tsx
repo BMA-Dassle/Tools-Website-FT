@@ -359,7 +359,7 @@ export default function NaplesPage() {
       <section id="attractions" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 56px)" }}>
           <h2
-            className="font-heading uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(28px, 6vw, 52px)",
               letterSpacing: "3px",
@@ -412,9 +412,9 @@ export default function NaplesPage() {
 
               <div className="flex flex-col flex-1 p-5">
                 <h3
-                  className="font-heading uppercase text-white"
+                  className="font-heading font-black uppercase text-white"
                   style={{
-                    fontSize: "clamp(16px, 2.5vw, 20px)",
+                    fontSize: "clamp(20px, 3.5vw, 32px)",
                     letterSpacing: "1.5px",
                     marginBottom: "4px",
                     textShadow: `0 0 20px ${a.accent}40`,
@@ -500,7 +500,7 @@ export default function NaplesPage() {
                 VIP Exclusive
               </span>
               <h3
-                className="font-heading uppercase text-white tracking-wider mb-3"
+                className="font-heading font-black uppercase text-white tracking-wider mb-3"
                 style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
               >
                 NeoVerse
@@ -524,7 +524,7 @@ export default function NaplesPage() {
                 VIP Exclusive
               </span>
               <h3
-                className="font-heading uppercase text-white tracking-wider mb-3"
+                className="font-heading font-black uppercase text-white tracking-wider mb-3"
                 style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(0,226,229,0.25)" }}
               >
                 HyperBowling
@@ -552,7 +552,7 @@ export default function NaplesPage() {
         <div className="relative z-10">
           <div className="text-center" style={{ marginBottom: "16px" }}>
             <h2
-              className="font-heading uppercase text-white"
+              className="font-heading font-black uppercase text-white"
               style={{
                 fontSize: "clamp(28px, 6vw, 52px)",
                 letterSpacing: "3px",
@@ -683,7 +683,7 @@ export default function NaplesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
             <div>
               <h2
-                className="font-heading uppercase text-white"
+                className="font-heading font-black uppercase text-white"
                 style={{
                   fontSize: "clamp(28px, 6vw, 52px)",
                   letterSpacing: "3px",
@@ -742,7 +742,7 @@ export default function NaplesPage() {
 
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
           <h2
-            className="font-heading uppercase text-white"
+            className="font-heading font-black uppercase text-white"
             style={{
               fontSize: "clamp(24px, 5vw, 44px)",
               letterSpacing: "3px",
