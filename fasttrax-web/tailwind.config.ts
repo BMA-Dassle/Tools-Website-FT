@@ -22,8 +22,8 @@ const config: Config = {
         "ft-light":   "#F5ECEE",
       },
       fontFamily: {
-        anton:   ["Anton", "sans-serif"],
-        poppins: ["Poppins", "sans-serif"],
+        anton:   ['"Bebas Neue"', "sans-serif"],
+        poppins: ["Inter", "sans-serif"],
         jakarta: ['"Plus Jakarta Sans"', "sans-serif"],
       },
       backgroundImage: {

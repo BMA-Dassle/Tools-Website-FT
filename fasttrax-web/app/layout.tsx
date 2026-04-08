@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Anton, Poppins, Plus_Jakarta_Sans } from "next/font/google";
+import { Bebas_Neue, Inter, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -11,14 +11,14 @@ import { LocalBusinessJsonLd } from "@/components/seo/JsonLd";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 
-const anton = Anton({
+const bebasNeue = Bebas_Neue({
   weight: "400",
   subsets: ["latin"],
   variable: "--font-anton",
   display: "swap",
 });
 
-const poppins = Poppins({
+const inter = Inter({
   weight: ["300", "400", "500", "600", "700"],
   subsets: ["latin"],
   variable: "--font-poppins",
@@ -115,7 +115,7 @@ export default async function RootLayout({
   const isHeadPinz = hdrs.get("x-brand") === "headpinz";
 
   return (
-    <html lang="en" className={`${anton.variable} ${poppins.variable} ${jakarta.variable}`}>
+    <html lang="en" className={`${bebasNeue.variable} ${inter.variable} ${jakarta.variable}`}>
       <head>
         {!isHeadPinz && <LocalBusinessJsonLd />}
       </head>
