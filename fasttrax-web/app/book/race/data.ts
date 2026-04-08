@@ -155,6 +155,108 @@ function lookupPrice(apiPrice: number): number {
   return apiPrice > 0 ? apiPrice : 0;
 }
 
+// ── Static race product registry ────────────────────────────────────────────
+// All race products hardcoded so we don't depend on BMI's GET /page endpoint.
+// This allows pages to be private in BMI (hidden from BMI's native booking).
+// Dayplanner + booking/book still work for private page products.
+
+type Schedule = "weekday" | "weekend" | "mega";
+
+interface StaticRaceProduct {
+  schedule: Schedule;
+  productId: string;
+  pageId: string;
+  name: string;
+  tier: RaceTier;
+  category: RaceCategory;
+  track: string | null;
+  price: number;
+}
+
+const RACE_PRODUCTS: StaticRaceProduct[] = [
+  // ── Weekday (Mon, Wed, Thu) — Page 24961568: Starter ──
+  { schedule: "weekday", productId: "24960859", pageId: "24961568", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", productId: "24960393", pageId: "24961568", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", productId: "24960106", pageId: "24961568", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 15.99 },
+  // ── Weekday — Page 25850629: Intermediate ──
+  { schedule: "weekday", productId: "24960650", pageId: "25850629", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", productId: "24958077", pageId: "25850629", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", productId: "24958587", pageId: "25850629", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
+  // ── Weekday — Page 25850669: Pro ──
+  { schedule: "weekday", productId: "24963023", pageId: "25850669", name: "Pro Race Red", tier: "pro", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", productId: "24963136", pageId: "25850669", name: "Pro Race Blue", tier: "pro", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", productId: "24963258", pageId: "25850669", name: "Junior Pro Blue", tier: "pro", category: "junior", track: "Blue", price: 20.99 },
+
+  // ── Weekend (Fri, Sat, Sun) — Page 24871574: Starter ──
+  { schedule: "weekend", productId: "24953280", pageId: "24871574", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 26.99 },
+  { schedule: "weekend", productId: "24952964", pageId: "24871574", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 26.99 },
+  { schedule: "weekend", productId: "24953399", pageId: "24871574", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 19.99 },
+  // ── Weekend — Page 25850598: Intermediate ──
+  { schedule: "weekend", productId: "24964317", pageId: "25850598", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 26.99 },
+  { schedule: "weekend", productId: "24952410", pageId: "25850598", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 26.99 },
+  { schedule: "weekend", productId: "24954302", pageId: "25850598", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
+
+  // ── Mega (Tuesday) — Page 24966930: Starter ──
+  { schedule: "mega", productId: "24965505", pageId: "24966930", name: "Starter Race Mega", tier: "starter", category: "adult", track: "Mega", price: 20.99 },
+  // ── Mega — Page 25850647: Intermediate ──
+  { schedule: "mega", productId: "24965707", pageId: "25850647", name: "Intermediate Race Mega", tier: "intermediate", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", productId: "24966320", pageId: "25850647", name: "Junior Intermediate Race Mega", tier: "intermediate", category: "junior", track: "Mega", price: 20.99 },
+  // ── Mega — Page 25850658: Pro ──
+  { schedule: "mega", productId: "24965768", pageId: "25850658", name: "Pro Race Mega", tier: "pro", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", productId: "24966863", pageId: "25850658", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
+];
+
+/** Minimal BmiProduct stub for static products (HeatPicker uses raw.message) */
+function stubRaw(p: StaticRaceProduct): BmiProduct {
+  return {
+    id: Number(p.productId),
+    name: p.name,
+    info: "",
+    hasPicture: true,
+    isCombo: false,
+    minAge: p.category === "junior" ? 0 : 13,
+    maxAge: p.category === "junior" ? 14 : 200,
+    isMembersOnly: true,
+    minAmount: -1,
+    maxAmount: p.category === "junior" ? 7 : 10,
+    resourceKind: "Race",
+    kind: 2,
+    bookingMode: 0,
+    productGroup: "Karting",
+    prices: [{ amount: p.price, kind: 0, shortName: "m", depositKind: 0 }],
+    resources: [],
+    dynamicGroups: null,
+    xRef: null,
+  };
+}
+
+/** Get race products for a given date based on day-of-week schedule */
+export function getStaticProducts(date: string): ClassifiedProduct[] {
+  const [y, m, d] = date.split("T")[0].split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
+  let schedule: Schedule;
+  if (dow === 2) schedule = "mega";           // Tuesday
+  else if (dow === 0 || dow === 5 || dow === 6) schedule = "weekend"; // Fri-Sun
+  else schedule = "weekday";                  // Mon, Wed, Thu
+
+  return RACE_PRODUCTS
+    .filter(p => p.schedule === schedule)
+    .map(p => ({
+      productId: p.productId,
+      pageId: p.pageId,
+      name: p.name,
+      tier: p.tier,
+      category: p.category,
+      track: p.track,
+      price: p.price,
+      isCombo: false,
+      packType: "none" as PackType,
+      raceCount: 1,
+      sessionGroup: "Unknown",
+      raw: stubRaw(p),
+    }));
+}
+
 // ── Classified product ──────────────────────────────────────────────────────
 
 export type PackType = "none" | "sell" | "combo";

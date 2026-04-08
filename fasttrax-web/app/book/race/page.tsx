@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
-import type { RacerType, RaceCategory, ClassifiedProduct, BmiPage, BmiProposal, BmiBlock } from "./data";
-import { classifyProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine, isRelevantMembership, getRacerTier } from "./data";
+import type { RacerType, RaceCategory, ClassifiedProduct, BmiProposal, BmiBlock } from "./data";
+import { getStaticProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine, isRelevantMembership, getRacerTier } from "./data";
 import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackBookingResult } from "./components/OrderSummary";
 
@@ -226,16 +226,14 @@ export default function BookRacePage() {
     sessionStorage.setItem("attractionCart", JSON.stringify([...nonRacing, ...racingItems]));
   }, [bookings, licenseSold]);
 
-  // Fetch product catalog when date is selected
-  const fetchCatalog = useCallback(async (date: string) => {
+  // Load product catalog from static registry based on day-of-week
+  const fetchCatalog = useCallback((date: string) => {
     setCatalogLoading(true);
     try {
-      const isoDate = `${date}T00:00:00.000Z`;
-      const pages: BmiPage[] = await bmiGet("page", { date: isoDate });
-      const classified = classifyProducts(pages);
+      const classified = getStaticProducts(date);
       setCatalogProducts(classified);
     } catch (err) {
-      console.error("Failed to fetch catalog:", err);
+      console.error("Failed to load catalog:", err);
       setCatalogProducts([]);
     } finally {
       setCatalogLoading(false);
