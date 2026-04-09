@@ -133,6 +133,7 @@ export async function POST(req: NextRequest) {
       povCodes,
       productNames,
       scheduledItems,
+      brand,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     const products: string[] = Array.isArray(productNames) ? productNames : [];
@@ -164,9 +165,12 @@ export async function POST(req: NextRequest) {
     const firstLocation = getLocation(firstItem);
     const allLocations = new Set((scheduled.length > 0 ? scheduled.map((s: { name: string }) => getLocation(s.name)) : products.map(getLocation)));
     const hasBoth = allLocations.has("headpinz") && allLocations.has("fasttrax");
+    // Check-in location is based on first scheduled product
     const isHeadPinz = firstLocation === "headpinz";
     const showFastTrax = firstLocation === "fasttrax";
-    const brandName = isHeadPinz ? "HeadPinz" : "FastTrax";
+    // Brand is based on which website they booked from
+    const isHeadPinzBrand = brand === "headpinz" || (!brand && isHeadPinz);
+    const brandName = isHeadPinzBrand ? "HeadPinz" : "FastTrax";
 
     // ── Send email ────────────────────────────────────────────────────────
     try {
@@ -269,7 +273,7 @@ export async function POST(req: NextRequest) {
         email,
         `${brandName} Booking Confirmed — #${reservationNumber}`,
         html,
-        isHeadPinz ? "HeadPinz Entertainment" : undefined,
+        isHeadPinzBrand ? "HeadPinz Entertainment" : undefined,
       );
     } catch (err) {
       console.error("[booking-confirmation] email failed:", err);

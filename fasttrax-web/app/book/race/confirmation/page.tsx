@@ -347,6 +347,7 @@ export default function ConfirmationPage() {
               waiverUrl: !isReturning ? resolvedWaiverUrl : "",
               isNewRacer: !isReturning,
               povCodes: claimedPovCodes,
+              brand: window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
             }),
           }).catch(() => {});
         }
