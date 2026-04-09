@@ -346,9 +346,11 @@ export default function OrderSummary({
         race: raceName,
         name: `${contact.firstName} ${contact.lastName}`,
         email: contact.email,
+        phone: contact.phone,
         qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
         heat: heatStart,
         isCreditOrder: isCreditOrder ? "true" : "false",
+        smsOptIn: contact.smsOptIn ? "true" : "false",
         overviews: JSON.stringify(billOverviews),
       };
       await fetch("/api/booking-store", {

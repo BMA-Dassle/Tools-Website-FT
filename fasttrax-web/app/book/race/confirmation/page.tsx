@@ -178,6 +178,9 @@ export default function ConfirmationPage() {
         }
         setRacerQrCodes(qrs);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let notificationPayload: Record<string, any> | null = null;
+
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
 
@@ -202,6 +205,36 @@ export default function ConfirmationPage() {
               }),
             });
           } catch { /* non-fatal */ }
+
+          // Build notification payload (deferred send until waiver URL resolved)
+          notificationPayload = (() => {
+            const primaryRes = allConfirmations[0];
+            const scheduleLines: string[] = [];
+            if (overview?.lines) {
+              for (const line of overview.lines) {
+                const sched = line.scheduledTime || (line.schedules?.[0] ? { start: line.schedules[0].start, stop: line.schedules[0].stop } : null);
+                if (sched?.start) {
+                  const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
+                  scheduleLines.push(`${line.name}${qty} · ${formatTime(sched.start)}${sched.stop ? ` - ${formatTime(sched.stop)}` : ""}`);
+                }
+              }
+            }
+            const firstHeat = overview?.lines?.find(l => l.scheduledTime?.start)?.scheduledTime?.start
+              || overview?.lines?.[0]?.schedules?.[0]?.start || "";
+            return {
+              email: details?.email || "",
+              phone: details?.phone || "",
+              firstName: details?.name?.split(" ")[0] || "",
+              smsOptIn: details?.smsOptIn === "true",
+              reservationNumber: primaryRes.resNumber,
+              reservationName: details?.name || primaryRes.racerName,
+              reservationDate: firstHeat ? formatDate(firstHeat) : "",
+              reservationTime: firstHeat ? formatTime(firstHeat) : "",
+              reservationSchedule: scheduleLines.join("<br/>"),
+              reservationCode: primaryRes.resCode || "",
+              billId: id || "",
+            };
+          })();
         }
 
         // Link racers to reservation schedule (returning racers only, fire-and-forget)
@@ -240,6 +273,7 @@ export default function ConfirmationPage() {
         const isReturning = personIdsParam && personIdsParam.split(",").filter(Boolean).length > 0;
         setIsNewRacer(!isReturning);
 
+        let resolvedWaiverUrl = "";
         if (!isReturning && id) {
           try {
             // Get projectId from bill overview
@@ -251,9 +285,19 @@ export default function ConfirmationPage() {
             const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
             const proj = await projRes.json();
             if (proj.projectReference) {
-              setWaiverUrl(`https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`);
+              resolvedWaiverUrl = `https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`;
+              setWaiverUrl(resolvedWaiverUrl);
             }
           } catch { /* non-fatal */ }
+        }
+
+        // Fire email + SMS confirmation (after waiver URL resolved)
+        if (notificationPayload) {
+          fetch("/api/notifications/booking-confirmation", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ...notificationPayload, waiverUrl: resolvedWaiverUrl }),
+          }).catch(() => {});
         }
 
         // Add memo to each bill listing related reservations in the group

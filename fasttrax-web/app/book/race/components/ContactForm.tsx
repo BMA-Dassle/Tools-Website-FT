@@ -7,6 +7,7 @@ export interface ContactInfo {
   lastName: string;
   email: string;
   phone: string;
+  smsOptIn: boolean;
 }
 
 interface ContactFormProps {
@@ -46,6 +47,7 @@ export default function ContactForm({ initial, onSubmit, onBack }: ContactFormPr
   const [lastName, setLastName] = useState(initial?.lastName ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [smsOptIn, setSmsOptIn] = useState(initial?.smsOptIn ?? true);
   const [errors, setErrors] = useState<Partial<Record<keyof ContactInfo, string>>>({});
 
   function validate() {
@@ -61,7 +63,7 @@ export default function ContactForm({ initial, onSubmit, onBack }: ContactFormPr
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
-    onSubmit({ firstName, lastName, email, phone });
+    onSubmit({ firstName, lastName, email, phone, smsOptIn });
   }
 
   return (
@@ -92,6 +94,18 @@ export default function ContactForm({ initial, onSubmit, onBack }: ContactFormPr
           <Field label="Phone Number" value={phone} onChange={setPhone} type="tel" placeholder="(239) 555-0100" />
           {errors.phone && <p className="text-red-400 text-xs mt-1">{errors.phone}</p>}
         </div>
+
+        <label className="flex items-center gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={smsOptIn}
+            onChange={(e) => setSmsOptIn(e.target.checked)}
+            className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#00E2E5] focus:ring-[#00E2E5]/50 focus:ring-offset-0 cursor-pointer accent-[#00E2E5]"
+          />
+          <span className="text-sm text-white/50 group-hover:text-white/70 transition-colors">
+            Send me a text confirmation
+          </span>
+        </label>
 
         <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 leading-relaxed">
           Your contact info is used to create your FastTrax racer profile and attach your booking.

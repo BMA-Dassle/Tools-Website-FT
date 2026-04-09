@@ -296,6 +296,7 @@ export default function BookRacePage() {
       lastName: nameParts.slice(1).join(" ") || "",
       email: person.email,
       phone: "",
+      smsOptIn: true,
     });
     // Fetch credits in background (non-blocking)
     fetchRacerCredits(person).then(updated => {
