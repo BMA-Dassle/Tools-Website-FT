@@ -478,7 +478,7 @@ export default function ConfirmationPage() {
                 You&apos;re on the grid!
               </h1>
               <p className="text-white/50 text-sm max-w-md mx-auto">
-                Your reservation is confirmed. Show your QR code at {checkInLocation === "fasttrax" ? "Guest Services (2nd Floor)" : "HeadPinz front desk"} when you arrive.
+                Your reservation is confirmed. Show your QR code at check-in when you arrive.
               </p>
               {/* Reservation number shown on the card, not here */}
             </>
@@ -578,7 +578,8 @@ export default function ConfirmationPage() {
                           <div className={`${confirmations.length <= 1 ? "mt-3" : "mt-1.5"}`}>
                             <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
                             <p className={`text-white font-display uppercase tracking-widest ${confirmations.length <= 1 ? "text-3xl sm:text-4xl" : "text-xl"}`}>{checkinTime(heatStart)}</p>
-                            <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "Guest Services, 2nd Floor" : "HeadPinz Front Desk"}</p>
+                            <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "FastTrax — Guest Services, 2nd Floor" : "HeadPinz — Guest Services"}</p>
+                            <p className="text-white/20 text-xs">{checkInLocation === "fasttrax" ? "14501 Global Parkway, Fort Myers" : "14513 Global Parkway, Fort Myers"}</p>
                           </div>
                         )}
                       </div>

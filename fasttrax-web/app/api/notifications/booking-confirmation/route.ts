@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
           <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #FFF5F5; border: 1px solid #FFCDD2; border-radius: 6px;">
           <tr><td style="font-family: Arial, sans-serif;">
             <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; Check In at HeadPinz</p>
-            <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early.</p>
+            <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early. Check in at Guest Services.</p>
             <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14513 Global Parkway, Fort Myers</p>
           </td></tr></table>`;
       } else if (showFastTrax && !isHeadPinz) {
@@ -229,9 +229,27 @@ export async function POST(req: NextRequest) {
 
       html = html.replace(/\^CheckInSection\(\)\$/g, checkInHtml);
 
-      // Function-style ^PlaceholderName()$ replacements
+      // Waiver section — only for new racers
       const waiverLink = isNewRacer ? (waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe") : "";
+      const waiverSectionHtml = isNewRacer ? `
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0"
+       style="background-color:#FFF0F0; border: 2px solid #D71C1C; border-radius: 6px;">
+<tr><td align="center" style="font-size: 17px; font-weight: bold; color: #D71C1C;">WAIVERS REQUIRED</td></tr>
+<tr><td align="center" style="font-size: 14px; color: #333; line-height: 1.6;">
+  Every guest must complete a waiver <strong>before arrival</strong>.
+  Missing waivers are the <strong>#1 cause of delays</strong>.
+</td></tr>
+<tr><td align="center"><a href="${waiverLink}" class="cta-btn red">Complete Waiver Now</a></td></tr>
+<tr><td align="center" style="font-size: 11px; color: #999; word-break: break-all;">${waiverLink}</td></tr>
+</table>
+</td>
+</tr>` : "";
+
+      // Function-style ^PlaceholderName()$ replacements
       html = html
+        .replace(/\^WaiverSection\(\)\$/g, waiverSectionHtml)
         .replace(/\^ReservationLink\(\)\$/g, waiverLink || "#")
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
         .replace(/\^SoldVouchersList\(\)\$/g, codes.length > 0
@@ -244,12 +262,7 @@ export async function POST(req: NextRequest) {
           : "")
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
-      // Hide waiver section entirely for returning racers
-      if (!isNewRacer) {
-        // Remove the waiver CTA button and its surrounding text
-        html = html.replace(/Complete Waiver Now<\/a>/g, "");
-        html = html.replace(/<a[^>]*class="cta-btn red"[^>]*>[^<]*<\/a>/g, "");
-      }
+      // Waiver section already handled by ^WaiverSection()$ placeholder
 
       results.email = await sendEmail(
         email,
@@ -289,7 +302,7 @@ ${schedule}
 ${reservationDate || ""}
 ${reservationTime || ""}
 
-${showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at Guest Services, 2nd Floor.\n14501 Global Parkway, Fort Myers" : ""}${isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\n14513 Global Parkway, Fort Myers" : ""}${hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz — 14513 Global Parkway" : "FastTrax Guest Services — 14501 Global Parkway"}.` : ""}
+${showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n14501 Global Parkway, Fort Myers" : ""}${isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\nGuest Services\n14513 Global Parkway, Fort Myers" : ""}${hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz\n14513 Global Parkway, Fort Myers" : "FastTrax — Guest Services, 2nd Floor\n14501 Global Parkway, Fort Myers"}.` : ""}
 ${waiverSection}
 ${confirmSection}
 

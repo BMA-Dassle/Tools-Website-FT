@@ -136,35 +136,8 @@
 <!-- WHERE TO CHECK IN -->
 ^CheckInSection()$
 
-<!-- WAIVER CTA -->
-<tr>
-<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
-<table width="100%" cellpadding="16" cellspacing="0" border="0"
-       style="background-color:#FFF0F0; border: 2px solid #D71C1C; border-radius: 6px;">
-<tr>
-<td align="center" style="font-size: 17px; font-weight: bold; color: #D71C1C;">
-  WAIVERS REQUIRED
-</td>
-</tr>
-<tr>
-<td align="center" style="font-size: 14px; color: #333; line-height: 1.6;">
-  Every guest must complete a waiver <strong>before arrival</strong>.
-  Missing waivers are the <strong>#1 cause of delays</strong>.
-</td>
-</tr>
-<tr>
-<td align="center">
-  <a href="^ReservationLink()$" class="cta-btn red">Complete Waiver Now</a>
-</td>
-</tr>
-<tr>
-<td align="center" style="font-size: 11px; color: #999; word-break: break-all;">
-  ^ReservationLink()$
-</td>
-</tr>
-</table>
-</td>
-</tr>
+<!-- WAIVER CTA (removed for returning racers via ^WaiverSection()$) -->
+^WaiverSection()$
 
 <!-- QR CODE -->
 <tr>
