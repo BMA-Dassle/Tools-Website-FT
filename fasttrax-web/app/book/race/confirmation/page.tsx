@@ -77,6 +77,8 @@ export default function ConfirmationPage() {
   const [storedOverviews, setStoredOverviews] = useState<any[]>([]);
   /** Per-racer QR codes */
   const [racerQrCodes, setRacerQrCodes] = useState<Record<string, string>>({});
+  /** Claimed POV camera redemption codes */
+  const [povCodes, setPovCodes] = useState<string[]>([]);
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -291,13 +293,52 @@ export default function ConfirmationPage() {
           } catch { /* non-fatal */ }
         }
 
-        // Fire email + SMS confirmation (after waiver URL resolved)
+        // Claim POV codes if POV was purchased
+        let claimedPovCodes: string[] = [];
+        try {
+          // Check stored overviews for POV line items
+          const allOverviewLines = storedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+          const povLine = allOverviewLines.find((l: OrderLine) =>
+            l.name.toLowerCase().includes("pov") || String((l as unknown as { productId: string }).productId) === "43746981"
+          );
+          if (povLine && povLine.quantity > 0) {
+            const claimRes = await fetch(`/api/pov-codes?action=claim&qty=${povLine.quantity}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`);
+            if (claimRes.ok) {
+              const claimData = await claimRes.json();
+              claimedPovCodes = claimData.codes || [];
+              setPovCodes(claimedPovCodes);
+              console.log("[POV codes] claimed:", claimedPovCodes);
+            }
+          }
+        } catch (err) {
+          console.warn("[POV codes] claim failed:", err);
+        }
+
+        // Fire email + SMS confirmation (after waiver URL + POV codes resolved)
         if (notificationPayload) {
           fetch("/api/notifications/booking-confirmation", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ ...notificationPayload, waiverUrl: !isReturning ? resolvedWaiverUrl : "", isNewRacer: !isReturning }),
+            body: JSON.stringify({
+              ...notificationPayload,
+              waiverUrl: !isReturning ? resolvedWaiverUrl : "",
+              isNewRacer: !isReturning,
+              povCodes: claimedPovCodes,
+            }),
           }).catch(() => {});
+        }
+
+        // Add POV codes to BMI reservation memo
+        if (claimedPovCodes.length > 0 && id) {
+          try {
+            const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+            const memoBody = `{"orderId":${id},"memo":"POV Codes: ${claimedPovCodes.join(", ")} — Emailed and texted to guest"}`;
+            await fetch(`/api/bmi?${memoQs.toString()}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: memoBody,
+            });
+          } catch { /* non-fatal */ }
         }
 
         // Add memo to each bill listing related reservations in the group
@@ -547,6 +588,24 @@ export default function ConfirmationPage() {
             })()}
 
           </div>
+
+          {/* POV Camera Codes */}
+          {povCodes.length > 0 && (
+            <div className="lg:col-span-2 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-5 sm:p-6">
+              <h3 className="font-display text-white text-lg uppercase tracking-widest mb-2">Your ViewPoint POV Camera Codes</h3>
+              <p className="text-white/50 text-sm leading-relaxed mb-4">
+                After your race, be sure to collect your POV camera slip. Without this slip, you will not be able to get your video. Scan the QR code on the slip and enter the codes below to redeem your video. Videos take 15-30 minutes to upload.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {povCodes.map((code, i) => (
+                  <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-4 py-2.5">
+                    <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-0.5">Code {i + 1}</p>
+                    <p className="text-white font-mono text-lg font-bold tracking-wider">{code}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* RIGHT: Racer's Journey (only in grid for multi-bill) */}
           {confirmations.length > 1 && (

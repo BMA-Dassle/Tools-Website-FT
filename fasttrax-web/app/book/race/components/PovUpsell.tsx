@@ -109,7 +109,7 @@ export default function PovUpsell({ racerCount, onContinue, onBack, initial }: P
       {/* CTA */}
       <div className="flex flex-col gap-3">
         <button
-          onClick={() => onContinue(qty > 0 ? { id: "30084297", quantity: qty, price } : null)}
+          onClick={() => onContinue(qty > 0 ? { id: "43746981", quantity: qty, price } : null)}
           className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
         >
           {qty > 0 ? `Continue with ${qty} Camera${qty !== 1 ? "s" : ""} →` : "Skip — Continue to Checkout →"}

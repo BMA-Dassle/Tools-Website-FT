@@ -130,7 +130,9 @@ export async function POST(req: NextRequest) {
       reservationCode,
       billId,
       isNewRacer,
+      povCodes,
     } = body;
+    const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
 
     if (!email || !reservationNumber) {
       return NextResponse.json({ error: "email and reservationNumber required" }, { status: 400 });
@@ -164,7 +166,14 @@ export async function POST(req: NextRequest) {
       html = html
         .replace(/\^ReservationLink\(\)\$/g, waiverLink || "#")
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
-        .replace(/\^SoldVouchersList\(\)\$/g, "")
+        .replace(/\^SoldVouchersList\(\)\$/g, codes.length > 0
+          ? `<p style="font-weight:bold; color:#1A1A1A; margin:0 0 8px 0;">Your ViewPoint POV Camera Codes:</p>
+             ${codes.map((c, i) => `<p style="font-family:monospace; font-size:18px; font-weight:bold; color:#6B21A8; margin:4px 0;">Code ${i + 1}: ${c}</p>`).join("")}
+             <p style="color:#D71C1C; font-size:13px; line-height:1.6; margin:12px 0 0 0; font-weight:bold;">
+               After your race, be sure to collect your POV camera slip. Without this slip, you will not be able to get your video.
+               Scan the QR code on the slip and enter the codes above to redeem your video. Videos take 15-30 minutes to upload.
+             </p>`
+          : "")
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
       // Hide waiver section entirely for returning racers
@@ -204,7 +213,6 @@ export async function POST(req: NextRequest) {
           const schedule = reservationSchedule ? reservationSchedule.replace(/<br\/?>/g, "\n") : "";
           const confirmSection = shortConfirm ? `\nView your confirmation:\n${shortConfirm}` : "";
           const waiverSection = shortWaiver ? `\nComplete your waiver:\n${shortWaiver}` : "";
-
           const smsBody = `FastTrax Booking Confirmed
 
 Reservation: #${reservationNumber}
@@ -220,7 +228,20 @@ ${confirmSection}
 Important information about your race check-in:
 https://fasttraxent.com/racing#racers-journey`;
 
-          results.sms = await sendSms(normalized, smsBody);
+          const povFooter = codes.length > 0
+            ? `\n\n\nYour POV Camera Codes — collect your camera slip after your race to redeem. Videos take 15-30 min to upload. POV Codes below:`
+            : "";
+
+          results.sms = await sendSms(normalized, smsBody + povFooter);
+
+          // Send each POV code as a separate SMS for easy copy/paste
+          // Delay to ensure confirmation SMS arrives first
+          if (codes.length > 0) {
+            await new Promise(r => setTimeout(r, 5000));
+            for (const code of codes) {
+              await sendSms(normalized, code);
+            }
+          }
         }
       } catch (err) {
         console.error("[booking-confirmation] sms failed:", err);
