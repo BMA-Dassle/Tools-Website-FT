@@ -164,6 +164,7 @@ type Schedule = "weekday" | "weekend" | "mega";
 
 interface StaticRaceProduct {
   schedule: Schedule;
+  racerType: RacerType; // "new" or "existing"
   productId: string;
   pageId: string;
   name: string;
@@ -174,36 +175,70 @@ interface StaticRaceProduct {
 }
 
 const RACE_PRODUCTS: StaticRaceProduct[] = [
+  // ════════════════════════════════════════════════════════════════════════
+  // NEW RACERS
+  // ════════════════════════════════════════════════════════════════════════
+
   // ── Weekday (Mon, Wed, Thu) — Page 24961568: Starter ──
-  { schedule: "weekday", productId: "24960859", pageId: "24961568", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 20.99 },
-  { schedule: "weekday", productId: "24960393", pageId: "24961568", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 20.99 },
-  { schedule: "weekday", productId: "24960106", pageId: "24961568", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 15.99 },
+  { schedule: "weekday", racerType: "new", productId: "24960859", pageId: "24961568", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24960393", pageId: "24961568", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24960106", pageId: "24961568", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 15.99 },
   // ── Weekday — Page 25850629: Intermediate ──
-  { schedule: "weekday", productId: "24960650", pageId: "25850629", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 20.99 },
-  { schedule: "weekday", productId: "24958077", pageId: "25850629", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 20.99 },
-  { schedule: "weekday", productId: "24958587", pageId: "25850629", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24960650", pageId: "25850629", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24958077", pageId: "25850629", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24958587", pageId: "25850629", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
   // ── Weekday — Page 25850669: Pro ──
-  { schedule: "weekday", productId: "24963023", pageId: "25850669", name: "Pro Race Red", tier: "pro", category: "adult", track: "Red", price: 20.99 },
-  { schedule: "weekday", productId: "24963136", pageId: "25850669", name: "Pro Race Blue", tier: "pro", category: "adult", track: "Blue", price: 20.99 },
-  { schedule: "weekday", productId: "24963258", pageId: "25850669", name: "Junior Pro Blue", tier: "pro", category: "junior", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24963023", pageId: "25850669", name: "Pro Race Red", tier: "pro", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24963136", pageId: "25850669", name: "Pro Race Blue", tier: "pro", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "new", productId: "24963258", pageId: "25850669", name: "Junior Pro Blue", tier: "pro", category: "junior", track: "Blue", price: 20.99 },
 
   // ── Weekend (Fri, Sat, Sun) — Page 24871574: Starter ──
-  { schedule: "weekend", productId: "24953280", pageId: "24871574", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 26.99 },
-  { schedule: "weekend", productId: "24952964", pageId: "24871574", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 26.99 },
-  { schedule: "weekend", productId: "24953399", pageId: "24871574", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 19.99 },
+  { schedule: "weekend", racerType: "new", productId: "24953280", pageId: "24871574", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 26.99 },
+  { schedule: "weekend", racerType: "new", productId: "24952964", pageId: "24871574", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 26.99 },
+  { schedule: "weekend", racerType: "new", productId: "24953399", pageId: "24871574", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 19.99 },
   // ── Weekend — Page 25850598: Intermediate ──
-  { schedule: "weekend", productId: "24964317", pageId: "25850598", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 26.99 },
-  { schedule: "weekend", productId: "24952410", pageId: "25850598", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 26.99 },
-  { schedule: "weekend", productId: "24954302", pageId: "25850598", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
+  { schedule: "weekend", racerType: "new", productId: "24964317", pageId: "25850598", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 26.99 },
+  { schedule: "weekend", racerType: "new", productId: "24952410", pageId: "25850598", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 26.99 },
+  { schedule: "weekend", racerType: "new", productId: "24954302", pageId: "25850598", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
 
   // ── Mega (Tuesday) — Page 24966930: Starter ──
-  { schedule: "mega", productId: "24965505", pageId: "24966930", name: "Starter Race Mega", tier: "starter", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "new", productId: "24965505", pageId: "24966930", name: "Starter Race Mega", tier: "starter", category: "adult", track: "Mega", price: 20.99 },
   // ── Mega — Page 25850647: Intermediate ──
-  { schedule: "mega", productId: "24965707", pageId: "25850647", name: "Intermediate Race Mega", tier: "intermediate", category: "adult", track: "Mega", price: 20.99 },
-  { schedule: "mega", productId: "24966320", pageId: "25850647", name: "Junior Intermediate Race Mega", tier: "intermediate", category: "junior", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "new", productId: "24965707", pageId: "25850647", name: "Intermediate Race Mega", tier: "intermediate", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "new", productId: "24966320", pageId: "25850647", name: "Junior Intermediate Race Mega", tier: "intermediate", category: "junior", track: "Mega", price: 20.99 },
   // ── Mega — Page 25850658: Pro ──
-  { schedule: "mega", productId: "24965768", pageId: "25850658", name: "Pro Race Mega", tier: "pro", category: "adult", track: "Mega", price: 20.99 },
-  { schedule: "mega", productId: "24966863", pageId: "25850658", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "new", productId: "24965768", pageId: "25850658", name: "Pro Race Mega", tier: "pro", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "new", productId: "24966863", pageId: "25850658", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
+
+  // ════════════════════════════════════════════════════════════════════════
+  // RETURNING RACERS — Page 43734751
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Weekday (Mon, Wed, Thu) ──
+  { schedule: "weekday", racerType: "existing", productId: "43734325", pageId: "43734751", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43734615", pageId: "43734751", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43726976", pageId: "43734751", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43727363", pageId: "43734751", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43733371", pageId: "43734751", name: "Pro Race Blue", tier: "pro", category: "adult", track: "Blue", price: 20.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43733839", pageId: "43734751", name: "Pro Race Red", tier: "pro", category: "adult", track: "Red", price: 20.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43733263", pageId: "43734751", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 15.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43732159", pageId: "43734751", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 15.99 },
+  { schedule: "weekday", racerType: "existing", productId: "43732593", pageId: "43734751", name: "Junior Pro Blue", tier: "pro", category: "junior", track: "Blue", price: 15.99 },
+
+  // ── Weekend (Fri, Sat, Sun) — No Pro on weekends ──
+  { schedule: "weekend", racerType: "existing", productId: "43734229", pageId: "43734751", name: "Starter Race Blue", tier: "starter", category: "adult", track: "Blue", price: 26.99 },
+  { schedule: "weekend", racerType: "existing", productId: "43734485", pageId: "43734751", name: "Starter Race Red", tier: "starter", category: "adult", track: "Red", price: 26.99 },
+  { schedule: "weekend", racerType: "existing", productId: "43726940", pageId: "43734751", name: "Intermediate Race Blue", tier: "intermediate", category: "adult", track: "Blue", price: 26.99 },
+  { schedule: "weekend", racerType: "existing", productId: "43727216", pageId: "43734751", name: "Intermediate Race Red", tier: "intermediate", category: "adult", track: "Red", price: 26.99 },
+  { schedule: "weekend", racerType: "existing", productId: "43733133", pageId: "43734751", name: "Junior Starter Race Blue", tier: "starter", category: "junior", track: "Blue", price: 19.99 },
+  { schedule: "weekend", racerType: "existing", productId: "43729633", pageId: "43734751", name: "Junior Intermediate Race Blue", tier: "intermediate", category: "junior", track: "Blue", price: 20.99 },
+
+  // ── Mega (Tuesday) ──
+  { schedule: "mega", racerType: "existing", productId: "43734407", pageId: "43734751", name: "Starter Race Mega", tier: "starter", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "existing", productId: "43727015", pageId: "43734751", name: "Intermediate Race Mega", tier: "intermediate", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "existing", productId: "43733733", pageId: "43734751", name: "Pro Race Mega", tier: "pro", category: "adult", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "existing", productId: "43732358", pageId: "43734751", name: "Junior Intermediate Race Mega", tier: "intermediate", category: "junior", track: "Mega", price: 20.99 },
+  { schedule: "mega", racerType: "existing", productId: "43732675", pageId: "43734751", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
 ];
 
 /** Minimal BmiProduct stub for static products (HeatPicker uses raw.message) */
@@ -230,8 +265,8 @@ function stubRaw(p: StaticRaceProduct): BmiProduct {
   };
 }
 
-/** Get race products for a given date based on day-of-week schedule */
-export function getStaticProducts(date: string): ClassifiedProduct[] {
+/** Get race products for a given date and racer type */
+export function getStaticProducts(date: string, racerType: RacerType = "new"): ClassifiedProduct[] {
   const [y, m, d] = date.split("T")[0].split("-").map(Number);
   const dow = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
   let schedule: Schedule;
@@ -240,7 +275,7 @@ export function getStaticProducts(date: string): ClassifiedProduct[] {
   else schedule = "weekday";                  // Mon, Wed, Thu
 
   return RACE_PRODUCTS
-    .filter(p => p.schedule === schedule)
+    .filter(p => p.schedule === schedule && p.racerType === racerType)
     .map(p => ({
       productId: p.productId,
       pageId: p.pageId,

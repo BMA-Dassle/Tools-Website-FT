@@ -226,11 +226,11 @@ export default function BookRacePage() {
     sessionStorage.setItem("attractionCart", JSON.stringify([...nonRacing, ...racingItems]));
   }, [bookings, licenseSold]);
 
-  // Load product catalog from static registry based on day-of-week
+  // Load product catalog from static registry based on day-of-week and racer type
   const fetchCatalog = useCallback((date: string) => {
     setCatalogLoading(true);
     try {
-      const classified = getStaticProducts(date);
+      const classified = getStaticProducts(date, racerType || "new");
       setCatalogProducts(classified);
     } catch (err) {
       console.error("Failed to load catalog:", err);
@@ -238,7 +238,8 @@ export default function BookRacePage() {
     } finally {
       setCatalogLoading(false);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [racerType]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
