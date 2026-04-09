@@ -52,6 +52,14 @@ export default function Hero() {
             trackside dining. Don&apos;t just watch the action—be the action.
           </p>
 
+          {/* Spring Break Alert */}
+          <div className="rounded-lg border-2 border-red-500 bg-red-500/15 px-4 py-3 max-w-lg animate-pulse">
+            <p className="text-red-400 font-bold text-sm uppercase tracking-wider mb-1">Spring Break Alert</p>
+            <p className="text-white/90 text-sm leading-relaxed">
+              We&apos;re experiencing higher than normal racer volume during spring break. <strong className="text-white">Online race booking is highly recommended</strong> to guarantee your heat time.
+            </p>
+          </div>
+
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
             <BookingLink
