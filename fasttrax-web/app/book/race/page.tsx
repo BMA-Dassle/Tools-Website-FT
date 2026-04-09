@@ -7,6 +7,7 @@ import type { RacerType, RaceCategory, ClassifiedProduct, BmiProposal, BmiBlock 
 import { getStaticProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine, isRelevantMembership, getRacerTier } from "./data";
 import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackBookingResult } from "./components/OrderSummary";
+import BrandNav from "@/components/BrandNav";
 
 /** A per-person bill in BMI */
 interface RacerBill {
@@ -706,6 +707,7 @@ export default function BookRacePage() {
 
   return (
     <div className="min-h-screen bg-[#000418]">
+      <BrandNav />
       {/* Hero banner */}
       <div className="relative overflow-hidden pt-[140px] pb-6">
         <Image
