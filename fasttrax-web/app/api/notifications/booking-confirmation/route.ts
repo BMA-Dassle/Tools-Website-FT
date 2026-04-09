@@ -57,7 +57,7 @@ async function shortenUrl(url: string): Promise<string> {
   return `${base}/s/${code}`;
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, html: string, fromName?: string): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[booking-confirmation] No SENDGRID_API_KEY");
     return false;
@@ -70,7 +70,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
     },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] }],
-      from: { email: FROM_EMAIL, name: FROM_NAME },
+      from: { email: FROM_EMAIL, name: fromName || FROM_NAME },
       subject,
       content: [{ type: "text/html", value: html }],
     }),
@@ -166,6 +166,7 @@ export async function POST(req: NextRequest) {
     const hasBoth = allLocations.has("headpinz") && allLocations.has("fasttrax");
     const isHeadPinz = firstLocation === "headpinz";
     const showFastTrax = firstLocation === "fasttrax";
+    const brandName = isHeadPinz ? "HeadPinz" : "FastTrax";
 
     // ── Send email ────────────────────────────────────────────────────────
     try {
@@ -266,8 +267,9 @@ export async function POST(req: NextRequest) {
 
       results.email = await sendEmail(
         email,
-        `Booking Confirmed — #${reservationNumber}`,
+        `${brandName} Booking Confirmed — #${reservationNumber}`,
         html,
+        isHeadPinz ? "HeadPinz Entertainment" : undefined,
       );
     } catch (err) {
       console.error("[booking-confirmation] email failed:", err);
@@ -294,7 +296,7 @@ export async function POST(req: NextRequest) {
           const schedule = reservationSchedule ? reservationSchedule.replace(/<br\/?>/g, "\n") : "";
           const confirmSection = shortConfirm ? `\nView your confirmation:\n${shortConfirm}` : "";
           const waiverSection = shortWaiver ? `\nComplete your waiver:\n${shortWaiver}` : "";
-          const smsBody = `FastTrax Booking Confirmed
+          const smsBody = `${brandName} Booking Confirmed
 
 Reservation: #${reservationNumber}
 ${schedule}
