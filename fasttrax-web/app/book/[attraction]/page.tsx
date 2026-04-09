@@ -1322,8 +1322,8 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
                 <p className="text-white/30 text-xs uppercase tracking-wider mb-3">Add to your visit</p>
                 <div className="grid grid-cols-2 gap-2">
                   {ATTRACTION_LIST
-                    .filter(a => a.slug !== config.slug && a.slug !== "racing")
-                    .slice(0, 4)
+                    .filter(a => a.slug !== config.slug)
+                    .slice(0, 6)
                     .map(a => (
                       <a
                         key={a.slug}
@@ -1332,6 +1332,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
                       >
                         <p className="text-white font-semibold text-xs">{a.shortName}</p>
                         <p className="text-white/30 text-xs mt-0.5">{a.durationLabel}</p>
+                        <p className="text-white/20 text-[10px] mt-0.5">{a.building}</p>
                       </a>
                     ))}
                 </div>
