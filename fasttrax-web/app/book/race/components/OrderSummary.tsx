@@ -305,7 +305,12 @@ export default function OrderSummary({
         }
       }
 
-      const raceName = "Deposit";
+      // Build descriptive name for Square receipt
+      const raceItems = state.bmiLines
+        .filter(l => l.name && !l.name.toLowerCase().includes("license"))
+        .map(l => `${l.name}${l.quantity > 1 ? ` x${l.quantity}` : ""}${l.time ? ` @ ${formatTime(l.time)}` : ""}`)
+        .join(", ");
+      const raceName = raceItems || "FastTrax Race Booking";
       const heatStart = bookings[0]?.block.start || "";
       const allBillIds = bills.map(b => b.billId);
 

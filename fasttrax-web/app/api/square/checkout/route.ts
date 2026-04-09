@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
           last_name: buyer.lastName || undefined,
         } : undefined,
       } : undefined,
-      payment_note: `FastTrax Booking ${billId}`,
+      payment_note: `FastTrax - ${raceName || "Race Booking"} | Ref: ${billId}`,
     };
 
     if (catalogObjectId) {
