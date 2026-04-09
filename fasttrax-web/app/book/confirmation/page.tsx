@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
+import BrandNav from "@/components/BrandNav";
 import { bmiGet, bmiPost } from "../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
@@ -462,6 +463,7 @@ export default function ConfirmationPage() {
 
   return (
     <div className="min-h-screen bg-[#000418]">
+      <BrandNav />
       {/* Hero banner */}
       <div className="relative overflow-hidden">
         <Image
@@ -506,8 +508,8 @@ export default function ConfirmationPage() {
       {!loading && orderId && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
 
-          {/* Waiver banner — new racers only */}
-          {isNewRacer && waiverUrl && (
+          {/* Waiver banner — new racers or attractions that require waivers */}
+          {waiverUrl && (
             <div className="rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">
@@ -523,7 +525,7 @@ export default function ConfirmationPage() {
                 </div>
               </div>
               <p className="text-white/80 text-sm leading-relaxed mb-4 max-w-2xl">
-                <strong className="text-red-400">Every racer must complete their own waiver before racing.</strong> Each person in your party needs to sign individually. Parents or guardians must register themselves first, then add any minors to their waiver.
+                <strong className="text-red-400">Every guest must complete their own waiver before participating.</strong> Each person in your party needs to sign individually. Parents or guardians must register themselves first, then add any minors to their waiver.
               </p>
               <a
                 href={waiverUrl}
@@ -536,7 +538,7 @@ export default function ConfirmationPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
               </a>
-              <p className="text-white/40 text-xs mt-3">Opens in a new tab. Each adult signs their own waiver. Parents: register yourself first, then add your minors.</p>
+              <p className="text-white/40 text-xs mt-3">Opens in a new tab. Each participant signs their own waiver. Parents: register yourself first, then add your minors.</p>
             </div>
           )}
 
