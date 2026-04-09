@@ -7,10 +7,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   if (isHeadPinz) {
     return {
-      title: {
-        default: "Book Online | HeadPinz",
-        template: "%s | HeadPinz",
-      },
+      title: "Book Online | HeadPinz",
       description: "Book bowling, laser tag, gel blasters, shuffleboard and more at HeadPinz Fort Myers & Naples.",
       openGraph: {
         title: "Book Online | HeadPinz",
@@ -21,13 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title: {
-      default: "Book Online | FastTrax Entertainment",
-      template: "%s | FastTrax Entertainment",
-    },
+    title: "Book Online | FastTrax",
     description: "Book go-kart racing, duckpin bowling, shuffleboard and more at FastTrax Fort Myers.",
     openGraph: {
-      title: "Book Online | FastTrax Entertainment",
+      title: "Book Online | FastTrax",
       description: "Book go-kart racing, duckpin bowling, shuffleboard and more at FastTrax Fort Myers.",
       type: "website",
     },
