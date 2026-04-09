@@ -14,7 +14,7 @@ const SQUARE_LOCATION = process.env.SQUARE_LOCATION_ID || "";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { billId, amount, raceName, returnUrl, cancelUrl, buyer, catalogObjectId } = await req.json();
+    const { billId, amount, raceName, confirmUrl, returnUrl, cancelUrl, buyer, catalogObjectId } = await req.json();
 
     if (!billId || !amount) {
       return NextResponse.json({ error: "billId and amount required" }, { status: 400 });
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
           last_name: buyer.lastName || undefined,
         } : undefined,
       } : undefined,
-      payment_note: `FastTrax - ${raceName || "Race Booking"} | Ref: ${billId}`,
+      payment_note: `FastTrax - ${raceName || "Race Booking"} | Ref: ${billId}${confirmUrl ? ` | Confirmation: ${confirmUrl}` : ""}`,
     };
 
     if (catalogObjectId) {

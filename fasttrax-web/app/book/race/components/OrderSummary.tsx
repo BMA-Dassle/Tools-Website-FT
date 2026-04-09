@@ -424,6 +424,20 @@ export default function OrderSummary({
       // Cash order — create Square checkout
       const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
 
+      // Create short confirmation URL for Square receipt note
+      let shortConfirmUrl = "";
+      try {
+        const shortRes = await fetch("/api/s", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: returnUrl }),
+        });
+        if (shortRes.ok) {
+          const shortData = await shortRes.json();
+          shortConfirmUrl = shortData.shortUrl || "";
+        }
+      } catch { /* fall back to no short URL */ }
+
       const res = await fetch("/api/square/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -431,6 +445,7 @@ export default function OrderSummary({
           billId: orderId,
           amount: cashOwed,
           raceName,
+          confirmUrl: shortConfirmUrl,
           returnUrl,
           cancelUrl: `${window.location.origin}/book/race`,
           buyer: {
