@@ -79,6 +79,8 @@ export default function ConfirmationPage() {
   const [racerQrCodes, setRacerQrCodes] = useState<Record<string, string>>({});
   /** Claimed POV camera redemption codes */
   const [povCodes, setPovCodes] = useState<string[]>([]);
+  /** Check-in location based on first scheduled item */
+  const [checkInLocation, setCheckInLocation] = useState<"fasttrax" | "headpinz">("fasttrax");
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -125,6 +127,18 @@ export default function ConfirmationPage() {
           }
         } catch {
           // Order already converted to reservation
+        }
+
+        // Determine check-in location from first scheduled item
+        const allLines = overview?.lines || parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+        const scheduledLines = allLines
+          .filter((l: OrderLine) => l.scheduledTime?.start)
+          .sort((a: OrderLine, b: OrderLine) => (a.scheduledTime?.start || "").localeCompare(b.scheduledTime?.start || ""));
+        if (scheduledLines.length > 0) {
+          const firstName = scheduledLines[0].name.toLowerCase();
+          if (firstName.includes("gel") || firstName.includes("laser") || (firstName.includes("shuffly") && firstName.includes("hpfm"))) {
+            setCheckInLocation("headpinz");
+          }
         }
 
         // Confirm payment on ALL bills (multi-bill for per-person credits)
@@ -464,7 +478,7 @@ export default function ConfirmationPage() {
                 You&apos;re on the grid!
               </h1>
               <p className="text-white/50 text-sm max-w-md mx-auto">
-                Your reservation is confirmed. Show your QR code at Guest Services when you arrive.
+                Your reservation is confirmed. Show your QR code at {checkInLocation === "fasttrax" ? "Guest Services (2nd Floor)" : "HeadPinz front desk"} when you arrive.
               </p>
               {/* Reservation number shown on the card, not here */}
             </>
@@ -564,7 +578,7 @@ export default function ConfirmationPage() {
                           <div className={`${confirmations.length <= 1 ? "mt-3" : "mt-1.5"}`}>
                             <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
                             <p className={`text-white font-display uppercase tracking-widest ${confirmations.length <= 1 ? "text-3xl sm:text-4xl" : "text-xl"}`}>{checkinTime(heatStart)}</p>
-                            <p className="text-white/30 text-xs">Guest Services, 2nd Floor</p>
+                            <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "Guest Services, 2nd Floor" : "HeadPinz Front Desk"}</p>
                           </div>
                         )}
                       </div>
