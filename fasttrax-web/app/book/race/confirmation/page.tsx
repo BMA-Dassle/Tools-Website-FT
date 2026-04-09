@@ -593,16 +593,16 @@ export default function ConfirmationPage() {
 
           {/* POV Camera Codes */}
           {povCodes.length > 0 && (
-            <div className="lg:col-span-2 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-5 sm:p-6">
-              <h3 className="font-display text-white text-lg uppercase tracking-widest mb-2">Your ViewPoint POV Camera Codes</h3>
-              <p className="text-white/50 text-sm leading-relaxed mb-4">
+            <div className="lg:col-span-2 mt-6 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-6 sm:p-8">
+              <h3 className="font-display text-white text-xl uppercase tracking-widest mb-4">Your ViewPoint POV Camera Codes</h3>
+              <p className="text-white/50 text-sm leading-relaxed mb-6">
                 After your race, be sure to collect your POV camera slip. Without this slip, you will not be able to get your video. Scan the QR code on the slip and enter the codes below to redeem your video. Videos take 15-30 minutes to upload.
               </p>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-4">
                 {povCodes.map((code, i) => (
-                  <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-4 py-2.5">
-                    <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-0.5">Code {i + 1}</p>
-                    <p className="text-white font-mono text-lg font-bold tracking-wider">{code}</p>
+                  <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-5 py-3">
+                    <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-1">Code {i + 1}</p>
+                    <p className="text-white font-mono text-xl font-bold tracking-wider">{code}</p>
                   </div>
                 ))}
               </div>
