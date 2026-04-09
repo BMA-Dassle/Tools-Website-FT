@@ -111,33 +111,6 @@ export default function BookLandingPage() {
         </div>
       </section>
 
-      {/* Account lookup banner */}
-      <section className="px-4 pb-6 sm:pb-10">
-        <div className="max-w-5xl mx-auto">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-[#00E2E5]/10 flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-[#00E2E5]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-white text-sm font-medium">Have a FastTrax account?</p>
-                <p className="text-white/40 text-xs">Sign in for faster checkout and to use your credits.</p>
-              </div>
-            </div>
-            <Link
-              href="/book/race"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-white/8 border border-white/15 text-white hover:bg-white/12 transition-colors whitespace-nowrap"
-            >
-              Sign In
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
-          </div>
-        </div>
-      </section>
 
       {/* Attraction grid */}
       <section className="px-4 pb-20 sm:pb-28">
