@@ -13,6 +13,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${ft}/group-events`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },
     { url: `${ft}/menu`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.7 },
     { url: `${ft}/leaderboards`, lastModified: new Date(), changeFrequency: "daily", priority: 0.6 },
+    { url: `${ft}/book/race`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
+    { url: `${ft}/book/duck-pin`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
+    { url: `${ft}/book/shuffly`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
+    { url: `${ft}/book/gel-blaster`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
+    { url: `${ft}/book/laser-tag`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
 
     /* ── HeadPinz ── */
     { url: hp, lastModified: new Date(), changeFrequency: "weekly", priority: 1 },
@@ -28,5 +33,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${hp}/rewards`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.7 },
     { url: `${hp}/kids-bowl-free`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.7 },
     { url: `${hp}/book/bowling`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.8 },
+    { url: `${hp}/book/gel-blaster`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
+    { url: `${hp}/book/laser-tag`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
+    { url: `${hp}/book/shuffly`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
   ];
 }
