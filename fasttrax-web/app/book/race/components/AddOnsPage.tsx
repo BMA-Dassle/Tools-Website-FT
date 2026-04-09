@@ -111,18 +111,15 @@ function formatTime(iso: string): string {
 }
 
 // Check if a time slot conflicts with any booked race heat
-// Before race: add-on must END at least 30 min before race start (check-in time)
-// After race: add-on must START at least 15 min after race ends (travel between buildings)
+// 30 min buffer on BOTH sides of the race
 function conflictsWithRace(slotStart: string, slotStop: string, heats: { start: string; stop: string }[]): boolean {
   const sStart = parseLocal(slotStart).getTime();
   const sStop = parseLocal(slotStop).getTime();
-  const bufferBefore = 30 * 60_000; // Must finish 30 min before race (check-in at Guest Services)
-  const bufferAfter = 15 * 60_000;  // Must start 15 min after race ends (walk between buildings)
+  const buffer = 30 * 60_000;
   return heats.some(h => {
     const hStart = parseLocal(h.start).getTime();
     const hStop = parseLocal(h.stop).getTime();
-    // Conflict: add-on ends too close to race start, or starts too close to race end
-    return sStart < (hStop + bufferAfter) && sStop > (hStart - bufferBefore);
+    return sStart < (hStop + buffer) && sStop > (hStart - buffer);
   });
 }
 

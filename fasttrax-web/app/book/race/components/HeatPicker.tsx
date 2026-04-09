@@ -168,14 +168,24 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
               const block = proposal.blocks?.[0]?.block;
               if (!block) return null;
 
-              // Check conflicts with already-booked heats (same category)
-              // Blue heats run every 15 min, Red every 12 min
-              // Require 30 min gap between any races (covers 2 heat gaps on either track)
+              // Check conflicts with already-booked heats
+              // Same track: must skip at least one heat (every other OK)
+              // Different track: 30 min buffer required
               const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-              const minGap = 30 * 60_000; // 30 minutes
+              const blockTrack = block.name.toLowerCase().includes("red") ? "red"
+                : block.name.toLowerCase().includes("blue") ? "blue"
+                : block.name.toLowerCase().includes("mega") ? "mega" : "unknown";
               const isConflict = bookedHeats.some(bh => {
                 const bhStart = new Date(bh.start.replace(/Z$/, "")).getTime();
-                return Math.abs(blockStart - bhStart) < minGap;
+                const bhTrack = bh.track?.toLowerCase() || "unknown";
+                const sameTrack = blockTrack === bhTrack;
+                if (sameTrack) {
+                  // Same track: need at least ~20 min gap (skips one heat)
+                  // Blue runs every 15 min, Red every 12 min — 20 min covers both
+                  return Math.abs(blockStart - bhStart) < 20 * 60_000;
+                }
+                // Different track: 30 min buffer
+                return Math.abs(blockStart - bhStart) < 30 * 60_000;
               });
 
               const isFull = block.freeSpots < quantity || isConflict;
