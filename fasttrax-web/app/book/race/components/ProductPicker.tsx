@@ -133,7 +133,10 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
       {/* Adult races */}
       {hasAdultSection && (
-        <Section title={juniors > 0 ? "Adult Races" : undefined}>
+        <Section
+          title={juniors > 0 ? "Adult Races" : undefined}
+          subtitle={juniors > 0 ? `Pick a race for your ${adults} adult racer${adults !== 1 ? "s" : ""}` : undefined}
+        >
           {adultGroups.map(([key, items]) => (
             <ProductGroup key={key} items={items} selected={selected} onSelect={onSelect} />
           ))}
@@ -142,7 +145,10 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
       {/* Junior races */}
       {hasJuniorSection && (
-        <Section title={adults > 0 ? "Junior Races" : undefined}>
+        <Section
+          title={adults > 0 ? "Junior Races" : undefined}
+          subtitle={adults > 0 ? `Pick a race for your ${juniors} junior racer${juniors !== 1 ? "s" : ""}` : undefined}
+        >
           {juniorGroups.map(([key, items]) => (
             <ProductGroup key={key} items={items} selected={selected} onSelect={onSelect} />
           ))}
@@ -152,11 +158,14 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
   );
 }
 
-function Section({ title, children }: { title?: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children }: { title?: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      {title && (
-        <p className="text-xs font-bold uppercase tracking-widest text-white/30 text-center">{title}</p>
+      {(title || subtitle) && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-center">
+          {title && <p className="text-amber-400 text-xs font-bold uppercase tracking-widest">{title}</p>}
+          {subtitle && <p className="text-white/50 text-xs mt-0.5">{subtitle}</p>}
+        </div>
       )}
       <div className="grid gap-3">
         {children}
