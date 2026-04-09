@@ -437,6 +437,31 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                                   );
                                 }
                                 const isChosen = selectedTimes[addon.id] === item.idx;
+                                // Check if this slot conflicts with another add-on's selected time
+                                const slotData = slots[item.idx!];
+                                const conflictsWithOther = slotData && Object.entries(selectedTimes).some(([otherId, otherIdx]) => {
+                                  if (otherId === addon.id) return false;
+                                  const otherSlots = timeSlots[otherId];
+                                  if (!otherSlots || otherSlots[otherIdx] === undefined) return false;
+                                  const other = otherSlots[otherIdx];
+                                  // Overlap: sessions at the same time or overlapping
+                                  const sStart = parseLocal(slotData.start).getTime();
+                                  const sStop = parseLocal(slotData.stop).getTime();
+                                  const oStart = parseLocal(other.start).getTime();
+                                  const oStop = parseLocal(other.stop).getTime();
+                                  return sStart < oStop && sStop > oStart;
+                                });
+                                if (conflictsWithOther) {
+                                  return (
+                                    <span
+                                      key={`slot-${item.idx}`}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/3 text-white/15 border border-white/5 cursor-not-allowed"
+                                      title="Conflicts with another activity"
+                                    >
+                                      {item.label}
+                                    </span>
+                                  );
+                                }
                                 return (
                                   <button
                                     key={`slot-${item.idx}`}
