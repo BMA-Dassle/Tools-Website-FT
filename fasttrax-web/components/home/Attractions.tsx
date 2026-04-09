@@ -50,7 +50,7 @@ const row2 = [
     ctaBg: "rgb(228,28,29)",
     border: "rgba(228,28,29,0.59)",
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
-    href: "https://booking.bmileisure.com/headpinzftmyers?pageId=24909243",
+    href: "/book/duck-pin",
   },
 ];
 
