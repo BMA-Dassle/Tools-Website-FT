@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
       waiverUrl,
       reservationCode,
       billId,
+      isNewRacer,
     } = body;
 
     if (!email || !reservationNumber) {
@@ -159,12 +160,19 @@ export async function POST(req: NextRequest) {
       }
 
       // Function-style ^PlaceholderName()$ replacements
-      const waiverLink = waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
+      const waiverLink = isNewRacer ? (waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe") : "";
       html = html
-        .replace(/\^ReservationLink\(\)\$/g, waiverLink)
+        .replace(/\^ReservationLink\(\)\$/g, waiverLink || "#")
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
         .replace(/\^SoldVouchersList\(\)\$/g, "")
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
+
+      // Hide waiver section entirely for returning racers
+      if (!isNewRacer) {
+        // Remove the waiver CTA button and its surrounding text
+        html = html.replace(/Complete Waiver Now<\/a>/g, "");
+        html = html.replace(/<a[^>]*class="cta-btn red"[^>]*>[^<]*<\/a>/g, "");
+      }
 
       results.email = await sendEmail(
         email,
@@ -180,19 +188,22 @@ export async function POST(req: NextRequest) {
       try {
         const normalized = normalizePhone(phone);
         if (normalized.length >= 10) {
-          const rawWaiverLink = waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
           const rawConfirmLink = billId ? signedConfirmationUrl(billId) : "";
 
           // Shorten long URLs for SMS
-          let shortWaiver = rawWaiverLink;
+          let shortWaiver = "";
           let shortConfirm = rawConfirmLink;
           try {
-            shortWaiver = await shortenUrl(rawWaiverLink);
+            if (isNewRacer) {
+              const rawWaiverLink = waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
+              shortWaiver = await shortenUrl(rawWaiverLink);
+            }
             if (rawConfirmLink) shortConfirm = await shortenUrl(rawConfirmLink);
           } catch { /* fall back to full URLs */ }
 
           const schedule = reservationSchedule ? reservationSchedule.replace(/<br\/?>/g, "\n") : "";
           const confirmSection = shortConfirm ? `\nView your confirmation:\n${shortConfirm}` : "";
+          const waiverSection = shortWaiver ? `\nComplete your waiver:\n${shortWaiver}` : "";
 
           const smsBody = `FastTrax Booking Confirmed
 
@@ -203,9 +214,7 @@ ${reservationDate || ""}
 ${reservationTime || ""}
 
 Arrive 30 minutes early to check in at Guest Services.
-
-Complete your waiver:
-${shortWaiver}
+${waiverSection}
 ${confirmSection}
 
 Important information about your race check-in:

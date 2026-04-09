@@ -296,7 +296,7 @@ export default function ConfirmationPage() {
           fetch("/api/notifications/booking-confirmation", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ ...notificationPayload, waiverUrl: resolvedWaiverUrl }),
+            body: JSON.stringify({ ...notificationPayload, waiverUrl: !isReturning ? resolvedWaiverUrl : "", isNewRacer: !isReturning }),
           }).catch(() => {});
         }
 
