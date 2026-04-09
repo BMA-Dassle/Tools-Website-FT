@@ -74,6 +74,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
+  // HeadPinz domain on shared routes (/book, /api) — set brand header without rewriting
+  if (isHeadPinz && (pathname.startsWith("/book") || pathname.startsWith("/api"))) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   // Block /hp/ on fasttraxent.com — redirect to headpinz.com (allow on localhost for dev)
   const isLocalhost = hostname.includes("localhost") || hostname.includes("127.0.0.1");
   if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost) {

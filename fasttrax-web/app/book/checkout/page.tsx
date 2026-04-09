@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Nav from "@/components/Nav";
+import BrandNav from "@/components/BrandNav";
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
 import OrderSummary from "@/app/book/race/components/OrderSummary";
@@ -48,7 +48,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="min-h-screen bg-[#000418]">
-      <Nav />
+      <BrandNav />
       <MiniCart />
 
       <div className="max-w-3xl mx-auto px-4 pt-32 sm:pt-36 pb-16">

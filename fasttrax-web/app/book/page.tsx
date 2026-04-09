@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import Nav from "@/components/Nav";
+import BrandNav from "@/components/BrandNav";
 import MiniCart from "@/components/booking/MiniCart";
 import { ATTRACTION_LIST } from "@/lib/attractions-data";
 import type { AttractionConfig } from "@/lib/attractions-data";
@@ -96,7 +96,7 @@ function AttractionCard({ attraction }: { attraction: AttractionConfig }) {
 export default function BookLandingPage() {
   return (
     <div className="min-h-screen bg-[#000418]">
-      <Nav />
+      <BrandNav />
       <MiniCart />
 
       {/* Hero */}

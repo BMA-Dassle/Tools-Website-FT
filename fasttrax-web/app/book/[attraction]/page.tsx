@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import Nav from "@/components/Nav";
+import BrandNav from "@/components/BrandNav";
 import MiniCart from "@/components/booking/MiniCart";
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
@@ -760,8 +760,10 @@ function ReviewStep({
         attraction: config.slug,
         name: `${contact.firstName} ${contact.lastName}`,
         email: contact.email,
+        phone: contact.phone,
         date: booking.date,
         isCreditOrder: "false",
+        smsOptIn: contact.smsOptIn ? "true" : "false",
       };
       await fetch("/api/booking-store", {
         method: "POST",
@@ -770,8 +772,22 @@ function ReviewStep({
       });
       localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
 
+      // Create short confirmation URL for Square receipt
+      const returnUrl = `${window.location.origin}/book/confirmation?billId=${orderId}`;
+      let confirmUrl = "";
+      try {
+        const shortRes = await fetch("/api/s", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: returnUrl }),
+        });
+        if (shortRes.ok) {
+          const shortData = await shortRes.json();
+          confirmUrl = shortData.shortUrl || "";
+        }
+      } catch { /* fall back to no short URL */ }
+
       // Create Square checkout
-      const returnUrl = `${window.location.origin}/book/${config.slug}/confirmation?billId=${orderId}`;
       const res = await fetch("/api/square/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -779,6 +795,7 @@ function ReviewStep({
           billId: orderId,
           amount: total,
           raceName: config.name,
+          confirmUrl,
           returnUrl,
           cancelUrl: `${window.location.origin}/book/${config.slug}`,
           buyer: {
@@ -938,7 +955,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   const router = useRouter();
   const slug = params.attraction as string;
   const config = ATTRACTIONS[slug] as AttractionConfig | undefined;
-  if (!navComponent) navComponent = <Nav />;
+  if (!navComponent) navComponent = <BrandNav />;
 
   const initialStep = config?.location === "both" ? "location" : "product";
   const initialLocation = config && config.location !== "both" ? config.location as LocationKey : null;
