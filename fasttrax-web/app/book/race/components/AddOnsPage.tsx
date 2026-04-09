@@ -438,18 +438,22 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                                 }
                                 const isChosen = selectedTimes[addon.id] === item.idx;
                                 // Check if this slot conflicts with another add-on's selected time
+                                // Same building: back-to-back OK (just no overlap)
+                                // Different building: 30 min buffer needed (travel time)
                                 const slotData = slots[item.idx!];
                                 const conflictsWithOther = slotData && Object.entries(selectedTimes).some(([otherId, otherIdx]) => {
                                   if (otherId === addon.id) return false;
                                   const otherSlots = timeSlots[otherId];
                                   if (!otherSlots || otherSlots[otherIdx] === undefined) return false;
                                   const other = otherSlots[otherIdx];
-                                  // Overlap: sessions at the same time or overlapping
+                                  const otherAddon = ADD_ONS.find(a => a.id === otherId);
+                                  const sameBuilding = otherAddon && otherAddon.location === addon.location;
+                                  const buffer = sameBuilding ? 0 : 30 * 60_000;
                                   const sStart = parseLocal(slotData.start).getTime();
                                   const sStop = parseLocal(slotData.stop).getTime();
                                   const oStart = parseLocal(other.start).getTime();
                                   const oStop = parseLocal(other.stop).getTime();
-                                  return sStart < oStop && sStop > oStart;
+                                  return sStart < (oStop + buffer) && sStop > (oStart - buffer);
                                 });
                                 if (conflictsWithOther) {
                                   return (
