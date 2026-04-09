@@ -12,7 +12,8 @@ const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = process.env.VOX_FROM_NUMBER || "+12394819666";
+const VOX_FROM_FASTTRAX = process.env.VOX_FROM_NUMBER || "+12394819666";
+const VOX_FROM_HEADPINZ = process.env.VOX_FROM_NUMBER_HP || "+12393022155";
 
 // ── Email template (loaded once at startup) ─────────────────────────────────
 
@@ -83,7 +84,7 @@ async function sendEmail(to: string, subject: string, html: string, fromName?: s
   return true;
 }
 
-async function sendSms(to: string, body: string): Promise<boolean> {
+async function sendSms(to: string, body: string, fromNumber?: string): Promise<boolean> {
   if (!VOX_API_KEY) {
     console.error("[booking-confirmation] Missing VOX_API_KEY");
     return false;
@@ -99,7 +100,7 @@ async function sendSms(to: string, body: string): Promise<boolean> {
     },
     body: JSON.stringify({
       to: toFormatted,
-      from: VOX_FROM,
+      from: fromNumber || VOX_FROM_FASTTRAX,
       body,
     }),
   });
@@ -319,14 +320,15 @@ https://fasttraxent.com/racing#racers-journey`;
             ? `\n\n\nYour POV Camera Codes — collect your camera slip after your race to redeem. Videos take 15-30 min to upload. POV Codes below:`
             : "";
 
-          results.sms = await sendSms(normalized, smsBody + povFooter);
+          const smsFrom = isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
+          results.sms = await sendSms(normalized, smsBody + povFooter, smsFrom);
 
           // Send each POV code as a separate SMS for easy copy/paste
           // Delay to ensure confirmation SMS arrives first
           if (codes.length > 0) {
             await new Promise(r => setTimeout(r, 5000));
             for (const code of codes) {
-              await sendSms(normalized, code);
+              await sendSms(normalized, code, smsFrom);
             }
           }
         }
