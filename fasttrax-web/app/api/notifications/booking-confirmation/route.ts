@@ -69,7 +69,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
+      personalizations: [{ to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] }],
       from: { email: FROM_EMAIL, name: FROM_NAME },
       subject,
       content: [{ type: "text/html", value: html }],
