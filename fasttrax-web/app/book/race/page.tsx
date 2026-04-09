@@ -112,6 +112,8 @@ export default function BookRacePage() {
   const [showLinkedModal, setShowLinkedModal] = useState(false);
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [linkedSelected, setLinkedSelected] = useState<{ id: string; name: string; age: number | null } | null>(null);
+  // Height/age confirmation modal for new racers
+  const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   // Racer selector: pending heat waiting for racer selection (returning racers only)
   const [pendingHeat, setPendingHeat] = useState<{ proposal: BmiProposal; block: BmiBlock } | null>(null);
   const [showRacerSelector, setShowRacerSelector] = useState(false);
@@ -412,6 +414,16 @@ export default function BookRacePage() {
   }
 
   function handlePartyNext() {
+    if (racerType === "new") {
+      setShowHeightConfirm(true);
+      return;
+    }
+    trackBookingParty(adults, juniors);
+    changeStep("date");
+  }
+
+  function handleHeightConfirmed() {
+    setShowHeightConfirm(false);
     trackBookingParty(adults, juniors);
     changeStep("date");
   }
@@ -1120,6 +1132,69 @@ export default function BookRacePage() {
             />
           )
         )}
+
+        {/* Height/age confirmation modal for new racers */}
+        {showHeightConfirm && (() => {
+          const disclaimers = [
+            ...(adults > 0 ? [`I have ${adults} adult racer${adults !== 1 ? "s" : ""} who ${adults !== 1 ? "are each" : "is"} at least 13 years old and at least 59" tall (4'11")`] : []),
+            ...(juniors > 0 ? [`I have ${juniors} junior racer${juniors !== 1 ? "s" : ""} who ${juniors !== 1 ? "are each" : "is"} between ages 7–13 and between 49" and 70" tall`] : []),
+            "I understand that racers who do not meet height or age requirements will not be permitted to race",
+          ];
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+              <div className="bg-[#0a1628] border border-white/15 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5">
+                <div className="text-center">
+                  <h3 className="text-white font-display text-xl uppercase tracking-widest">Confirm Your Party</h3>
+                  <p className="text-white/40 text-sm mt-2">Just like roller coasters, height and age requirements are state mandated and must be followed.</p>
+                </div>
+
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                  <p className="text-amber-400 font-bold text-xs uppercase tracking-wider">Please acknowledge</p>
+                  {disclaimers.map((text, i) => (
+                    <label key={i} className="flex items-start gap-3 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        id={`height-ack-${i}`}
+                        className="mt-0.5 w-4 h-4 rounded border-white/30 bg-white/5 accent-[#00E2E5] shrink-0"
+                      />
+                      <span className="text-white/70 text-xs leading-relaxed group-hover:text-white/90 transition-colors">{text}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <button
+                  id="height-confirm-btn"
+                  onClick={() => {
+                    const allChecked = disclaimers.every((_, i) => (document.getElementById(`height-ack-${i}`) as HTMLInputElement)?.checked);
+                    if (allChecked) {
+                      handleHeightConfirmed();
+                    } else {
+                      const warn = document.getElementById("height-warn");
+                      if (warn) { warn.style.display = "block"; warn.classList.add("animate-pulse"); }
+                      // Highlight unchecked boxes
+                      disclaimers.forEach((_, i) => {
+                        const cb = document.getElementById(`height-ack-${i}`) as HTMLInputElement;
+                        if (cb && !cb.checked) cb.parentElement?.classList.add("ring-2", "ring-red-500/50");
+                      });
+                    }
+                  }}
+                  className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+                >
+                  Confirm & Pick a Date →
+                </button>
+                <p id="height-warn" className="text-red-400 text-xs text-center font-semibold" style={{ display: "none" }}>
+                  Please check all boxes above to continue
+                </p>
+                <button
+                  onClick={() => setShowHeightConfirm(false)}
+                  className="w-full py-2.5 rounded-xl font-semibold text-xs border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
+                >
+                  Change Party Size
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Post-book choice — shown after returning racers book a heat */}
         {showPostBookChoice && step === "heat" && (
