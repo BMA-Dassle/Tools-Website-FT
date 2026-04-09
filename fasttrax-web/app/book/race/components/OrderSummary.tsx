@@ -93,7 +93,7 @@ async function addGroupMemo(
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
-  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string }[] }
+  | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string; lineId?: string; productGroup?: string }[] }
   | { status: "paying" }
   | { status: "confirmed" }
   | { status: "error"; message: string };
@@ -195,7 +195,7 @@ export default function OrderSummary({
       let bmiTotal = 0;
       let bmiSubtotal = 0;
       let bmiTax = 0;
-      let bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string }[] = [];
+      let bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string; lineId?: string; productGroup?: string }[] = [];
       let isCreditOrder = true; // assume credit until proven otherwise
       let cashOwed = 0;
       let creditApplied = 0;
@@ -249,7 +249,7 @@ export default function OrderSummary({
                 if (racerQueue[racerIdx]) lineRacers.push(racerQueue[racerIdx]);
                 racerIdx++;
               }
-              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racers: lineRacers.length > 0 ? lineRacers : undefined, time: lineTime || undefined });
+              bmiLines.push({ name: l.name, quantity: l.quantity, amount: cashPrice?.amount ?? 0, racers: lineRacers.length > 0 ? lineRacers : undefined, time: lineTime || undefined, lineId: l.id ? String(l.id) : undefined, productGroup: l.productGroup || undefined });
             }
           }
         } catch {
@@ -725,17 +725,42 @@ export default function OrderSummary({
           <>
             {state.bmiLines.map((line, i) => {
               const isLicense = line.name.toLowerCase().includes("license");
+              const isRace = line.productGroup === "Karting";
+              // Removable: not a license, not a race (races removed via item cards above)
+              const canRemove = !isLicense && !isRace && line.lineId && state.status === "booked";
               return (
                 <div key={i}>
-                  <div className="flex justify-between text-sm">
-                    <div className="text-white/60">
+                  <div className="flex justify-between text-sm items-center">
+                    <div className="text-white/60 flex-1">
                       <span>{line.name} x {line.quantity}</span>
                       {line.racers && line.racers.length > 0 && (
                         <span className="text-white/30 ml-1">({line.racers.join(", ")})</span>
                       )}
                       {line.time && <span className="text-white/30 ml-1">{formatTime(line.time)}</span>}
                     </div>
-                    <span className="text-white shrink-0">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-white">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
+                      {canRemove && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await fetch(`/api/bmi?endpoint=booking%2FremoveItem`, {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: `{"orderId":${billId},"orderItemId":${line.lineId}}`,
+                              });
+                              // Reload the bill overview
+                              window.location.reload();
+                            } catch { /* non-fatal */ }
+                          }}
+                          className="text-red-400/40 hover:text-red-400 transition-colors p-0.5"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {isLicense && (
                     <p className="text-white/30 text-xs mt-0.5 ml-1">
@@ -821,6 +846,21 @@ export default function OrderSummary({
               ) : (
                 <>{state.status === "booked" && state.isCreditOrder ? "Confirm Booking (Credit)" : `Pay $${(state.status === "booked" ? state.cashOwed : total).toFixed(2)} →`}</>
               )}
+            </button>
+          </div>
+          <div className="text-center">
+            <button
+              onClick={() => {
+                if (!confirm("Cancel your entire booking? This will remove all items including any attraction reservations.")) return;
+                // Cancel the bill
+                fetch(`/api/bmi?endpoint=bill/${billId}/cancel`, { method: "DELETE" }).catch(() => {});
+                sessionStorage.removeItem("attractionOrderId");
+                sessionStorage.removeItem("attractionCart");
+                window.location.href = "/book";
+              }}
+              className="text-xs text-red-400/50 hover:text-red-400 transition-colors"
+            >
+              Cancel &amp; Start Over
             </button>
           </div>
         </>
