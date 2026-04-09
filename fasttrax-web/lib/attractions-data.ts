@@ -134,7 +134,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     color: "#E41C1D",
     description: "Florida's largest indoor go-kart racing on 3 unique tracks",
     building: "FastTrax Fort Myers",
-    durationLabel: "3-race mega pack",
+    durationLabel: "Single races & packs",
     products: [],
   },
 };
