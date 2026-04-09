@@ -140,6 +140,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "email and reservationNumber required" }, { status: 400 });
     }
 
+    // Dedup: check if confirmation was already sent for this bill
+    const notifKey = `notif:${billId || reservationNumber}`;
+    const alreadySent = await redis.get(notifKey);
+    if (alreadySent) {
+      console.log("[booking-confirmation] already sent for", billId || reservationNumber);
+      return NextResponse.json({ success: true, duplicate: true });
+    }
+
     const results: { email: boolean; sms: boolean | null } = { email: false, sms: null };
 
     // ── Send email ────────────────────────────────────────────────────────
@@ -298,6 +306,28 @@ https://fasttraxent.com/racing#racers-journey`;
         results.sms = false;
       }
     }
+
+    // Log notification to Redis (90-day TTL)
+    try {
+      const log = {
+        type: "booking-confirmation",
+        billId: billId || null,
+        reservationNumber,
+        email,
+        phone: smsOptIn ? phone : null,
+        emailSent: results.email,
+        smsSent: results.sms,
+        povCodes: codes.length > 0 ? codes : null,
+        isNewRacer: !!isNewRacer,
+        sentAt: new Date().toISOString(),
+      };
+      await redis.set(notifKey, JSON.stringify(log), "EX", 90 * 24 * 60 * 60);
+      // Also append to per-bill notification history
+      if (billId) {
+        await redis.rpush(`notif:history:${billId}`, JSON.stringify(log));
+        await redis.expire(`notif:history:${billId}`, 90 * 24 * 60 * 60);
+      }
+    } catch { /* non-fatal */ }
 
     return NextResponse.json({ success: true, ...results });
   } catch (err) {
