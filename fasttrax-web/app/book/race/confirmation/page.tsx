@@ -110,8 +110,10 @@ export default function ConfirmationPage() {
         const amount = details?.amount ? parseFloat(details.amount) : 0;
 
         // Load stored overviews if available
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let parsedOverviews: any[] = [];
         if (details?.overviews) {
-          try { setStoredOverviews(JSON.parse(details.overviews)); } catch { /* skip */ }
+          try { parsedOverviews = JSON.parse(details.overviews); setStoredOverviews(parsedOverviews); } catch { /* skip */ }
         }
 
         // Try order overview (may still be available before BMI converts it)
@@ -296,11 +298,11 @@ export default function ConfirmationPage() {
         // Claim POV codes if POV was purchased
         let claimedPovCodes: string[] = [];
         try {
-          // Check stored overviews for POV line items
-          const allOverviewLines = storedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-          const povLine = allOverviewLines.find((l: OrderLine) =>
-            l.name.toLowerCase().includes("pov") || String((l as unknown as { productId: string }).productId) === "43746981"
-          );
+          // Check stored overviews for POV line items (use local var, not state)
+          const allOverviewLines = parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+          const povLine = allOverviewLines.find((l: unknown) =>
+            String((l as { productId: string }).productId) === "43746981"
+          ) as OrderLine | undefined;
           if (povLine && povLine.quantity > 0) {
             const claimRes = await fetch(`/api/pov-codes?action=claim&qty=${povLine.quantity}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`);
             if (claimRes.ok) {
