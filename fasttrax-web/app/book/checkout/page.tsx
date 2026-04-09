@@ -89,6 +89,7 @@ export default function CheckoutPage() {
             onBack={handleBack}
             billId={orderId}
             bills={[{ billId: orderId, racerName: contact.firstName + " " + contact.lastName, category: "adult" }]}
+            confirmationPath="/book/confirmation"
           />
         )}
       </div>

@@ -61,6 +61,8 @@ interface OrderSummaryProps {
   onRemoveAddOn?: (index: number) => void;
   /** Callback to remove POV */
   onRemovePov?: () => void;
+  /** Override confirmation page path (default: /book/race/confirmation) */
+  confirmationPath?: string;
 }
 
 /** Add a memo to each bill listing all related reservations in the group */
@@ -135,6 +137,7 @@ export default function OrderSummary({
   pov,
   onRemoveAddOn,
   onRemovePov,
+  confirmationPath = "/book/race/confirmation",
 }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
   const effectRan = useRef(false);
@@ -417,12 +420,12 @@ export default function OrderSummary({
           await addGroupMemo(bills, resNumbers);
         }
 
-        window.location.href = `/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
+        window.location.href = `${confirmationPath}?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
         return;
       }
 
       // Cash order — create Square checkout
-      const returnUrl = `${window.location.origin}/book/race/confirmation?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
+      const returnUrl = `${window.location.origin}${confirmationPath}?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
 
       // Create short confirmation URL for Square receipt note
       let shortConfirmUrl = "";
