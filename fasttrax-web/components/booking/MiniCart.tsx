@@ -161,12 +161,22 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                   if (orderId) {
                     fetch(`/api/bmi?endpoint=bill/${orderId}/cancel`, { method: "DELETE" }).catch(() => {});
                   }
+                  // Determine where to go based on cart contents
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const hasRacing = items.some((i: any) => i.attraction === "racing");
+                  const attractionSlug = !hasRacing && items.length > 0 ? (items[0] as any).attraction : null;
                   sessionStorage.removeItem("attractionOrderId");
                   sessionStorage.removeItem("attractionCart");
                   setItems([]);
                   setHasActiveBill(false);
                   setOpen(false);
-                  window.location.href = "/book/race";
+                  if (hasRacing) {
+                    window.location.href = "/book/race";
+                  } else if (attractionSlug) {
+                    window.location.href = `/book/${attractionSlug}`;
+                  } else {
+                    window.location.href = "/book";
+                  }
                 }}
                 className="block w-full py-2 rounded-lg font-semibold text-xs text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-colors text-center"
               >
