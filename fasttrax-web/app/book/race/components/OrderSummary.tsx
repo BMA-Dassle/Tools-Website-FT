@@ -622,7 +622,7 @@ export default function OrderSummary({
             <span className="text-white/30 mx-2">&middot;</span>
             <span className="text-white/50">{contact.email}</span>
           </div>
-          <span className="text-white/40 text-xs">{formatDate(date)}</span>
+          {date && <span className="text-white/40 text-xs">{formatDate(date)}</span>}
         </div>
       )}
 
@@ -807,15 +807,18 @@ export default function OrderSummary({
       </div>
 
       {/* Info notes */}
-      {isBooked && (
+      {isBooked && (() => {
+        const hasRacing = state.status === "booked" && state.bmiLines.some(l => l.productGroup === "Karting");
+        const hasLicense = state.status === "booked" && state.bmiLines.some(l => l.name.toLowerCase().includes("license"));
+        return (
         <>
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-xs text-white/40 space-y-1">
             <p>
               &middot; Arrive{" "}
               <strong className="text-white/60">30 minutes early</strong> for
-              check-in and kart assignment.
+              check-in.
             </p>
-            {state.status === "booked" && !state.bmiLines.some(l => l.name.toLowerCase().includes("license")) && (
+            {hasRacing && !hasLicense && (
               <p>
                 &middot; A{" "}
                 <strong className="text-white/60">$4.99 license fee</strong> per
@@ -864,7 +867,8 @@ export default function OrderSummary({
             </button>
           </div>
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }
