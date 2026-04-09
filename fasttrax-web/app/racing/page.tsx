@@ -782,7 +782,7 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: The Racer's Journey ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section id="racers-journey" className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)", scrollMarginTop: "100px" }}>
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"

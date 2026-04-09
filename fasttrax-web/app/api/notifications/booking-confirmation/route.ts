@@ -202,26 +202,14 @@ ${schedule}
 ${reservationDate || ""}
 ${reservationTime || ""}
 
-Arrive 30 min early for check-in.
-
+Arrive 30 minutes early to check in at Guest Services.
 
 Complete your waiver:
 ${shortWaiver}
 ${confirmSection}
 
-
-YOUR RACER'S JOURNEY
-
-1. Complete your waiver online before arriving
-
-2. Check in at Guest Services 30 minutes before your scheduled time
-
-3. Arrive at Karting Check-In 5 minutes before your scheduled time
-
-Your scheduled time is your karting check-in time, not your race start.
-
-Starter > Intermediate > Pro
-Race. Qualify. Level Up.`;
+Important information about your race check-in:
+https://fasttraxent.com/racing#racers-journey`;
 
           results.sms = await sendSms(normalized, smsBody);
         }

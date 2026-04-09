@@ -1264,7 +1264,7 @@ export default function BookRacePage() {
                 bookedAddOns.push(addon);
               }
               setSelectedAddOns(bookedAddOns);
-              if (verifiedPerson && contact) {
+              if (verifiedPerson && contact && contact.email && contact.phone) {
                 changeStep("summary");
               } else {
                 changeStep("contact");
