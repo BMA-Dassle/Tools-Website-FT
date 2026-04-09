@@ -133,14 +133,12 @@ export default function BookRacePage() {
 
   const currentIdx = STEPS.indexOf(step);
 
-  // Cancel any stale bill from a previous session on mount
+  // Load existing bill from sessionStorage (shared with attractions for multi-booking)
   useEffect(() => {
-    const staleOrderId = sessionStorage.getItem("attractionOrderId");
-    if (staleOrderId) {
-      bmiDelete(`bill/${staleOrderId}/cancel`).catch(() => {});
-      sessionStorage.removeItem("attractionOrderId");
-      sessionStorage.removeItem("attractionCart");
-      console.log("[mount] cancelled stale bill:", staleOrderId);
+    const existingOrderId = sessionStorage.getItem("attractionOrderId");
+    if (existingOrderId) {
+      setActiveBills([{ billId: existingOrderId, racerName: "Cart", category: "adult" as const }]);
+      console.log("[mount] loaded existing bill from sessionStorage:", existingOrderId);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -276,11 +274,8 @@ export default function BookRacePage() {
     trackBookingExperience(type);
     setRacerType(type);
     setVerifiedPerson(null);
-    // Clear any stale bill from a previous booking session
-    cancelActiveOrder();
+    // Clear racing bookings but keep the shared bill (may have attraction items)
     setBookings([]);
-    sessionStorage.removeItem("attractionOrderId");
-    sessionStorage.removeItem("attractionCart");
     if (type === "new") {
       setTimeout(() => changeStep("party"), 300);
     }
@@ -483,7 +478,7 @@ export default function BookRacePage() {
 
     try {
       let createdBills: RacerBill[] = [];
-      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : null;
+      const existingBillId = activeBills.length > 0 ? activeBills[0].billId : (sessionStorage.getItem("attractionOrderId") || null);
 
       if (selectedRacers && selectedRacers.length > 0) {
         // Returning racers: book each racer individually with personId, all on one bill
@@ -613,7 +608,7 @@ export default function BookRacePage() {
     // New racers: add to existing bill as group
     const blockPrice = block.prices?.find(p => p.depositKind === 0)?.amount ?? undefined;
     const cat = selectedProduct!.category;
-    const existingBillId = activeBills.length > 0 ? activeBills[0].billId : null;
+    const existingBillId = activeBills.length > 0 ? activeBills[0].billId : (sessionStorage.getItem("attractionOrderId") || null);
 
     try {
       const racerCount = cat === "adult" ? adults : juniors;
@@ -651,7 +646,14 @@ export default function BookRacePage() {
     for (const bill of activeBills) {
       bmiDelete(`bill/${bill.billId}/cancel`).catch(() => {});
     }
+    // Also cancel bill from sessionStorage (may be from attraction flow)
+    const storedBill = sessionStorage.getItem("attractionOrderId");
+    if (storedBill && !activeBills.some(b => b.billId === storedBill)) {
+      bmiDelete(`bill/${storedBill}/cancel`).catch(() => {});
+    }
     setActiveBills([]);
+    sessionStorage.removeItem("attractionOrderId");
+    sessionStorage.removeItem("attractionCart");
     licenseSoldRef.current = false;
     setLicenseSold(null);
   }
