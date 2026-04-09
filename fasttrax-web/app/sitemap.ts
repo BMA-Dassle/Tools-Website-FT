@@ -16,8 +16,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${ft}/book/race`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
     { url: `${ft}/book/duck-pin`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
     { url: `${ft}/book/shuffly`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
-    { url: `${ft}/book/gel-blaster`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
-    { url: `${ft}/book/laser-tag`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
 
     /* ── HeadPinz ── */
     { url: hp, lastModified: new Date(), changeFrequency: "weekly", priority: 1 },
