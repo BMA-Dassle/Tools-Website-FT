@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
-import MiniCart from "@/components/booking/MiniCart";
+// MiniCart is rendered globally in root layout
 import { ATTRACTION_LIST } from "@/lib/attractions-data";
 import type { AttractionConfig } from "@/lib/attractions-data";
 
@@ -97,7 +97,6 @@ export default function BookLandingPage() {
   return (
     <div className="min-h-screen bg-[#000418]">
       <BrandNav />
-      <MiniCart />
 
       {/* Hero */}
       <section className="pt-28 sm:pt-36 pb-8 sm:pb-12 px-4">

@@ -1442,7 +1442,7 @@ export default function BookRacePage() {
       </div>
 
       {/* Unified floating cart */}
-      {step !== "summary" && <MiniCart />}
+      {/* MiniCart is rendered globally in root layout */}
 
       {/* Linked Racer Modal */}
       {showLinkedModal && (

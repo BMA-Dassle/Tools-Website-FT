@@ -7,7 +7,7 @@ import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
 import OrderSummary from "@/app/book/race/components/OrderSummary";
 import type { BookingItem } from "@/app/book/race/components/OrderSummary";
-import MiniCart from "@/components/booking/MiniCart";
+// MiniCart is rendered globally in root layout
 
 /**
  * Shared checkout page — works for any bill (attractions, racing, or mixed).
@@ -49,7 +49,6 @@ export default function CheckoutPage() {
   return (
     <div className="min-h-screen bg-[#000418]">
       <BrandNav />
-      <MiniCart />
 
       <div className="max-w-3xl mx-auto px-4 pt-32 sm:pt-36 pb-16">
 

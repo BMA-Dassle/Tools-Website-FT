@@ -10,6 +10,7 @@ import ChatWidgetManager from "@/components/ChatWidgetManager";
 import { LocalBusinessJsonLd } from "@/components/seo/JsonLd";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
+import MiniCart from "@/components/booking/MiniCart";
 
 /* FastTrax fonts */
 const exo2 = Exo_2({
@@ -130,6 +131,7 @@ export default async function RootLayout({
       </head>
       <body className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}>
         {!isHeadPinz && <Nav />}
+        <MiniCart />
         <main>{children}</main>
         {!isHeadPinz && <Footer />}
         {!isHeadPinz && <MobileBookBar />}

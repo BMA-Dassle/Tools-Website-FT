@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
-import MiniCart from "@/components/booking/MiniCart";
+// MiniCart is rendered globally in root layout
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
 import {
@@ -1160,7 +1160,6 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   return (
     <div className="min-h-screen bg-[#000418]">
       {navComponent}
-      <MiniCart />
 
       {/* Hero */}
       <section className="relative pt-32 sm:pt-36 pb-4 px-4">
