@@ -1369,6 +1369,7 @@ export default function BookRacePage() {
             billId={activeOrderId}
             bills={activeBills}
             onBack={() => changeStep("contact")}
+            confirmationPath="/book/confirmation"
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
             personId={verifiedPerson?.personId}
