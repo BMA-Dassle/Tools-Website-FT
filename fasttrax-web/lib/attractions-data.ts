@@ -114,9 +114,11 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     durationLabel: "30 min or 1 hour",
     products: [
       { productId: "24709515", name: "Shuffly - 30 Minutes", price: 17.50, location: "fasttrax", durationMin: 30, isCombo: false, maxPerBooking: 10 },
+      { productId: "23345625", name: "Shuffly - 1 Hour", price: 35, location: "fasttrax", durationMin: 60, isCombo: false, maxPerBooking: 10 },
       { productId: "24731238", name: "Shuffly 1HR + Beer Bucket", price: 40, location: "fasttrax", durationMin: 60, isCombo: true, maxPerBooking: 10 },
       { productId: "25769498", name: "Shuffly 1HR + Pizza", price: 40, location: "fasttrax", durationMin: 60, isCombo: true, maxPerBooking: 10 },
       { productId: "24709632", name: "Shuffly - 30 Minutes", price: 17.50, location: "headpinz", durationMin: 30, isCombo: false, maxPerBooking: 10 },
+      { productId: "24408105", name: "Shuffly - 1 Hour", price: 35, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 10 },
       { productId: "25609182", name: "Shuffly 1HR + Beer Bucket", price: 40, location: "headpinz", durationMin: 60, isCombo: true, maxPerBooking: 10 },
       { productId: "25769534", name: "Shuffly 1HR + Pizza", price: 40, location: "headpinz", durationMin: 60, isCombo: true, maxPerBooking: 10 },
     ],
@@ -233,10 +235,12 @@ const PRODUCT_ATTRACTION_MAP: Record<number, { attraction: AttractionSlug; locat
   24711034: { attraction: "duck-pin", location: "fasttrax" },
   // Shuffly FastTrax
   24709515: { attraction: "shuffly", location: "fasttrax" },
+  23345625: { attraction: "shuffly", location: "fasttrax" },
   24731238: { attraction: "shuffly", location: "fasttrax" },
   25769498: { attraction: "shuffly", location: "fasttrax" },
   // Shuffly HeadPinz
   24709632: { attraction: "shuffly", location: "headpinz" },
+  24408105: { attraction: "shuffly", location: "headpinz" },
   25609182: { attraction: "shuffly", location: "headpinz" },
   25769534: { attraction: "shuffly", location: "headpinz" },
 };
