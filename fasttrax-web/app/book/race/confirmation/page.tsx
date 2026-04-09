@@ -238,6 +238,10 @@ export default function ConfirmationPage() {
               reservationCode: primaryRes.resCode || "",
               billId: id || "",
               productNames: overview?.lines?.map(l => l.name) || [],
+              scheduledItems: overview?.lines
+                ?.filter(l => l.scheduledTime?.start)
+                .map(l => ({ name: l.name, start: l.scheduledTime!.start }))
+                .sort((a, b) => a.start.localeCompare(b.start)) || [],
             };
           })();
         }

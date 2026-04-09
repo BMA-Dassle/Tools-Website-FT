@@ -132,9 +132,11 @@ export async function POST(req: NextRequest) {
       isNewRacer,
       povCodes,
       productNames,
+      scheduledItems,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     const products: string[] = Array.isArray(productNames) ? productNames : [];
+    const scheduled: { name: string; start: string }[] = Array.isArray(scheduledItems) ? scheduledItems : [];
 
     if (!email || !reservationNumber) {
       return NextResponse.json({ error: "email and reservationNumber required" }, { status: 400 });
@@ -149,6 +151,21 @@ export async function POST(req: NextRequest) {
     }
 
     const results: { email: boolean; sms: boolean | null } = { email: false, sms: null };
+
+    // Determine check-in location from FIRST scheduled item
+    function getLocation(name: string): "headpinz" | "fasttrax" {
+      const n = name.toLowerCase();
+      if (n.includes("gel")) return "headpinz";
+      if (n.includes("laser")) return "headpinz";
+      if (n.includes("shuffly") && n.includes("hpfm")) return "headpinz";
+      return "fasttrax";
+    }
+    const firstItem = scheduled[0]?.name || products[0] || "";
+    const firstLocation = getLocation(firstItem);
+    const allLocations = new Set((scheduled.length > 0 ? scheduled.map((s: { name: string }) => getLocation(s.name)) : products.map(getLocation)));
+    const hasBoth = allLocations.has("headpinz") && allLocations.has("fasttrax");
+    const isHeadPinz = firstLocation === "headpinz";
+    const showFastTrax = firstLocation === "fasttrax";
 
     // ── Send email ────────────────────────────────────────────────────────
     try {
@@ -171,14 +188,6 @@ export async function POST(req: NextRequest) {
         } catch { /* skip QR if generation fails */ }
       }
 
-      // Determine check-in location from product names
-      const prodLower = products.map(p => p.toLowerCase());
-      const isHeadPinz = prodLower.some(p => p.includes("gel") || p.includes("laser") || p.includes("bowling") || (p.includes("shuffly") && p.includes("hpfm")));
-      const isFastTrax = prodLower.some(p => p.includes("race") || p.includes("duck") || (p.includes("shuffly") && (p.includes("ft") || !p.includes("hpfm"))));
-
-      // Default to FastTrax for racing-only bookings
-      const showFastTrax = isFastTrax || (!isHeadPinz && !isFastTrax);
-
       let checkInHtml = `<tr><td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
         <p class="section-label" style="margin: 0 0 14px 0; text-align: center;">Where to Check In</p>`;
 
@@ -198,21 +207,22 @@ export async function POST(req: NextRequest) {
             <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early. Check in at Guest Services, 2nd Floor.</p>
             <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers</p>
           </td></tr></table>`;
-      } else {
-        // Both locations
+      } else if (hasBoth) {
+        // Both locations — highlight which is first
+        const firstLabel = isHeadPinz ? "HeadPinz" : "FastTrax";
         checkInHtml += `
           <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0 0 14px 0; text-align: center;">
-            Your booking includes attractions at both locations. Please arrive 30 minutes early to your <strong style="color:#1A1A1A;">first scheduled attraction</strong>.
+            Your first attraction is at <strong style="color:#1A1A1A;">${firstLabel}</strong>. Please arrive 30 minutes early.
           </p>
-          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #FFF5F5; border: 1px solid #FFCDD2; border-radius: 6px; margin-bottom: 10px;">
+          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: ${isHeadPinz ? "#FFF5F5; border: 2px solid #FFCDD2" : "#E8F8F8; border: 2px solid #B2DFDB"}; border-radius: 6px; margin-bottom: 10px;">
           <tr><td style="font-family: Arial, sans-serif;">
-            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; HeadPinz</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14513 Global Parkway, Fort Myers</p>
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: ${isHeadPinz ? "#C62828" : "#00838F"};">&#10148; Check in here first: ${isHeadPinz ? "HeadPinz" : "FastTrax"}</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${isHeadPinz ? "14513 Global Parkway, Fort Myers" : "14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor"}</p>
           </td></tr></table>
-          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 6px;">
+          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: ${isHeadPinz ? "#E8F8F8; border: 1px solid #B2DFDB" : "#FFF5F5; border: 1px solid #FFCDD2"}; border-radius: 6px;">
           <tr><td style="font-family: Arial, sans-serif;">
-            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #00838F;">&#127937; FastTrax</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor</p>
+            <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: ${isHeadPinz ? "#00838F" : "#C62828"};">${isHeadPinz ? "FastTrax" : "HeadPinz"} (later)</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${isHeadPinz ? "14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor" : "14513 Global Parkway, Fort Myers"}</p>
           </td></tr></table>`;
       }
       checkInHtml += `</td></tr>`;
@@ -279,7 +289,7 @@ ${schedule}
 ${reservationDate || ""}
 ${reservationTime || ""}
 
-Arrive 30 minutes early to check in at Guest Services.
+${showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at Guest Services, 2nd Floor.\n14501 Global Parkway, Fort Myers" : ""}${isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\n14513 Global Parkway, Fort Myers" : ""}${hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz — 14513 Global Parkway" : "FastTrax Guest Services — 14501 Global Parkway"}.` : ""}
 ${waiverSection}
 ${confirmSection}
 
