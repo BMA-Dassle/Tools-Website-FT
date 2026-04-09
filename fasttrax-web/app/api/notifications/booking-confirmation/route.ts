@@ -131,8 +131,10 @@ export async function POST(req: NextRequest) {
       billId,
       isNewRacer,
       povCodes,
+      productNames,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
+    const products: string[] = Array.isArray(productNames) ? productNames : [];
 
     if (!email || !reservationNumber) {
       return NextResponse.json({ error: "email and reservationNumber required" }, { status: 400 });
@@ -160,6 +162,54 @@ export async function POST(req: NextRequest) {
           qrHtml = `<img src="${qrDataUrl}" width="140" height="140" alt="QR Code" style="display:block;margin:0 auto;" />`;
         } catch { /* skip QR if generation fails */ }
       }
+
+      // Determine check-in location from product names
+      const prodLower = products.map(p => p.toLowerCase());
+      const isHeadPinz = prodLower.some(p => p.includes("gel") || p.includes("laser") || p.includes("bowling") || (p.includes("shuffly") && p.includes("hpfm")));
+      const isFastTrax = prodLower.some(p => p.includes("race") || p.includes("duck") || (p.includes("shuffly") && (p.includes("ft") || !p.includes("hpfm"))));
+
+      // Default to FastTrax for racing-only bookings
+      const showFastTrax = isFastTrax || (!isHeadPinz && !isFastTrax);
+
+      let checkInHtml = `<tr><td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+        <p class="section-label" style="margin: 0 0 14px 0; text-align: center;">Where to Check In</p>`;
+
+      if (isHeadPinz && !showFastTrax) {
+        checkInHtml += `
+          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #FFF5F5; border: 1px solid #FFCDD2; border-radius: 6px;">
+          <tr><td style="font-family: Arial, sans-serif;">
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; Check In at HeadPinz</p>
+            <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early.</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14513 Global Parkway, Fort Myers</p>
+          </td></tr></table>`;
+      } else if (showFastTrax && !isHeadPinz) {
+        checkInHtml += `
+          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 6px;">
+          <tr><td style="font-family: Arial, sans-serif;">
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #00838F;">&#127937; Check In at FastTrax</p>
+            <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early. Check in at Guest Services, 2nd Floor.</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers</p>
+          </td></tr></table>`;
+      } else {
+        // Both locations
+        checkInHtml += `
+          <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0 0 14px 0; text-align: center;">
+            Your booking includes attractions at both locations. Please arrive 30 minutes early to your <strong style="color:#1A1A1A;">first scheduled attraction</strong>.
+          </p>
+          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #FFF5F5; border: 1px solid #FFCDD2; border-radius: 6px; margin-bottom: 10px;">
+          <tr><td style="font-family: Arial, sans-serif;">
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; HeadPinz</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14513 Global Parkway, Fort Myers</p>
+          </td></tr></table>
+          <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #E8F8F8; border: 1px solid #B2DFDB; border-radius: 6px;">
+          <tr><td style="font-family: Arial, sans-serif;">
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #00838F;">&#127937; FastTrax</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor</p>
+          </td></tr></table>`;
+      }
+      checkInHtml += `</td></tr>`;
+
+      html = html.replace(/\^CheckInSection\(\)\$/g, checkInHtml);
 
       // Function-style ^PlaceholderName()$ replacements
       const waiverLink = isNewRacer ? (waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe") : "";

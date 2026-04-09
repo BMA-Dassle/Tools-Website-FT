@@ -237,6 +237,7 @@ export default function ConfirmationPage() {
               reservationSchedule: scheduleLines.join("<br/>"),
               reservationCode: primaryRes.resCode || "",
               billId: id || "",
+              productNames: overview?.lines?.map(l => l.name) || [],
             };
           })();
         }
@@ -316,8 +317,10 @@ export default function ConfirmationPage() {
           console.warn("[POV codes] claim failed:", err);
         }
 
-        // Fire email + SMS confirmation (after waiver URL + POV codes resolved)
-        if (notificationPayload) {
+        // Fire email + SMS confirmation (once per bill — prevent duplicates on revisit)
+        const notifKey = `notif_sent_${id}`;
+        if (notificationPayload && !sessionStorage.getItem(notifKey)) {
+          sessionStorage.setItem(notifKey, "1");
           fetch("/api/notifications/booking-confirmation", {
             method: "POST",
             headers: { "content-type": "application/json" },
