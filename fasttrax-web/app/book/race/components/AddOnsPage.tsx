@@ -229,7 +229,9 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           proposal: slot?.proposal ?? prev?.proposal,
           block: slot?.block ?? prev?.block,
         };
-      });
+      })
+      // Only include add-ons that have a time slot selected
+      .filter(a => a.selectedTime || a.proposal);
     onContinue(addOns);
   }
 
