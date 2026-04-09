@@ -11,9 +11,8 @@ const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
-const TWILIO_SID = process.env.TWILIO_SID || "";
-const TWILIO_TOKEN = process.env.TWILIO_TOKEN || "";
-const TWILIO_FROM = process.env.TWILIO_PHONE_NUMBER || "";
+const VOX_API_KEY = process.env.VOX_API_KEY || "";
+const VOX_FROM = process.env.VOX_FROM_NUMBER || "+12394819666";
 
 // ── Email template (loaded once at startup) ─────────────────────────────────
 
@@ -84,29 +83,29 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
   return true;
 }
 
-async function sendSms(to: string, body: string, mediaUrl?: string): Promise<boolean> {
-  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) {
-    console.error("[booking-confirmation] Missing Twilio config");
+async function sendSms(to: string, body: string): Promise<boolean> {
+  if (!VOX_API_KEY) {
+    console.error("[booking-confirmation] Missing VOX_API_KEY");
     return false;
   }
   const toFormatted = to.length === 10 ? `+1${to}` : `+${to}`;
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`;
-  const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
 
-  const params = new URLSearchParams({ To: toFormatted, From: TWILIO_FROM, Body: body });
-  if (mediaUrl) params.set("MediaUrl", mediaUrl);
-
-  const res = await fetch(url, {
+  const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
     method: "POST",
     headers: {
-      "Authorization": `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Authorization": `Bearer ${VOX_API_KEY}`,
     },
-    body: params.toString(),
+    body: JSON.stringify({
+      to: toFormatted,
+      from: VOX_FROM,
+      body,
+    }),
   });
   if (!res.ok) {
     const err = await res.text();
-    console.error("[booking-confirmation] Twilio error:", res.status, err);
+    console.error("[booking-confirmation] Voxtelesys error:", res.status, err);
     return false;
   }
   return true;
@@ -165,7 +164,7 @@ export async function POST(req: NextRequest) {
         .replace(/\^ReservationLink\(\)\$/g, waiverLink)
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
         .replace(/\^SoldVouchersList\(\)\$/g, "")
-        .replace(/\^ActivityBoxLink\(\)\$/g, "https://headpinz.com");
+        .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
       results.email = await sendEmail(
         email,
@@ -192,36 +191,37 @@ export async function POST(req: NextRequest) {
             if (rawConfirmLink) shortConfirm = await shortenUrl(rawConfirmLink);
           } catch { /* fall back to full URLs */ }
 
-          const smsBody = [
-            `FastTrax Booking Confirmed`,
-            ``,
-            `Reservation: #${reservationNumber}`,
-            reservationSchedule ? reservationSchedule.replace(/<br\/?>/g, "\n") : "",
-            ``,
-            reservationDate || "",
-            reservationTime || "",
-            ``,
-            `Arrive 30 min early for check-in.`,
-            ``,
-            ``,
-            `Complete your waiver:`,
-            shortWaiver,
-            ``,
-            shortConfirm ? `View your confirmation:` : "",
-            shortConfirm || "",
-            ``,
-            ``,
-            `YOUR RACER'S JOURNEY`,
-            ``,
-            `1. Complete your waiver online before arriving`,
-            ``,
-            `2. Check in at the Pit Gate 30 min before your race`,
-            ``,
-            `3. Get your kart assignment at Trackside Check-In`,
-            ``,
-            `Starter > Intermediate > Pro`,
-            `Race. Qualify. Level Up.`,
-          ].filter(Boolean).join("\n");
+          const schedule = reservationSchedule ? reservationSchedule.replace(/<br\/?>/g, "\n") : "";
+          const confirmSection = shortConfirm ? `\nView your confirmation:\n${shortConfirm}` : "";
+
+          const smsBody = `FastTrax Booking Confirmed
+
+Reservation: #${reservationNumber}
+${schedule}
+
+${reservationDate || ""}
+${reservationTime || ""}
+
+Arrive 30 min early for check-in.
+
+
+Complete your waiver:
+${shortWaiver}
+${confirmSection}
+
+
+YOUR RACER'S JOURNEY
+
+1. Complete your waiver online before arriving
+
+2. Check in at Guest Services 30 minutes before your scheduled time
+
+3. Arrive at Karting Check-In 5 minutes before your scheduled time
+
+Your scheduled time is your karting check-in time, not your race start.
+
+Starter > Intermediate > Pro
+Race. Qualify. Level Up.`;
 
           results.sms = await sendSms(normalized, smsBody);
         }

@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { randomInt } from "crypto";
 
-// ── Twilio config (from environment variables) ──────────────────────────────
-const TWILIO_SID = process.env.TWILIO_SID || "";
-const TWILIO_TOKEN = process.env.TWILIO_TOKEN || "";
-const TWILIO_FROM = process.env.TWILIO_PHONE_NUMBER || "";
+// ── Voxtelesys config ─────────────────────────────────────────────────────
+const VOX_API_KEY = process.env.VOX_API_KEY || "";
+const VOX_FROM = process.env.VOX_FROM_NUMBER || "+12394819666";
 
 // ── SendGrid config (for email OTP) ─────────────────────────────────────────
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
@@ -19,24 +18,31 @@ function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "").replace(/^1/, ""); // strip +1 or leading 1
 }
 
-/** Send SMS via Twilio REST API (no SDK needed) */
+/** Send SMS via Voxtelesys API */
 async function sendSms(to: string, body: string): Promise<boolean> {
+  if (!VOX_API_KEY) {
+    console.error("[sms-verify] Missing VOX_API_KEY");
+    return false;
+  }
   const toFormatted = to.length === 10 ? `+1${to}` : `+${to}`;
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`;
-  const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
 
-  const res = await fetch(url, {
+  const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
     method: "POST",
     headers: {
-      "Authorization": `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Authorization": `Bearer ${VOX_API_KEY}`,
     },
-    body: new URLSearchParams({ To: toFormatted, From: TWILIO_FROM, Body: body }).toString(),
+    body: JSON.stringify({
+      to: toFormatted,
+      from: VOX_FROM,
+      body,
+    }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error("[sms-verify] Twilio error:", res.status, err);
+    console.error("[sms-verify] Voxtelesys error:", res.status, err);
     return false;
   }
   return true;
