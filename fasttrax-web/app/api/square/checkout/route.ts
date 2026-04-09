@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     } else {
       // Use quick_pay for simple checkout
       paymentLinkBody.quick_pay = {
-        name: raceName || "FastTrax Race Booking",
+        name: "Deposit",
         price_money: {
           amount: amountCents,
           currency: "USD",
