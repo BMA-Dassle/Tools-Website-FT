@@ -328,6 +328,21 @@ export default function ConfirmationPage() {
           } catch { /* non-fatal */ }
         }
 
+        // Add Express Lane memo to BMI reservation
+        if (allWaiversValid && allConfirmations.length > 0) {
+          try {
+            const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+            for (const conf of allConfirmations) {
+              const memoBody = `{"orderId":${conf.billId},"memo":"Express Lane — ${conf.resNumber}"}`;
+              fetch(`/api/bmi?${memoQs.toString()}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: memoBody,
+              }).catch(() => {});
+            }
+          } catch { /* non-fatal */ }
+        }
+
         // Waiver link for new racers — get projectReference from Office API
         const personIdsParam = params.get("personIds");
         const isReturning = personIdsParam && personIdsParam.split(",").filter(Boolean).length > 0;
@@ -487,6 +502,14 @@ export default function ConfirmationPage() {
   return (
     <div className="min-h-screen bg-[#000418]">
       <BrandNav />
+      {expressLane && (
+        <style>{`
+          @keyframes expressGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(16,185,129,0.15), 0 0 30px rgba(16,185,129,0.05); }
+            50% { box-shadow: 0 0 25px rgba(16,185,129,0.35), 0 0 50px rgba(16,185,129,0.15); }
+          }
+        `}</style>
+      )}
       {/* Hero banner */}
       <div className="relative overflow-hidden">
         <Image
@@ -601,7 +624,7 @@ export default function ConfirmationPage() {
                     key={c.billId || ci}
                     className={`rounded-2xl overflow-hidden ${
                       expressLane
-                        ? "border-2 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+                        ? "border-2 border-emerald-500/60 animate-[expressGlow_3s_ease-in-out_infinite]"
                         : "border border-white/10 bg-white/[0.03]"
                     }`}
                     style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))" } : undefined}
