@@ -53,19 +53,18 @@ export default function FWFPage() {
 
       {/* Square Loyalty Sign-In */}
       <section className="px-4 pb-16">
-        <div className="max-w-md mx-auto">
+        <div className="max-w-2xl mx-auto">
           <div
             className="rounded-2xl overflow-hidden"
             style={{
               border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.03)",
             }}
           >
             <iframe
               src="https://profile.squareup.com/signin?variant=LOYALTY"
               title="HeadPinz Rewards Sign In"
               className="w-full border-0"
-              style={{ height: "600px", minHeight: "500px" }}
+              style={{ height: "700px", minHeight: "600px", background: "#fff" }}
               allow="payment"
             />
           </div>
