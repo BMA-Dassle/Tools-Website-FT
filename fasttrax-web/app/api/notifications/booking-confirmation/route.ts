@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
 
       html = html.replace(/\^CheckInSection\(\)\$/g, checkInHtml);
 
-      // QR always included in email (needed for attraction check-in even with express)
+      // Legacy placeholder cleanup (no longer used)
       if (false) {
       }
 
@@ -302,6 +302,16 @@ export async function POST(req: NextRequest) {
         .replace(/\^WaiverSection\(\)\$/g, waiverSectionHtml)
         .replace(/\^ReservationLink\(\)\$/g, waiverLink || "#")
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
+        .replace(/\^QrSection\(\)\$/g, qrHtml ? `
+<tr>
+<td align="center" style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0" style="border: 2px solid #004AAD; border-radius: 6px;">
+<tr><td align="center" style="font-size: 14px; font-weight: bold; color: #004AAD;">Booking Confirmation QR Code</td></tr>
+<tr><td align="center" style="font-size: 13px; color: #666;">Present this at check-in for faster service.</td></tr>
+<tr><td align="center">${qrHtml}</td></tr>
+</table>
+</td>
+</tr>` : "")
         .replace(/\^SoldVouchersList\(\)\$/g, codes.length > 0
           ? `<p style="font-weight:bold; color:#1A1A1A; margin:0 0 8px 0;">Your ViewPoint POV Camera Codes:</p>
              ${codes.map((c, i) => `<p style="font-family:monospace; font-size:18px; font-weight:bold; color:#6B21A8; margin:4px 0;">Code ${i + 1}: ${c}</p>`).join("")}
