@@ -4,6 +4,8 @@ import { useState, useRef } from "react";
 import Image from "next/image";
 import { calculateTax, calculateTotal, isRelevantMembership } from "../race/data";
 import { trackBookingStep } from "@/lib/analytics";
+import PaymentForm from "@/components/square/PaymentForm";
+import type { PaymentResult } from "@/components/square/PaymentForm";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
 
@@ -32,12 +34,14 @@ interface FoundPerson {
   personId: string;
   fullName: string;
   email: string;
+  phone?: string;
   loginCode?: string;
 }
 
 interface FoundAccount {
   personId: string;
   fullName: string;
+  email: string;
   lastSeen: string;
   races: number;
   memberships: string[];
@@ -46,7 +50,7 @@ interface FoundAccount {
 }
 
 
-type ModalPhase = "closed" | "lookup" | "looking" | "found" | "new-person" | "summary" | "paying";
+type ModalPhase = "closed" | "lookup" | "looking" | "found" | "new-person" | "summary" | "paying" | "card-form";
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -68,6 +72,8 @@ export default function RacePacksPage() {
   const [disclaimersAccepted, setDisclaimersAccepted] = useState<boolean[]>([]);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
+  const [checkoutBillId, setCheckoutBillId] = useState("");
+  const [checkoutTotal, setCheckoutTotal] = useState(0);
   const [payingStatus, setPayingStatus] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
 
@@ -138,6 +144,7 @@ export default function RacePacksPage() {
         return {
           personId: String(p.id),
           fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
+          email: (p.addresses?.[0]?.email) || "",
           lastSeen,
           loginCode,
           races: tags.length,
@@ -213,7 +220,14 @@ export default function RacePacksPage() {
   }
 
   function handleSelectAccount(account: FoundAccount) {
-    setPerson({ personId: account.personId, fullName: account.fullName, email: "", loginCode: account.loginCode });
+    const lookupPhone = phoneInput.replace(/\D/g, "").replace(/^1/, "");
+    setPerson({
+      personId: account.personId,
+      fullName: account.fullName,
+      email: account.email || (lookupMode === "email" ? emailInput.trim().toLowerCase() : ""),
+      phone: lookupMode === "phone" ? lookupPhone : undefined,
+      loginCode: account.loginCode,
+    });
     setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
     setModalPhase("summary");
   }
@@ -327,6 +341,7 @@ export default function RacePacksPage() {
       personId: "",
       fullName: `${newPerson.firstName} ${newPerson.lastName}`,
       email: newPerson.email,
+      phone: newPerson.phone,
     });
     setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
     setModalPhase("summary");
@@ -340,7 +355,7 @@ export default function RacePacksPage() {
     try {
       const firstName = person.fullName.split(" ")[0] || "";
       const lastName = person.fullName.split(" ").slice(1).join(" ") || "";
-      const phone = newPerson.phone || "";
+      const phone = person.phone || newPerson.phone || "";
       let linkedPersonId = person.personId;
 
       // For new customers, create person via Pandora (BMI Firebird) first
@@ -440,33 +455,13 @@ export default function RacePacksPage() {
       });
       localStorage.setItem(`booking_${billId}`, JSON.stringify(bookingDetails));
 
-      // 4. Square checkout
-      const returnUrl = `${window.location.origin}/book/race-packs/confirmation?billId=${billId}`;
-      const squareRes = await fetch("/api/square/checkout", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          billId,
-          amount: total,
-          raceName: `${selectedPack.raceCount}-Race Pack (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`,
-          catalogObjectId: "5FINJYYPPELXTERF2THUDCPT",
-          returnUrl,
-          cancelUrl: `${window.location.origin}/book/race-packs`,
-          buyer: {
-            email: person.email,
-            firstName: person.fullName.split(" ")[0] || "",
-            lastName: person.fullName.split(" ").slice(1).join(" ") || "",
-          },
-        }),
-      });
-      const squareData = await squareRes.json();
-      setPayingStatus("Redirecting to payment...");
-      if (squareData.checkoutUrl) {
-        trackBookingStep("Race Pack Payment", { pack: selectedPack.name, amount: total });
-        window.location.href = squareData.checkoutUrl;
-      } else {
-        throw new Error(squareData.error || "Failed to create payment");
-      }
+      // 4. Show inline payment form
+      const packTotal = calculateTotal(selectedPack.price);
+      setCheckoutBillId(billId);
+      setCheckoutTotal(packTotal);
+      trackBookingStep("Race Pack Payment", { pack: selectedPack.name, amount: packTotal });
+      setPaying(false);
+      setModalPhase("card-form");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setPaying(false);
@@ -579,6 +574,35 @@ export default function RacePacksPage() {
                   {payingStatus || "Heading to payment..."}
                 </p>
               </div>
+            )}
+
+            {/* Inline payment form */}
+            {modalPhase === "card-form" && person && selectedPack && (
+              <PaymentForm
+                amount={checkoutTotal}
+                itemName={`${selectedPack.raceCount}-Race Pack (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`}
+                billId={checkoutBillId}
+                contact={{
+                  firstName: person.fullName.split(" ")[0] || "",
+                  lastName: person.fullName.split(" ").slice(1).join(" ") || "",
+                  email: person.email,
+                  phone: person.phone || newPerson.phone || "",
+                }}
+                onSuccess={(result: PaymentResult) => {
+                  sessionStorage.setItem(`payment_${checkoutBillId}`, JSON.stringify({
+                    cardBrand: result.cardBrand,
+                    cardLast4: result.cardLast4,
+                    amount: result.amount,
+                    paymentId: result.paymentId,
+                  }));
+                  window.location.href = `/book/race-packs/confirmation?billId=${checkoutBillId}`;
+                }}
+                onError={(msg) => {
+                  setError(msg);
+                  setModalPhase("summary");
+                }}
+                onCancel={() => setModalPhase("summary")}
+              />
             )}
 
             {/* Lookup phase */}
