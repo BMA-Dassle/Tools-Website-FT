@@ -287,15 +287,31 @@ export default function ConfirmationPage() {
           if (recRes.ok) bookingRecord = await recRes.json();
         } catch { /* non-fatal */ }
 
-        // Enrich confirmations with racer names from booking record
-        if (bookingRecord?.racers && Array.isArray(bookingRecord.racers)) {
-          const recRacers = bookingRecord.racers as { racerName?: string; personId?: string }[];
-          for (let i = 0; i < allConfirmations.length; i++) {
-            if (allConfirmations[i].racerName.startsWith("Racer ") && recRacers[i]?.racerName) {
-              allConfirmations[i].racerName = recRacers[i].racerName!;
+        // Enrich/expand confirmations with racer data from booking record
+        if (bookingRecord?.racers && Array.isArray(bookingRecord.racers) && bookingRecord.racers.length > 0) {
+          const recRacers = bookingRecord.racers as { racerName?: string; personId?: string; product?: string; track?: string; heatStart?: string }[];
+
+          if (recRacers.length > allConfirmations.length && allConfirmations.length === 1) {
+            // Single bill, multiple racers — expand confirmations so each racer gets a card
+            const primary = allConfirmations[0];
+            const expanded = recRacers.map((r, i) => ({
+              billId: primary.billId,
+              racerName: r.racerName || `Racer ${i + 1}`,
+              resNumber: primary.resNumber,
+              resCode: primary.resCode,
+            }));
+            allConfirmations.length = 0;
+            allConfirmations.push(...expanded);
+          } else {
+            // Match up names 1:1
+            for (let i = 0; i < allConfirmations.length; i++) {
+              if (allConfirmations[i].racerName.startsWith("Racer ") && recRacers[i]?.racerName) {
+                allConfirmations[i].racerName = recRacers[i].racerName!;
+              }
             }
           }
-          // Also use contact name if single racer and still generic
+
+          // Fallback: use contact name if single racer and still generic
           if (allConfirmations.length === 1 && allConfirmations[0].racerName.startsWith("Racer ") && bookingRecord.contact?.firstName) {
             allConfirmations[0].racerName = `${bookingRecord.contact.firstName} ${bookingRecord.contact.lastName || ""}`.trim();
           }
