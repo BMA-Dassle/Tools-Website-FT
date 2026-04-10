@@ -117,7 +117,7 @@ export default function PaymentForm({
             input: {
               backgroundColor: "rgba(255,255,255,0.05)",
               color: "#ffffff",
-              fontFamily: "system-ui, -apple-system, sans-serif",
+              fontFamily: "sans-serif",
               fontSize: "14px",
             },
             "input::placeholder": {
