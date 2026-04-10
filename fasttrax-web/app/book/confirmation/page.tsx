@@ -659,7 +659,7 @@ export default function ConfirmationPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
                     </div>
-                    <p className="text-emerald-400 text-base sm:text-lg font-bold uppercase tracking-widest">Express Check-In</p>
+                    <p className="text-emerald-400 text-base sm:text-lg font-bold uppercase tracking-widest">Express Lane</p>
                   </div>
                   {/* Skip these */}
                   <div className="flex flex-wrap gap-2">
