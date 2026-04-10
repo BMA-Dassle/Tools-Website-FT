@@ -143,7 +143,9 @@ export default function PaymentForm({
           });
           serverLog(`[PaymentForm] Apple Pay request created, amount=${amountStr}`);
           const applePay = await payments.applePay(applePayRequest);
-          serverLog(`[PaymentForm] Apple Pay created (type=${typeof applePay}, hasAttach=${typeof applePay?.attach}), attaching...`);
+          const apKeys = applePay ? Object.keys(applePay) : [];
+          const apProto = applePay ? Object.getOwnPropertyNames(Object.getPrototypeOf(applePay)) : [];
+          serverLog(`[PaymentForm] Apple Pay obj keys=[${apKeys.join(",")}] proto=[${apProto.join(",")}] hasAttach=${typeof applePay?.attach}`);
           if (typeof applePay?.attach !== "function") throw new Error("Apple Pay not supported on this device/browser");
           await applePay.attach("#sq-apple-pay");
           applePayRef.current = applePay;
