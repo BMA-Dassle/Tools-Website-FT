@@ -5,6 +5,7 @@ import type { ClassifiedProduct, BmiProposal, BmiBlock, PackSchedule } from "../
 import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } from "../data";
 import { trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { ContactInfo } from "./ContactForm";
+import PaymentForm from "@/components/square/PaymentForm";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ type BookingState =
   | { status: "idle" }
   | { status: "booking" }
   | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string; lineId?: string; productGroup?: string }[] }
-  | { status: "paying" }
+  | { status: "paying"; cashOwed: number; raceName: string; orderId: string; allBillIds: string[]; squareCustomerId?: string; savedCards?: import("@/components/square/SavedCardSelector").SavedCard[] }
   | { status: "confirmed" }
   | { status: "error"; message: string };
 
@@ -278,7 +279,7 @@ export default function OrderSummary({
     if (state.status !== "booked") return;
     const { orderId, isCreditOrder, cashOwed } = state;
 
-    setState({ status: "paying" });
+    setState({ status: "booking" }); // Show loading while preparing payment
     trackBookingPayment(isCreditOrder ? "credit" : "square", cashOwed);
     try {
       // Register each verified racer as a project person (participant) on the bill
@@ -439,51 +440,36 @@ export default function OrderSummary({
         return;
       }
 
-      // Cash order — create Square checkout
-      const returnUrl = `${window.location.origin}${confirmationPath}?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
-
-      // Create short confirmation URL for Square receipt note
-      let shortConfirmUrl = "";
+      // Cash order — resolve Square customer + show inline payment form
+      let sqCustomerId: string | undefined;
+      let sqSavedCards: import("@/components/square/SavedCardSelector").SavedCard[] = [];
       try {
-        const shortRes = await fetch("/api/s", {
+        const custRes = await fetch("/api/square/customer", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: returnUrl }),
-        });
-        if (shortRes.ok) {
-          const shortData = await shortRes.json();
-          shortConfirmUrl = shortData.shortUrl || "";
-        }
-      } catch { /* fall back to no short URL */ }
-
-      const res = await fetch("/api/square/checkout", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          billId: orderId,
-          amount: cashOwed,
-          raceName,
-          confirmUrl: shortConfirmUrl,
-          returnUrl,
-          cancelUrl: `${window.location.origin}/book/race`,
-          buyer: {
-            email: contact.email,
+          body: JSON.stringify({
             phone: contact.phone,
             firstName: contact.firstName,
             lastName: contact.lastName,
-          },
-        }),
+            email: contact.email,
+          }),
+        });
+        if (custRes.ok) {
+          const custData = await custRes.json();
+          sqCustomerId = custData.customerId;
+          sqSavedCards = custData.cards || [];
+        }
+      } catch { /* non-fatal — proceed without saved cards */ }
+
+      setState({
+        status: "paying",
+        cashOwed,
+        raceName,
+        orderId,
+        allBillIds,
+        squareCustomerId: sqCustomerId,
+        savedCards: sqSavedCards,
       });
-
-      const data = await res.json();
-      console.log("[square/checkout]", data);
-
-      if (data.checkoutUrl) {
-        // Redirect to Square payment page
-        window.location.href = data.checkoutUrl;
-      } else {
-        throw new Error(data.error || "Failed to create payment link");
-      }
     } catch (err) {
       setState({
         status: "error",
@@ -526,45 +512,29 @@ export default function OrderSummary({
   // ── Paying state ──────────────────────────────────────────────────────────
 
   if (state.status === "paying") {
+    const confirmUrl = `${confirmationPath}?billId=${state.orderId}&billIds=${state.allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
+
     return (
-      <div className="min-h-[400px] flex flex-col items-center justify-center gap-6 max-w-md mx-auto text-center">
-        <div className="relative w-full h-16 overflow-hidden">
-          <div className="absolute top-1/2 left-0 w-full h-px bg-white/10" />
-          <div className="absolute top-1/2 -translate-y-1/2 animate-[race_2s_ease-in-out_infinite] text-4xl">
-            🏎️
-          </div>
-        </div>
-        <style>{`
-          @keyframes race {
-            0% { left: -10%; }
-            50% { left: 90%; }
-            100% { left: -10%; }
-          }
-        `}</style>
-        <div>
-          <p className="text-white font-display text-xl uppercase tracking-widest mb-2">
-            Heading to Payment
-          </p>
-          <p className="text-white/40 text-sm">
-            Setting up your secure checkout…
-          </p>
-        </div>
-        <div className="flex gap-1">
-          {[0, 1, 2].map(i => (
-            <div
-              key={i}
-              className="w-2 h-2 rounded-full bg-[#00E2E5]"
-              style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
-            />
-          ))}
-        </div>
-        <style>{`
-          @keyframes pulse {
-            0%, 100% { opacity: 0.2; transform: scale(0.8); }
-            50% { opacity: 1; transform: scale(1.2); }
-          }
-        `}</style>
-      </div>
+      <PaymentForm
+        amount={state.cashOwed}
+        itemName={state.raceName}
+        billId={state.orderId}
+        contact={contact}
+        squareCustomerId={state.squareCustomerId}
+        savedCards={state.savedCards}
+        onSuccess={(result) => {
+          // Store payment details for confirmation page
+          sessionStorage.setItem(`payment_${state.orderId}`, JSON.stringify({
+            cardBrand: result.cardBrand,
+            cardLast4: result.cardLast4,
+            amount: result.amount,
+            paymentId: result.paymentId,
+          }));
+          window.location.href = confirmUrl;
+        }}
+        onError={(msg) => setState({ status: "error", message: msg })}
+        onCancel={() => setState({ status: "booked", orderId: state.orderId, isCreditOrder: false, cashOwed: state.cashOwed, creditApplied: 0, bmiTotal: state.cashOwed, bmiSubtotal: state.cashOwed, bmiTax: 0, bmiLines: [] })}
+      />
     );
   }
 
