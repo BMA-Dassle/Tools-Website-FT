@@ -143,12 +143,10 @@ export default function PaymentForm({
           });
           serverLog(`[PaymentForm] Apple Pay request created, amount=${amountStr}`);
           const applePay = await payments.applePay(applePayRequest);
-          const apKeys = applePay ? Object.keys(applePay) : [];
-          const apProto = applePay ? Object.getOwnPropertyNames(Object.getPrototypeOf(applePay)) : [];
-          serverLog(`[PaymentForm] Apple Pay obj keys=[${apKeys.join(",")}] proto=[${apProto.join(",")}] hasAttach=${typeof applePay?.attach}`);
-          if (typeof applePay?.attach !== "function") throw new Error("Apple Pay not supported on this device/browser");
-          await applePay.attach("#sq-apple-pay");
-          applePayRef.current = applePay;
+          serverLog(`[PaymentForm] Apple Pay created, methods=[${Object.keys(applePay).join(",")}]`);
+          // Apple Pay has no attach() — it uses native sheet via tokenize()
+          // Just store the reference and mark ready
+          applePayRef.current = applePay as unknown as SquareDigitalWallet;
           setApplePayReady(true);
           serverLog("[PaymentForm] Apple Pay ready");
         } catch (apErr) {
@@ -190,67 +188,72 @@ export default function PaymentForm({
     };
   }, []);
 
+  async function handleApplePay() {
+    if (status === "processing" || !applePayRef.current) return;
+    setStatus("processing");
+    setErrorMessage(null);
+    try {
+      const result = await (applePayRef.current as unknown as { tokenize: () => Promise<{ status: string; token?: string }> }).tokenize();
+      if (result.status !== "OK" || !result.token) throw new Error("Apple Pay cancelled or failed");
+      await processPayment(result.token, false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Apple Pay failed";
+      setStatus("error");
+      setErrorMessage(msg);
+    }
+  }
+
+  async function processPayment(token: string, usingSavedCard: boolean) {
+    const res = await fetch("/api/square/pay", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: usingSavedCard ? undefined : token,
+        useSavedCard: usingSavedCard,
+        savedCardId: usingSavedCard ? token : undefined,
+        amount,
+        billId,
+        itemName,
+        contact,
+        saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
+        squareCustomerId,
+        locationId: typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || "Payment failed");
+
+    setStatus("success");
+    setTimeout(() => {
+      onSuccess({
+        paymentId: data.paymentId,
+        orderId: data.orderId,
+        cardBrand: data.cardBrand,
+        cardLast4: data.cardLast4,
+        amount: data.amount,
+        receiptUrl: data.receiptUrl,
+        savedCardId: data.savedCardId,
+      });
+    }, 1500);
+  }
+
   async function handleSubmit() {
     if (status === "processing") return;
     setStatus("processing");
     setErrorMessage(null);
 
     try {
-      let token: string | undefined;
-      let usingSavedCard = false;
-
       if (selectedCardId) {
-        // Using saved card — no tokenization needed
-        usingSavedCard = true;
-        token = selectedCardId;
+        await processPayment(selectedCardId, true);
       } else {
-        // Tokenize the card form
         if (!cardRef.current) throw new Error("Card form not ready");
         const result = await cardRef.current.tokenize();
         if (result.status !== "OK" || !result.token) {
-          const errMsg = result.errors?.[0]?.message || "Card validation failed";
-          throw new Error(errMsg);
+          throw new Error(result.errors?.[0]?.message || "Card validation failed");
         }
-        token = result.token;
+        await processPayment(result.token, false);
       }
-
-      // Send to server
-      const res = await fetch("/api/square/pay", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          token: usingSavedCard ? undefined : token,
-          useSavedCard: usingSavedCard,
-          savedCardId: usingSavedCard ? token : undefined,
-          amount,
-          billId,
-          itemName,
-          contact,
-          saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
-          squareCustomerId,
-          locationId: typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "Payment failed");
-      }
-
-      setStatus("success");
-      // Brief pause to show success state, then callback
-      setTimeout(() => {
-        onSuccess({
-          paymentId: data.paymentId,
-          orderId: data.orderId,
-          cardBrand: data.cardBrand,
-          cardLast4: data.cardLast4,
-          amount: data.amount,
-          receiptUrl: data.receiptUrl,
-          savedCardId: data.savedCardId,
-        });
-      }, 1500);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Payment failed";
       setStatus("error");
@@ -292,8 +295,19 @@ export default function PaymentForm({
         />
       )}
 
-      {/* Digital wallets — divs always in DOM so Square SDK can attach during init */}
-      <div id="sq-apple-pay" className={!selectedCardId && applePayReady ? "min-h-[48px]" : "hidden"} />
+      {/* Digital wallets */}
+      {!selectedCardId && applePayReady && (
+        <button
+          onClick={handleApplePay}
+          disabled={status === "processing"}
+          className="w-full h-12 rounded-xl bg-black text-white font-medium text-base flex items-center justify-center gap-2 hover:bg-black/90 transition-colors disabled:opacity-50"
+          style={{ WebkitAppearance: "none" }}
+        >
+          <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+          Pay
+        </button>
+      )}
+      <div id="sq-apple-pay" className="hidden" />
       <div id="sq-google-pay" className={!selectedCardId && googlePayReady ? "min-h-[48px]" : "hidden"} />
       {!selectedCardId && (applePayReady || googlePayReady) && (
         <div className="flex items-center gap-3">
