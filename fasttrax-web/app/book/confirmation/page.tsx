@@ -333,9 +333,15 @@ export default function ConfirmationPage() {
         const personIds = recPersonIds.length > 0 ? recPersonIds : urlPersonIds;
         const hasReturningRacers = personIds.length > 0;
 
-        // Express Lane: check all racers have valid waivers
+        // Express Lane: read from booking record (waivers already verified at booking time)
         let allWaiversValid = false;
-        if (detectedType === "racing" && hasReturningRacers) {
+        if (detectedType === "racing" && hasReturningRacers && bookingRecord?.fastLane) {
+          allWaiversValid = true;
+          setExpressLane(true);
+          console.log("[express lane] from booking record: fastLane=true");
+        }
+        // First-time confirmation: check waivers live and set fastLane
+        if (detectedType === "racing" && hasReturningRacers && !bookingRecord?.fastLane && bookingRecord?.status !== "confirmed") {
           try {
             const waiverChecks = await Promise.all(
               personIds.map((pid: string) =>
@@ -344,10 +350,7 @@ export default function ConfirmationPage() {
             );
             allWaiversValid = waiverChecks.length > 0 && waiverChecks.every((w: { valid: boolean }) => w.valid);
             setExpressLane(allWaiversValid);
-            console.log("[express lane]", { personIds, allWaiversValid });
-          } catch {
-            console.warn("[express lane] waiver check failed");
-          }
+          } catch { /* non-fatal */ }
         }
 
         // Link racers to reservation schedule (racing returning racers only, fire-and-forget)
@@ -363,11 +366,11 @@ export default function ConfirmationPage() {
                   body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: bookingRecord.racers }),
                 }).then(async (schedRes) => {
                   if (schedRes.ok) {
-                    // Mark FastLane = true in booking record
+                    // Mark FastLane based on waiver check result
                     fetch("/api/booking-record", {
                       method: "PATCH",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ billId: id, fastLane: true }),
+                      headers: { "content-type": "application/json", "x-api-key": BOOKING_API_KEY },
+                      body: JSON.stringify({ billId: id, fastLane: allWaiversValid }),
                     }).catch(() => {});
                   }
                 }).catch(() => {});
@@ -636,8 +639,8 @@ export default function ConfirmationPage() {
 
           {/* Layout: single reservation = full-width card then two-col journey below.
               Multiple = cards left, journey right */}
-          <div className={`${(raceGroups.length > 1 || confirmations.length > 1) ? "grid lg:grid-cols-2 gap-8" : ""} mb-8`}>
-          <div className="space-y-6">
+          <div className="mb-8">
+          <div className={`${raceGroups.length > 1 ? "grid md:grid-cols-2 gap-6" : "max-w-2xl mx-auto"} space-y-6 md:space-y-0`}>
             {/* Race group tiles — one per heat, with all racers listed */}
             {raceGroups.length > 0 ? raceGroups.map((group, gi) => {
               const trackName = group.track === "Red" ? "Red Track" : group.track === "Blue" ? "Blue Track" : group.track === "Mega" ? "Mega Track" : null;
