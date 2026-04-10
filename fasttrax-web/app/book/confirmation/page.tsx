@@ -333,10 +333,9 @@ export default function ConfirmationPage() {
         const isReturning = personIdsParam && personIdsParam.split(",").filter(Boolean).length > 0;
         setIsNewRacer(!isReturning);
 
-        // Waiver link — resolve for all new bookings (racing new racers, gel blaster, laser tag)
-        // The waiver banner display is conditional based on the resolved URL
+        // Waiver link — only for new racers/guests (not returning racers with valid waivers)
         let resolvedWaiverUrl = "";
-        if (id) {
+        if (id && !isReturning) {
           try {
             // Get projectId from bill overview
             const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}`);
