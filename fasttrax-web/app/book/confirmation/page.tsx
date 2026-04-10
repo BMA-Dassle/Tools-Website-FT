@@ -551,8 +551,8 @@ export default function ConfirmationPage() {
       {expressLane && (
         <style>{`
           @keyframes expressGlow {
-            0%, 100% { box-shadow: 0 0 15px rgba(16,185,129,0.15), 0 0 30px rgba(16,185,129,0.05); }
-            50% { box-shadow: 0 0 25px rgba(16,185,129,0.35), 0 0 50px rgba(16,185,129,0.15); }
+            0%, 100% { box-shadow: 0 0 20px rgba(16,185,129,0.3), 0 0 40px rgba(16,185,129,0.1), 0 0 80px rgba(16,185,129,0.05); }
+            50% { box-shadow: 0 0 30px rgba(16,185,129,0.6), 0 0 60px rgba(16,185,129,0.3), 0 0 100px rgba(16,185,129,0.1); }
           }
         `}</style>
       )}
@@ -649,7 +649,7 @@ export default function ConfirmationPage() {
                   key={gi}
                   className={`rounded-2xl overflow-hidden ${
                     expressLane
-                      ? "border-2 border-emerald-500/60 animate-[expressGlow_3s_ease-in-out_infinite]"
+                      ? "border-2 border-emerald-400 animate-[expressGlow_3s_ease-in-out_infinite]"
                       : "border border-white/10 bg-white/[0.03]"
                   }`}
                   style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))" } : undefined}
