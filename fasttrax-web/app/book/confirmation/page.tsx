@@ -278,9 +278,10 @@ export default function ConfirmationPage() {
         }
 
         // Check waivers + link racers for returning racers
-        // Try URL params first, then fall back to booking record (for short URL / email links)
+        // Try URL params first, then fall back to booking record or BMI project
         let pidsParam = params.get("personIds");
         if (!pidsParam || !pidsParam.split(",").filter(Boolean).length) {
+          // Try booking record first
           try {
             const recRes = await fetch(`/api/booking-record?billId=${id}`);
             if (recRes.ok) {
@@ -290,6 +291,22 @@ export default function ConfirmationPage() {
                 .filter(Boolean);
               if (recPersonIds.length > 0) pidsParam = recPersonIds.join(",");
             }
+          } catch { /* non-fatal */ }
+        }
+        if (!pidsParam || !pidsParam.split(",").filter(Boolean).length) {
+          // Fall back to BMI Office project — get projectPersons
+          try {
+            const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}`);
+            const ov = await ovRes.json();
+            const projectId = ov.id || id;
+            const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
+            const projText = await projRes.text();
+            const proj = JSON.parse(projText);
+            const projPersonIds = (proj.projectPersons || [])
+              .map((pp: { personId?: string }) => pp.personId)
+              .filter(Boolean);
+            if (projPersonIds.length > 0) pidsParam = projPersonIds.join(",");
+            console.log("[personIds fallback] from BMI project:", projPersonIds);
           } catch { /* non-fatal */ }
         }
         const hasReturningRacers = pidsParam && pidsParam.split(",").filter(Boolean).length > 0;
