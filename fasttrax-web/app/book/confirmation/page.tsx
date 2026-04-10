@@ -779,16 +779,16 @@ export default function ConfirmationPage() {
             </div>
           )}
 
-          {/* RIGHT: Racer's Journey (racing only, only in grid for multi-bill) */}
-          {bookingType === "racing" && confirmations.length > 1 && (
+          {/* RIGHT: Racer's Journey (racing only, not express lane, only in grid for multi-bill) */}
+          {bookingType === "racing" && !expressLane && confirmations.length > 1 && (
             <div className="lg:sticky lg:top-40 lg:self-start">
               <RacerJourneySteps />
             </div>
           )}
           </div>
 
-          {/* Journey below for single reservation (racing only) */}
-          {bookingType === "racing" && confirmations.length <= 1 && (
+          {/* Journey below for single reservation (racing only, not express lane) */}
+          {bookingType === "racing" && !expressLane && confirmations.length <= 1 && (
             <div className="max-w-2xl mx-auto mb-8">
               <RacerJourneySteps />
             </div>
