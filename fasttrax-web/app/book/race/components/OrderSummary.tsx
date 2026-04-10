@@ -350,9 +350,15 @@ export default function OrderSummary({
       if (racerAssignments.length === 0) {
         try {
           const stored = sessionStorage.getItem("racerAssignments");
-          if (stored) racerAssignments = JSON.parse(stored);
+          if (stored) {
+            racerAssignments = JSON.parse(stored);
+            console.log("[booking record] loaded racerAssignments from sessionStorage:", racerAssignments.length);
+          } else {
+            console.log("[booking record] no racerAssignments in sessionStorage");
+          }
         } catch { /* skip */ }
       }
+      console.log("[booking record] racerAssignments:", racerAssignments.length, "primaryPersonId:", personId || sessionStorage.getItem("primaryPersonId") || "none");
 
       // Store booking details + overviews in Redis + localStorage
       const bookingDetails = {

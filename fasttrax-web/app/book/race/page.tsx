@@ -245,12 +245,15 @@ export default function BookRacePage() {
         };
       })
     );
+    console.log("[cart sync] racerAssignments:", assignments.length, "bookings:", bookings.length, "verifiedRacers:", verifiedRacers.length);
     if (assignments.length > 0) {
       sessionStorage.setItem("racerAssignments", JSON.stringify(assignments));
+      console.log("[cart sync] saved racerAssignments to sessionStorage");
     }
     // Store personId for returning racer detection
     if (verifiedPerson?.personId) {
       sessionStorage.setItem("primaryPersonId", verifiedPerson.personId);
+      console.log("[cart sync] saved primaryPersonId:", verifiedPerson.personId);
     }
   }, [bookings, licenseSold, verifiedRacers, verifiedPerson]);
 
