@@ -397,9 +397,14 @@ export default function ConfirmationPage() {
         const isReturning = hasReturningRacers;
         setIsNewRacer(!isReturning);
 
-        // Waiver link — only for new racers/guests (not returning racers with valid waivers)
+        // Waiver link — only for activities that require waivers (racing, gel blaster, laser tag)
+        // Duck pin and shuffly don't need waivers
+        const waiverLines = overview?.lines || parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+        const lineNames = waiverLines.map((l: OrderLine) => l.name.toLowerCase());
+        const needsWaiver = lineNames.some((n: string) => n.includes("race") || n.includes("gel") || n.includes("laser") || n.includes("blaster"));
+
         let resolvedWaiverUrl = "";
-        if (id && !isReturning) {
+        if (id && !isReturning && needsWaiver) {
           try {
             // Get projectId from bill overview
             const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}`);
