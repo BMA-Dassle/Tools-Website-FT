@@ -407,7 +407,7 @@ export default function OrderSummary({
       try {
         await fetch("/api/booking-record", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "x-api-key": "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4" },
           body: JSON.stringify(bookingRecord),
         });
       } catch { /* non-fatal */ }

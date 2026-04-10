@@ -11,6 +11,8 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 // Booking type detection — determines which features are active
 type BookingType = "racing" | "attraction";
 
+const BOOKING_API_KEY = "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4";
+
 function detectBookingType(details: Record<string, string> | null, lines: { productGroup: string }[]): BookingType {
   if (details?.attraction) return "attraction";
   if (lines.some(l => l.productGroup === "Karting")) return "racing";
@@ -224,7 +226,7 @@ export default function ConfirmationPage() {
             const primaryRes = allConfirmations[0];
             await fetch("/api/booking-record", {
               method: "PATCH",
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", "x-api-key": BOOKING_API_KEY },
               body: JSON.stringify({
                 billId: id,
                 reservationNumber: primaryRes.resNumber,
@@ -283,7 +285,7 @@ export default function ConfirmationPage() {
         if (!pidsParam || !pidsParam.split(",").filter(Boolean).length) {
           // Try booking record first
           try {
-            const recRes = await fetch(`/api/booking-record?billId=${id}`);
+            const recRes = await fetch(`/api/booking-record?billId=${id}`, { headers: { "x-api-key": BOOKING_API_KEY } });
             if (recRes.ok) {
               const rec = await recRes.json();
               const recPersonIds = (rec.racers || [])
@@ -333,7 +335,7 @@ export default function ConfirmationPage() {
         if (detectedType === "racing" && allConfirmations.length > 0 && hasReturningRacers) {
           try {
             const primaryRes = allConfirmations[0];
-            const recordRes = await fetch(`/api/booking-record?billId=${id}`);
+            const recordRes = await fetch(`/api/booking-record?billId=${id}`, { headers: { "x-api-key": BOOKING_API_KEY } });
             if (recordRes.ok) {
               const record = await recordRes.json();
               if (record.racers && Array.isArray(record.racers) && record.racers.some((r: { personId: string }) => r.personId)) {
