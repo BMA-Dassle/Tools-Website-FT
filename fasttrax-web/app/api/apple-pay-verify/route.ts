@@ -12,9 +12,12 @@ export async function GET(req: NextRequest) {
 
   try {
     const filePath = join(process.cwd(), "public", ".well-known", filename);
-    const content = readFileSync(filePath, "utf-8");
+    const content = readFileSync(filePath);
     return new NextResponse(content, {
-      headers: { "Content-Type": "text/plain" },
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Cache-Control": "public, max-age=86400",
+      },
     });
   } catch {
     return new NextResponse("Not found", { status: 404 });

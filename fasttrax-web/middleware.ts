@@ -12,6 +12,13 @@ export function middleware(request: NextRequest) {
   const isHeadPinz = hostname.includes("headpinz.com");
   const pathname = request.nextUrl.pathname;
 
+  // Apple Pay domain verification — rewrite to API route that serves per-domain file
+  if (pathname === "/.well-known/apple-developer-merchantid-domain-association") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/api/apple-pay-verify";
+    return NextResponse.rewrite(url);
+  }
+
   // Dev: ?brand=headpinz sets a cookie to simulate headpinz.com on localhost
   const brandParam = request.nextUrl.searchParams.get("brand");
   if (brandParam === "headpinz") {
