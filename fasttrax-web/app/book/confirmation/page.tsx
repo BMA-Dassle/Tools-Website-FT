@@ -279,53 +279,34 @@ export default function ConfirmationPage() {
           })();
         }
 
-        // Check waivers + link racers for returning racers
-        // Try URL params first, then fall back to booking record or BMI project
-        let pidsParam = params.get("personIds");
-        if (!pidsParam || !pidsParam.split(",").filter(Boolean).length) {
-          // Try booking record first
-          try {
-            const recRes = await fetch(`/api/booking-record?billId=${id}`, { headers: { "x-api-key": BOOKING_API_KEY } });
-            if (recRes.ok) {
-              const rec = await recRes.json();
-              const recPersonIds = (rec.racers || [])
-                .map((r: { personId?: string }) => r.personId)
-                .filter(Boolean);
-              if (recPersonIds.length > 0) pidsParam = recPersonIds.join(",");
-            }
-          } catch { /* non-fatal */ }
-        }
-        if (!pidsParam || !pidsParam.split(",").filter(Boolean).length) {
-          // Fall back to BMI Office project — get projectPersons
-          try {
-            const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}`);
-            const ov = await ovRes.json();
-            const projectId = ov.id || id;
-            const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
-            const projText = await projRes.text();
-            const proj = JSON.parse(projText);
-            const projPersonIds = (proj.projectPersons || [])
-              .map((pp: { personId?: string }) => pp.personId)
-              .filter(Boolean);
-            if (projPersonIds.length > 0) pidsParam = projPersonIds.join(",");
-            console.log("[personIds fallback] from BMI project:", projPersonIds);
-          } catch { /* non-fatal */ }
-        }
-        const hasReturningRacers = pidsParam && pidsParam.split(",").filter(Boolean).length > 0;
+        // Get racer data from booking record (primary source of truth)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let bookingRecord: Record<string, any> | null = null;
+        try {
+          const recRes = await fetch(`/api/booking-record?billId=${id}`, { headers: { "x-api-key": BOOKING_API_KEY } });
+          if (recRes.ok) bookingRecord = await recRes.json();
+        } catch { /* non-fatal */ }
+
+        // Get personIds — from booking record first, URL params as fallback
+        const recPersonIds = (bookingRecord?.racers || [])
+          .map((r: { personId?: string }) => r.personId)
+          .filter(Boolean);
+        const urlPersonIds = (params.get("personIds") || "").split(",").filter(Boolean);
+        const personIds = recPersonIds.length > 0 ? recPersonIds : urlPersonIds;
+        const hasReturningRacers = personIds.length > 0;
 
         // Express Lane: check all racers have valid waivers
         let allWaiversValid = false;
         if (detectedType === "racing" && hasReturningRacers) {
           try {
-            const personIds = pidsParam!.split(",").filter(Boolean);
             const waiverChecks = await Promise.all(
-              personIds.map(pid =>
+              personIds.map((pid: string) =>
                 fetch(`/api/pandora?personId=${pid}`).then(r => r.json()).catch(() => ({ valid: false }))
               )
             );
             allWaiversValid = waiverChecks.length > 0 && waiverChecks.every((w: { valid: boolean }) => w.valid);
             setExpressLane(allWaiversValid);
-            console.log("[express lane]", { personIds, allWaiversValid, waiverChecks: waiverChecks.map((w: { valid: boolean; waiverExpiry?: string }) => ({ valid: w.valid, expiry: w.waiverExpiry })) });
+            console.log("[express lane]", { personIds, allWaiversValid });
           } catch {
             console.warn("[express lane] waiver check failed");
           }
@@ -335,16 +316,13 @@ export default function ConfirmationPage() {
         if (detectedType === "racing" && allConfirmations.length > 0 && hasReturningRacers) {
           try {
             const primaryRes = allConfirmations[0];
-            const recordRes = await fetch(`/api/booking-record?billId=${id}`, { headers: { "x-api-key": BOOKING_API_KEY } });
-            if (recordRes.ok) {
-              const record = await recordRes.json();
-              if (record.racers && Array.isArray(record.racers) && record.racers.some((r: { personId: string }) => r.personId)) {
+            if (bookingRecord?.racers && Array.isArray(bookingRecord.racers) && bookingRecord.racers.some((r: { personId: string }) => r.personId)) {
                 // Delay to let Pandora sync the reservation from BMI
                 await new Promise(r => setTimeout(r, 8000));
                 fetch("/api/pandora/schedule", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: record.racers }),
+                  body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: bookingRecord.racers }),
                 }).then(async (schedRes) => {
                   if (schedRes.ok) {
                     // Mark FastLane = true in booking record
@@ -356,7 +334,6 @@ export default function ConfirmationPage() {
                   }
                 }).catch(() => {});
               }
-            }
           } catch { /* non-fatal */ }
         }
 
@@ -376,8 +353,7 @@ export default function ConfirmationPage() {
         }
 
         // Waiver link for new racers — get projectReference from Office API
-        const personIdsParam = params.get("personIds");
-        const isReturning = personIdsParam && personIdsParam.split(",").filter(Boolean).length > 0;
+        const isReturning = hasReturningRacers;
         setIsNewRacer(!isReturning);
 
         // Waiver link — only for new racers/guests (not returning racers with valid waivers)
