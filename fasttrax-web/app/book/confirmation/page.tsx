@@ -559,8 +559,8 @@ export default function ConfirmationPage() {
       {expressLane && (
         <style>{`
           @keyframes expressGlow {
-            0%, 100% { box-shadow: 0 0 20px rgba(16,185,129,0.3), 0 0 40px rgba(16,185,129,0.1), 0 0 80px rgba(16,185,129,0.05); }
-            50% { box-shadow: 0 0 30px rgba(16,185,129,0.6), 0 0 60px rgba(16,185,129,0.3), 0 0 100px rgba(16,185,129,0.1); }
+            0%, 100% { box-shadow: 0 0 25px rgba(16,185,129,0.4), 0 0 50px rgba(16,185,129,0.2), 0 0 100px rgba(16,185,129,0.1); }
+            50% { box-shadow: 0 0 40px rgba(16,185,129,0.7), 0 0 80px rgba(16,185,129,0.4), 0 0 120px rgba(16,185,129,0.15); }
           }
         `}</style>
       )}
@@ -646,6 +646,42 @@ export default function ConfirmationPage() {
               Multiple = cards left, journey right */}
           <div className="mb-8">
           <div className={`${expressLane && raceGroups.length > 1 ? "grid md:grid-cols-2 gap-6" : "max-w-2xl mx-auto"} space-y-6 md:space-y-0`}>
+            {/* Express Check-In directions — own card above race cards */}
+            {expressLane && raceGroups.length > 0 && (
+              <div
+                className="max-w-2xl mx-auto mb-6 rounded-2xl overflow-hidden border-2 border-emerald-400 animate-[expressGlow_3s_ease-in-out_infinite]"
+                style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04))", boxShadow: "0 0 30px rgba(16,185,129,0.25), 0 0 60px rgba(16,185,129,0.1)" }}
+              >
+                <div className="px-6 py-5 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/25 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <p className="text-emerald-400 text-base sm:text-lg font-bold uppercase tracking-widest">Express Check-In</p>
+                  </div>
+                  {/* Skip these */}
+                  <div className="flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
+                      <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      <span className="text-red-400 text-xs font-bold line-through">Guest Services</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
+                      <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      <span className="text-red-400 text-xs font-bold line-through">Event Check-In</span>
+                    </span>
+                  </div>
+                  {/* Go here */}
+                  <div className="flex items-center gap-2">
+                    <svg className="w-6 h-6 text-emerald-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                    <p className="text-emerald-400 text-lg sm:text-xl font-black uppercase tracking-wide">Head straight to Karting!</p>
+                  </div>
+                  <p className="text-white/50 text-sm">1st Floor — Arrive 5 min before your race. Have this page ready on your phone.</p>
+                </div>
+              </div>
+            )}
+
             {/* Express lane: grouped tiles per heat. Standard: original QR card layout */}
             {expressLane && raceGroups.length > 0 ? (() => {
               return raceGroups.map((group, gi) => {
@@ -661,38 +697,8 @@ export default function ConfirmationPage() {
                       ? "border-2 border-emerald-400 animate-[expressGlow_3s_ease-in-out_infinite]"
                       : "border border-white/10 bg-white/[0.03]"
                   }`}
-                  style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))" } : undefined}
+                  style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))", boxShadow: "0 0 20px rgba(16,185,129,0.15), 0 0 40px rgba(16,185,129,0.07)" } : undefined}
                 >
-                  {/* Express Lane badge + directions */}
-                  {expressLane && gi === 0 && (
-                    <div className="bg-emerald-500/15 border-b border-emerald-500/20 px-5 py-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                          <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                        </div>
-                        <p className="text-emerald-400 text-sm font-bold uppercase tracking-widest">Express Check-In</p>
-                      </div>
-                      {/* Skip these */}
-                      <div className="flex flex-wrap gap-2">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
-                          <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                          <span className="text-red-400 text-xs font-bold line-through">Guest Services</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
-                          <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                          <span className="text-red-400 text-xs font-bold line-through">Event Check-In</span>
-                        </span>
-                      </div>
-                      {/* Go here */}
-                      <div className="flex items-center gap-2">
-                        <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                        <p className="text-emerald-400 text-base font-black uppercase tracking-wide">Head straight to Karting!</p>
-                      </div>
-                      <p className="text-white/50 text-xs">1st Floor — Have this page ready on your phone</p>
-                    </div>
-                  )}
 
                   {/* Main content */}
                   <div className="p-5 sm:p-6">

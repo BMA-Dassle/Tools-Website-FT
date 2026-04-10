@@ -904,6 +904,12 @@ export default function BookRacePage() {
                         {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
                           <span className="text-xs text-green-400/60">License ✓</span>
                         )}
+                        {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            Express Lane
+                          </span>
+                        )}
                       </div>
                       {/* Credit balances */}
                       {r.hasCredits && r.creditBalances && r.creditBalances.length > 0 && (
@@ -1022,6 +1028,28 @@ export default function BookRacePage() {
                 <div className="max-w-md mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-xs text-white/40 text-center">
                   {verifiedRacers.length} racer{verifiedRacers.length !== 1 ? "s" : ""} in your party
                 </div>
+
+                {/* Express Lane tip */}
+                {verifiedRacers.some(r => (r.memberships || []).some(m => m.toLowerCase().includes("license fee"))) && (
+                  <div className="max-w-md mx-auto rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                        <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">Express Lane Eligible</p>
+                        <p className="text-white/50 text-xs leading-relaxed">
+                          {verifiedRacers.every(r => (r.memberships || []).some(m => m.toLowerCase().includes("license fee")))
+                            ? "All racers in your party are express lane eligible! After checkout, you\u2019ll receive a green express pass — skip Guest Services and Event Check-In and head straight to Karting."
+                            : "Some racers are express lane eligible. If all racers have a valid license, your party can skip Guest Services and Event Check-In and head straight to Karting after checkout."
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between max-w-md mx-auto">
                   <button onClick={() => { changeStep("experience"); setVerifiedPerson(null); setVerifiedRacers([]); }} className="text-sm text-white/40 hover:text-white/70 transition-colors">
