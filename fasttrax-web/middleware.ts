@@ -72,6 +72,11 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  // HeadPinz short URLs — case-insensitive redirect to canonical lowercase
+  if (isHeadPinz && pathname.toLowerCase() === "/fwf" && pathname !== "/fwf") {
+    return NextResponse.redirect(`https://headpinz.com/fwf`, 301);
+  }
+
   // HeadPinz domain: rewrite to /hp prefix (unless already there or it's a shared route)
   if (isHeadPinz && !pathname.startsWith("/hp") && !pathname.startsWith("/book") && !pathname.startsWith("/api")) {
     const url = request.nextUrl.clone();
