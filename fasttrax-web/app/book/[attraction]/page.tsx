@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
+import PaymentForm from "@/components/square/PaymentForm";
+import type { PaymentResult } from "@/components/square/PaymentForm";
 // MiniCart is rendered globally in root layout
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
@@ -657,7 +659,7 @@ type ReviewState =
   | { status: "idle" }
   | { status: "booking" }
   | { status: "booked"; orderId: string; total: number; subtotal: number; tax: number; lines: { name: string; quantity: number; amount: number; credit?: number; time?: string | null }[]; creditsApplied?: number }
-  | { status: "paying" }
+  | { status: "card-form"; orderId: string; total: number; subtotal: number; tax: number; lines: { name: string; quantity: number; amount: number; credit?: number; time?: string | null }[]; creditsApplied?: number }
   | { status: "error"; message: string };
 
 function ReviewStep({
@@ -748,12 +750,11 @@ function ReviewStep({
 
   async function handlePay() {
     if (state.status !== "booked") return;
-    setState({ status: "paying" });
 
     try {
-      const { orderId, total } = state;
+      const { orderId, total, subtotal, tax, lines, creditsApplied } = state;
 
-      // Store booking details in Redis for retrieval after Square redirect
+      // Store booking details in Redis for confirmation page
       const bookingDetails = {
         billId: orderId,
         amount: total.toFixed(2),
@@ -772,49 +773,33 @@ function ReviewStep({
       });
       localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
 
-      // Create short confirmation URL for Square receipt
-      const returnUrl = `${window.location.origin}/book/confirmation?billId=${orderId}`;
-      let confirmUrl = "";
-      try {
-        const shortRes = await fetch("/api/s", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: returnUrl }),
-        });
-        if (shortRes.ok) {
-          const shortData = await shortRes.json();
-          confirmUrl = shortData.shortUrl || "";
-        }
-      } catch { /* fall back to no short URL */ }
-
-      // Create Square checkout
-      const res = await fetch("/api/square/checkout", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          billId: orderId,
-          amount: total,
-          raceName: config.name,
-          confirmUrl,
-          returnUrl,
-          cancelUrl: `${window.location.origin}/book/${config.slug}`,
-          buyer: {
-            email: contact.email,
-            phone: contact.phone,
-            firstName: contact.firstName,
-            lastName: contact.lastName,
-          },
-        }),
-      });
-
-      const data = await res.json();
-      if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-      } else {
-        throw new Error(data.error || "Failed to create payment link");
-      }
+      // Transition to card form
+      setState({ status: "card-form", orderId, total, subtotal, tax, lines, creditsApplied });
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed" });
+    }
+  }
+
+  function handlePaymentSuccess(result: PaymentResult) {
+    const orderId = state.status === "card-form" ? state.orderId : "";
+    // Store payment details for confirmation page
+    sessionStorage.setItem(`payment_${orderId}`, JSON.stringify({
+      cardBrand: result.cardBrand,
+      cardLast4: result.cardLast4,
+      amount: result.amount,
+      paymentId: result.paymentId,
+    }));
+    window.location.href = `/book/confirmation?billId=${orderId}`;
+  }
+
+  function handlePaymentError(error: string) {
+    setState({ status: "error", message: error });
+  }
+
+  function handlePaymentCancel() {
+    if (state.status === "card-form") {
+      const { orderId, total, subtotal, tax, lines, creditsApplied } = state;
+      setState({ status: "booked", orderId, total, subtotal, tax, lines, creditsApplied });
     }
   }
 
@@ -842,12 +827,22 @@ function ReviewStep({
     );
   }
 
-  if (state.status === "paying") {
+  if (state.status === "card-form") {
     return (
-      <div className="min-h-[400px] flex flex-col items-center justify-center gap-4">
-        <div className="w-10 h-10 border-2 border-white/20 rounded-full animate-spin" style={{ borderTopColor: color }} />
-        <p className="text-white/60 text-sm">Redirecting to payment...</p>
-      </div>
+      <PaymentForm
+        amount={state.total}
+        itemName={config.name}
+        billId={state.orderId}
+        contact={{
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          phone: contact.phone,
+        }}
+        onSuccess={handlePaymentSuccess}
+        onError={handlePaymentError}
+        onCancel={handlePaymentCancel}
+      />
     );
   }
 
