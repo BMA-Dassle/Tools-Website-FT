@@ -329,6 +329,7 @@ export default function OrderSummary({
 
       // Build per-racer heat assignment data for check-in system
       // Try from bookings prop first, then fall back to sessionStorage (checkout page flow)
+      console.log("[booking record] bookings:", bookings.length, "racerNames:", bookings.map(b => b.racerNames), "verifiedRacers:", verifiedRacers.length, verifiedRacers.map(r => r.fullName));
       let racerAssignments = bookings.flatMap(b =>
         (b.racerNames || []).map((name) => {
           const racer = verifiedRacers.find(r => r.fullName === name);
