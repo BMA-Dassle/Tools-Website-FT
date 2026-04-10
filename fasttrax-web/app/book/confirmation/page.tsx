@@ -278,7 +278,20 @@ export default function ConfirmationPage() {
         }
 
         // Check waivers + link racers for returning racers
-        const pidsParam = params.get("personIds");
+        // Try URL params first, then fall back to booking record (for short URL / email links)
+        let pidsParam = params.get("personIds");
+        if (!pidsParam || !pidsParam.split(",").filter(Boolean).length) {
+          try {
+            const recRes = await fetch(`/api/booking-record?billId=${id}`);
+            if (recRes.ok) {
+              const rec = await recRes.json();
+              const recPersonIds = (rec.racers || [])
+                .map((r: { personId?: string }) => r.personId)
+                .filter(Boolean);
+              if (recPersonIds.length > 0) pidsParam = recPersonIds.join(",");
+            }
+          } catch { /* non-fatal */ }
+        }
         const hasReturningRacers = pidsParam && pidsParam.split(",").filter(Boolean).length > 0;
 
         // Express Lane: check all racers have valid waivers
