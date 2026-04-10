@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import RewardsPortal from "@/components/headpinz/RewardsPortal";
+// RewardsPortal removed — now links to Square's hosted sign-in form
 
 export const metadata: Metadata = {
   title: "Rewards - HeadPinz Loyalty Program",
@@ -115,9 +115,36 @@ export default function RewardsPage() {
         </div>
       </section>
 
-      {/* Rewards Portal */}
+      {/* Sign In / Sign Up */}
       <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>
-        <RewardsPortal />
+        <div className="max-w-lg mx-auto text-center">
+          <div
+            className="rounded-lg p-8"
+            style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
+          >
+            <h2
+              className="font-heading uppercase text-white text-xl tracking-wider mb-2"
+              style={{ textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
+            >
+              Check Your Balance
+            </h2>
+            <p className="font-body text-white/50 text-sm mb-6">
+              Sign in with your phone number to view your Pinz balance, earn rewards, and redeem perks.
+            </p>
+            <a
+              href="https://profile.squareup.com/signin?variant=LOYALTY"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-body font-bold text-base uppercase tracking-wider py-3.5 rounded-full transition-all hover:scale-[1.02]"
+              style={{ boxShadow: "0 0 20px rgba(255,215,0,0.3)" }}
+            >
+              Sign In to Rewards
+            </a>
+            <p className="font-body text-white/30 text-xs mt-4">
+              New members get 500 bonus Pinz when you sign up!
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );
