@@ -681,7 +681,7 @@ export default function ConfirmationPage() {
                     {/* Racer names — big */}
                     <div className="mt-2">
                       {group.racers.map((name, ri) => (
-                        <p key={ri} className="text-white font-display text-2xl sm:text-3xl uppercase tracking-widest">{name}</p>
+                        <p key={ri} className="text-white font-display text-3xl sm:text-5xl uppercase tracking-widest">{name}</p>
                       ))}
                     </div>
 
@@ -703,7 +703,7 @@ export default function ConfirmationPage() {
                         {expressLane ? (
                           <>
                             <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
-                            <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
+                            <p className="text-white font-display text-4xl sm:text-6xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
                             <p className="text-emerald-400/60 text-xs mt-1">Karting Check-In, 1st Floor — 5 min before</p>
                           </>
                         ) : (
@@ -825,6 +825,13 @@ export default function ConfirmationPage() {
             </div>
           )}
 
+          {/* Track Status for express lane */}
+          {expressLane && bookingType === "racing" && (
+            <div className="max-w-2xl mx-auto mt-6">
+              <ExpressTrackStatus />
+            </div>
+          )}
+
           {/* RIGHT: Racer's Journey (racing only, not express lane, only in grid for multi-bill) */}
           {bookingType === "racing" && !expressLane && confirmations.length > 1 && (
             <div className="lg:sticky lg:top-40 lg:self-start">
@@ -888,6 +895,31 @@ const journeySteps = [
 
 function dotColor(status: string) {
   return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
+}
+
+function ExpressTrackStatus() {
+  const trackData = useTrackStatus();
+  if (!trackData) return null;
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-3">Live Track Status</p>
+      <div className="space-y-2">
+        {trackData.tracks.map((t) => (
+          <div
+            key={t.trackName}
+            className="flex items-center justify-between px-4 py-2.5 rounded-lg"
+            style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
+          >
+            <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
+              <span className="text-white/70 text-sm">{t.delayFormatted}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function RacerJourneySteps() {
