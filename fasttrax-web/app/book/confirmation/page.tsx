@@ -640,9 +640,17 @@ export default function ConfirmationPage() {
           {/* Layout: single reservation = full-width card then two-col journey below.
               Multiple = cards left, journey right */}
           <div className="mb-8">
-          <div className={`${raceGroups.length > 1 ? "grid md:grid-cols-2 gap-6" : "max-w-2xl mx-auto"} space-y-6 md:space-y-0`}>
-            {/* Race group tiles — one per heat, with all racers listed */}
-            {raceGroups.length > 0 ? raceGroups.map((group, gi) => {
+          <div className={`${expressLane && raceGroups.length > 1 ? "grid md:grid-cols-2 gap-6" : "max-w-2xl mx-auto"} space-y-6 md:space-y-0`}>
+            {/* Race group tiles — express: one per heat. Standard: one combined tile */}
+            {raceGroups.length > 0 ? (() => {
+              // Non-express: merge all groups into one tile
+              const displayGroups = expressLane ? raceGroups : [{
+                ...raceGroups[0],
+                racers: [...new Set(raceGroups.flatMap(g => g.racers))],
+                // Use earliest heat for check-in time
+                heatStart: raceGroups.reduce((earliest, g) => !earliest || (g.heatStart && g.heatStart < earliest) ? g.heatStart : earliest, ""),
+              }];
+              return displayGroups.map((group, gi) => {
               const trackName = group.track === "Red" ? "Red Track" : group.track === "Blue" ? "Blue Track" : group.track === "Mega" ? "Mega Track" : null;
               const trackColor = group.track === "Red" ? "#E53935" : group.track === "Blue" ? "#004AAD" : group.track === "Mega" ? "#8B5CF6" : "#00E2E5";
               const qr = racerQrCodes[group.billId] || qrDataUrl;
@@ -734,7 +742,8 @@ export default function ConfirmationPage() {
                   )}
                 </div>
               );
-            }) : (() => {
+            });
+            })() : (() => {
               // Fallback: original confirmation-based cards (no booking record)
               const cards = confirmations.length > 0 ? confirmations : [{
                 billId: orderId || "", racerName: "", resNumber: reservationNumber || "", resCode: reservationCode || ""
