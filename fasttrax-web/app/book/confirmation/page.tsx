@@ -559,8 +559,9 @@ export default function ConfirmationPage() {
       {expressLane && (
         <style>{`
           @keyframes expressGlow {
-            0%, 100% { box-shadow: 0 0 25px rgba(16,185,129,0.4), 0 0 50px rgba(16,185,129,0.2), 0 0 100px rgba(16,185,129,0.1); }
-            50% { box-shadow: 0 0 40px rgba(16,185,129,0.7), 0 0 80px rgba(16,185,129,0.4), 0 0 120px rgba(16,185,129,0.15); }
+            0%, 100% { box-shadow: 0 0 15px rgba(16,185,129,0.3), 0 0 30px rgba(16,185,129,0.15), 0 0 60px rgba(16,185,129,0.05); border-color: rgba(16,185,129,0.5); }
+            33% { box-shadow: 0 0 40px rgba(16,185,129,0.8), 0 0 80px rgba(16,185,129,0.4), 0 0 140px rgba(16,185,129,0.2); border-color: rgba(16,185,129,1); }
+            66% { box-shadow: 0 0 25px rgba(16,185,129,0.5), 0 0 60px rgba(16,185,129,0.25), 0 0 100px rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.7); }
           }
         `}</style>
       )}
@@ -708,7 +709,7 @@ export default function ConfirmationPage() {
                     {/* Racer names — big */}
                     <div className="mt-2">
                       {group.racers.map((name, ri) => (
-                        <p key={ri} className="text-white font-display text-3xl sm:text-5xl uppercase tracking-widest">{name}</p>
+                        <p key={ri} className="text-white font-display text-4xl sm:text-5xl uppercase tracking-widest">{name}</p>
                       ))}
                     </div>
 
@@ -730,7 +731,7 @@ export default function ConfirmationPage() {
                         {expressLane ? (
                           <>
                             <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
-                            <p className="text-white font-display text-4xl sm:text-6xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
+                            <p className="text-white font-display text-5xl sm:text-6xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
                             <p className="text-emerald-400/60 text-xs mt-1">Arrive 5 min before — go straight to Karting, 1st Floor</p>
                           </>
                         ) : (
