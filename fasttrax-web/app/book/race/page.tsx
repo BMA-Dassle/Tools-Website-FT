@@ -1224,7 +1224,13 @@ export default function BookRacePage() {
                     setSelectedProposal(null);
                     setSelectedBlock(null);
                     setHeatPickerKey(k => k + 1);
-                    // Stay on heat step with same product — just reset the picker
+                    // Mega: stay on heat step (one track). Others: go to product picker to allow track switch
+                    if (selectedProduct?.track === "Mega") {
+                      // Stay on heat step — same product
+                    } else {
+                      setSelectedProduct(null);
+                      changeStep("product");
+                    }
                   }}
                   className="w-full py-3 rounded-xl font-semibold text-xs border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
                 >
