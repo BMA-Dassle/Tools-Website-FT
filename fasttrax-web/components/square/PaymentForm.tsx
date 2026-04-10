@@ -58,6 +58,25 @@ interface PaymentFormProps {
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
 const SQUARE_LOCATION_ID = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID || "";
 
+// Send logs to server so they appear in Vercel runtime logs
+const logBuffer: string[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+function serverLog(msg: string) {
+  console.log(msg);
+  logBuffer.push(`${new Date().toISOString()} ${msg}`);
+  if (!flushTimer) {
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      const batch = logBuffer.splice(0);
+      fetch("/api/debug-log", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: batch }),
+      }).catch(() => {});
+    }, 500);
+  }
+}
+
 export default function PaymentForm({
   amount,
   itemName,
@@ -90,6 +109,8 @@ export default function PaymentForm({
 
     async function init() {
       try {
+        serverLog(`[PaymentForm] init start — appId=${SQUARE_APP_ID}, locId=${SQUARE_LOCATION_ID}, ua=${navigator.userAgent.slice(0, 80)}`);
+
         // Load SDK if not already loaded
         if (!window.Square) {
           await new Promise<void>((resolve, reject) => {
@@ -109,46 +130,47 @@ export default function PaymentForm({
         const card = await payments.card();
         await card.attach("#sq-card-container");
         cardRef.current = card;
+        serverLog("[PaymentForm] card form attached OK");
 
         // Initialize Apple Pay (Safari/iOS only)
         try {
-          console.log("[PaymentForm] initializing Apple Pay...");
+          serverLog("[PaymentForm] initializing Apple Pay...");
           const applePayRequest = payments.paymentRequest({
             countryCode: "US",
             currencyCode: "USD",
             total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
           });
           const applePay = await payments.applePay(applePayRequest);
-          console.log("[PaymentForm] Apple Pay created, attaching...");
+          serverLog("[PaymentForm] Apple Pay created, attaching...");
           await applePay.attach("#sq-apple-pay");
           applePayRef.current = applePay;
           setApplePayReady(true);
-          console.log("[PaymentForm] Apple Pay ready");
+          serverLog("[PaymentForm] Apple Pay ready");
         } catch (apErr) {
-          console.log("[PaymentForm] Apple Pay not available:", apErr instanceof Error ? apErr.message : apErr);
+          serverLog("[PaymentForm] Apple Pay not available:", apErr instanceof Error ? apErr.message : apErr);
         }
 
         // Initialize Google Pay
         try {
-          console.log("[PaymentForm] initializing Google Pay...");
+          serverLog("[PaymentForm] initializing Google Pay...");
           const googlePayRequest = payments.paymentRequest({
             countryCode: "US",
             currencyCode: "USD",
             total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
           });
           const googlePay = await payments.googlePay(googlePayRequest);
-          console.log("[PaymentForm] Google Pay created, attaching...");
+          serverLog("[PaymentForm] Google Pay created, attaching...");
           await googlePay.attach("#sq-google-pay");
           googlePayRef.current = googlePay;
           setGooglePayReady(true);
-          console.log("[PaymentForm] Google Pay ready");
+          serverLog("[PaymentForm] Google Pay ready");
         } catch (gpErr) {
-          console.log("[PaymentForm] Google Pay not available:", gpErr instanceof Error ? gpErr.message : gpErr);
+          serverLog("[PaymentForm] Google Pay not available:", gpErr instanceof Error ? gpErr.message : gpErr);
         }
 
         setStatus("ready");
       } catch (err) {
-        console.error("[PaymentForm] init error:", err);
+        serverLog("[PaymentForm] init error:", err);
         setStatus("error");
         setErrorMessage("Failed to load payment form. Please refresh and try again.");
       }
