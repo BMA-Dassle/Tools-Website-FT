@@ -147,7 +147,7 @@ export default function PaymentForm({
           setApplePayReady(true);
           serverLog("[PaymentForm] Apple Pay ready");
         } catch (apErr) {
-          serverLog("[PaymentForm] Apple Pay not available:", apErr instanceof Error ? apErr.message : apErr);
+          serverLog(`[PaymentForm] Apple Pay not available: ${apErr instanceof Error ? apErr.message : String(apErr)}`);
         }
 
         // Initialize Google Pay
@@ -165,12 +165,12 @@ export default function PaymentForm({
           setGooglePayReady(true);
           serverLog("[PaymentForm] Google Pay ready");
         } catch (gpErr) {
-          serverLog("[PaymentForm] Google Pay not available:", gpErr instanceof Error ? gpErr.message : gpErr);
+          serverLog(`[PaymentForm] Google Pay not available: ${gpErr instanceof Error ? gpErr.message : String(gpErr)}`);
         }
 
         setStatus("ready");
       } catch (err) {
-        serverLog("[PaymentForm] init error:", err);
+        serverLog(`[PaymentForm] init error: ${err instanceof Error ? err.message : String(err)}`);
         setStatus("error");
         setErrorMessage("Failed to load payment form. Please refresh and try again.");
       }
