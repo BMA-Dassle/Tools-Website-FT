@@ -533,7 +533,7 @@ export default function ConfirmationPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
 
           {/* Waiver banner — new racers or attractions that require waivers */}
-          {waiverUrl && (
+          {waiverUrl && !expressLane && (
             <div className="rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">
