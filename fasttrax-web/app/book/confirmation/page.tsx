@@ -709,7 +709,7 @@ export default function ConfirmationPage() {
                     {/* Racer names — big */}
                     <div className="mt-2">
                       {group.racers.map((name, ri) => (
-                        <p key={ri} className="text-white font-display text-5xl sm:text-6xl uppercase tracking-widest leading-tight">{name}</p>
+                        <p key={ri} className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(36px, 10vw, 60px)" }}>{name}</p>
                       ))}
                     </div>
 
@@ -731,7 +731,7 @@ export default function ConfirmationPage() {
                         {expressLane ? (
                           <>
                             <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
-                            <p className="text-white font-display text-6xl sm:text-7xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
+                            <p className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(48px, 14vw, 72px)" }}>{formatTime(group.heatStart)}</p>
                             <p className="text-emerald-400/60 text-xs mt-1">Arrive 5 min before — go straight to Karting, 1st Floor</p>
                           </>
                         ) : (
