@@ -721,9 +721,9 @@ export default function ConfirmationPage() {
                       </div>
                     )}
 
-                    {/* Date + address */}
+                    {/* Date + address (express is always FastTrax karting) */}
                     {group.heatStart && <p className="text-white/40 text-xs mt-2">{formatDate(group.heatStart)}</p>}
-                    <p className="text-white/20 text-xs">{checkInLocation === "fasttrax" ? "14501 Global Parkway, Fort Myers" : "14513 Global Parkway, Fort Myers"}</p>
+                    <p className="text-white/20 text-xs">14501 Global Parkway, Fort Myers</p>
                   </div>
 
                   {/* QR (non-express only) */}
@@ -829,6 +829,53 @@ export default function ConfirmationPage() {
               </div>
             </div>
           )}
+
+          {/* Additional Attractions for express lane bookings with mixed items */}
+          {expressLane && (() => {
+            const allOvLines = order?.lines || storedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+            const attractionLines = allOvLines.filter((l: OrderLine) => l.productGroup !== "Karting" && !l.name.toLowerCase().includes("license"));
+            if (attractionLines.length === 0) return null;
+            return (
+              <div className="max-w-2xl mx-auto mt-6">
+                <div className="rounded-2xl border-2 border-red-500/40 bg-red-500/5 p-5 sm:p-6">
+                  <h3 className="text-red-400 font-display text-lg uppercase tracking-widest mb-2">Additional Attractions</h3>
+                  <p className="text-red-400/80 text-sm font-semibold mb-4">
+                    Guest Services check-in is required for these attractions. Please arrive 30 minutes early.
+                  </p>
+                  <div className="space-y-3">
+                    {attractionLines.map((line: OrderLine, i: number) => {
+                      const sched = line.scheduledTime || (line.schedules?.[0] ? { start: line.schedules[0].start } : null);
+                      return (
+                        <div key={i} className="flex items-center justify-between px-4 py-3 rounded-lg bg-white/5 border border-white/10">
+                          <div>
+                            <p className="text-white font-semibold text-sm">{line.name}</p>
+                            {line.quantity > 1 && <span className="text-white/30 text-xs ml-1">x{line.quantity}</span>}
+                          </div>
+                          {sched?.start && <p className="text-white/60 text-sm font-mono">{formatTime(sched.start)}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-white/30 text-xs mt-3">
+                    {checkInLocation === "headpinz" || attractionLines.some((l: OrderLine) => l.name.toLowerCase().includes("gel") || l.name.toLowerCase().includes("laser"))
+                      ? "HeadPinz — 14513 Global Parkway, Fort Myers"
+                      : "FastTrax — Guest Services, 2nd Floor — 14501 Global Parkway, Fort Myers"}
+                  </p>
+                  {/* QR for attraction check-in */}
+                  {qrDataUrl && (
+                    <div className="mt-4 flex justify-center">
+                      <button className="cursor-pointer" onClick={() => setFullscreenQr({ src: qrDataUrl, resNumber: reservationNumber || "" })}>
+                        <div className="rounded-lg bg-white p-1.5 hover:shadow-lg transition-shadow">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={qrDataUrl} alt="QR" width={80} height={80} className="w-[70px] h-[70px]" />
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Track Status for express lane */}
           {expressLane && bookingType === "racing" && (
