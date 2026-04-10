@@ -14,35 +14,44 @@ interface ContactFormProps {
   initial: ContactInfo | null;
   onSubmit: (info: ContactInfo) => void;
   onBack: () => void;
+  /** Fields that are OTP-verified and cannot be changed */
+  lockedFields?: ("phone" | "email")[];
 }
 
-function Field({ label, value, onChange, type = "text", placeholder }: {
+function Field({ label, value, onChange, type = "text", placeholder, locked }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  locked?: boolean;
 }) {
   return (
     <div>
-      <label className="block text-xs text-white/50 mb-1.5">{label}</label>
+      <label className="block text-xs text-white/50 mb-1.5">
+        {label}
+        {locked && <span className="ml-1.5 text-green-400/70 text-[10px] font-semibold uppercase">verified</span>}
+      </label>
       <input
         type={type}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => !locked && onChange(e.target.value)}
+        readOnly={locked}
         placeholder={placeholder}
-        className="
-          w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3
-          text-white placeholder-white/20 text-sm
-          focus:outline-none focus:border-[#00E2E5]/60 focus:bg-white/8
-          transition-all
-        "
+        className={`
+          w-full border rounded-xl px-4 py-3
+          text-sm transition-all
+          ${locked
+            ? "bg-white/3 border-green-500/20 text-white/70 cursor-not-allowed"
+            : "bg-white/5 border-white/15 text-white placeholder-white/20 focus:outline-none focus:border-[#00E2E5]/60 focus:bg-white/8"
+          }
+        `}
       />
     </div>
   );
 }
 
-export default function ContactForm({ initial, onSubmit, onBack }: ContactFormProps) {
+export default function ContactForm({ initial, onSubmit, onBack, lockedFields = [] }: ContactFormProps) {
   const [firstName, setFirstName] = useState(initial?.firstName ?? "");
   const [lastName, setLastName] = useState(initial?.lastName ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
@@ -86,12 +95,12 @@ export default function ContactForm({ initial, onSubmit, onBack }: ContactFormPr
         </div>
 
         <div>
-          <Field label="Email Address" value={email} onChange={setEmail} type="email" placeholder="jane@example.com" />
+          <Field label="Email Address" value={email} onChange={setEmail} type="email" placeholder="jane@example.com" locked={lockedFields.includes("email")} />
           {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
         </div>
 
         <div>
-          <Field label="Phone Number" value={phone} onChange={setPhone} type="tel" placeholder="(239) 555-0100" />
+          <Field label="Phone Number" value={phone} onChange={setPhone} type="tel" placeholder="(239) 555-0100" locked={lockedFields.includes("phone")} />
           {errors.phone && <p className="text-red-400 text-xs mt-1">{errors.phone}</p>}
         </div>
 

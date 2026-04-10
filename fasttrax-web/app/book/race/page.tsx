@@ -318,13 +318,13 @@ export default function BookRacePage() {
     setVerifiedRacers([{ ...person, category: undefined }]);
     setAdults(0);
     setJuniors(0);
-    // Pre-fill contact from verified person
+    // Pre-fill contact from verified person (phone/email from OTP-verified lookup)
     const nameParts = person.fullName.split(" ");
     setContact({
       firstName: nameParts[0] || "",
       lastName: nameParts.slice(1).join(" ") || "",
-      email: person.email,
-      phone: "",
+      email: person.email || "",
+      phone: person.phone || "",
       smsOptIn: true,
     });
     // Fetch credits in background (non-blocking)
@@ -1396,7 +1396,10 @@ export default function BookRacePage() {
             initial={contact}
             onSubmit={handleContactSubmit}
             onBack={() => changeStep("addons")}
-            // ContactForm back goes to addons
+            lockedFields={[
+              ...(verifiedPerson?.phone ? ["phone" as const] : []),
+              ...(verifiedPerson?.email ? ["email" as const] : []),
+            ]}
           />
         )}
 

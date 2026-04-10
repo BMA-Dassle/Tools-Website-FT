@@ -7,6 +7,7 @@ export interface PersonData {
   personId: string;
   fullName: string;
   email: string;
+  phone?: string;             // Carried from OTP-verified lookup
   races: number;
   maxExpiry: string | null;
   tag: string;
@@ -22,6 +23,7 @@ export interface PersonData {
 interface FoundAccount {
   personId: string;
   fullName: string;
+  email: string;
   loginCode: string;
   lastSeen: string;
   races: number;
@@ -108,7 +110,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
               .map(d => ({ kind: d.depositKind, balance: d.balance }));
           }
         } catch {}
-        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), loginCode, lastSeen, races: (p.tags || []).length, memberships, birthDate: p.birthDate || null, creditBalances } as FoundAccount;
+        const acctEmail = (p.addresses?.[0]?.email) || "";
+        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), email: acctEmail, loginCode, lastSeen, races: (p.tags || []).length, memberships, birthDate: p.birthDate || null, creditBalances } as FoundAccount;
       } catch { return null; }
     });
     const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
@@ -136,7 +139,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           if (pubResult.person && pubResult.person.races > 0) {
             const p = pubResult.person;
             foundAccounts.push({
-              personId: p.personId, fullName: p.fullName, loginCode: pubResult.loginCode,
+              personId: p.personId, fullName: p.fullName, email: "", loginCode: pubResult.loginCode,
               lastSeen: "", races: p.races, memberships: [],
             });
           }
@@ -477,7 +480,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                 const person: PersonData = {
                   personId: a.personId,
                   fullName: a.fullName,
-                  email: "",
+                  email: a.email || (mode === "email" ? email.trim().toLowerCase() : ""),
+                  phone: mode === "phone" ? phone.replace(/\D/g, "").replace(/^1/, "") : undefined,
                   races: a.races,
                   maxExpiry: null,
                   tag: a.loginCode,
