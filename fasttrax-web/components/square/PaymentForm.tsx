@@ -135,11 +135,13 @@ export default function PaymentForm({
         // Initialize Apple Pay (Safari/iOS only)
         try {
           serverLog("[PaymentForm] initializing Apple Pay...");
+          const amountStr = amount.toFixed(2);
           const applePayRequest = payments.paymentRequest({
             countryCode: "US",
             currencyCode: "USD",
-            total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
+            total: { amount: amountStr, label: itemName || "FastTrax Booking" },
           });
+          serverLog(`[PaymentForm] Apple Pay request created, amount=${amountStr}`);
           const applePay = await payments.applePay(applePayRequest);
           serverLog(`[PaymentForm] Apple Pay created (type=${typeof applePay}, hasAttach=${typeof applePay?.attach}), attaching...`);
           if (typeof applePay?.attach !== "function") throw new Error("Apple Pay not supported on this device/browser");
@@ -157,7 +159,7 @@ export default function PaymentForm({
           const googlePayRequest = payments.paymentRequest({
             countryCode: "US",
             currencyCode: "USD",
-            total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
+            total: { amount: amount.toFixed(2), label: itemName || "FastTrax Booking" },
           });
           const googlePay = await payments.googlePay(googlePayRequest);
           serverLog("[PaymentForm] Google Pay created, attaching...");
