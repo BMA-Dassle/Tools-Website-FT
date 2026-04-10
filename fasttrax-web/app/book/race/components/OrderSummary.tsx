@@ -328,8 +328,9 @@ export default function OrderSummary({
       }
 
       // Build per-racer heat assignment data for check-in system
-      const racerAssignments = bookings.flatMap(b =>
-        (b.racerNames || []).map((name, idx) => {
+      // Try from bookings prop first, then fall back to sessionStorage (checkout page flow)
+      let racerAssignments = bookings.flatMap(b =>
+        (b.racerNames || []).map((name) => {
           const racer = verifiedRacers.find(r => r.fullName === name);
           return {
             racerName: name,
@@ -345,6 +346,13 @@ export default function OrderSummary({
           };
         })
       );
+      // Fallback: read from sessionStorage (stored by race page for checkout flow)
+      if (racerAssignments.length === 0) {
+        try {
+          const stored = sessionStorage.getItem("racerAssignments");
+          if (stored) racerAssignments = JSON.parse(stored);
+        } catch { /* skip */ }
+      }
 
       // Store booking details + overviews in Redis + localStorage
       const bookingDetails = {
@@ -378,7 +386,7 @@ export default function OrderSummary({
           email: contact.email,
           phone: contact.phone,
         },
-        primaryPersonId: personId || null,
+        primaryPersonId: personId || sessionStorage.getItem("primaryPersonId") || null,
         racers: racerAssignments,
         isCreditOrder: state.isCreditOrder,
         cashOwed: state.cashOwed,

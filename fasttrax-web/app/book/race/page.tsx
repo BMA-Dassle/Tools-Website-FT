@@ -225,7 +225,34 @@ export default function BookRacePage() {
       });
     }
     sessionStorage.setItem("attractionCart", JSON.stringify([...nonRacing, ...racingItems]));
-  }, [bookings, licenseSold]);
+
+    // Also store full racer assignments for the booking record
+    // (needed when checkout page creates the booking record)
+    const assignments = bookings.flatMap(b =>
+      (b.racerNames || []).map(name => {
+        const racer = verifiedRacers.find(r => r.fullName === name);
+        return {
+          racerName: name,
+          personId: racer?.personId || null,
+          product: b.product.name,
+          productId: String(b.product.productId),
+          tier: b.product.tier,
+          track: b.product.track,
+          category: b.product.category,
+          heatName: b.block.name,
+          heatStart: b.block.start,
+          heatStop: b.block.stop || null,
+        };
+      })
+    );
+    if (assignments.length > 0) {
+      sessionStorage.setItem("racerAssignments", JSON.stringify(assignments));
+    }
+    // Store personId for returning racer detection
+    if (verifiedPerson?.personId) {
+      sessionStorage.setItem("primaryPersonId", verifiedPerson.personId);
+    }
+  }, [bookings, licenseSold, verifiedRacers, verifiedPerson]);
 
   // Load product catalog from static registry based on day-of-week and racer type
   const fetchCatalog = useCallback((date: string) => {
