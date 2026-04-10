@@ -377,7 +377,7 @@ export default function RacePacksPage() {
             const testSell = await fetch("/api/bmi?endpoint=booking%2Fsell", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: `{"ProductId":${selectedPack.productId},"PageId":${PAGE_ID},"Quantity":1,"personId":${linkedPersonId}}`,
+              body: `{"ProductId":${selectedPack.productId},"PageId":${PAGE_ID},"Quantity":1,"PersonId":${linkedPersonId}}`,
             });
             const testText = await testSell.text();
             const testBillMatch = testText.match(/"orderId"\s*:\s*(\d+)/);
@@ -402,7 +402,7 @@ export default function RacePacksPage() {
         DynamicLines: [],
       });
       if (linkedPersonId) {
-        sellJson = sellJson.slice(0, -1) + `,"personId":${linkedPersonId}}`;
+        sellJson = sellJson.slice(0, -1) + `,"PersonId":${linkedPersonId}}`;
       }
       const sellRes = await fetch("/api/bmi?endpoint=booking%2Fsell", {
         method: "POST",
@@ -420,7 +420,7 @@ export default function RacePacksPage() {
       // 2. Register contact person with personId
       const regBody: Record<string, unknown> = { firstName, lastName, email: person.email, phone: phone.replace(/\D/g, "") };
       if (linkedPersonId) {
-        const regJson = `{"orderId":${billId},"personId":${linkedPersonId},` + JSON.stringify(regBody).slice(1);
+        const regJson = `{"orderId":${billId},"PersonId":${linkedPersonId},` + JSON.stringify(regBody).slice(1);
         await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
           method: "POST",
           headers: { "content-type": "application/json" },
