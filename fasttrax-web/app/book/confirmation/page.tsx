@@ -333,24 +333,24 @@ export default function ConfirmationPage() {
         const personIds = recPersonIds.length > 0 ? recPersonIds : urlPersonIds;
         const hasReturningRacers = personIds.length > 0;
 
-        // Express Lane: read from booking record (waivers already verified at booking time)
+        // Express Lane: if already verified in booking record, trust it. Otherwise check waivers.
         let allWaiversValid = false;
-        if (detectedType === "racing" && hasReturningRacers && bookingRecord?.fastLane) {
-          allWaiversValid = true;
-          setExpressLane(true);
-          console.log("[express lane] from booking record: fastLane=true");
-        }
-        // First-time confirmation: check waivers live and set fastLane
-        if (detectedType === "racing" && hasReturningRacers && !bookingRecord?.fastLane && bookingRecord?.status !== "confirmed") {
-          try {
-            const waiverChecks = await Promise.all(
-              personIds.map((pid: string) =>
-                fetch(`/api/pandora?personId=${pid}`).then(r => r.json()).catch(() => ({ valid: false }))
-              )
-            );
-            allWaiversValid = waiverChecks.length > 0 && waiverChecks.every((w: { valid: boolean }) => w.valid);
-            setExpressLane(allWaiversValid);
-          } catch { /* non-fatal */ }
+        if (detectedType === "racing" && hasReturningRacers) {
+          if (bookingRecord?.fastLane === true) {
+            allWaiversValid = true;
+            setExpressLane(true);
+          } else {
+            // Check waivers via Pandora
+            try {
+              const waiverChecks = await Promise.all(
+                personIds.map((pid: string) =>
+                  fetch(`/api/pandora?personId=${pid}`).then(r => r.json()).catch(() => ({ valid: false }))
+                )
+              );
+              allWaiversValid = waiverChecks.length > 0 && waiverChecks.every((w: { valid: boolean }) => w.valid);
+              setExpressLane(allWaiversValid);
+            } catch { /* non-fatal */ }
+          }
         }
 
         // Link racers to reservation schedule (racing returning racers only, fire-and-forget)
