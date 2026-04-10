@@ -112,32 +112,38 @@ export default function PaymentForm({
 
         // Initialize Apple Pay (Safari/iOS only)
         try {
-          const paymentRequest = payments.paymentRequest({
+          console.log("[PaymentForm] initializing Apple Pay...");
+          const applePayRequest = payments.paymentRequest({
             countryCode: "US",
             currencyCode: "USD",
             total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
           });
-          const applePay = await payments.applePay(paymentRequest);
+          const applePay = await payments.applePay(applePayRequest);
+          console.log("[PaymentForm] Apple Pay created, attaching...");
           await applePay.attach("#sq-apple-pay");
           applePayRef.current = applePay;
           setApplePayReady(true);
-        } catch {
-          // Apple Pay not available (not Safari, not configured, etc.)
+          console.log("[PaymentForm] Apple Pay ready");
+        } catch (apErr) {
+          console.log("[PaymentForm] Apple Pay not available:", apErr instanceof Error ? apErr.message : apErr);
         }
 
         // Initialize Google Pay
         try {
-          const paymentRequest = payments.paymentRequest({
+          console.log("[PaymentForm] initializing Google Pay...");
+          const googlePayRequest = payments.paymentRequest({
             countryCode: "US",
             currencyCode: "USD",
             total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
           });
-          const googlePay = await payments.googlePay(paymentRequest);
+          const googlePay = await payments.googlePay(googlePayRequest);
+          console.log("[PaymentForm] Google Pay created, attaching...");
           await googlePay.attach("#sq-google-pay");
           googlePayRef.current = googlePay;
           setGooglePayReady(true);
-        } catch {
-          // Google Pay not available
+          console.log("[PaymentForm] Google Pay ready");
+        } catch (gpErr) {
+          console.log("[PaymentForm] Google Pay not available:", gpErr instanceof Error ? gpErr.message : gpErr);
         }
 
         setStatus("ready");
