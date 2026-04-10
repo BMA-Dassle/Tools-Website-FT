@@ -96,6 +96,8 @@ export default function ConfirmationPage() {
   const [bookingType, setBookingType] = useState<BookingType>("racing");
   /** Express lane — returning racers with all valid waivers skip Guest Services */
   const [expressLane, setExpressLane] = useState(false);
+  /** Race groups — confirmations grouped by heat for display */
+  const [raceGroups, setRaceGroups] = useState<{ product: string; track: string | null; heatStart: string; heatName: string; racers: string[]; resNumber: string; resCode: string; billId: string }[]>([]);
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -287,33 +289,38 @@ export default function ConfirmationPage() {
           if (recRes.ok) bookingRecord = await recRes.json();
         } catch { /* non-fatal */ }
 
-        // Enrich/expand confirmations with racer data from booking record
+        // Build race groups — group racers by heat for display tiles
         if (bookingRecord?.racers && Array.isArray(bookingRecord.racers) && bookingRecord.racers.length > 0) {
-          const recRacers = bookingRecord.racers as { racerName?: string; personId?: string; product?: string; track?: string; heatStart?: string }[];
+          const recRacers = bookingRecord.racers as { racerName?: string; personId?: string; product?: string; track?: string | null; heatStart?: string; heatName?: string }[];
+          const primary = allConfirmations[0] || { billId: id!, resNumber: reservationNumber || "", resCode: reservationCode || "" };
 
-          if (recRacers.length > allConfirmations.length && allConfirmations.length === 1) {
-            // Single bill, multiple racers — expand confirmations so each racer gets a card
-            const primary = allConfirmations[0];
-            const expanded = recRacers.map((r, i) => ({
-              billId: primary.billId,
-              racerName: r.racerName || `Racer ${i + 1}`,
-              resNumber: primary.resNumber,
-              resCode: primary.resCode,
-            }));
-            allConfirmations.length = 0;
-            allConfirmations.push(...expanded);
-          } else {
-            // Match up names 1:1
-            for (let i = 0; i < allConfirmations.length; i++) {
-              if (allConfirmations[i].racerName.startsWith("Racer ") && recRacers[i]?.racerName) {
-                allConfirmations[i].racerName = recRacers[i].racerName!;
-              }
+          // Group racers by heat (product + heatStart)
+          const groupMap = new Map<string, { product: string; track: string | null; heatStart: string; heatName: string; racers: string[] }>();
+          for (const r of recRacers) {
+            const key = `${r.product || "Race"}|${r.heatStart || ""}`;
+            if (!groupMap.has(key)) {
+              groupMap.set(key, {
+                product: r.product || "Race",
+                track: r.track || null,
+                heatStart: r.heatStart || "",
+                heatName: r.heatName || "",
+                racers: [],
+              });
             }
+            groupMap.get(key)!.racers.push(r.racerName || "Racer");
           }
 
-          // Fallback: use contact name if single racer and still generic
-          if (allConfirmations.length === 1 && allConfirmations[0].racerName.startsWith("Racer ") && bookingRecord.contact?.firstName) {
-            allConfirmations[0].racerName = `${bookingRecord.contact.firstName} ${bookingRecord.contact.lastName || ""}`.trim();
+          const groups = [...groupMap.values()].map(g => ({
+            ...g,
+            resNumber: primary.resNumber,
+            resCode: primary.resCode,
+            billId: primary.billId,
+          }));
+          setRaceGroups(groups);
+
+          // Also update confirmations with first racer name for backwards compat
+          if (allConfirmations.length === 1 && allConfirmations[0].racerName.startsWith("Racer ")) {
+            allConfirmations[0].racerName = recRacers[0]?.racerName || bookingRecord.contact?.firstName || "Racer";
           }
           setConfirmations([...allConfirmations]);
         }
@@ -629,17 +636,108 @@ export default function ConfirmationPage() {
 
           {/* Layout: single reservation = full-width card then two-col journey below.
               Multiple = cards left, journey right */}
-          <div className={`${confirmations.length > 1 ? "grid lg:grid-cols-2 gap-8" : ""} mb-8`}>
+          <div className={`${(raceGroups.length > 1 || confirmations.length > 1) ? "grid lg:grid-cols-2 gap-8" : ""} mb-8`}>
           <div className="space-y-6">
-            {(() => {
-              // Build racer cards from confirmations + stored overviews
+            {/* Race group tiles — one per heat, with all racers listed */}
+            {raceGroups.length > 0 ? raceGroups.map((group, gi) => {
+              const trackName = group.track === "Red" ? "Red Track" : group.track === "Blue" ? "Blue Track" : group.track === "Mega" ? "Mega Track" : null;
+              const trackColor = group.track === "Red" ? "#E53935" : group.track === "Blue" ? "#004AAD" : group.track === "Mega" ? "#8B5CF6" : "#00E2E5";
+              const qr = racerQrCodes[group.billId] || qrDataUrl;
+
+              return (
+                <div
+                  key={gi}
+                  className={`rounded-2xl overflow-hidden ${
+                    expressLane
+                      ? "border-2 border-emerald-500/60 animate-[expressGlow_3s_ease-in-out_infinite]"
+                      : "border border-white/10 bg-white/[0.03]"
+                  }`}
+                  style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))" } : undefined}
+                >
+                  {/* Express Lane badge */}
+                  {expressLane && gi === 0 && (
+                    <div className="bg-emerald-500/15 border-b border-emerald-500/20 px-5 py-3 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                        <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Express Check-In</p>
+                        <p className="text-white/60 text-xs">Skip Guest Services — go directly to Karting Check-In, 1st Floor</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Main content */}
+                  <div className="p-5 sm:p-6">
+                    {/* Reservation number — smaller */}
+                    <p className={`font-bold text-sm ${expressLane ? "text-emerald-400/70" : "text-[#00E2E5]/70"}`}>{group.resNumber}</p>
+
+                    {/* Racer names — big */}
+                    <div className="mt-2">
+                      {group.racers.map((name, ri) => (
+                        <p key={ri} className="text-white font-display text-2xl sm:text-3xl uppercase tracking-widest">{name}</p>
+                      ))}
+                    </div>
+
+                    {/* Track badge */}
+                    {trackName && (
+                      <div className="mt-3">
+                        <span
+                          className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
+                          style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
+                        >
+                          {trackName}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Time */}
+                    {group.heatStart && (
+                      <div className="mt-3">
+                        {expressLane ? (
+                          <>
+                            <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
+                            <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
+                            <p className="text-emerald-400/60 text-xs mt-1">Karting Check-In, 1st Floor — 5 min before</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
+                            <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">{checkinTime(group.heatStart)}</p>
+                            <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "FastTrax — Guest Services, 2nd Floor" : "HeadPinz — Guest Services"}</p>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Date + address */}
+                    {group.heatStart && <p className="text-white/40 text-xs mt-2">{formatDate(group.heatStart)}</p>}
+                    <p className="text-white/20 text-xs">{checkInLocation === "fasttrax" ? "14501 Global Parkway, Fort Myers" : "14513 Global Parkway, Fort Myers"}</p>
+                  </div>
+
+                  {/* QR (non-express only) */}
+                  {qr && !expressLane && (
+                    <div className="border-t border-white/[0.06] px-5 py-4 flex justify-center">
+                      <button className="cursor-pointer" onClick={() => setFullscreenQr({ src: qr, resNumber: group.resNumber })}>
+                        <div className="rounded-lg bg-white p-1.5 hover:shadow-lg hover:shadow-[#00E2E5]/20 transition-shadow">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={qr} alt={`QR ${group.resNumber}`} width={100} height={100} className="w-[80px] h-[80px]" />
+                        </div>
+                        <p className="text-white/20 text-xs text-center mt-1">Tap to enlarge</p>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            }) : (() => {
+              // Fallback: original confirmation-based cards (no booking record)
               const cards = confirmations.length > 0 ? confirmations : [{
                 billId: orderId || "", racerName: "", resNumber: reservationNumber || "", resCode: reservationCode || ""
               }];
-
               return cards.map((c, ci) => {
                 const qr = racerQrCodes[c.billId] || qrDataUrl;
-                // Find stored overview for this bill to get heat time
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const ov = storedOverviews.find((o: any) => o._billId === c.billId || o.id === c.billId) || (ci === 0 ? order : null);
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -649,94 +747,28 @@ export default function ConfirmationPage() {
                 );
                 const heatStart = firstHeat?.scheduledTime?.start || firstHeat?.schedules?.[0]?.start || start;
 
-                // Extract track name from first race line
-                const trackLine = lines.find((l: { name: string }) => l.name.toLowerCase().includes("race"));
-                const trackName = trackLine ? (
-                  trackLine.name.toLowerCase().includes("red") ? "Red Track" :
-                  trackLine.name.toLowerCase().includes("blue") ? "Blue Track" :
-                  trackLine.name.toLowerCase().includes("mega") ? "Mega Track" : null
-                ) : null;
-                const trackColor = trackName === "Red Track" ? "#E53935" : trackName === "Blue Track" ? "#004AAD" : trackName === "Mega Track" ? "#8B5CF6" : "#00E2E5";
-
                 return (
-                  <div
-                    key={c.billId || ci}
-                    className={`rounded-2xl overflow-hidden ${
-                      expressLane
-                        ? "border-2 border-emerald-500/60 animate-[expressGlow_3s_ease-in-out_infinite]"
-                        : "border border-white/10 bg-white/[0.03]"
-                    }`}
-                    style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))" } : undefined}
-                  >
-                    {/* Express Lane badge */}
-                    {expressLane && (
-                      <div className="bg-emerald-500/15 border-b border-emerald-500/20 px-5 py-3 flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                          <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Express Check-In</p>
-                          <p className="text-white/60 text-xs">Skip Guest Services — go directly to Karting Check-In, 1st Floor</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Header: racer name (multi-bill or express for staff readability) */}
-                    {(confirmations.length > 1 || expressLane) && c.racerName && (
-                      <div className={`px-5 py-3 border-b ${expressLane ? "border-emerald-500/10" : "border-white/[0.06]"} flex items-center justify-between bg-white/[0.02]`}>
-                        <p className="text-white font-display text-lg uppercase tracking-wider">{c.racerName}</p>
-                        {ci === 0 && confirmations.length > 1 && (
-                          <span className="text-xs font-bold uppercase tracking-wider text-[#00E2E5]/50 border border-[#00E2E5]/20 rounded-full px-2 py-0.5">Primary</span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* QR + check-in info (QR hidden for express lane) */}
-                    <div className={`p-4 sm:p-5 flex items-center gap-4 sm:gap-6 ${confirmations.length <= 1 ? "sm:p-8 sm:gap-8" : ""}`}>
-                      {qr && !expressLane && (
+                  <div key={c.billId || ci} className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
+                    <div className="p-4 sm:p-8 flex items-center gap-6">
+                      {qr && (
                         <button className="shrink-0 cursor-pointer" onClick={() => setFullscreenQr({ src: qr, resNumber: c.resNumber || reservationNumber || "" })}>
-                          <div className="rounded-lg bg-white p-1.5 sm:p-2 transition-shadow hover:shadow-lg hover:shadow-[#00E2E5]/20">
+                          <div className="rounded-lg bg-white p-2 hover:shadow-lg hover:shadow-[#00E2E5]/20 transition-shadow">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={qr} alt={`QR ${c.resNumber}`} width={140} height={140} className={`${confirmations.length <= 1 ? "w-[120px] h-[120px] sm:w-[160px] sm:h-[160px]" : "w-[80px] h-[80px]"}`} />
+                            <img src={qr} alt={`QR ${c.resNumber}`} width={140} height={140} className="w-[120px] h-[120px] sm:w-[160px] sm:h-[160px]" />
                           </div>
                           <p className="text-white/20 text-xs text-center mt-1">Tap to enlarge</p>
                         </button>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className={`font-bold ${expressLane ? "text-emerald-400" : "text-[#00E2E5]"} ${confirmations.length <= 1 ? "text-2xl sm:text-3xl" : "text-lg"}`}>{c.resNumber || reservationNumber}</p>
-                        {heatStart && <p className={`text-white/50 ${confirmations.length <= 1 ? "text-sm mt-1" : "text-xs"}`}>{formatDate(heatStart)}</p>}
-
-                        {/* Track name badge */}
-                        {trackName && (
-                          <div className="mt-2">
-                            <span
-                              className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
-                              style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
-                            >
-                              {trackName}
-                            </span>
-                          </div>
-                        )}
-
+                        <p className="text-[#00E2E5] font-bold text-2xl sm:text-3xl">{c.resNumber || reservationNumber}</p>
+                        {c.racerName && <p className="text-white font-display text-lg uppercase tracking-wider mt-1">{c.racerName}</p>}
+                        {heatStart && <p className="text-white/50 text-sm mt-1">{formatDate(heatStart)}</p>}
                         {heatStart && (
-                          <div className={`${confirmations.length <= 1 ? "mt-3" : "mt-1.5"}`}>
-                            {expressLane ? (
-                              <>
-                                <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
-                                <p className={`text-white font-display uppercase tracking-widest ${confirmations.length <= 1 ? "text-3xl sm:text-4xl" : "text-xl"}`}>{formatTime(heatStart)}</p>
-                                <p className="text-emerald-400/60 text-xs mt-1">Karting Check-In, 1st Floor — 5 min before</p>
-                                <p className="text-white/20 text-xs">14501 Global Parkway, Fort Myers</p>
-                              </>
-                            ) : (
-                              <>
-                                <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
-                                <p className={`text-white font-display uppercase tracking-widest ${confirmations.length <= 1 ? "text-3xl sm:text-4xl" : "text-xl"}`}>{checkinTime(heatStart)}</p>
-                                <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "FastTrax — Guest Services, 2nd Floor" : "HeadPinz — Guest Services"}</p>
-                                <p className="text-white/20 text-xs">{checkInLocation === "fasttrax" ? "14501 Global Parkway, Fort Myers" : "14513 Global Parkway, Fort Myers"}</p>
-                              </>
-                            )}
+                          <div className="mt-3">
+                            <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
+                            <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">{checkinTime(heatStart)}</p>
+                            <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "FastTrax — Guest Services, 2nd Floor" : "HeadPinz — Guest Services"}</p>
+                            <p className="text-white/20 text-xs">{checkInLocation === "fasttrax" ? "14501 Global Parkway, Fort Myers" : "14513 Global Parkway, Fort Myers"}</p>
                           </div>
                         )}
                       </div>
