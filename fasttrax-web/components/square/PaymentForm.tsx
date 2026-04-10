@@ -141,7 +141,8 @@ export default function PaymentForm({
             total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
           });
           const applePay = await payments.applePay(applePayRequest);
-          serverLog("[PaymentForm] Apple Pay created, attaching...");
+          serverLog(`[PaymentForm] Apple Pay created (type=${typeof applePay}, hasAttach=${typeof applePay?.attach}), attaching...`);
+          if (typeof applePay?.attach !== "function") throw new Error("Apple Pay not supported on this device/browser");
           await applePay.attach("#sq-apple-pay");
           applePayRef.current = applePay;
           setApplePayReady(true);
@@ -287,16 +288,14 @@ export default function PaymentForm({
         />
       )}
 
-      {/* Digital wallets (Apple Pay / Google Pay) */}
+      {/* Digital wallets — divs always in DOM so Square SDK can attach during init */}
+      <div id="sq-apple-pay" className={!selectedCardId && applePayReady ? "min-h-[48px]" : "hidden"} />
+      <div id="sq-google-pay" className={!selectedCardId && googlePayReady ? "min-h-[48px]" : "hidden"} />
       {!selectedCardId && (applePayReady || googlePayReady) && (
-        <div className="space-y-3">
-          {applePayReady && <div id="sq-apple-pay" className="min-h-[48px]" />}
-          {googlePayReady && <div id="sq-google-pay" className="min-h-[48px]" />}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-white/30 text-xs uppercase tracking-wider">or pay with card</span>
-            <div className="flex-1 h-px bg-white/10" />
-          </div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-white/30 text-xs uppercase tracking-wider">or pay with card</span>
+          <div className="flex-1 h-px bg-white/10" />
         </div>
       )}
 
