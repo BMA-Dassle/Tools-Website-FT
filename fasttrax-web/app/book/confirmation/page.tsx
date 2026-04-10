@@ -632,11 +632,11 @@ export default function ConfirmationPage() {
                       </div>
                     )}
 
-                    {/* QR + check-in info */}
+                    {/* QR + check-in info (QR hidden for express lane) */}
                     <div className={`p-4 sm:p-5 flex items-center gap-4 sm:gap-6 ${confirmations.length <= 1 ? "sm:p-8 sm:gap-8" : ""}`}>
-                      {qr && (
+                      {qr && !expressLane && (
                         <button className="shrink-0 cursor-pointer" onClick={() => setFullscreenQr({ src: qr, resNumber: c.resNumber || reservationNumber || "" })}>
-                          <div className={`rounded-lg bg-white p-1.5 sm:p-2 transition-shadow ${expressLane ? "shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-500/20" : "hover:shadow-lg hover:shadow-[#00E2E5]/20"}`}>
+                          <div className="rounded-lg bg-white p-1.5 sm:p-2 transition-shadow hover:shadow-lg hover:shadow-[#00E2E5]/20">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={qr} alt={`QR ${c.resNumber}`} width={140} height={140} className={`${confirmations.length <= 1 ? "w-[120px] h-[120px] sm:w-[160px] sm:h-[160px]" : "w-[80px] h-[80px]"}`} />
                           </div>

@@ -199,6 +199,15 @@ export async function POST(req: NextRequest) {
       let checkInHtml = `<tr><td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
         <p class="section-label" style="margin: 0 0 14px 0; text-align: center;">Where to Check In</p>`;
 
+      // Build short confirmation URL for email button
+      let emailConfirmUrl = "";
+      if (billId) {
+        try {
+          const rawUrl = signedConfirmationUrl(billId);
+          emailConfirmUrl = await shortenUrl(rawUrl);
+        } catch { /* fall back */ }
+      }
+
       if (isExpressLane) {
         checkInHtml += `
           <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #ECFDF5; border: 2px solid #10B981; border-radius: 6px;">
@@ -208,7 +217,9 @@ export async function POST(req: NextRequest) {
               Skip Guest Services — go directly to <strong>Karting Check-In on the 1st Floor</strong>.
             </p>
             <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Arrive 5 minutes before your scheduled race time.</p>
+            <p style="margin: 0 0 8px 0; font-size: 13px; color: #059669; font-weight: bold;">Have your confirmation open and ready when checking in at karting.</p>
             <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers — 1st Floor</p>
+            ${emailConfirmUrl ? `<p style="margin: 12px 0 0 0; text-align: center;"><a href="${emailConfirmUrl}" style="display:inline-block;padding:12px 24px;background-color:#059669;color:#ffffff;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase;">View Your Confirmation</a></p>` : ""}
           </td></tr></table>`;
       } else if (isHeadPinz && !showFastTrax) {
         checkInHtml += `
@@ -244,9 +255,23 @@ export async function POST(req: NextRequest) {
             <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${isHeadPinz ? "14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor" : "14513 Global Parkway, Fort Myers"}</p>
           </td></tr></table>`;
       }
+      // Add "View Your Confirmation" button for all emails
+      if (emailConfirmUrl && !isExpressLane) {
+        checkInHtml += `
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 14px;">
+          <tr><td align="center">
+            <a href="${emailConfirmUrl}" style="display:inline-block;padding:12px 24px;background-color:#004AAD;color:#ffffff;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px;letter-spacing:1px;text-transform:uppercase;">View Your Confirmation</a>
+          </td></tr></table>`;
+      }
       checkInHtml += `</td></tr>`;
 
       html = html.replace(/\^CheckInSection\(\)\$/g, checkInHtml);
+
+      // Express lane: hide QR code section (they show confirmation on phone instead)
+      if (isExpressLane) {
+        html = html.replace(/\^BookingConfirmationQr\(\)\$/g, "");
+        qrHtml = "";
+      }
 
       // Waiver section — only for new racers
       const waiverLink = isNewRacer ? (waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe") : "";
@@ -322,7 +347,7 @@ ${schedule}
 ${reservationDate || ""}
 ${reservationTime || ""}
 
-${isExpressLane ? "EXPRESS CHECK-IN\nSkip Guest Services — go directly to Karting Check-In, 1st Floor.\nArrive 5 minutes before your race time.\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\nGuest Services\n14513 Global Parkway, Fort Myers" : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz\n14513 Global Parkway, Fort Myers" : "FastTrax — Guest Services, 2nd Floor\n14501 Global Parkway, Fort Myers"}.` : ""}
+${isExpressLane ? "EXPRESS CHECK-IN\nSkip Guest Services — go directly to Karting Check-In, 1st Floor.\nArrive 5 minutes before your race time.\nHave your confirmation open and ready at check-in.\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\nGuest Services\n14513 Global Parkway, Fort Myers" : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz\n14513 Global Parkway, Fort Myers" : "FastTrax — Guest Services, 2nd Floor\n14501 Global Parkway, Fort Myers"}.` : ""}
 ${waiverSection}
 ${confirmSection}
 
