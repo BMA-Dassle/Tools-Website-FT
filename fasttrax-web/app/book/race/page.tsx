@@ -903,6 +903,12 @@ export default function BookRacePage() {
                         </span>
                         {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            License
+                          </span>
+                        )}
+                        {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                             Express Lane
                           </span>
                         )}
