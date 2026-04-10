@@ -441,30 +441,31 @@ export default function OrderSummary({
       }
 
       // Cash order — resolve Square customer + show inline payment form
-      // Saved cards ONLY for verified returning racers (OTP-verified personId)
+      // Saved cards ONLY for OTP-verified returning racers
       let sqCustomerId: string | undefined;
       let sqSavedCards: import("@/components/square/SavedCardSelector").SavedCard[] = [];
       const isVerifiedReturningRacer = !!(personId || bills.some(b => b.personId));
-      try {
-        const custRes = await fetch("/api/square/customer", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            phone: contact.phone,
-            firstName: contact.firstName,
-            lastName: contact.lastName,
-            email: contact.email,
-          }),
-        });
-        if (custRes.ok) {
-          const custData = await custRes.json();
-          sqCustomerId = custData.customerId;
-          // Only show saved cards for OTP-verified returning racers
-          if (isVerifiedReturningRacer) {
+
+      if (isVerifiedReturningRacer) {
+        // Only look up Square customer + cards when identity is OTP-verified
+        try {
+          const custRes = await fetch("/api/square/customer", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              phone: contact.phone,
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+            }),
+          });
+          if (custRes.ok) {
+            const custData = await custRes.json();
+            sqCustomerId = custData.customerId;
             sqSavedCards = custData.cards || [];
           }
-        }
-      } catch { /* non-fatal — proceed without saved cards */ }
+        } catch { /* non-fatal — proceed without saved cards */ }
+      }
 
       setState({
         status: "paying",
