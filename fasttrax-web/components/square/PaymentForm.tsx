@@ -16,6 +16,7 @@ interface SquarePayments {
   card: (options?: Record<string, unknown>) => Promise<SquareCard>;
   applePay: (request: unknown) => Promise<SquareDigitalWallet>;
   googlePay: (request: unknown) => Promise<SquareDigitalWallet>;
+  paymentRequest: (config: { countryCode: string; currencyCode: string; total: { amount: string; label: string } }) => unknown;
 }
 
 interface SquareCard {
@@ -75,7 +76,11 @@ export default function PaymentForm({
     savedCards.filter(c => !c.expired).length > 0 ? savedCards.filter(c => !c.expired)[0].id : null
   );
   const [saveCard, setSaveCard] = useState(false);
+  const [applePayReady, setApplePayReady] = useState(false);
+  const [googlePayReady, setGooglePayReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
+  const applePayRef = useRef<SquareDigitalWallet | null>(null);
+  const googlePayRef = useRef<SquareDigitalWallet | null>(null);
   const initRef = useRef(false);
 
   // Load Square SDK and initialize card form
@@ -102,9 +107,39 @@ export default function PaymentForm({
 
         // Initialize card form
         const card = await payments.card();
-
         await card.attach("#sq-card-container");
         cardRef.current = card;
+
+        // Initialize Apple Pay (Safari/iOS only)
+        try {
+          const paymentRequest = payments.paymentRequest({
+            countryCode: "US",
+            currencyCode: "USD",
+            total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
+          });
+          const applePay = await payments.applePay(paymentRequest);
+          await applePay.attach("#sq-apple-pay");
+          applePayRef.current = applePay;
+          setApplePayReady(true);
+        } catch {
+          // Apple Pay not available (not Safari, not configured, etc.)
+        }
+
+        // Initialize Google Pay
+        try {
+          const paymentRequest = payments.paymentRequest({
+            countryCode: "US",
+            currencyCode: "USD",
+            total: { amount: String(Math.round(amount * 100)), label: itemName || "FastTrax Booking" },
+          });
+          const googlePay = await payments.googlePay(paymentRequest);
+          await googlePay.attach("#sq-google-pay");
+          googlePayRef.current = googlePay;
+          setGooglePayReady(true);
+        } catch {
+          // Google Pay not available
+        }
+
         setStatus("ready");
       } catch (err) {
         console.error("[PaymentForm] init error:", err);
@@ -117,6 +152,8 @@ export default function PaymentForm({
 
     return () => {
       cardRef.current?.destroy();
+      applePayRef.current?.destroy();
+      googlePayRef.current?.destroy();
     };
   }, []);
 
@@ -220,6 +257,19 @@ export default function PaymentForm({
           selectedCardId={selectedCardId}
           onSelect={setSelectedCardId}
         />
+      )}
+
+      {/* Digital wallets (Apple Pay / Google Pay) */}
+      {!selectedCardId && (applePayReady || googlePayReady) && (
+        <div className="space-y-3">
+          {applePayReady && <div id="sq-apple-pay" className="min-h-[48px]" />}
+          {googlePayReady && <div id="sq-google-pay" className="min-h-[48px]" />}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-white/30 text-xs uppercase tracking-wider">or pay with card</span>
+            <div className="flex-1 h-px bg-white/10" />
+          </div>
+        </div>
       )}
 
       {/* Card form (hidden when using saved card) */}
