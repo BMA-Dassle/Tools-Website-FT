@@ -48,9 +48,10 @@ interface PaymentFormProps {
   onSuccess: (result: PaymentResult) => void;
   onError: (error: string) => void;
   onCancel?: () => void;
-  // Card-on-file (returning racers)
+  // Card-on-file (returning racers only — OTP verified)
   squareCustomerId?: string;
   savedCards?: SavedCard[];
+  allowSaveCard?: boolean;  // Only true for OTP-verified returning racers
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -66,6 +67,7 @@ export default function PaymentForm({
   onCancel,
   squareCustomerId,
   savedCards = [],
+  allowSaveCard = false,
 }: PaymentFormProps) {
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -259,8 +261,8 @@ export default function PaymentForm({
         )}
       </div>
 
-      {/* Save card checkbox (returning racers only) */}
-      {squareCustomerId && !selectedCardId && (
+      {/* Save card checkbox (OTP-verified returning racers only) */}
+      {allowSaveCard && squareCustomerId && !selectedCardId && (
         <label className="flex items-center gap-3 cursor-pointer group">
           <input
             type="checkbox"

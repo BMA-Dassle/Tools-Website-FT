@@ -441,8 +441,10 @@ export default function OrderSummary({
       }
 
       // Cash order — resolve Square customer + show inline payment form
+      // Saved cards ONLY for verified returning racers (OTP-verified personId)
       let sqCustomerId: string | undefined;
       let sqSavedCards: import("@/components/square/SavedCardSelector").SavedCard[] = [];
+      const isVerifiedReturningRacer = !!(personId || bills.some(b => b.personId));
       try {
         const custRes = await fetch("/api/square/customer", {
           method: "POST",
@@ -457,7 +459,10 @@ export default function OrderSummary({
         if (custRes.ok) {
           const custData = await custRes.json();
           sqCustomerId = custData.customerId;
-          sqSavedCards = custData.cards || [];
+          // Only show saved cards for OTP-verified returning racers
+          if (isVerifiedReturningRacer) {
+            sqSavedCards = custData.cards || [];
+          }
         }
       } catch { /* non-fatal — proceed without saved cards */ }
 
@@ -522,6 +527,7 @@ export default function OrderSummary({
         contact={contact}
         squareCustomerId={state.squareCustomerId}
         savedCards={state.savedCards}
+        allowSaveCard={!!(personId || bills.some(b => b.personId))}
         onSuccess={(result) => {
           // Store payment details for confirmation page
           sessionStorage.setItem(`payment_${state.orderId}`, JSON.stringify({
