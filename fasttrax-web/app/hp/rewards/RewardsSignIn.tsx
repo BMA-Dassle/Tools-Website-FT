@@ -72,7 +72,7 @@ export default function RewardsSignIn() {
               className="w-full border-0"
               style={{ height: "80vh", maxHeight: "700px", background: "#fff" }}
               allow="payment"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation allow-top-navigation-by-user-activation"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
             />
           </div>
         </div>
