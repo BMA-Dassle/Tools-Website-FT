@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com",
             "font-src 'self' https://fonts.gstatic.com https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://cash-f.squarecdn.com",
             "img-src 'self' data: blob: https: http:",
-            "connect-src 'self' https://modules-api22.sms-timing.com wss://webserver22.sms-timing.com:10015 https://tools-track-status.vercel.app https://*.3cx.us https://*.3cx.com https://va.vercel-scripts.com https://vitals.vercel-insights.com https://qcloud.qubicaamf.com https://resourcespubqamfuse.blob.core.windows.net https://pci-connect.squareup.com https://connect.squareup.com https://*.ingest.sentry.io",
+            "connect-src 'self' https: wss://webserver22.sms-timing.com:10015",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com https://pci-connect.squareup.com https://web.squarecdn.com https:",
             "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
             "object-src 'none'",
