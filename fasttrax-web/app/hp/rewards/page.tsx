@@ -57,6 +57,11 @@ export default function RewardsPage() {
         <div className="mx-auto h-1 w-24 rounded-full mt-4 mb-10" style={{ background: "linear-gradient(90deg, #FFD700, #fd5b56)" }} />
       </section>
 
+      {/* Sign Up / View Rewards */}
+      <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(32px, 6vw, 56px)" }}>
+        <RewardsSignIn />
+      </section>
+
       {/* Free Wing Friday — Rewards Exclusive */}
       <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(32px, 6vw, 56px)" }}>
         <div className="max-w-5xl mx-auto">
@@ -115,10 +120,8 @@ export default function RewardsPage() {
         </div>
       </section>
 
-      {/* Sign In / Sign Up */}
-      <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>
-        <RewardsSignIn />
-      </section>
+      {/* Bottom spacer */}
+      <div style={{ height: "clamp(40px, 6vw, 80px)" }} />
     </div>
   );
 }

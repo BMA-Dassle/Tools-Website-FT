@@ -24,13 +24,21 @@ export default function RewardsSignIn() {
             Earn Pinz every time you visit. Redeem for free food, discounts, and exclusive perks.
           </p>
 
-          <button
-            onClick={() => setOpen(true)}
-            className="w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-body font-bold text-base uppercase tracking-wider py-3.5 rounded-full transition-all hover:scale-[1.02]"
-            style={{ boxShadow: "0 0 20px rgba(255,215,0,0.3)" }}
-          >
-            Sign Up / Sign In
-          </button>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => setOpen(true)}
+              className="w-full bg-[#FFD700] hover:bg-[#ffe44d] text-[#0a1628] font-body font-bold text-base uppercase tracking-wider py-3.5 rounded-full transition-all hover:scale-[1.02]"
+              style={{ boxShadow: "0 0 20px rgba(255,215,0,0.3)" }}
+            >
+              Sign Up / Check Enrollment
+            </button>
+            <a
+              href="/rewards/dashboard"
+              className="w-full inline-block text-center bg-transparent border-2 border-[#FFD700]/50 hover:border-[#FFD700] text-[#FFD700] font-body font-bold text-base uppercase tracking-wider py-3.5 rounded-full transition-all hover:scale-[1.02]"
+            >
+              View My Rewards
+            </a>
+          </div>
 
           <p className="font-body text-white/30 text-xs mt-4">
             New members get 500 bonus Pinz when you sign up!
