@@ -496,30 +496,32 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                 setPhase("verified");
                 setTimeout(() => onVerified(person), 600);
               }}
-              className="w-full rounded-xl border border-white/10 bg-white/5 hover:border-[#00E2E5]/50 hover:bg-[#00E2E5]/5 p-4 text-left transition-colors"
+              className="w-full rounded-xl border border-white/10 bg-white/5 hover:border-[#00E2E5]/50 hover:bg-[#00E2E5]/5 p-3 sm:p-4 text-left transition-colors"
             >
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
                   <p className="text-white font-semibold text-sm">{a.fullName}</p>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex flex-wrap gap-1 mt-1.5">
                     {a.memberships.slice(0, 3).map((m, i) => (
-                      <span key={i} className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
+                      <span key={i} className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 whitespace-nowrap">
+                        {m.replace("Qualified ", "").replace("License Fee", "License")}
+                      </span>
                     ))}
                   </div>
                   {a.creditBalances && a.creditBalances.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {a.creditBalances.map((cb, ci) => (
-                        <span key={ci} className="text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
-                          {cb.kind}: {cb.balance}
+                        <span key={ci} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90 whitespace-nowrap">
+                          {cb.kind.replace("Credit - ", "")}: {cb.balance}
                         </span>
                       ))}
                     </div>
                   )}
-                  {a.lastSeen && <p className="text-white/30 text-xs mt-1">Last seen: {a.lastSeen}</p>}
+                  {a.lastSeen && <p className="text-white/30 text-[10px] mt-1.5">Last seen: {a.lastSeen}</p>}
                 </div>
-                <div className="text-right">
-                  <p className="text-[#8652FF] font-bold text-lg">{a.races}</p>
-                  <p className="text-white/30 text-xs uppercase">visits</p>
+                <div className="text-right shrink-0">
+                  <p className="text-[#8652FF] font-bold text-lg leading-none">{a.races}</p>
+                  <p className="text-white/30 text-[10px] uppercase">visits</p>
                 </div>
               </div>
             </button>
