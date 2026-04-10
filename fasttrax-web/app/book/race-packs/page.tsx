@@ -494,22 +494,22 @@ export default function RacePacksPage() {
         </div>
       </div>
 
-      {/* Warning banner */}
+      {/* Temporarily unavailable banner */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6 mt-4">
-        <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-4 flex items-start gap-3">
-          <svg className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+        <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-5 flex items-start gap-3">
+          <svg className="w-6 h-6 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
           <div>
-            <p className="text-amber-400 font-bold text-sm">This is NOT a race booking</p>
-            <p className="text-white/60 text-xs mt-0.5">
-              Race packs add credits to your account. You still need to <a href="/book/race" className="text-[#00E2E5] underline hover:text-white">book a race</a> separately to reserve a heat time. Credits are applied automatically at checkout.
+            <p className="text-red-400 font-bold text-base">Online Race Packs Temporarily Unavailable</p>
+            <p className="text-white/60 text-sm mt-1">
+              Race pack purchases are temporarily unavailable online due to a technical issue. Please see an on-site team member for assistance.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Pack grid */}
+      {/* Pack grid — disabled while unavailable */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16">
         {/* Column headers */}
         <div className="grid grid-cols-2 gap-4 mb-3">
@@ -523,8 +523,8 @@ export default function RacePacksPage() {
           const anytime = PACKS.find(p => p.raceCount === count && p.type === "anytime")!;
           return (
             <div key={count} className="grid grid-cols-2 gap-4 mb-4">
-              <PackCard pack={weekday} onBuy={handleBuyNow} />
-              <PackCard pack={anytime} onBuy={handleBuyNow} />
+              <PackCard pack={weekday} onBuy={handleBuyNow} disabled />
+              <PackCard pack={anytime} onBuy={handleBuyNow} disabled />
             </div>
           );
         })}
@@ -881,7 +881,7 @@ export default function RacePacksPage() {
 
 // ── Pack Card ────────────────────────────────────────────────────────────────
 
-function PackCard({ pack, onBuy }: { pack: RacePack; onBuy: (p: RacePack) => void }) {
+function PackCard({ pack, onBuy, disabled }: { pack: RacePack; onBuy: (p: RacePack) => void; disabled?: boolean }) {
   const perRace = (pack.price / pack.raceCount).toFixed(2);
   const isAnytime = pack.type === "anytime";
 
@@ -907,14 +907,17 @@ function PackCard({ pack, onBuy }: { pack: RacePack; onBuy: (p: RacePack) => voi
       </div>
 
       <button
-        onClick={() => onBuy(pack)}
+        onClick={() => !disabled && onBuy(pack)}
+        disabled={disabled}
         className={`w-full py-3 rounded-xl font-bold text-sm transition-colors ${
-          isAnytime
-            ? "bg-[#00E2E5] text-[#000418] hover:bg-white"
-            : "bg-blue-500 text-white hover:bg-blue-400"
+          disabled
+            ? "bg-white/10 text-white/30 cursor-not-allowed"
+            : isAnytime
+              ? "bg-[#00E2E5] text-[#000418] hover:bg-white"
+              : "bg-blue-500 text-white hover:bg-blue-400"
         }`}
       >
-        Buy Now
+        {disabled ? "Unavailable" : "Buy Now"}
       </button>
     </div>
   );
