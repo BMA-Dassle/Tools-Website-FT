@@ -101,32 +101,7 @@ export default function PaymentForm({
         const payments = await window.Square.payments(SQUARE_APP_ID, SQUARE_LOCATION_ID);
 
         // Initialize card form
-        const card = await payments.card({
-          style: {
-            ".input-container": {
-              borderColor: "rgba(255,255,255,0.15)",
-              borderRadius: "12px",
-            },
-            ".input-container.is-focus": {
-              borderColor: "#00E2E5",
-            },
-            ".message-text": {
-              color: "rgba(255,255,255,0.5)",
-            },
-            ".message-icon": {
-              color: "#00E2E5",
-            },
-            input: {
-              backgroundColor: "rgba(255,255,255,0.05)",
-              color: "#ffffff",
-              fontFamily: "sans-serif",
-              fontSize: "14px",
-            },
-            "input::placeholder": {
-              color: "rgba(255,255,255,0.3)",
-            },
-          },
-        });
+        const card = await payments.card();
 
         await card.attach("#sq-card-container");
         cardRef.current = card;
