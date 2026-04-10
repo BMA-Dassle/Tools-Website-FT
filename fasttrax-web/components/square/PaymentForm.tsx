@@ -158,6 +158,7 @@ export default function PaymentForm({
           contact,
           saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
           squareCustomerId,
+          locationId: typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
         }),
       });
 
