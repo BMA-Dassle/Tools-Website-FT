@@ -663,18 +663,34 @@ export default function ConfirmationPage() {
                   }`}
                   style={expressLane ? { background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02))" } : undefined}
                 >
-                  {/* Express Lane badge */}
+                  {/* Express Lane badge + directions */}
                   {expressLane && gi === 0 && (
-                    <div className="bg-emerald-500/15 border-b border-emerald-500/20 px-5 py-3 flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                        <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
+                    <div className="bg-emerald-500/15 border-b border-emerald-500/20 px-5 py-4 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                          <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        </div>
+                        <p className="text-emerald-400 text-sm font-bold uppercase tracking-widest">Express Check-In</p>
                       </div>
-                      <div>
-                        <p className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Express Check-In</p>
-                        <p className="text-white/60 text-xs">Skip Guest Services — go directly to Karting Check-In, 1st Floor</p>
+                      {/* Skip these */}
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
+                          <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                          <span className="text-red-400 text-xs font-bold line-through">Guest Services</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
+                          <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                          <span className="text-red-400 text-xs font-bold line-through">Event Check-In</span>
+                        </span>
                       </div>
+                      {/* Go here */}
+                      <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                        <p className="text-emerald-400 text-base font-black uppercase tracking-wide">Head straight to Karting!</p>
+                      </div>
+                      <p className="text-white/50 text-xs">1st Floor — Have this page ready on your phone</p>
                     </div>
                   )}
 
@@ -709,7 +725,7 @@ export default function ConfirmationPage() {
                           <>
                             <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
                             <p className="text-white font-display text-4xl sm:text-6xl uppercase tracking-widest">{formatTime(group.heatStart)}</p>
-                            <p className="text-emerald-400/60 text-xs mt-1">Karting Check-In, 1st Floor — 5 min before</p>
+                            <p className="text-emerald-400/60 text-xs mt-1">Arrive 5 min before — go straight to Karting, 1st Floor</p>
                           </>
                         ) : (
                           <>
