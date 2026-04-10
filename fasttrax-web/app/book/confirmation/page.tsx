@@ -703,19 +703,9 @@ export default function ConfirmationPage() {
 
                   {/* Main content */}
                   <div className="p-5 sm:p-6">
-                    {/* Reservation number — smaller */}
-                    <p className={`font-bold text-sm ${expressLane ? "text-emerald-400/70" : "text-[#00E2E5]/70"}`}>{group.resNumber}</p>
-
-                    {/* Racer names — big */}
-                    <div className="mt-2">
-                      {group.racers.map((name, ri) => (
-                        <p key={ri} className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(36px, 10vw, 60px)" }}>{name}</p>
-                      ))}
-                    </div>
-
-                    {/* Track badge */}
+                    {/* Track badge — top */}
                     {trackName && (
-                      <div className="mt-3">
+                      <div className="mb-3">
                         <span
                           className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
                           style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
@@ -724,6 +714,13 @@ export default function ConfirmationPage() {
                         </span>
                       </div>
                     )}
+
+                    {/* Racer names — big */}
+                    <div>
+                      {group.racers.map((name, ri) => (
+                        <p key={ri} className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(36px, 10vw, 60px)" }}>{name}</p>
+                      ))}
+                    </div>
 
                     {/* Time */}
                     {group.heatStart && (
@@ -744,9 +741,10 @@ export default function ConfirmationPage() {
                       </div>
                     )}
 
-                    {/* Date + address (express is always FastTrax karting) */}
+                    {/* Date, address, reservation number — bottom */}
                     {group.heatStart && <p className="text-white/40 text-xs mt-2">{formatDate(group.heatStart)}</p>}
                     <p className="text-white/20 text-xs">14501 Global Parkway, Fort Myers</p>
+                    <p className={`font-bold text-xs mt-2 ${expressLane ? "text-emerald-400/50" : "text-[#00E2E5]/50"}`}>{group.resNumber}</p>
                   </div>
 
                   {/* QR (non-express only) */}
