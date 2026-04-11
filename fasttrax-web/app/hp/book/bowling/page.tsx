@@ -642,16 +642,16 @@ export default function BowlingBookingPage() {
     const start = selectedOpenDate.StartBookingTime.split("T")[1];
     const end = selectedOpenDate.EndBookingTime.split("T")[1];
     const [sh, sm] = start.split(":").map(Number);
-    let [eh, em] = end.split(":").map(Number);
-    // If end is midnight (00:00) or next day, treat as 23:45
-    if (eh === 0) { eh = 23; em = 45; }
-    if (eh < sh) { eh = 23; em = 45; }
-    for (let h = sh; h <= eh; h++) {
-      for (const m of [0, 15, 30, 45]) {
-        if (h === sh && m < sm) continue;
-        if (h === eh && m > em) continue;
-        timeSlots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-      }
+    const [eh, em] = end.split(":").map(Number);
+    // Convert to minutes-since-start-of-day for easy comparison
+    const startMin = sh * 60 + sm;
+    let endMin = eh * 60 + em;
+    // If end wraps past midnight (e.g. 01:00), add 24h so the loop continues past midnight
+    if (endMin <= startMin) endMin += 24 * 60;
+    for (let mins = startMin; mins <= endMin; mins += 15) {
+      const h = Math.floor(mins / 60) % 24;
+      const m = mins % 60;
+      timeSlots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
     }
   }
 
@@ -662,8 +662,10 @@ export default function BowlingBookingPage() {
     ? timeSlots.filter(t => {
         const now = new Date();
         const [h, m] = t.split(":").map(Number);
+        // Post-midnight slots (00:xx, 01:xx) are tomorrow morning — always show them for tonight's date
+        if (h < 6 && now.getHours() >= 12) return true;
         const slotDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-        return slotDate.getTime() > now.getTime() + 15 * 60000; // at least 15 min from now
+        return slotDate.getTime() > now.getTime() + 15 * 60000;
       })
     : timeSlots;
 
