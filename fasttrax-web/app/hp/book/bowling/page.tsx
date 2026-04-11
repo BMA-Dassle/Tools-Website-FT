@@ -637,6 +637,9 @@ export default function BowlingBookingPage() {
 
   // Generate time slots for selected date (15-min increments)
   const selectedOpenDate = selectedDate ? getOpenDate(selectedDate) : null;
+  if (selectedOpenDate) {
+    console.log("[bowling] selectedOpenDate:", JSON.stringify(selectedOpenDate));
+  }
   const timeSlots: string[] = [];
   if (selectedOpenDate?.StartBookingTime && selectedOpenDate?.EndBookingTime) {
     const start = selectedOpenDate.StartBookingTime.split("T")[1];
@@ -653,6 +656,10 @@ export default function BowlingBookingPage() {
       const m = mins % 60;
       timeSlots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
     }
+  }
+
+  if (timeSlots.length > 0) {
+    console.log("[bowling] timeSlots generated:", timeSlots.length, "first:", timeSlots[0], "last:", timeSlots[timeSlots.length - 1]);
   }
 
   // For same-day bookings, filter out times that are less than 15 min from now
