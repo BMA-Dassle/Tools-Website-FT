@@ -8,17 +8,18 @@ const BMI_CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const BMI_USERNAME = process.env.BMI_USERNAME || "";
 const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
 
-// ── JWT token cache ───────────────────────────────────────────────────────────
+// ── JWT token cache (per client key) ─────────────────────────────────────────
 
-let cachedToken: string | null = null;
-let tokenExpiry = 0; // unix ms
+const ALLOWED_CLIENTS = new Set(["headpinzftmyers", "headpinznaples"]);
+const tokenCache: Record<string, { token: string; expiry: number }> = {};
 
-async function getToken(): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry - 60_000) {
-    return cachedToken;
+async function getToken(clientKey = BMI_CLIENT_KEY): Promise<string> {
+  const cached = tokenCache[clientKey];
+  if (cached && Date.now() < cached.expiry - 60_000) {
+    return cached.token;
   }
 
-  const res = await fetch(`${BMI_API_URL}/auth/${BMI_CLIENT_KEY}/publicbooking`, {
+  const res = await fetch(`${BMI_API_URL}/auth/${clientKey}/publicbooking`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -33,11 +34,11 @@ async function getToken(): Promise<string> {
   }
 
   const data = await res.json();
-  cachedToken = data.AccessToken || data.accessToken;
+  const token = data.AccessToken || data.accessToken;
   const expiresIn = parseInt(data.ExpiresIn || data.expiresIn || "3600", 10);
-  tokenExpiry = Date.now() + expiresIn * 1000;
+  tokenCache[clientKey] = { token, expiry: Date.now() + expiresIn * 1000 };
 
-  return cachedToken!;
+  return token;
 }
 
 function bmiHeaders(token: string) {
@@ -87,15 +88,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const token = await getToken();
+    const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
+    if (!ALLOWED_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+    const token = await getToken(clientKey);
 
-    // Build upstream URL — pass through all query params except 'endpoint'
+    // Build upstream URL — pass through all query params except 'endpoint' and 'clientKey'
     const upstreamParams = new URLSearchParams();
     for (const [k, v] of searchParams) {
-      if (k !== "endpoint") upstreamParams.set(k, v);
+      if (k !== "endpoint" && k !== "clientKey") upstreamParams.set(k, v);
     }
     const qs = upstreamParams.toString();
-    const url = `${BMI_API_URL}/public-booking/${BMI_CLIENT_KEY}/${endpoint}${qs ? `?${qs}` : ""}`;
+    const url = `${BMI_API_URL}/public-booking/${clientKey}/${endpoint}${qs ? `?${qs}` : ""}`;
 
     console.log(`[BMI GET] ${url}`);
     const upstream = await fetch(url, {
@@ -138,15 +141,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const token = await getToken();
+    const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
+    if (!ALLOWED_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+    const token = await getToken(clientKey);
 
     // Build upstream URL with query params
     const upstreamParams = new URLSearchParams();
     for (const [k, v] of searchParams) {
-      if (k !== "endpoint") upstreamParams.set(k, v);
+      if (k !== "endpoint" && k !== "clientKey") upstreamParams.set(k, v);
     }
     const qs = upstreamParams.toString();
-    const url = `${BMI_API_URL}/public-booking/${BMI_CLIENT_KEY}/${endpoint}${qs ? `?${qs}` : ""}`;
+    const url = `${BMI_API_URL}/public-booking/${clientKey}/${endpoint}${qs ? `?${qs}` : ""}`;
 
     // Pass request body as raw text to avoid JSON number precision loss on orderId
     const bodyStr = await req.text();
@@ -191,8 +196,10 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    const token = await getToken();
-    const url = `${BMI_API_URL}/public-booking/${BMI_CLIENT_KEY}/${endpoint}`;
+    const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
+    if (!ALLOWED_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+    const token = await getToken(clientKey);
+    const url = `${BMI_API_URL}/public-booking/${clientKey}/${endpoint}`;
 
     const upstream = await fetch(url, {
       method: "DELETE",

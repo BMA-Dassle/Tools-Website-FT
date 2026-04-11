@@ -259,9 +259,11 @@ function AttractionDatePicker({
   selected,
   onSelect,
   onBack,
+  clientKey,
 }: {
   productId: string;
   selected: string | null;
+  clientKey?: string;
   onSelect: (date: string) => void;
   onBack: () => void;
 }) {
@@ -283,7 +285,7 @@ function AttractionDatePicker({
       const dateFrom = `${year}-${String(month + 1).padStart(2, "0")}-01`;
       const lastDay = getDaysInMonth(year, month);
       const dateTill = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-      const data = await bmiGet("availability", { productId, dateFrom, dateTill });
+      const data = await bmiGet("availability", { productId, dateFrom, dateTill }, clientKey);
       const activities: { date: string; status: number }[] = data.activities || [];
       setAvailable(new Set(activities.filter(a => a.status === 0).map(a => a.date.split("T")[0])));
     } catch {
@@ -291,7 +293,7 @@ function AttractionDatePicker({
     } finally {
       setLoading(false);
     }
-  }, [productId]);
+  }, [productId, clientKey]);
 
   useEffect(() => { fetchAvailability(viewYear, viewMonth); }, [viewYear, viewMonth, fetchAvailability]);
 
@@ -388,6 +390,7 @@ function TimeSlotPicker({
   onConfirm,
   onBack,
   color,
+  clientKey,
 }: {
   product: AttractionProduct;
   date: string;
@@ -395,6 +398,7 @@ function TimeSlotPicker({
   onConfirm: (proposal: BmiProposal, block: BmiBlock) => void;
   onBack: () => void;
   color: string;
+  clientKey?: string;
 }) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -417,39 +421,57 @@ function TimeSlotPicker({
       const allProposals: BmiProposal[] = [];
       const seen = new Set<string>();
 
-      // Fetch time slots in 2-hour jumps across the day
-      const [y, m, d] = dateOnly.split("-").map(Number);
-      const dayOfWeek = new Date(y, m - 1, d).getDay();
-      const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
-        ? [10, 12, 14, 16, 18, 20, 22]
-        : [14, 16, 18, 20, 22];
-
-      for (const hour of startHours) {
-        const h = String(hour).padStart(2, "0");
-        try {
-          const batch: BmiProposal[] = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              productId: product.productId,
-              pageId: product.pageId,
-              quantity: quantity,
-              dynamicLines: null,
-              date: `${dateOnly}T${h}:00:00.000Z`,
-            }),
-          }).then(r => {
-            if (!r.ok) throw new Error("Failed");
-            return r.json();
-          }).then(d => d.proposals || []);
-
-          for (const p of batch) {
-            const key = p.blocks?.[0]?.block?.start;
-            if (key && !seen.has(key)) {
-              seen.add(key);
-              allProposals.push(p);
-            }
+      if (clientKey) {
+        // Non-default client (e.g. Naples) — use BMI Public API availability POST
+        const qs = new URLSearchParams({ endpoint: `availability`, date: dateOnly, clientKey });
+        const res = await fetch(`/api/bmi?${qs.toString()}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ProductId: Number(product.productId), Quantity: quantity, PageId: product.pageId ? Number(product.pageId) : undefined, DynamicLines: [] }),
+        });
+        const data = await res.json();
+        for (const p of (data.proposals || [])) {
+          const key = p.blocks?.[0]?.block?.start;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            allProposals.push(p);
           }
-        } catch { /* skip this batch */ }
+        }
+      } else {
+        // Default (Fort Myers) — use SMS-Timing dayplanner
+        const [y, m, d] = dateOnly.split("-").map(Number);
+        const dayOfWeek = new Date(y, m - 1, d).getDay();
+        const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
+          ? [10, 12, 14, 16, 18, 20, 22]
+          : [14, 16, 18, 20, 22];
+
+        for (const hour of startHours) {
+          const h = String(hour).padStart(2, "0");
+          try {
+            const batch: BmiProposal[] = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                productId: product.productId,
+                pageId: product.pageId,
+                quantity: quantity,
+                dynamicLines: null,
+                date: `${dateOnly}T${h}:00:00.000Z`,
+              }),
+            }).then(r => {
+              if (!r.ok) throw new Error("Failed");
+              return r.json();
+            }).then(d => d.proposals || []);
+
+            for (const p of batch) {
+              const key = p.blocks?.[0]?.block?.start;
+              if (key && !seen.has(key)) {
+                seen.add(key);
+                allProposals.push(p);
+              }
+            }
+          } catch { /* skip this batch */ }
+        }
       }
 
       allProposals.sort((a, b) => {
@@ -464,7 +486,7 @@ function TimeSlotPicker({
     } finally {
       setLoading(false);
     }
-  }, [product.productId, product.pageId, date, quantity]);
+  }, [product.productId, product.pageId, date, quantity, clientKey]);
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
@@ -1009,6 +1031,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   // Compute products from static config (no API fetch needed — prices are fixed)
   // Use effective location: booking.location, or auto-detect for single-location attractions
   const effectiveLocation = booking.location || (config && config.location !== "both" ? config.location as LocationKey : null);
+  const clientKey = config?.clientKeys?.[effectiveLocation!] || undefined;
   const products: AttractionProduct[] = config && effectiveLocation
     ? config.products
         .filter(p => p.location === effectiveLocation)
@@ -1123,6 +1146,8 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
         booking.quantity,
         proposal,
         booking.orderId,
+        null,
+        clientKey,
       );
       const newOrderId = booking.orderId || rawOrderId;
       setBooking(prev => ({ ...prev, orderId: newOrderId, billLineId }));
@@ -1228,6 +1253,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
               selected={booking.date}
               onSelect={handleDateSelect}
               onBack={goBack}
+              clientKey={clientKey}
             />
           )}
 
@@ -1240,6 +1266,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
               onConfirm={handleTimeConfirm}
               onBack={goBack}
               color={color}
+              clientKey={clientKey}
             />
           )}
 

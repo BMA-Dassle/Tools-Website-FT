@@ -7,7 +7,7 @@
 
 export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly" | "racing";
 export type BookingMode = "per-person" | "per-slot";
-export type LocationKey = "fasttrax" | "headpinz";
+export type LocationKey = "fasttrax" | "headpinz" | "naples";
 
 export interface AttractionProductDef {
   productId: string;
@@ -26,6 +26,8 @@ export interface AttractionConfig {
   location: LocationKey | "both";
   /** BMI page IDs per location */
   pageIds: Partial<Record<LocationKey, string>>;
+  /** BMI client keys per location (defaults to headpinzftmyers if not specified) */
+  clientKeys?: Partial<Record<LocationKey, string>>;
   bookingMode: BookingMode;
   maxGroupSize: number;
   showWaiverPrompt: boolean;
@@ -47,36 +49,40 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     slug: "gel-blaster",
     name: "Nexus Gel Blaster Arena",
     shortName: "Gel Blasters",
-    location: "headpinz",
-    pageIds: { headpinz: "24909729" },
+    location: "both",
+    pageIds: { headpinz: "24909729", naples: "24909729" },
+    clientKeys: { headpinz: "headpinzftmyers", naples: "headpinznaples" },
     bookingMode: "per-person",
     maxGroupSize: 16,
     showWaiverPrompt: true,
     heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     color: "#00E2E5",
     description: "High-tech gel blaster battles in an immersive glowing arena",
-    building: "HeadPinz Fort Myers",
+    building: "HeadPinz",
     durationLabel: "15 min session",
     products: [
       { productId: "8976680", name: "Gel Blaster Session", price: 12, location: "headpinz", durationMin: 15, isCombo: false, maxPerBooking: 16 },
+      { productId: "7565025", name: "Gel Blaster Session", price: 12, location: "naples", durationMin: 15, isCombo: false, maxPerBooking: 16 },
     ],
   },
   "laser-tag": {
     slug: "laser-tag",
     name: "Nexus Tactical Laser Tag",
     shortName: "Laser Tag",
-    location: "headpinz",
-    pageIds: { headpinz: "24909729" },
+    location: "both",
+    pageIds: { headpinz: "24909729", naples: "24909729" },
+    clientKeys: { headpinz: "headpinzftmyers", naples: "headpinznaples" },
     bookingMode: "per-person",
     maxGroupSize: 17,
     showWaiverPrompt: true,
     heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     color: "#8652FF",
     description: "Multi-level laser tag with haptic vests and immersive lighting",
-    building: "HeadPinz Fort Myers",
+    building: "HeadPinz",
     durationLabel: "15 min session",
     products: [
       { productId: "8976685", name: "Laser Tag Session", price: 10, location: "headpinz", durationMin: 15, isCombo: false, maxPerBooking: 17 },
+      { productId: "7565567", name: "Laser Tag Session", price: 10, location: "naples", durationMin: 15, isCombo: false, maxPerBooking: 17 },
     ],
   },
   "duck-pin": {
@@ -228,8 +234,10 @@ export interface AttractionProduct {
 const PRODUCT_ATTRACTION_MAP: Record<number, { attraction: AttractionSlug; location: LocationKey }> = {
   // Gel Blasters
   8976680: { attraction: "gel-blaster", location: "headpinz" },
+  7565025: { attraction: "gel-blaster", location: "naples" },
   // Laser Tag
   8976685: { attraction: "laser-tag", location: "headpinz" },
+  7565567: { attraction: "laser-tag", location: "naples" },
   // Duck Pin
   23345635: { attraction: "duck-pin", location: "fasttrax" },
   24711034: { attraction: "duck-pin", location: "fasttrax" },
@@ -281,15 +289,21 @@ const FL_TAX_RATE = 0.065;
 export function calculateTax(subtotal: number) { return Math.round(subtotal * FL_TAX_RATE * 100) / 100; }
 export function calculateTotal(subtotal: number) { return Math.round((subtotal + calculateTax(subtotal)) * 100) / 100; }
 
-export async function bmiGet(endpoint: string, params?: Record<string, string>) {
-  const qs = new URLSearchParams({ endpoint, ...params });
+/** Get the BMI client key for a location */
+export function getClientKey(config: AttractionConfig | undefined, location: LocationKey | null): string | undefined {
+  if (!config?.clientKeys || !location) return undefined;
+  return config.clientKeys[location];
+}
+
+export async function bmiGet(endpoint: string, params?: Record<string, string>, clientKey?: string) {
+  const qs = new URLSearchParams({ endpoint, ...params, ...(clientKey ? { clientKey } : {}) });
   const res = await fetch(`/api/bmi?${qs.toString()}`);
   if (!res.ok) throw new Error(`BMI GET ${endpoint} failed: ${res.status}`);
   return res.json();
 }
 
-export async function bmiPost(endpoint: string, body: unknown) {
-  const qs = new URLSearchParams({ endpoint });
+export async function bmiPost(endpoint: string, body: unknown, clientKey?: string) {
+  const qs = new URLSearchParams({ endpoint, ...(clientKey ? { clientKey } : {}) });
   const res = await fetch(`/api/bmi?${qs.toString()}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -306,6 +320,7 @@ export async function bookAttractionSlot(
   proposal: BmiProposal,
   existingOrderId?: string | null,
   personId?: string | null,
+  clientKey?: string,
 ): Promise<{ rawOrderId: string; billLineId: string | null }> {
   const payload: Record<string, unknown> = {
     productId,
@@ -325,7 +340,7 @@ export async function bookAttractionSlot(
   if (existingOrderId) bodyJson = `{"orderId":${existingOrderId},` + bodyJson.slice(1);
   if (personId) bodyJson = bodyJson.slice(0, -1) + `,"personId":${personId}}`;
 
-  const qs = new URLSearchParams({ endpoint: "booking/book" });
+  const qs = new URLSearchParams({ endpoint: "booking/book", ...(clientKey ? { clientKey } : {}) });
   const res = await fetch(`/api/bmi?${qs.toString()}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
