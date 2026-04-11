@@ -202,6 +202,19 @@ async function qamf(path: string, options?: RequestInit) {
 
 function stripHtml(html: string) { return html.replace(/<[^>]*>/g, "").trim(); }
 
+/** For post-midnight slots (00:xx–05:xx), the actual calendar date is the next day */
+function resolveDateTime(date: string, time: string): string {
+  const hour = parseInt(time.split(":")[0], 10);
+  if (hour < 6) {
+    // Next calendar day
+    const d = new Date(date + "T12:00:00"); // noon to avoid TZ issues
+    d.setDate(d.getDate() + 1);
+    const nextDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return `${nextDate}T${time}`;
+  }
+  return `${date}T${time}`;
+}
+
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + (m || 0);
@@ -456,7 +469,7 @@ export default function BowlingBookingPage() {
 
   function conflictsWithBowling(slotStart: string, slotStop: string): boolean {
     if (!selectedTime || !selectedDate) return false;
-    const bowlStart = new Date(`${selectedDate}T${selectedTime}:00`).getTime();
+    const bowlStart = new Date(`${resolveDateTime(selectedDate, selectedTime)}:00`).getTime();
     // Assume bowling is ~2 hours
     const bowlEnd = bowlStart + 2 * 60 * 60_000;
     const sStart = parseBmiLocal(slotStart).getTime();
@@ -680,7 +693,7 @@ export default function BowlingBookingPage() {
     setLoading(true);
     setError("");
     try {
-      const dt = `${selectedDate}T${selectedTime}`;
+      const dt = resolveDateTime(selectedDate, selectedTime);
       const data = await qamf(
         `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&players=1-${playerCount}&page=1&itemsPerPage=50`
       );
@@ -700,7 +713,7 @@ export default function BowlingBookingPage() {
     setLoading(true);
     setError("");
     try {
-      const dt = `${selectedDate}T${useTime}`;
+      const dt = resolveDateTime(selectedDate, useTime);
       const reservation = await qamf(`centers/${centerId}/reservations/temporary-request/book-for-later`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -761,7 +774,7 @@ export default function BowlingBookingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          Time: `${selectedDate}T${selectedTime}`,
+          Time: resolveDateTime(selectedDate, selectedTime),
           Items: {
             Extra: extraItems,
             FoodAndBeverage: classifyOffer(selectedOffer!.Name) === "vip"
@@ -1617,7 +1630,7 @@ export default function BowlingBookingPage() {
                                   <div className="flex flex-wrap gap-1.5">
                                     {(() => {
                                       // Merge bowling time into timeline
-                                      const bowlTimeMs = new Date(`${selectedDate}T${selectedTime}:00`).getTime();
+                                      const bowlTimeMs = new Date(`${resolveDateTime(selectedDate, selectedTime)}:00`).getTime();
                                       const items: { time: number; type: "slot" | "bowling"; idx?: number; slot?: typeof slots[0] }[] = [
                                         ...slots.map((s, idx) => ({ time: parseBmiLocal(s.start).getTime(), type: "slot" as const, idx, slot: s })),
                                         { time: bowlTimeMs, type: "bowling" as const },
