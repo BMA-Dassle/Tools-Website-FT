@@ -609,8 +609,10 @@ export default function BowlingBookingPage() {
     setLoading(true);
     setError("");
     try {
-      const today = new Date().toISOString().split("T")[0];
-      const end = new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 90);
+      const end = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
       const data = await qamf(`centers/${centerId}/opening-times/bookforlater/range?fromDate=${today}&toDate=${end}`);
       setOpenDates((data.Dates || []).filter((d: OpenDate) => d.IsOpen));
       trackBowlingStep("Party Set", { players: playerCount });
