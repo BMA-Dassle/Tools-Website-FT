@@ -12,8 +12,9 @@ const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM_FASTTRAX = process.env.VOX_FROM_NUMBER || "+12394819666";
-const VOX_FROM_HEADPINZ = process.env.VOX_FROM_NUMBER_HP || "+12393022155";
+const VOX_FROM_FASTTRAX = "+12394819666";
+const VOX_FROM_HEADPINZ = "+12393022155";
+const VOX_FROM_NAPLES = "+12394553755";
 
 // ── Email template (loaded once at startup) ─────────────────────────────────
 
@@ -135,6 +136,7 @@ export async function POST(req: NextRequest) {
       productNames,
       scheduledItems,
       brand,
+      location,
       expressLane,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
@@ -377,7 +379,7 @@ https://fasttraxent.com/racing#racers-journey`;
             ? `\n\n\nYour POV Camera Codes — collect your camera slip after your race to redeem. Videos take 15-30 min to upload. POV Codes below:`
             : "";
 
-          const smsFrom = isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
+          const smsFrom = location === "naples" ? VOX_FROM_NAPLES : isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
           results.sms = await sendSms(normalized, smsBody + povFooter, smsFrom);
 
           // Send each POV code as a separate SMS for easy copy/paste
