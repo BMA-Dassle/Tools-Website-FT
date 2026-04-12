@@ -139,7 +139,7 @@ const bowlingTables = [classicBowling, vipBowling, vipPinzExclusive];
 /* -- Add-on activities (Naples) --------------------------- */
 
 const addOnActivities = [
-  { name: "NEXUS Laser Tag", price: "$9/person" },
+  { name: "NEXUS Laser Tag", price: "$10/person" },
   { name: "NEXUS Gel Blasters", price: "$250/session" },
   { name: "Pool Tables", price: "$15/hour" },
   { name: "Game Zone Cards", price: "$5 / $10 / $20" },
