@@ -1339,8 +1339,8 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
               {/* Actions */}
               <div className="space-y-3">
                 <a
-                  href="/book/checkout"
-                  onClick={() => sessionStorage.setItem("checkoutReturnPath", `/book/${config.slug}`)}
+                  href={`/book/checkout${booking.location ? `?location=${booking.location}` : ""}`}
+                  onClick={() => sessionStorage.setItem("checkoutReturnPath", `/book/${config.slug}${booking.location ? `?location=${booking.location}` : ""}`)}
                   className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg text-center block"
                   style={{ backgroundColor: color }}
                 >
