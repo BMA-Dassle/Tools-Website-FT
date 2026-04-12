@@ -592,7 +592,7 @@ export default function BowlingBookingPage() {
     const qty = bmiAddonQty[productId] || 1;
     const ck = currentBmiClientKey;
 
-    console.log("[holdAddonSlot] booking:", productId, "slot:", slot.start, "qty:", qty, "existingOrder:", bmiAddonOrderIdRef.current);
+    // console.log("[holdAddonSlot]", productId, slot.start, qty, bmiAddonOrderIdRef.current);
     setBmiBookingAddon(true);
     try {
       // If this addon already has a line on the bill, remove it first (time/qty change)
@@ -612,7 +612,7 @@ export default function BowlingBookingPage() {
         bmiAddonOrderIdRef.current, null, ck
       );
 
-      console.log("[holdAddonSlot] SUCCESS — orderId:", rawOrderId, "lineId:", billLineId);
+      // console.log("[holdAddonSlot] ok", rawOrderId, billLineId);
       bmiAddonOrderIdRef.current = rawOrderId;
       if (billLineId) bmiAddonLineIdsRef.current[productId] = billLineId;
       setBmiSelectedTime(prev => ({ ...prev, [productId]: slotIdx }));
