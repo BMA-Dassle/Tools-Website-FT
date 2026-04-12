@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { setBookingLocation, getBookingLocation, clearBookingLocation, getBookingClientKey, syncLocationFromUrl } from "@/lib/booking-location";
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
@@ -716,7 +717,7 @@ function ReviewStep({
       const orderId = booking.orderId;
 
       // Resolve clientKey for Naples
-      const ck = config.clientKeys?.[booking.location!] || undefined;
+      const ck = getBookingClientKey();
 
       // 1. Register contact person on the bill
       const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson", ...(ck ? { clientKey: ck } : {}) });
@@ -977,18 +978,20 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   const config = ATTRACTIONS[slug] as AttractionConfig | undefined;
   if (!navComponent) navComponent = <BrandNav />;
 
-  const searchParams = useSearchParams();
-  const locationParam = searchParams.get("location") as LocationKey | null;
-  // If location is in query param and it's a valid product location, pre-select it
-  const validLocParam = locationParam && config?.products.some(p => p.location === locationParam) ? locationParam : null;
-  // Auto-detect from hostname: headpinz.com = "headpinz", fasttraxent.com = "fasttrax"
+  // Sync ?location= URL param to sessionStorage on mount
+  syncLocationFromUrl();
+  // Resolve location: URL param > sessionStorage > hostname > config default
+  const storedLoc = getBookingLocation();
+  const validStoredLoc = storedLoc && config?.products.some(p => p.location === storedLoc) ? storedLoc : null;
   const hostDefault = typeof window !== "undefined"
     ? window.location.hostname.includes("headpinz") ? "headpinz" as LocationKey
     : window.location.hostname.includes("fasttrax") ? "fasttrax" as LocationKey
     : null
     : null;
   const hostLoc = hostDefault && config?.products.some(p => p.location === hostDefault) ? hostDefault : null;
-  const initialLocation = validLocParam || hostLoc || (config && config.location !== "both" ? config.location as LocationKey : null);
+  const initialLocation = validStoredLoc || hostLoc || (config && config.location !== "both" ? config.location as LocationKey : null);
+  // Persist resolved location to sessionStorage so other pages can read it
+  if (initialLocation && typeof window !== "undefined") setBookingLocation(initialLocation);
   const initialStep = initialLocation ? "product" : (config?.location === "both" ? "location" : "product");
   const [step, setStep] = useState<Step>(initialStep);
   const [booking, setBooking] = useState<BookingState>({
@@ -1045,7 +1048,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   // Compute products from static config (no API fetch needed — prices are fixed)
   // Use effective location: booking.location, or auto-detect for single-location attractions
   const effectiveLocation = booking.location || (config && config.location !== "both" ? config.location as LocationKey : null);
-  const clientKey = config?.clientKeys?.[effectiveLocation!] || undefined;
+  const clientKey = getBookingClientKey();
   const products: AttractionProduct[] = config && effectiveLocation
     ? config.products
         .filter(p => p.location === effectiveLocation)
@@ -1123,6 +1126,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
 
   // Handlers
   function handleLocationSelect(loc: LocationKey) {
+    setBookingLocation(loc);
     setBooking(prev => ({ ...prev, location: loc, product: null, date: null, time: null }));
     setStep(nextStepAfter("location"));
   }
@@ -1166,7 +1170,6 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
       const newOrderId = booking.orderId || rawOrderId;
       setBooking(prev => ({ ...prev, orderId: newOrderId, billLineId }));
       sessionStorage.setItem("attractionOrderId", newOrderId);
-      if (clientKey) sessionStorage.setItem("attractionClientKey", clientKey);
 
       // Add to cart
       setCartItems(prev => [...prev, {
@@ -1339,8 +1342,8 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
               {/* Actions */}
               <div className="space-y-3">
                 <a
-                  href={`/book/checkout${booking.location ? `?location=${booking.location}` : ""}`}
-                  onClick={() => sessionStorage.setItem("checkoutReturnPath", `/book/${config.slug}${booking.location ? `?location=${booking.location}` : ""}`)}
+                  href="/book/checkout"
+                  onClick={() => sessionStorage.setItem("checkoutReturnPath", `/book/${config.slug}`)}
                   className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg text-center block"
                   style={{ backgroundColor: color }}
                 >

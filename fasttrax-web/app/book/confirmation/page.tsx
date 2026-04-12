@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
+import { getBookingLocation, getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 import BrandNav from "@/components/BrandNav";
 import { bmiGet, bmiPost } from "../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
@@ -178,7 +179,7 @@ export default function ConfirmationPage() {
             if (allBillIds.length > 1) {
               // Check this bill's overview to see if it's a credit order
               try {
-                const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bid}`);
+                const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`);
                 const ov = await ovRes.json();
                 const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
                 billAmount = cashT?.amount ?? 0;
@@ -187,7 +188,8 @@ export default function ConfirmationPage() {
 
             const depositKind = billAmount === 0 ? 2 : 0;
             const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
-            const qs = new URLSearchParams({ endpoint: "payment/confirm" });
+            const bmiCk = getBookingClientKey();
+            const qs = new URLSearchParams({ endpoint: "payment/confirm", ...(bmiCk ? { clientKey: bmiCk } : {}) });
             const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -222,6 +224,7 @@ export default function ConfirmationPage() {
 
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map(c => c.resNumber).join(","));
+          clearBookingLocation();
 
           // Update booking record with reservation data
           try {
@@ -381,7 +384,7 @@ export default function ConfirmationPage() {
         // Add Express Lane memo to BMI reservation
         if (allWaiversValid && allConfirmations.length > 0) {
           try {
-            const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+            const memoQs = new URLSearchParams({ endpoint: "booking/memo", ...(getBookingClientKey() ? { clientKey: getBookingClientKey()! } : {}) });
             for (const conf of allConfirmations) {
               const memoBody = `{"orderId":${conf.billId},"memo":"Express Lane — ${conf.resNumber}"}`;
               fetch(`/api/bmi?${memoQs.toString()}`, {
@@ -407,7 +410,7 @@ export default function ConfirmationPage() {
         if (id && !isReturning && needsWaiver) {
           try {
             // Get projectId from bill overview
-            const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}`);
+            const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${id}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`);
             const ov = await ovRes.json();
             const projectId = ov.id || id;
 
@@ -463,7 +466,7 @@ export default function ConfirmationPage() {
         // Add POV codes to BMI reservation memo
         if (claimedPovCodes.length > 0 && id) {
           try {
-            const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+            const memoQs = new URLSearchParams({ endpoint: "booking/memo", ...(getBookingClientKey() ? { clientKey: getBookingClientKey()! } : {}) });
             const memoBody = `{"orderId":${id},"memo":"POV Codes: ${claimedPovCodes.join(", ")} — Emailed and texted to guest"}`;
             await fetch(`/api/bmi?${memoQs.toString()}`, {
               method: "POST",
@@ -475,7 +478,7 @@ export default function ConfirmationPage() {
 
         // Add memo to each bill listing related reservations in the group
         if (allConfirmations.length > 1) {
-          const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+          const memoQs = new URLSearchParams({ endpoint: "booking/memo", ...(getBookingClientKey() ? { clientKey: getBookingClientKey()! } : {}) });
           for (const conf of allConfirmations) {
             try {
               const others = allConfirmations

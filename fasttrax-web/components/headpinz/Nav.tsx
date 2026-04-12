@@ -34,10 +34,11 @@ export default function HeadPinzNav() {
   const [todayHours, setTodayHours] = useState("");
   const pathname = usePathname();
 
-  // Detect location from pathname OR ?location= query param (for /book/* routes)
-  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const locParam = searchParams?.get("location");
-  const currentLoc = locations.find(l => pathname.includes(l.key)) || (locParam ? locations.find(l => l.key === locParam) : null) || locations[0];
+  // Detect location from pathname, sessionStorage (booking flow), or URL param
+  const bookingLoc = typeof window !== "undefined" ? sessionStorage.getItem("bookingLocation") : null;
+  const currentLoc = locations.find(l => pathname.includes(l.key))
+    || (bookingLoc ? locations.find(l => l.key === bookingLoc) : null)
+    || locations[0];
   const navLinks = [
     { label: "Attractions", href: `${currentLoc.href}/attractions` },
     { label: "Birthdays", href: `${currentLoc.href}/birthdays` },

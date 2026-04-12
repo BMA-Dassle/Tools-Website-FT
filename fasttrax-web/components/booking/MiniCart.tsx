@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 
 interface StoredCartItem {
   attractionName: string;
@@ -166,7 +167,7 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
               <button
                 onClick={() => {
                   const orderId = sessionStorage.getItem("attractionOrderId");
-                  const ck = sessionStorage.getItem("attractionClientKey");
+                  const ck = getBookingClientKey();
                   if (orderId) {
                     const cancelQs = ck ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}` : `endpoint=bill/${orderId}/cancel`;
                     fetch(`/api/bmi?${cancelQs}`, { method: "DELETE" }).catch(() => {});
@@ -175,19 +176,16 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const hasRacing = items.some((i: any) => i.attraction === "racing");
                   const attractionSlug = !hasRacing && items.length > 0 ? (items[0] as any).attraction : null;
-                  // Preserve location for Naples redirect
-                  const locParam = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("location") : null;
-                  const locSuffix = locParam ? `?location=${locParam}` : "";
                   sessionStorage.removeItem("attractionOrderId");
-                  sessionStorage.removeItem("attractionClientKey");
                   sessionStorage.removeItem("attractionCart");
+                  clearBookingLocation();
                   setItems([]);
                   setHasActiveBill(false);
                   setOpen(false);
                   if (hasRacing) {
                     window.location.href = "/book/race";
                   } else if (attractionSlug) {
-                    window.location.href = `/book/${attractionSlug}${locSuffix}`;
+                    window.location.href = `/book/${attractionSlug}`;
                   } else {
                     window.location.href = "/book";
                   }
