@@ -5,7 +5,7 @@
 
 // ── Attraction Types ──────────────────────────────────────────────────────────
 
-export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly" | "racing";
+export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly" | "racing" | "bowling";
 export type BookingMode = "per-person" | "per-slot";
 export type LocationKey = "fasttrax" | "headpinz" | "naples";
 
@@ -145,11 +145,31 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     durationLabel: "Single races & packs",
     products: [],
   },
+  bowling: {
+    slug: "bowling",
+    name: "HeadPinz Bowling",
+    shortName: "Bowling",
+    location: "both",
+    pageIds: { headpinz: "qamf-9172", naples: "qamf-3148" },
+    bookingMode: "per-slot",
+    maxGroupSize: 8,
+    showWaiverPrompt: false,
+    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    color: "#fd5b56",
+    description: "Classic & VIP bowling with NeoVerse and HyperBowling",
+    building: "HeadPinz",
+    durationLabel: "1-2 hours",
+    products: [
+      { productId: "qamf-9172", name: "Bowling", price: 0, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 8 },
+      { productId: "qamf-3148", name: "Bowling", price: 0, location: "naples", durationMin: 60, isCombo: false, maxPerBooking: 8 },
+    ],
+  },
 };
 
 /** All bookable attractions in display order */
 export const ATTRACTION_LIST: AttractionConfig[] = [
   ATTRACTIONS.racing,
+  ATTRACTIONS.bowling,
   ATTRACTIONS.shuffly,
   ATTRACTIONS["duck-pin"],
   ATTRACTIONS["gel-blaster"],

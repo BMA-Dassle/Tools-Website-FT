@@ -11,7 +11,9 @@ import { getBookingLocation } from "@/lib/booking-location";
 // ── Attraction Card ─────────────────────────────────────────────────────────
 
 function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConfig; bookingLoc: string | null }) {
-  const href = attraction.slug === "racing" ? "/book/race" : `/book/${attraction.slug}`;
+  const href = attraction.slug === "racing" ? "/book/race"
+    : attraction.slug === "bowling" ? (bookingLoc === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling")
+    : `/book/${attraction.slug}`;
   const locationLabel = bookingLoc === "naples"
     ? "HeadPinz Naples"
     : attraction.location === "both"
