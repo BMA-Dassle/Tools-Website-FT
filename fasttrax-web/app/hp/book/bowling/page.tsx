@@ -529,6 +529,23 @@ export default function BowlingBookingPage() {
     return sStart < (bowlEnd + buffer) && sStop > (bowlStart - buffer);
   }
 
+  /** Check if a time slot conflicts with any OTHER selected addon */
+  function conflictsWithOtherAddon(slotStart: string, slotStop: string, currentProductId: string): boolean {
+    const sStart = parseBmiLocal(slotStart).getTime();
+    const sStop = parseBmiLocal(slotStop).getTime();
+    for (const [pid, idx] of Object.entries(bmiSelectedTime)) {
+      if (pid === currentProductId) continue;
+      const slots = bmiTimeSlots[pid];
+      if (!slots || idx === undefined) continue;
+      const other = slots[idx];
+      if (!other) continue;
+      const oStart = parseBmiLocal(other.start).getTime();
+      const oStop = parseBmiLocal(other.stop).getTime();
+      if (sStart < oStop && sStop > oStart) return true;
+    }
+    return false;
+  }
+
   function formatBmiTime(iso: string): string {
     const d = parseBmiLocal(iso);
     return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -1765,14 +1782,16 @@ export default function BowlingBookingPage() {
                                             </span>
                                           );
                                         }
+                                        const addonConflict = conflictsWithOtherAddon(item.slot!.start, item.slot!.stop, addon.productId);
                                         return (
                                           <button
                                             key={item.slot!.start}
-                                            onClick={() => holdAddonSlot(addon.productId, item.idx!)}
-                                            className="px-3 py-1.5 rounded-lg text-xs font-bold font-body transition-all cursor-pointer"
+                                            onClick={() => !addonConflict && holdAddonSlot(addon.productId, item.idx!)}
+                                            disabled={addonConflict}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold font-body transition-all ${addonConflict ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
                                             style={{
                                               backgroundColor: selectedIdx === item.idx ? addon.accent : "rgba(7,16,39,0.5)",
-                                              color: selectedIdx === item.idx ? "#0a1628" : "rgba(255,255,255,0.6)",
+                                              color: selectedIdx === item.idx ? "#0a1628" : addonConflict ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)",
                                               border: `1px solid ${selectedIdx === item.idx ? addon.accent : "rgba(255,255,255,0.1)"}`,
                                             }}
                                           >
