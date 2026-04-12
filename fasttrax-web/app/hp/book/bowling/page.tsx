@@ -465,9 +465,9 @@ export default function BowlingBookingPage() {
   const [bmiTimeSlots, setBmiTimeSlots] = useState<Record<string, BmiTimeSlot[]>>({});
   const [bmiSelectedTime, setBmiSelectedTime] = useState<Record<string, number>>({});
   const [bmiLoadingSlots, setBmiLoadingSlots] = useState<Record<string, boolean>>({});
-  // BMI holds: orderId + billLineId per addon product
-  const [bmiAddonOrderId, setBmiAddonOrderId] = useState<string | null>(null);
-  const [bmiAddonLineIds, setBmiAddonLineIds] = useState<Record<string, string>>({});
+  // BMI holds: single shared order, track lineId per addon for removal
+  const bmiAddonOrderIdRef = useRef<string | null>(null);
+  const bmiAddonLineIdsRef = useRef<Record<string, string>>({});
   const [bmiBookingAddon, setBmiBookingAddon] = useState(false);
 
   // VIP upgrade modal
@@ -575,7 +575,7 @@ export default function BowlingBookingPage() {
 
       allSlots.sort((a, b) => a.start.localeCompare(b.start));
       setBmiTimeSlots(prev => ({ ...prev, [productId]: allSlots }));
-      if (allSlots.length > 0) setBmiSelectedTime(prev => ({ ...prev, [productId]: 0 }));
+      // Don't auto-select — user must pick a time (hold is created on click)
     } catch {
       setBmiTimeSlots(prev => ({ ...prev, [productId]: [] }));
     } finally {
@@ -583,32 +583,38 @@ export default function BowlingBookingPage() {
     }
   }
 
-  /** Create a BMI hold when a time slot is selected for an addon */
-  async function holdAddonSlot(productId: string, slotIdx: number) {
-    const slots = bmiTimeSlots[productId];
+  /** Create a BMI hold when a time slot is selected for an addon.
+   *  All addons share one BMI order (like the attraction booking flow). */
+  async function holdAddonSlot(productId: string, slotIdx: number, slotsOverride?: BmiTimeSlot[]) {
+    const slots = slotsOverride || bmiTimeSlots[productId];
     if (!slots || !slots[slotIdx]) return;
     const slot = slots[slotIdx];
     const qty = bmiAddonQty[productId] || 1;
     const ck = currentBmiClientKey;
 
+    console.log("[holdAddonSlot] booking:", productId, "slot:", slot.start, "qty:", qty, "existingOrder:", bmiAddonOrderIdRef.current);
     setBmiBookingAddon(true);
     try {
-      // Remove previous hold for this addon if switching times
-      if (bmiAddonLineIds[productId] && bmiAddonOrderId) {
+      // If this addon already has a line on the bill, remove it first (time/qty change)
+      const prevLineId = bmiAddonLineIdsRef.current[productId];
+      if (prevLineId && bmiAddonOrderIdRef.current) {
         const rmCk = ck ? `&clientKey=${ck}` : "";
         await fetch(`/api/bmi?endpoint=booking%2FremoveItem${rmCk}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: `{"OrderItemId":${bmiAddonLineIds[productId]},"OrderId":${bmiAddonOrderId}}`,
+          body: `{"OrderItemId":${prevLineId},"OrderId":${bmiAddonOrderIdRef.current}}`,
         }).catch(() => {});
+        delete bmiAddonLineIdsRef.current[productId];
       }
 
       const { rawOrderId, billLineId } = await bookAttractionSlot(
-        productId, qty, slot.proposal as import("@/lib/attractions-data").BmiProposal, bmiAddonOrderId, null, ck
+        productId, qty, slot.proposal as import("@/lib/attractions-data").BmiProposal,
+        bmiAddonOrderIdRef.current, null, ck
       );
 
-      setBmiAddonOrderId(prev => prev || rawOrderId);
-      if (billLineId) setBmiAddonLineIds(prev => ({ ...prev, [productId]: billLineId }));
+      console.log("[holdAddonSlot] SUCCESS — orderId:", rawOrderId, "lineId:", billLineId);
+      bmiAddonOrderIdRef.current = rawOrderId;
+      if (billLineId) bmiAddonLineIdsRef.current[productId] = billLineId;
       setBmiSelectedTime(prev => ({ ...prev, [productId]: slotIdx }));
     } catch (err) {
       console.error("[holdAddonSlot] failed:", err);
@@ -617,23 +623,32 @@ export default function BowlingBookingPage() {
     }
   }
 
-  /** Cancel a held addon line item */
-  async function releaseAddonHold(productId: string) {
-    const lineId = bmiAddonLineIds[productId];
-    if (!lineId || !bmiAddonOrderId) return;
+  /** Cancel the entire BMI addon order */
+  function cancelAddonOrder() {
+    if (!bmiAddonOrderIdRef.current) return;
     const ck = currentBmiClientKey;
-    const rmCk = ck ? `&clientKey=${ck}` : "";
-    await fetch(`/api/bmi?endpoint=booking%2FremoveItem${rmCk}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: `{"OrderItemId":${lineId},"OrderId":${bmiAddonOrderId}}`,
-    }).catch(() => {});
-    setBmiAddonLineIds(prev => { const n = { ...prev }; delete n[productId]; return n; });
+    const ckParam = ck ? `&clientKey=${ck}` : "";
+    fetch(`/api/bmi?endpoint=bill/${bmiAddonOrderIdRef.current}/cancel${ckParam}`, { method: "DELETE" }).catch(() => {});
+    bmiAddonOrderIdRef.current = null;
   }
 
   function setBmiQty(productId: string, qty: number) {
     setBmiAddonQty(prev => ({ ...prev, [productId]: Math.max(0, qty) }));
-    if (qty === 0) releaseAddonHold(productId);
+    if (qty === 0) {
+      // Remove this addon's line from the BMI order
+      const lineId = bmiAddonLineIdsRef.current[productId];
+      if (lineId && bmiAddonOrderIdRef.current) {
+        const ck = currentBmiClientKey;
+        const rmCk = ck ? `&clientKey=${ck}` : "";
+        fetch(`/api/bmi?endpoint=booking%2FremoveItem${rmCk}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: `{"OrderItemId":${lineId},"OrderId":${bmiAddonOrderIdRef.current}}`,
+        }).catch(() => {});
+        delete bmiAddonLineIdsRef.current[productId];
+      }
+      setBmiSelectedTime(prev => { const n = { ...prev }; delete n[productId]; return n; });
+    }
     if (qty > 0 && !bmiTimeSlots[productId] && !bmiLoadingSlots[productId]) {
       fetchBmiTimeSlots(productId, qty);
     }
@@ -1016,7 +1031,7 @@ export default function BowlingBookingPage() {
           sessionStorage.setItem("qamf_bmi_addons", JSON.stringify({
             addons: bmiAddons,
             guest: { name: guestName, email: guestEmail, phone: guestPhone.replace(/\D/g, "") },
-            bmiOrderId: bmiAddonOrderId,
+            bmiOrderId: bmiAddonOrderIdRef.current,
           }));
         } else {
           sessionStorage.removeItem("qamf_bmi_addons");

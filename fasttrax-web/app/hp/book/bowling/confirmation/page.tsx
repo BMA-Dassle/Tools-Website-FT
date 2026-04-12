@@ -103,9 +103,8 @@ export default function BowlingConfirmationPage() {
 
       let orderId: string | null = bmiOrderId || null;
 
-      // If holds were created during booking, skip re-booking
+      // If no hold was created pre-payment, create bookings now (legacy fallback)
       if (!orderId) {
-        // Fallback: create bookings now (legacy flow or holds failed)
         for (const addon of addons) {
           if (!addon.proposal || !addon.block) continue;
           const bookBody = {
@@ -120,6 +119,7 @@ export default function BowlingConfirmationPage() {
         }
       }
       if (!orderId) { setBmiStatus("error"); return; }
+
       const regBody = { firstName: guest.name.split(" ")[0] || guest.name, lastName: guest.name.split(" ").slice(1).join(" ") || "", email: guest.email, phone: guest.phone };
       const regJson = `{"orderId":${orderId},` + JSON.stringify(regBody).slice(1);
       await fetch(`/api/bmi?endpoint=person%2FregisterContactPerson${ckParam}`, { method: "POST", headers: { "content-type": "application/json" }, body: regJson });
