@@ -859,6 +859,7 @@ function ReviewStep({
           email: contact.email,
           phone: contact.phone,
         }}
+        locationId={booking.location || undefined}
         onSuccess={handlePaymentSuccess}
         onError={handlePaymentError}
         onCancel={handlePaymentCancel}

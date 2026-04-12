@@ -46,6 +46,8 @@ interface PaymentFormProps {
   itemName: string;
   billId: string;
   contact: { firstName: string; lastName: string; email: string; phone: string };
+  /** Override Square location: "fasttrax" | "headpinz" | "naples". Auto-detects from hostname if not set. */
+  locationId?: string;
   onSuccess: (result: PaymentResult) => void;
   onError: (error: string) => void;
   onCancel?: () => void;
@@ -56,7 +58,21 @@ interface PaymentFormProps {
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
-const SQUARE_LOCATION_ID = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID || "";
+
+// Square location IDs per site
+const SQUARE_LOCATIONS: Record<string, string> = {
+  fasttrax: "LAB52GY480CJF",
+  headpinz: "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
+
+function detectSquareLocationId(overrideLocationId?: string): string {
+  if (overrideLocationId && SQUARE_LOCATIONS[overrideLocationId]) return SQUARE_LOCATIONS[overrideLocationId];
+  if (typeof window === "undefined") return SQUARE_LOCATIONS.fasttrax;
+  const host = window.location.hostname;
+  if (host.includes("headpinz")) return SQUARE_LOCATIONS.headpinz;
+  return SQUARE_LOCATIONS.fasttrax;
+}
 
 // Send logs to server so they appear in Vercel runtime logs
 const logBuffer: string[] = [];
@@ -82,6 +98,7 @@ export default function PaymentForm({
   itemName,
   billId,
   contact,
+  locationId: locationIdProp,
   onSuccess,
   onError,
   onCancel,
@@ -89,6 +106,7 @@ export default function PaymentForm({
   savedCards = [],
   allowSaveCard = false,
 }: PaymentFormProps) {
+  const squareLocationId = detectSquareLocationId(locationIdProp);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(
@@ -109,7 +127,7 @@ export default function PaymentForm({
 
     async function init() {
       try {
-        serverLog(`[PaymentForm] init start — appId=${SQUARE_APP_ID}, locId=${SQUARE_LOCATION_ID}, ua=${navigator.userAgent.slice(0, 80)}`);
+        serverLog(`[PaymentForm] init start — appId=${SQUARE_APP_ID}, locId=${squareLocationId}, ua=${navigator.userAgent.slice(0, 80)}`);
 
         // Load SDK if not already loaded
         if (!window.Square) {
@@ -124,7 +142,7 @@ export default function PaymentForm({
 
         if (!window.Square) throw new Error("Square SDK not available");
 
-        const payments = await window.Square.payments(SQUARE_APP_ID, SQUARE_LOCATION_ID);
+        const payments = await window.Square.payments(SQUARE_APP_ID, squareLocationId);
 
         // Initialize card form
         const card = await payments.card();
@@ -217,7 +235,7 @@ export default function PaymentForm({
         contact,
         saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
         squareCustomerId,
-        locationId: typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
+        locationId: locationIdProp || (typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax"),
       }),
     });
 

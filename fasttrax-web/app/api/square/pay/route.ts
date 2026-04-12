@@ -3,8 +3,11 @@ import { randomUUID } from "crypto";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
-const SQUARE_LOCATION_FT = process.env.SQUARE_LOCATION_ID || "";
-const SQUARE_LOCATION_HP = process.env.SQUARE_HP_LOCATION_ID || "TXBSQN0FEKQ11";
+const SQUARE_LOCATION_MAP: Record<string, string> = {
+  fasttrax: "LAB52GY480CJF",
+  headpinz: "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
 const SQUARE_VERSION = "2024-12-18";
 
 function sqHeaders() {
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
       locationId,
     } = body;
 
-    const SQUARE_LOCATION = locationId === "headpinz" ? SQUARE_LOCATION_HP : SQUARE_LOCATION_FT;
+    const SQUARE_LOCATION = SQUARE_LOCATION_MAP[locationId] || SQUARE_LOCATION_MAP.fasttrax;
 
     if (!amount || !billId) {
       return NextResponse.json({ error: "amount and billId required" }, { status: 400 });
