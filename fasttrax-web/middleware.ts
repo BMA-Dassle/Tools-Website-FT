@@ -77,8 +77,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://headpinz.com/fwf`, 301);
   }
 
-  // HeadPinz domain: if user hits /hp/* directly, strip the prefix (it's internal only)
-  if (isHeadPinz && pathname.startsWith("/hp/")) {
+  // HeadPinz domain: if user hits /hp/* directly (except /hp/book/* which is a real route),
+  // strip the prefix — the middleware rewrite handles /hp internally
+  if (isHeadPinz && pathname.startsWith("/hp/") && !pathname.startsWith("/hp/book")) {
     const cleanPath = pathname.replace(/^\/hp/, "") || "/";
     return NextResponse.redirect(`https://headpinz.com${cleanPath}`, 301);
   }

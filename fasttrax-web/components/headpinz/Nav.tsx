@@ -8,8 +8,8 @@ import type { LocationKey } from "@/lib/attractions-data";
 import Image from "next/image";
 
 const locations = [
-  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/hp/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "/hp/book/bowling", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
-  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/hp/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "/hp/book/bowling?location=naples", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
+  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "/hp/book/bowling", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
+  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "/hp/book/bowling?location=naples", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
 ];
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {
@@ -52,9 +52,9 @@ export default function HeadPinzNav() {
     { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
     { label: "Group Events", href: `${currentLoc.href}/group-events` },
     { label: "Specials", href: `${currentLoc.href}#specials` },
-    { label: "Nemo's", href: "/hp/menu" },
+    { label: "Nemo's", href: "/menu" },
     { label: "Leagues", href: currentLoc.leagues },
-    { label: "Rewards", href: "/hp/rewards" },
+    { label: "Rewards", href: "/rewards" },
     { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
     { label: "Waiver", href: currentLoc.waiver },
   ];
