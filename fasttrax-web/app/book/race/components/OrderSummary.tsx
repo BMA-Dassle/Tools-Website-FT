@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock, PackSchedule } from "../data";
 import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } from "../data";
+import { getBookingClientKey, getBookingLocation } from "@/lib/booking-location";
 import { trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { ContactInfo } from "./ContactForm";
 import PaymentForm from "@/components/square/PaymentForm";
@@ -171,7 +172,8 @@ export default function OrderSummary({
     try {
       // Register contact on bill — MUST include personId if available
       // to avoid wiping credit linkages set during booking/book
-      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson" });
+      const ck = getBookingClientKey();
+      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson", ...(ck ? { clientKey: ck } : {}) });
       for (const bill of bills) {
         try {
           const regBody: Record<string, unknown> = {
@@ -203,7 +205,7 @@ export default function OrderSummary({
 
       for (const bill of bills) {
         try {
-          const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}`);
+          const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}${ck ? `&clientKey=${ck}` : ""}`);
           const overview = await overviewRes.json();
 
           const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
@@ -298,7 +300,8 @@ export default function OrderSummary({
               lastName: nameParts.slice(1).join(" ") || "",
             });
             const rawJson = `{"personId":${racer.personId},"orderId":${primaryBillId},` + regBody.slice(1);
-            const regQs = new URLSearchParams({ endpoint: "person/registerProjectPerson" });
+            const ppCk = getBookingClientKey();
+            const regQs = new URLSearchParams({ endpoint: "person/registerProjectPerson", ...(ppCk ? { clientKey: ppCk } : {}) });
             await fetch(`/api/bmi?${regQs.toString()}`, {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -322,7 +325,8 @@ export default function OrderSummary({
       const billOverviews: Record<string, unknown>[] = [];
       for (const bill of bills) {
         try {
-          const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}`);
+          const ovCk = getBookingClientKey();
+          const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}${ovCk ? `&clientKey=${ovCk}` : ""}`);
           const ov = await ovRes.json();
           billOverviews.push({ ...ov, _racerName: bill.racerName, _personId: bill.personId, _billId: bill.billId });
         } catch { /* skip */ }
@@ -419,7 +423,8 @@ export default function OrderSummary({
         for (const bill of bills) {
           try {
             const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${bill.billId},"depositKind":2}`;
-            const qs = new URLSearchParams({ endpoint: "payment/confirm" });
+            const pcCk = getBookingClientKey();
+            const qs = new URLSearchParams({ endpoint: "payment/confirm", ...(pcCk ? { clientKey: pcCk } : {}) });
             const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
               method: "POST",
               headers: { "content-type": "application/json" },
@@ -736,7 +741,7 @@ export default function OrderSummary({
                         <button
                           onClick={async () => {
                             try {
-                              await fetch(`/api/bmi?endpoint=booking%2FremoveItem`, {
+                              await fetch(`/api/bmi?endpoint=booking%2FremoveItem${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`, {
                                 method: "POST",
                                 headers: { "content-type": "application/json" },
                                 body: `{"orderId":${billId},"orderItemId":${line.lineId}}`,
@@ -848,7 +853,7 @@ export default function OrderSummary({
               onClick={() => {
                 if (!confirm("Cancel your entire booking? This will remove all items including any attraction reservations.")) return;
                 // Cancel the bill
-                fetch(`/api/bmi?endpoint=bill/${billId}/cancel`, { method: "DELETE" }).catch(() => {});
+                fetch(`/api/bmi?endpoint=bill/${billId}/cancel${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`, { method: "DELETE" }).catch(() => {});
                 sessionStorage.removeItem("attractionOrderId");
                 sessionStorage.removeItem("attractionCart");
                 window.location.href = "/book";

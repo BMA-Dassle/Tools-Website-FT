@@ -1,19 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
 // MiniCart is rendered globally in root layout
 import { ATTRACTION_LIST } from "@/lib/attractions-data";
 import type { AttractionConfig } from "@/lib/attractions-data";
+import { getBookingLocation } from "@/lib/booking-location";
 
 // ── Attraction Card ─────────────────────────────────────────────────────────
 
-function AttractionCard({ attraction }: { attraction: AttractionConfig }) {
+function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConfig; bookingLoc: string | null }) {
   const href = attraction.slug === "racing" ? "/book/race" : `/book/${attraction.slug}`;
-  const locationLabel =
-    attraction.location === "both"
+  const locationLabel = bookingLoc === "naples"
+    ? "HeadPinz Naples"
+    : attraction.location === "both"
       ? "FastTrax & HeadPinz"
       : attraction.location === "fasttrax"
         ? "FastTrax Fort Myers"
@@ -94,6 +95,15 @@ function AttractionCard({ attraction }: { attraction: AttractionConfig }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookLandingPage() {
+  const bookingLoc = getBookingLocation();
+
+  // Filter attractions by current booking location
+  const filtered = ATTRACTION_LIST.filter(a => {
+    if (!bookingLoc) return true; // no location set — show all
+    // Show attraction if it has products at this location OR matches the location
+    return a.products.some(p => p.location === bookingLoc) || a.location === bookingLoc;
+  });
+
   return (
     <div className="min-h-screen bg-[#000418]">
       <BrandNav />
@@ -111,13 +121,12 @@ export default function BookLandingPage() {
         </div>
       </section>
 
-
       {/* Attraction grid */}
       <section className="px-4 pb-20 sm:pb-28">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {ATTRACTION_LIST.map((a) => (
-              <AttractionCard key={a.slug} attraction={a} />
+            {filtered.map((a) => (
+              <AttractionCard key={a.slug} attraction={a} bookingLoc={bookingLoc} />
             ))}
           </div>
         </div>
