@@ -14,12 +14,15 @@ function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConf
   const href = attraction.slug === "racing" ? "/book/race"
     : attraction.slug === "bowling" ? (bookingLoc === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling")
     : `/book/${attraction.slug}`;
+  // Show specific building name — gel blaster/laser tag are at HeadPinz, not FastTrax
   const locationLabel = bookingLoc === "naples"
     ? "HeadPinz Naples"
-    : attraction.location === "both"
-      ? "FastTrax & HeadPinz"
-      : attraction.location === "fasttrax"
-        ? "FastTrax Fort Myers"
+    : attraction.building.includes("HeadPinz")
+      ? "HeadPinz Fort Myers"
+      : attraction.location === "both"
+        ? "FastTrax & HeadPinz"
+        : attraction.location === "fasttrax"
+          ? "FastTrax Fort Myers"
         : "HeadPinz Fort Myers";
 
   return (
