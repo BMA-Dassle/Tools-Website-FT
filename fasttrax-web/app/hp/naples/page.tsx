@@ -122,7 +122,7 @@ const attractions = [
     tagline: "2-Story Glow Arena",
     description: "Immersive, multi-level space-themed combat. Haptic vests and precision sensors for objective-based missions.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    price: "$8.50/person",
+    price: "$10/person",
     cta: "Book Now",
     ctaHref: "/book/laser-tag?location=naples",
     external: false,

@@ -64,7 +64,7 @@ const attractions = [
     description:
       "Two-story glow-in-the-dark space-themed arena with immersive, objective-based missions.",
     details: "15 min sessions \u2022 Team-based missions",
-    pricing: "$8.50/person",
+    pricing: "$10/person",
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     cta: "Book Now",
