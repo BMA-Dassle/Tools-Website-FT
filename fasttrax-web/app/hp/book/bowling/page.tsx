@@ -107,9 +107,13 @@ const coral = "#fd5b56";
 const gold = "#FFD700";
 const cyan = "#00E2E5";
 
-/* BMI Add-on products (HeadPinz Fort Myers only) */
-const BMI_ADDONS_PAGE = "43370985";
-const BMI_ADDONS = [
+/* BMI Add-on products per location */
+const BMI_ADDONS_BY_CENTER: Record<string, { page: string; addons: typeof BMI_ADDONS_FM }> = {
+  "9172": { page: "43370985", addons: [] }, // Fort Myers — filled below
+  "3148": { page: "7583597", addons: [] },  // Naples — filled below
+};
+
+const BMI_ADDONS_FM = [
   {
     productId: "43370936",
     name: "Nexus Gel Blaster Arena",
@@ -117,9 +121,10 @@ const BMI_ADDONS = [
     desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
     price: 12,
     perPerson: true,
-    qamfExtraId: 13751, // QAMF PriceKeyId for billing
+    qamfExtraId: 13751,
     image: `${BLOB}/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg`,
     accent: "#39FF14",
+    maxPerGroup: undefined as number | undefined,
   },
   {
     productId: "43370955",
@@ -128,9 +133,10 @@ const BMI_ADDONS = [
     desc: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena.",
     price: 10,
     perPerson: true,
-    qamfExtraId: 13678, // QAMF PriceKeyId for billing
+    qamfExtraId: 13678,
     image: `${BLOB}/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg`,
     accent: "#E41C1D",
+    maxPerGroup: undefined as number | undefined,
   },
   {
     productId: "43370974",
@@ -145,6 +151,40 @@ const BMI_ADDONS = [
     accent: "#004AAD",
   },
 ];
+
+const BMI_ADDONS_NAP = [
+  {
+    productId: "7565025",
+    name: "Nexus Gel Blaster Arena",
+    shortName: "Gel Blasters",
+    desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
+    price: 12,
+    perPerson: true,
+    qamfExtraId: 23093,
+    image: `${BLOB}/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg`,
+    accent: "#39FF14",
+    maxPerGroup: undefined as number | undefined,
+  },
+  {
+    productId: "7565567",
+    name: "Nexus Laser Tag Arena",
+    shortName: "Laser Tag",
+    desc: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena.",
+    price: 10,
+    perPerson: true,
+    qamfExtraId: 23091,
+    image: `${BLOB}/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg`,
+    accent: "#E41C1D",
+    maxPerGroup: undefined as number | undefined,
+  },
+];
+
+BMI_ADDONS_BY_CENTER["9172"].addons = BMI_ADDONS_FM;
+BMI_ADDONS_BY_CENTER["3148"].addons = BMI_ADDONS_NAP;
+
+// Legacy alias for backward compat
+const BMI_ADDONS = BMI_ADDONS_FM;
+const BMI_ADDONS_PAGE = "43370985";
 
 interface BmiTimeSlot {
   start: string;
@@ -372,6 +412,11 @@ export default function BowlingBookingPage() {
   const [centerName, setCenterName] = useState("");
   const [hasOldTime, setHasOldTime] = useState(false);
 
+  // Location-aware addons
+  const currentAddons = BMI_ADDONS_BY_CENTER[centerId]?.addons || [];
+  const currentAddonsPage = BMI_ADDONS_BY_CENTER[centerId]?.page || BMI_ADDONS_PAGE;
+  const currentBmiClientKey = centerId === "3148" ? "headpinznaples" : undefined;
+
   // Auto-detect location from query param or referrer
   useEffect(() => {
     const locParam = searchParams.get("location");
@@ -495,12 +540,15 @@ export default function BowlingBookingPage() {
         const h = String(hour).padStart(2, "0");
         const utcTime = `${dateOnly}T${h}:00:00.000Z`;
         try {
-          const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+          const smsUrl = currentBmiClientKey
+            ? `/api/sms?endpoint=dayplanner%2Fdayplanner&clientKey=${currentBmiClientKey}`
+            : "/api/sms?endpoint=dayplanner%2Fdayplanner";
+          const res = await fetch(smsUrl, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               productId,
-              pageId: BMI_ADDONS_PAGE,
+              pageId: currentAddonsPage,
               quantity: qty,
               dynamicLines: null,
               date: utcTime,
@@ -540,7 +588,7 @@ export default function BowlingBookingPage() {
   }
 
   function getBmiAddons(): BmiAddonSelection[] {
-    return BMI_ADDONS.filter(a => (bmiAddonQty[a.productId] || 0) > 0).map(a => {
+    return currentAddons.filter(a => (bmiAddonQty[a.productId] || 0) > 0).map(a => {
       const slots = bmiTimeSlots[a.productId] || [];
       const idx = bmiSelectedTime[a.productId];
       const slot = idx !== undefined ? slots[idx] : undefined;
@@ -763,7 +811,7 @@ export default function BowlingBookingPage() {
         });
 
       // Add BMI add-ons that have QAMF pricing IDs to the extras
-      for (const addon of BMI_ADDONS) {
+      for (const addon of currentAddons) {
         const qty = bmiAddonQty[addon.productId] || 0;
         if (qty > 0 && addon.qamfExtraId) {
           extraItems.push({ PriceKeyId: addon.qamfExtraId, Quantity: qty, UnitPrice: addon.price, Note: "" });
@@ -844,7 +892,7 @@ export default function BowlingBookingPage() {
       });
 
       // Add BMI add-ons with QAMF pricing to the cart
-      BMI_ADDONS.forEach(addon => {
+      currentAddons.forEach(addon => {
         const qty = bmiAddonQty[addon.productId] || 0;
         if (qty > 0 && addon.qamfExtraId) {
           cartItems.push({
@@ -1538,10 +1586,10 @@ export default function BowlingBookingPage() {
               </div>
             )}
 
-            {/* BMI Add-ons (FM only) */}
-            {centerId === "9172" && (
+            {/* BMI Add-ons */}
+            {currentAddons.length > 0 && (
               <div className="space-y-4 mb-6">
-                {BMI_ADDONS.map(addon => {
+                {currentAddons.map(addon => {
                   const qty = bmiAddonQty[addon.productId] || 0;
                   const isSelected = qty > 0;
                   const slots = bmiTimeSlots[addon.productId] || [];
