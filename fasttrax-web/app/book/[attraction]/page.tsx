@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
@@ -985,8 +985,12 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   const config = ATTRACTIONS[slug] as AttractionConfig | undefined;
   if (!navComponent) navComponent = <BrandNav />;
 
-  const initialStep = config?.location === "both" ? "location" : "product";
-  const initialLocation = config && config.location !== "both" ? config.location as LocationKey : null;
+  const searchParams = useSearchParams();
+  const locationParam = searchParams.get("location") as LocationKey | null;
+  // If location is in query param and it's a valid product location, pre-select it
+  const validLocParam = locationParam && config?.products.some(p => p.location === locationParam) ? locationParam : null;
+  const initialLocation = validLocParam || (config && config.location !== "both" ? config.location as LocationKey : null);
+  const initialStep = initialLocation ? "product" : (config?.location === "both" ? "location" : "product");
   const [step, setStep] = useState<Step>(initialStep);
   const [booking, setBooking] = useState<BookingState>({
     location: initialLocation,

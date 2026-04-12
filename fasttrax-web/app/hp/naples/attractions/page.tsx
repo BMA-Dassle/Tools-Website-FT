@@ -68,7 +68,7 @@ const attractions = [
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     cta: "Book Now",
-    ctaHref: "/book/laser-tag",
+    ctaHref: "/book/laser-tag?location=naples",
     external: false,
     badge: null,
     accent: "#E41C1D",
@@ -84,7 +84,7 @@ const attractions = [
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     cta: "Book Now",
-    ctaHref: "/book/gel-blaster",
+    ctaHref: "/book/gel-blaster?location=naples",
     external: false,
     badge: null,
     accent: "#9b51e0",
