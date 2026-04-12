@@ -1355,18 +1355,24 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
                 <div className="grid grid-cols-2 gap-2">
                   {ATTRACTION_LIST
                     .filter(a => a.slug !== config.slug)
+                    .filter(a => !booking.location || a.products.some(p => p.location === booking.location) || a.location === booking.location)
                     .slice(0, 6)
-                    .map(a => (
-                      <a
-                        key={a.slug}
-                        href={a.slug === "racing" ? "/book/race" : `/book/${a.slug}`}
-                        className="rounded-lg border border-white/10 bg-white/[0.03] p-3 hover:border-white/20 hover:bg-white/[0.06] transition-all text-center"
-                      >
-                        <p className="text-white font-semibold text-xs">{a.shortName}</p>
-                        <p className="text-white/30 text-xs mt-0.5">{a.durationLabel}</p>
-                        <p className="text-white/20 text-[10px] mt-0.5">{a.building}</p>
-                      </a>
-                    ))}
+                    .map(a => {
+                      const loc = booking.location || effectiveLocation;
+                      const href = a.slug === "racing" ? "/book/race" : `/book/${a.slug}${loc ? `?location=${loc}` : ""}`;
+                      const locName = loc ? LOCATION_INFO[loc]?.name : a.building;
+                      return (
+                        <a
+                          key={a.slug}
+                          href={href}
+                          className="rounded-lg border border-white/10 bg-white/[0.03] p-3 hover:border-white/20 hover:bg-white/[0.06] transition-all text-center"
+                        >
+                          <p className="text-white font-semibold text-xs">{a.shortName}</p>
+                          <p className="text-white/30 text-xs mt-0.5">{a.durationLabel}</p>
+                          <p className="text-white/20 text-[10px] mt-0.5">{locName}</p>
+                        </a>
+                      );
+                    })}
                 </div>
               </div>
             </div>
