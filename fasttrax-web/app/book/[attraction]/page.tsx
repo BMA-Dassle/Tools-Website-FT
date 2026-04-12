@@ -131,17 +131,28 @@ function StepIndicator({ steps, current, color }: { steps: { key: Step; label: s
 
 // ── Location Picker ─────────────────────────────────────────────────────────
 
+const LOCATION_INFO: Record<LocationKey, { name: string; address: string }> = {
+  fasttrax: { name: "FastTrax Fort Myers", address: "14501 Global Pkwy, Fort Myers" },
+  headpinz: { name: "HeadPinz Fort Myers", address: "14513 Global Pkwy, Fort Myers" },
+  naples: { name: "HeadPinz Naples", address: "8525 Radio Ln, Naples" },
+};
+
 function LocationPicker({ config, onSelect, onBack, color }: { config: AttractionConfig; onSelect: (loc: LocationKey) => void; onBack: () => void; color: string }) {
-  const locations: { key: LocationKey; name: string; address: string }[] = [
-    { key: "fasttrax", name: "FastTrax Fort Myers", address: "14501 Global Pkwy, Fort Myers" },
-    { key: "headpinz", name: "HeadPinz Fort Myers", address: "14513 Global Pkwy, Fort Myers" },
-  ];
+  // Build location options from the attraction's actual products
+  const locationKeys = [...new Set(config.products.map(p => p.location))] as LocationKey[];
+  const locations = locationKeys.map(key => ({ key, ...LOCATION_INFO[key] }));
+
+  // If only one location, auto-select it
+  useEffect(() => {
+    if (locations.length === 1) onSelect(locations[0].key);
+  }, []);
+  if (locations.length <= 1) return null;
 
   return (
     <div className="space-y-6 max-w-md mx-auto">
       <div className="text-center">
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">Choose Location</h2>
-        <p className="text-white/50 text-sm">{config.name} is available at both locations.</p>
+        <p className="text-white/50 text-sm">{config.name} is available at multiple locations.</p>
       </div>
       <div className="grid gap-3">
         {locations.map(loc => (
