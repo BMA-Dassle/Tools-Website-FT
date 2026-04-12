@@ -432,57 +432,44 @@ function TimeSlotPicker({
       const allProposals: BmiProposal[] = [];
       const seen = new Set<string>();
 
-      if (clientKey) {
-        // Non-default client (e.g. Naples) — use BMI Public API availability POST
-        const qs = new URLSearchParams({ endpoint: `availability`, date: dateOnly, clientKey });
-        const res = await fetch(`/api/bmi?${qs.toString()}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ProductId: Number(product.productId), Quantity: quantity, PageId: product.pageId ? Number(product.pageId) : undefined, DynamicLines: [] }),
-        });
-        const data = await res.json();
-        for (const p of (data.proposals || [])) {
-          const key = p.blocks?.[0]?.block?.start;
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            allProposals.push(p);
-          }
-        }
-      } else {
-        // Default (Fort Myers) — use SMS-Timing dayplanner
-        const [y, m, d] = dateOnly.split("-").map(Number);
-        const dayOfWeek = new Date(y, m - 1, d).getDay();
-        const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
-          ? [10, 12, 14, 16, 18, 20, 22]
-          : [14, 16, 18, 20, 22];
+      // Fetch time slots via SMS-Timing dayplanner in 2-hour jumps
+      const [y, m, d] = dateOnly.split("-").map(Number);
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+      const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
+        ? [10, 12, 14, 16, 18, 20, 22]
+        : [14, 16, 18, 20, 22];
 
-        for (const hour of startHours) {
-          const h = String(hour).padStart(2, "0");
-          try {
-            const batch: BmiProposal[] = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                productId: product.productId,
-                pageId: product.pageId,
-                quantity: quantity,
-                dynamicLines: null,
-                date: `${dateOnly}T${h}:00:00.000Z`,
-              }),
-            }).then(r => {
-              if (!r.ok) throw new Error("Failed");
-              return r.json();
-            }).then(d => d.proposals || []);
+      // Build SMS-Timing URL — add clientKey for non-default locations (e.g. Naples)
+      const smsBase = clientKey
+        ? `/api/sms?endpoint=dayplanner%2Fdayplanner&clientKey=${clientKey}`
+        : "/api/sms?endpoint=dayplanner%2Fdayplanner";
 
-            for (const p of batch) {
-              const key = p.blocks?.[0]?.block?.start;
-              if (key && !seen.has(key)) {
-                seen.add(key);
-                allProposals.push(p);
-              }
+      for (const hour of startHours) {
+        const h = String(hour).padStart(2, "0");
+        try {
+          const batch: BmiProposal[] = await fetch(smsBase, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              productId: product.productId,
+              pageId: product.pageId,
+              quantity: quantity,
+              dynamicLines: null,
+              date: `${dateOnly}T${h}:00:00.000Z`,
+            }),
+          }).then(r => {
+            if (!r.ok) throw new Error("Failed");
+            return r.json();
+          }).then(d => d.proposals || []);
+
+          for (const p of batch) {
+            const key = p.blocks?.[0]?.block?.start;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              allProposals.push(p);
             }
-          } catch { /* skip this batch */ }
-        }
+          }
+        } catch { /* skip this batch */ }
       }
 
       allProposals.sort((a, b) => {
