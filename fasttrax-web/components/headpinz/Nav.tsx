@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { setBookingLocation } from "@/lib/booking-location";
+import type { LocationKey } from "@/lib/attractions-data";
 import Image from "next/image";
 
 const locations = [
@@ -34,11 +36,17 @@ export default function HeadPinzNav() {
   const [todayHours, setTodayHours] = useState("");
   const pathname = usePathname();
 
-  // Detect location from pathname, sessionStorage (booking flow), or URL param
+  // Detect location from pathname, sessionStorage (booking flow), or default
   const bookingLoc = typeof window !== "undefined" ? sessionStorage.getItem("bookingLocation") : null;
-  const currentLoc = locations.find(l => pathname.includes(l.key))
+  const pathLoc = locations.find(l => pathname.includes(l.key));
+  const currentLoc = pathLoc
     || (bookingLoc ? locations.find(l => l.key === bookingLoc) : null)
     || locations[0];
+  // Sync detected location to sessionStorage so booking flow inherits it
+  if (typeof window !== "undefined" && pathLoc) {
+    const bookingKey = pathLoc.key === "fort-myers" ? "headpinz" : pathLoc.key;
+    setBookingLocation(bookingKey as LocationKey);
+  }
   const navLinks = [
     { label: "Attractions", href: `${currentLoc.href}/attractions` },
     { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
@@ -94,7 +102,12 @@ export default function HeadPinzNav() {
                   <Link
                     key={loc.key}
                     href={loc.href}
-                    onClick={() => setLocOpen(false)}
+                    onClick={() => {
+                      setLocOpen(false);
+                      // Map nav location key to booking location key
+                      const bookingKey = loc.key === "fort-myers" ? "headpinz" : loc.key;
+                      setBookingLocation(bookingKey as LocationKey);
+                    }}
                     className={`block px-4 py-2.5 text-xs font-semibold transition-colors ${loc.key === currentLoc.key ? "text-[#fd5b56] bg-[#fd5b56]/10" : "text-white/70 hover:text-white hover:bg-white/5"}`}
                   >
                     {loc.label}

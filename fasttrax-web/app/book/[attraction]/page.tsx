@@ -978,18 +978,21 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   const config = ATTRACTIONS[slug] as AttractionConfig | undefined;
   if (!navComponent) navComponent = <BrandNav />;
 
-  // Sync ?location= URL param to sessionStorage on mount
-  syncLocationFromUrl();
   // Resolve location: URL param > sessionStorage > hostname > config default
+  // URL param takes absolute priority (Naples links pass ?location=naples)
+  const urlLoc = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("location") as LocationKey | null
+    : null;
+  const validUrlLoc = urlLoc && config?.products.some(p => p.location === urlLoc) ? urlLoc : null;
   const storedLoc = getBookingLocation();
-  const validStoredLoc = storedLoc && config?.products.some(p => p.location === storedLoc) ? storedLoc : null;
+  const validStoredLoc = !validUrlLoc && storedLoc && config?.products.some(p => p.location === storedLoc) ? storedLoc : null;
   const hostDefault = typeof window !== "undefined"
     ? window.location.hostname.includes("headpinz") ? "headpinz" as LocationKey
     : window.location.hostname.includes("fasttrax") ? "fasttrax" as LocationKey
     : null
     : null;
   const hostLoc = hostDefault && config?.products.some(p => p.location === hostDefault) ? hostDefault : null;
-  const initialLocation = validStoredLoc || hostLoc || (config && config.location !== "both" ? config.location as LocationKey : null);
+  const initialLocation = validUrlLoc || validStoredLoc || hostLoc || (config && config.location !== "both" ? config.location as LocationKey : null);
   // Persist resolved location to sessionStorage so other pages can read it
   if (initialLocation && typeof window !== "undefined") setBookingLocation(initialLocation);
   const initialStep = initialLocation ? "product" : (config?.location === "both" ? "location" : "product");
