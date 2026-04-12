@@ -166,14 +166,20 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
               <button
                 onClick={() => {
                   const orderId = sessionStorage.getItem("attractionOrderId");
+                  const ck = sessionStorage.getItem("attractionClientKey");
                   if (orderId) {
-                    fetch(`/api/bmi?endpoint=bill/${orderId}/cancel`, { method: "DELETE" }).catch(() => {});
+                    const cancelQs = ck ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}` : `endpoint=bill/${orderId}/cancel`;
+                    fetch(`/api/bmi?${cancelQs}`, { method: "DELETE" }).catch(() => {});
                   }
                   // Determine where to go based on cart contents
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const hasRacing = items.some((i: any) => i.attraction === "racing");
                   const attractionSlug = !hasRacing && items.length > 0 ? (items[0] as any).attraction : null;
+                  // Preserve location for Naples redirect
+                  const locParam = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("location") : null;
+                  const locSuffix = locParam ? `?location=${locParam}` : "";
                   sessionStorage.removeItem("attractionOrderId");
+                  sessionStorage.removeItem("attractionClientKey");
                   sessionStorage.removeItem("attractionCart");
                   setItems([]);
                   setHasActiveBill(false);
@@ -181,7 +187,7 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                   if (hasRacing) {
                     window.location.href = "/book/race";
                   } else if (attractionSlug) {
-                    window.location.href = `/book/${attractionSlug}`;
+                    window.location.href = `/book/${attractionSlug}${locSuffix}`;
                   } else {
                     window.location.href = "/book";
                   }
