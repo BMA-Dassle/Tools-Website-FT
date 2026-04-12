@@ -864,7 +864,7 @@ function ReviewStep({
           email: contact.email,
           phone: contact.phone,
         }}
-        locationId={booking.location || undefined}
+        locationId={getBookingLocation() || booking.location || undefined}
         onSuccess={handlePaymentSuccess}
         onError={handlePaymentError}
         onCancel={handlePaymentCancel}
@@ -1217,7 +1217,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
         <div className="relative max-w-3xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 mb-4">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-white/60 text-xs font-medium">{booking.location ? LOCATION_INFO[booking.location]?.name || config.building : config.building}</span>
+            <span className="text-white/60 text-xs font-medium">{LOCATION_INFO[(getBookingLocation() || booking.location) as LocationKey]?.name || config.building}</span>
           </div>
           <h1 className="font-display text-2xl sm:text-4xl text-white uppercase tracking-widest mb-2">
             {config.name}
