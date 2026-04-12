@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const LOCATION_ID = process.env.SQUARE_FT_LOCATION_ID || "TXBSQN0FEKQ11";
+const DEFAULT_LOCATION_ID = "TXBSQN0FEKQ11";
+const LOCATION_MAP: Record<string, string> = {
+  fasttrax: "LAB52GY480CJF",
+  headpinz: "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const personId = searchParams.get("personId");
+  const locKey = searchParams.get("location");
+  const locationId = (locKey && LOCATION_MAP[locKey]) || DEFAULT_LOCATION_ID;
 
   if (!personId) {
     return NextResponse.json({ error: "Missing personId" }, { status: 400 });
@@ -14,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(
-      `${PANDORA_URL}/bmi/person/${LOCATION_ID}/${personId}?picture=false&allRelated=true`,
+      `${PANDORA_URL}/bmi/person/${locationId}/${personId}?picture=false&allRelated=true`,
       {
         headers: { "Authorization": `Bearer ${API_KEY}` },
         cache: "no-store",
@@ -55,14 +62,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { firstName, lastName, email, phone, birthdate, guardianID } = body;
+    const { firstName, lastName, email, phone, birthdate, guardianID, location } = body;
 
     if (!firstName || !lastName) {
       return NextResponse.json({ error: "firstName and lastName required" }, { status: 400 });
     }
 
+    const locId = (location && LOCATION_MAP[location]) || DEFAULT_LOCATION_ID;
     const payload: Record<string, string> = {
-      locationID: LOCATION_ID,
+      locationID: locId,
       firstName,
       lastName,
     };
