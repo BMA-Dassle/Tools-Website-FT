@@ -93,7 +93,7 @@ function spotsLabel(free: number, capacity: number) {
 function StepIndicator({ steps, current, color }: { steps: { key: Step; label: string }[]; current: Step; color: string }) {
   const currentIdx = steps.findIndex(s => s.key === current);
   return (
-    <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap px-2">
+    <div className="flex items-center justify-center gap-1 sm:gap-2 px-2">
       {steps.map((s, i) => {
         const isActive = i === currentIdx;
         const isDone = i < currentIdx;
