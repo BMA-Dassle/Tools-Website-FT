@@ -989,7 +989,14 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   const locationParam = searchParams.get("location") as LocationKey | null;
   // If location is in query param and it's a valid product location, pre-select it
   const validLocParam = locationParam && config?.products.some(p => p.location === locationParam) ? locationParam : null;
-  const initialLocation = validLocParam || (config && config.location !== "both" ? config.location as LocationKey : null);
+  // Auto-detect from hostname: headpinz.com = "headpinz", fasttraxent.com = "fasttrax"
+  const hostDefault = typeof window !== "undefined"
+    ? window.location.hostname.includes("headpinz") ? "headpinz" as LocationKey
+    : window.location.hostname.includes("fasttrax") ? "fasttrax" as LocationKey
+    : null
+    : null;
+  const hostLoc = hostDefault && config?.products.some(p => p.location === hostDefault) ? hostDefault : null;
+  const initialLocation = validLocParam || hostLoc || (config && config.location !== "both" ? config.location as LocationKey : null);
   const initialStep = initialLocation ? "product" : (config?.location === "both" ? "location" : "product");
   const [step, setStep] = useState<Step>(initialStep);
   const [booking, setBooking] = useState<BookingState>({
