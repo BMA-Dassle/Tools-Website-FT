@@ -1193,6 +1193,13 @@ export default function BookRacePage() {
                   .map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))
               }
               immediateConfirm={racerType === "existing" && verifiedRacers.length > 0}
+              minAdvanceMinutes={
+                // Express lane eligible (all racers have valid license) = no minimum
+                // Everyone else = 75 min (1hr 15min) for check-in at Guest Services
+                racerType === "existing" && verifiedRacers.length > 0 &&
+                verifiedRacers.every(r => (r.memberships || []).some(m => m.toLowerCase().includes("license fee")))
+                  ? 0 : 75
+              }
             />
           )
         )}

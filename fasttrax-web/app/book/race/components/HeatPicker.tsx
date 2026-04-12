@@ -8,6 +8,8 @@ interface HeatPickerProps {
   race: ClassifiedProduct;
   date: string; // YYYY-MM-DD
   quantity: number;
+  /** Minimum minutes from now a heat must start (e.g. 75 for new racers) */
+  minAdvanceMinutes?: number;
   onQuantityChange: (q: number) => void;
   onConfirm: (proposal: BmiProposal, block: BmiBlock) => void;
   onAddAnother?: (proposal: BmiProposal, block: BmiBlock) => void;
@@ -39,7 +41,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0 }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +113,16 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
         return aStart.localeCompare(bStart);
       });
 
-      setProposals(allProposals);
+      // Filter out heats that are too soon (new racers need 1hr 15min lead time)
+      const cutoff = minAdvanceMinutes > 0 ? Date.now() + minAdvanceMinutes * 60_000 : 0;
+      const filtered = cutoff > 0
+        ? allProposals.filter(p => {
+            const start = p.blocks?.[0]?.block?.start;
+            return start ? parseLocal(start).getTime() >= cutoff : true;
+          })
+        : allProposals;
+
+      setProposals(filtered);
     } catch {
       setError("Couldn't load time slots. Please try again.");
     } finally {
