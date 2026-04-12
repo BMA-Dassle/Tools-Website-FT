@@ -100,9 +100,9 @@ export default function BookLandingPage() {
   const bookingLoc = getBookingLocation();
 
   // Filter attractions by current booking location
+  // Fort Myers (headpinz + fasttrax) share all attractions — only Naples is filtered
   const filtered = ATTRACTION_LIST.filter(a => {
-    if (!bookingLoc) return true; // no location set — show all
-    // Show attraction if it has products at this location OR matches the location
+    if (!bookingLoc || bookingLoc === "headpinz" || bookingLoc === "fasttrax") return true;
     return a.products.some(p => p.location === bookingLoc) || a.location === bookingLoc;
   });
 
