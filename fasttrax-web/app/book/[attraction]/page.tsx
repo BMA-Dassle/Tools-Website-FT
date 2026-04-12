@@ -715,8 +715,11 @@ function ReviewStep({
     try {
       const orderId = booking.orderId;
 
+      // Resolve clientKey for Naples
+      const ck = config.clientKeys?.[booking.location!] || undefined;
+
       // 1. Register contact person on the bill
-      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson" });
+      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson", ...(ck ? { clientKey: ck } : {}) });
       const regBody = JSON.stringify({
         firstName: contact.firstName,
         lastName: contact.lastName,
@@ -731,7 +734,8 @@ function ReviewStep({
       });
 
       // 2. Get bill overview — shows ALL items on the bill (attractions + races)
-      const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${orderId}`);
+      const smsOverviewQs = ck ? `endpoint=bill%2Foverview&billId=${orderId}&clientKey=${ck}` : `endpoint=bill%2Foverview&billId=${orderId}`;
+      const overviewRes = await fetch(`/api/sms?${smsOverviewQs}`);
       const overview = await overviewRes.json();
 
       const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
@@ -1162,6 +1166,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
       const newOrderId = booking.orderId || rawOrderId;
       setBooking(prev => ({ ...prev, orderId: newOrderId, billLineId }));
       sessionStorage.setItem("attractionOrderId", newOrderId);
+      if (clientKey) sessionStorage.setItem("attractionClientKey", clientKey);
 
       // Add to cart
       setCartItems(prev => [...prev, {
