@@ -336,6 +336,10 @@ export default function BookRacePage() {
     fetch(`/api/pandora?personId=${person.personId}&picture=false`).then(async res => {
       if (!res.ok) { setLinkedFetching(false); return; }
       const data = await res.json();
+      // Store waiver status on primary racer
+      if (typeof data.valid === "boolean") {
+        setVerifiedRacers(prev => prev.map(r => r.personId === person.personId ? { ...r, waiverValid: data.valid } : r));
+      }
       const relatedIds: string[] = data.related || [];
       if (relatedIds.length === 0) { setLinkedFetching(false); return; }
       // Fetch each related person's details
@@ -379,6 +383,16 @@ export default function BookRacePage() {
         .map((m: { name: string }) => m.name)
         .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
 
+      // Check waiver via Pandora
+      let waiverValid = false;
+      try {
+        const pandoraRes = await fetch(`/api/pandora?personId=${pandoraId}&picture=false`);
+        if (pandoraRes.ok) {
+          const pandoraData = await pandoraRes.json();
+          waiverValid = pandoraData.valid === true;
+        }
+      } catch { /* non-fatal */ }
+
       const person: PersonData = {
         personId: String(p.id),
         fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
@@ -389,6 +403,7 @@ export default function BookRacePage() {
         loginCode: tags[0]?.tag || "",
         personReference: "",
         memberships,
+        waiverValid,
       };
 
       handleAddRacer(person, category);
@@ -906,7 +921,7 @@ export default function BookRacePage() {
                             License
                           </span>
                         )}
-                        {(r.memberships || []).some(m => m.toLowerCase().includes("license fee")) && (
+                        {r.waiverValid && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                             Express Lane
@@ -1032,7 +1047,7 @@ export default function BookRacePage() {
                 </div>
 
                 {/* Express Lane tip */}
-                {verifiedRacers.some(r => (r.memberships || []).some(m => m.toLowerCase().includes("license fee"))) && (
+                {verifiedRacers.some(r => r.waiverValid) && (
                   <div className="max-w-md mx-auto rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                     <div className="flex items-start gap-3">
                       <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
@@ -1043,7 +1058,7 @@ export default function BookRacePage() {
                       <div>
                         <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">Express Lane Eligible</p>
                         <p className="text-white/50 text-xs leading-relaxed">
-                          {verifiedRacers.every(r => (r.memberships || []).some(m => m.toLowerCase().includes("license fee")))
+                          {verifiedRacers.every(r => r.waiverValid === true)
                             ? "All racers in your party are express lane eligible! After checkout, you\u2019ll receive a green express pass — skip Guest Services and Event Check-In and head straight to Karting."
                             : "Some racers are express lane eligible. If all racers have a valid license, your party can skip Guest Services and Event Check-In and head straight to Karting after checkout."
                           }
@@ -1194,10 +1209,10 @@ export default function BookRacePage() {
               }
               immediateConfirm={racerType === "existing" && verifiedRacers.length > 0}
               minAdvanceMinutes={
-                // Express lane eligible (all racers have valid license) = no minimum
-                // Everyone else = 75 min (1hr 15min) for check-in at Guest Services
+                // Express lane = all racers have valid Pandora waiver → no minimum
+                // Everyone else = 75 min (1hr 15min) for Guest Services check-in
                 racerType === "existing" && verifiedRacers.length > 0 &&
-                verifiedRacers.every(r => (r.memberships || []).some(m => m.toLowerCase().includes("license fee")))
+                verifiedRacers.every(r => r.waiverValid === true)
                   ? 0 : 75
               }
             />

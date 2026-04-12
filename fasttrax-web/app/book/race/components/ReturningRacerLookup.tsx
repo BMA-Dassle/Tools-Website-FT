@@ -18,6 +18,7 @@ export interface PersonData {
   birthDate?: string | null;
   hasCredits?: boolean;
   creditBalances?: { kind: string; balance: number }[];
+  waiverValid?: boolean;
 }
 
 interface FoundAccount {
