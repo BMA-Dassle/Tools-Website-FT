@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { getBookingClientKey, getBookingLocation } from "@/lib/booking-location";
 import { trackBowlingStep } from "@/lib/analytics";
 
 const API = "/api/qamf";
@@ -93,6 +94,13 @@ export default function BowlingConfirmationPage() {
     try {
       const { addons, guest } = JSON.parse(stored);
       if (!addons || addons.length === 0) return;
+
+      // Resolve BMI client key for location (Naples vs Fort Myers)
+      const ck = getBookingClientKey();
+      const ckParam = ck ? `&clientKey=${ck}` : "";
+      const loc = getBookingLocation();
+      const waiverClientKey = loc === "naples" ? "headpinznaples" : "headpinzftmyers";
+
       let orderId: string | null = null;
       for (const addon of addons) {
         if (!addon.proposal || !addon.block) continue;
@@ -103,22 +111,21 @@ export default function BowlingConfirmationPage() {
         };
         let bodyJson = JSON.stringify(bookBody);
         if (orderId) bodyJson = `{"orderId":${orderId},` + bodyJson.slice(1);
-        const res = await fetch("/api/bmi?endpoint=booking%2Fbook", { method: "POST", headers: { "content-type": "application/json" }, body: bodyJson });
+        const res = await fetch(`/api/bmi?endpoint=booking%2Fbook${ckParam}`, { method: "POST", headers: { "content-type": "application/json" }, body: bodyJson });
         if (res.ok) { const raw = await res.text(); if (!orderId) { const m = raw.match(/"orderId"\s*:\s*(\d+)/); if (m) orderId = m[1]; } }
       }
       if (!orderId) { setBmiStatus("error"); return; }
       const regBody = { firstName: guest.name.split(" ")[0] || guest.name, lastName: guest.name.split(" ").slice(1).join(" ") || "", email: guest.email, phone: guest.phone };
       const regJson = `{"orderId":${orderId},` + JSON.stringify(regBody).slice(1);
-      await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", { method: "POST", headers: { "content-type": "application/json" }, body: regJson });
-      // Use raw number injection for orderId to avoid JS number precision loss on large IDs
+      await fetch(`/api/bmi?endpoint=person%2FregisterContactPerson${ckParam}`, { method: "POST", headers: { "content-type": "application/json" }, body: regJson });
       const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":0}`;
-      await fetch("/api/bmi?endpoint=payment%2Fconfirm", { method: "POST", headers: { "content-type": "application/json" }, body: confirmBody });
+      await fetch(`/api/bmi?endpoint=payment%2Fconfirm${ckParam}`, { method: "POST", headers: { "content-type": "application/json" }, body: confirmBody });
       // Get waiver URL from BMI project reference
       try {
         const projRes = await fetch(`/api/bmi-office?action=project&id=${orderId}`);
         const proj = await projRes.json();
         if (proj.projectReference) {
-          setWaiverUrl(`https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`);
+          setWaiverUrl(`https://kiosk.sms-timing.com/${waiverClientKey}/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`);
         }
       } catch { /* non-fatal */ }
 
