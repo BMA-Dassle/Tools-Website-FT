@@ -92,7 +92,7 @@ export default function BowlingConfirmationPage() {
     if (!stored) return;
     setBmiStatus("booking");
     try {
-      const { addons, guest } = JSON.parse(stored);
+      const { addons, guest, bmiOrderId } = JSON.parse(stored);
       if (!addons || addons.length === 0) return;
 
       // Resolve BMI client key for location (Naples vs Fort Myers)
@@ -101,18 +101,23 @@ export default function BowlingConfirmationPage() {
       const loc = getBookingLocation();
       const waiverClientKey = loc === "naples" ? "headpinznaples" : "headpinzftmyers";
 
-      let orderId: string | null = null;
-      for (const addon of addons) {
-        if (!addon.proposal || !addon.block) continue;
-        const bookBody = {
-          productId: addon.productId, quantity: addon.quantity,
-          resourceId: Number(addon.block.resourceId) || -1,
-          proposal: { blocks: addon.proposal.blocks.map((b: { productLineIds: number[]; block: { resourceId: number } }) => ({ productLineIds: b.productLineIds || [], block: { ...b.block, resourceId: Number(b.block.resourceId) || -1 } })), productLineId: addon.proposal.productLineId ?? null },
-        };
-        let bodyJson = JSON.stringify(bookBody);
-        if (orderId) bodyJson = `{"orderId":${orderId},` + bodyJson.slice(1);
-        const res = await fetch(`/api/bmi?endpoint=booking%2Fbook${ckParam}`, { method: "POST", headers: { "content-type": "application/json" }, body: bodyJson });
-        if (res.ok) { const raw = await res.text(); if (!orderId) { const m = raw.match(/"orderId"\s*:\s*(\d+)/); if (m) orderId = m[1]; } }
+      let orderId: string | null = bmiOrderId || null;
+
+      // If holds were created during booking, skip re-booking
+      if (!orderId) {
+        // Fallback: create bookings now (legacy flow or holds failed)
+        for (const addon of addons) {
+          if (!addon.proposal || !addon.block) continue;
+          const bookBody = {
+            productId: addon.productId, quantity: addon.quantity,
+            resourceId: Number(addon.block.resourceId) || -1,
+            proposal: { blocks: addon.proposal.blocks.map((b: { productLineIds: number[]; block: { resourceId: number } }) => ({ productLineIds: b.productLineIds || [], block: { ...b.block, resourceId: Number(b.block.resourceId) || -1 } })), productLineId: addon.proposal.productLineId ?? null },
+          };
+          let bodyJson = JSON.stringify(bookBody);
+          if (orderId) bodyJson = `{"orderId":${orderId},` + bodyJson.slice(1);
+          const res = await fetch(`/api/bmi?endpoint=booking%2Fbook${ckParam}`, { method: "POST", headers: { "content-type": "application/json" }, body: bodyJson });
+          if (res.ok) { const raw = await res.text(); if (!orderId) { const m = raw.match(/"orderId"\s*:\s*(\d+)/); if (m) orderId = m[1]; } }
+        }
       }
       if (!orderId) { setBmiStatus("error"); return; }
       const regBody = { firstName: guest.name.split(" ")[0] || guest.name, lastName: guest.name.split(" ").slice(1).join(" ") || "", email: guest.email, phone: guest.phone };

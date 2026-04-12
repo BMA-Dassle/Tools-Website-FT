@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { trackBowlingStep } from "@/lib/analytics";
+import { bookAttractionSlot } from "@/lib/attractions-data";
+import { getBookingClientKey } from "@/lib/booking-location";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -463,6 +465,10 @@ export default function BowlingBookingPage() {
   const [bmiTimeSlots, setBmiTimeSlots] = useState<Record<string, BmiTimeSlot[]>>({});
   const [bmiSelectedTime, setBmiSelectedTime] = useState<Record<string, number>>({});
   const [bmiLoadingSlots, setBmiLoadingSlots] = useState<Record<string, boolean>>({});
+  // BMI holds: orderId + billLineId per addon product
+  const [bmiAddonOrderId, setBmiAddonOrderId] = useState<string | null>(null);
+  const [bmiAddonLineIds, setBmiAddonLineIds] = useState<Record<string, string>>({});
+  const [bmiBookingAddon, setBmiBookingAddon] = useState(false);
 
   // VIP upgrade modal
   const [showVipUpgrade, setShowVipUpgrade] = useState(false);
@@ -577,8 +583,57 @@ export default function BowlingBookingPage() {
     }
   }
 
+  /** Create a BMI hold when a time slot is selected for an addon */
+  async function holdAddonSlot(productId: string, slotIdx: number) {
+    const slots = bmiTimeSlots[productId];
+    if (!slots || !slots[slotIdx]) return;
+    const slot = slots[slotIdx];
+    const qty = bmiAddonQty[productId] || 1;
+    const ck = currentBmiClientKey;
+
+    setBmiBookingAddon(true);
+    try {
+      // Remove previous hold for this addon if switching times
+      if (bmiAddonLineIds[productId] && bmiAddonOrderId) {
+        const rmCk = ck ? `&clientKey=${ck}` : "";
+        await fetch(`/api/bmi?endpoint=booking%2FremoveItem${rmCk}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: `{"OrderItemId":${bmiAddonLineIds[productId]},"OrderId":${bmiAddonOrderId}}`,
+        }).catch(() => {});
+      }
+
+      const { rawOrderId, billLineId } = await bookAttractionSlot(
+        productId, qty, slot.proposal as import("@/lib/attractions-data").BmiProposal, bmiAddonOrderId, null, ck
+      );
+
+      setBmiAddonOrderId(prev => prev || rawOrderId);
+      if (billLineId) setBmiAddonLineIds(prev => ({ ...prev, [productId]: billLineId }));
+      setBmiSelectedTime(prev => ({ ...prev, [productId]: slotIdx }));
+    } catch (err) {
+      console.error("[holdAddonSlot] failed:", err);
+    } finally {
+      setBmiBookingAddon(false);
+    }
+  }
+
+  /** Cancel a held addon line item */
+  async function releaseAddonHold(productId: string) {
+    const lineId = bmiAddonLineIds[productId];
+    if (!lineId || !bmiAddonOrderId) return;
+    const ck = currentBmiClientKey;
+    const rmCk = ck ? `&clientKey=${ck}` : "";
+    await fetch(`/api/bmi?endpoint=booking%2FremoveItem${rmCk}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: `{"OrderItemId":${lineId},"OrderId":${bmiAddonOrderId}}`,
+    }).catch(() => {});
+    setBmiAddonLineIds(prev => { const n = { ...prev }; delete n[productId]; return n; });
+  }
+
   function setBmiQty(productId: string, qty: number) {
     setBmiAddonQty(prev => ({ ...prev, [productId]: Math.max(0, qty) }));
+    if (qty === 0) releaseAddonHold(productId);
     if (qty > 0 && !bmiTimeSlots[productId] && !bmiLoadingSlots[productId]) {
       fetchBmiTimeSlots(productId, qty);
     }
@@ -961,6 +1016,7 @@ export default function BowlingBookingPage() {
           sessionStorage.setItem("qamf_bmi_addons", JSON.stringify({
             addons: bmiAddons,
             guest: { name: guestName, email: guestEmail, phone: guestPhone.replace(/\D/g, "") },
+            bmiOrderId: bmiAddonOrderId,
           }));
         } else {
           sessionStorage.removeItem("qamf_bmi_addons");
@@ -1697,7 +1753,7 @@ export default function BowlingBookingPage() {
                                         return (
                                           <button
                                             key={item.slot!.start}
-                                            onClick={() => setBmiSelectedTime(prev => ({ ...prev, [addon.productId]: item.idx! }))}
+                                            onClick={() => holdAddonSlot(addon.productId, item.idx!)}
                                             className="px-3 py-1.5 rounded-lg text-xs font-bold font-body transition-all cursor-pointer"
                                             style={{
                                               backgroundColor: selectedIdx === item.idx ? addon.accent : "rgba(7,16,39,0.5)",
