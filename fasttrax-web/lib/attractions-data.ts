@@ -166,10 +166,9 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
   },
 };
 
-/** All bookable attractions in display order */
+/** All bookable attractions in display order (bowling excluded — separate QAMF flow) */
 export const ATTRACTION_LIST: AttractionConfig[] = [
   ATTRACTIONS.racing,
-  ATTRACTIONS.bowling,
   ATTRACTIONS.shuffly,
   ATTRACTIONS["duck-pin"],
   ATTRACTIONS["gel-blaster"],
