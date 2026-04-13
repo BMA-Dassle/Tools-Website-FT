@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "ioredis";
 
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
-const CRON_SECRET = process.env.CRON_SECRET || "";
 const BOOKING_API_KEY = "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4";
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 
@@ -14,12 +13,6 @@ const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
  * starts in 60-75 minutes. Sends the race-day email if not already sent.
  */
 export async function GET(req: NextRequest) {
-  // Auth: Vercel cron sends Authorization header with CRON_SECRET
-  const authHeader = req.headers.get("authorization");
-  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
   try {
     await redis.connect();
