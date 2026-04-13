@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import HeadPinzNav from "@/components/headpinz/Nav";
-import HeadPinzFooter from "@/components/headpinz/Footer";
 
 export const metadata: Metadata = {
   title: "Birthday Parties at HeadPinz Fort Myers | Bowling, Laser Tag & Arcade",
@@ -69,15 +67,14 @@ export default function BirthdaysLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Nav + Footer provided by parent fort-myers/layout.tsx
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
-      <HeadPinzNav />
       <div>{children}</div>
-      <HeadPinzFooter />
     </>
   );
 }
