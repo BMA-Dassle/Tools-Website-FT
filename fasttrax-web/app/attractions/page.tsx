@@ -328,7 +328,7 @@ export default function AttractionsPage() {
         </div>
       </section>
 
-      {/* ── Section: Dining - Nemo's Trackside Bistro ── */}
+      {/* ── Section: Dining - Nemo's Trackside ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
@@ -336,7 +336,7 @@ export default function AttractionsPage() {
               className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
             >
-              Dining: Nemo&apos;s Trackside Bistro
+              Dining: Nemo&apos;s Trackside
             </h2>
             <p
               className="font-body mb-6"
@@ -355,7 +355,7 @@ export default function AttractionsPage() {
           <div className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "3/2" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00294.webp"
-              alt="Nemo's Trackside Bistro dining"
+              alt="Nemo's Trackside dining"
               fill
               className="object-cover"
               sizes="(max-width: 768px) 100vw, 50vw"

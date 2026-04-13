@@ -88,7 +88,7 @@ const racingFaqs = [
   {
     question: "Does FastTrax have food and drinks?",
     answer:
-      "Yes! Nemo's Trackside Bistro is FastTrax's full-service trackside restaurant featuring authentic wood-fired brick oven pizza, craft cocktails, beer, and a full menu. Watch live racing from your table.",
+      "Yes! Nemo's Trackside is FastTrax's full-service trackside restaurant featuring authentic wood-fired brick oven pizza, craft cocktails, beer, and a full menu. Watch live racing from your table.",
   },
   {
     question: "How does FastTrax compare to Dave & Buster's or Topgolf?",
@@ -98,7 +98,7 @@ const racingFaqs = [
   {
     question: "Is FastTrax part of HeadPinz?",
     answer:
-      "FastTrax and HeadPinz are connected buildings on the same campus at 14501 Global Parkway in Fort Myers. FastTrax is the 63,000 sq ft racing and entertainment hub (go-karts, arcade, duckpin bowling, shuffleboard, and Nemo's Trackside Bistro). HeadPinz is the 53,000 sq ft social entertainment flagship (traditional bowling, laser tag, gel blaster arena, and more). Together they form a 116,000 sq ft entertainment destination — the largest in Southwest Florida.",
+      "FastTrax and HeadPinz are connected buildings on the same campus at 14501 Global Parkway in Fort Myers. FastTrax is the 63,000 sq ft racing and entertainment hub (go-karts, arcade, duckpin bowling, shuffleboard, and Nemo's Trackside). HeadPinz is the 53,000 sq ft social entertainment flagship (traditional bowling, laser tag, gel blaster arena, and more). Together they form a 116,000 sq ft entertainment destination — the largest in Southwest Florida.",
   },
   {
     question: "Where is FastTrax located in Fort Myers?",
@@ -113,12 +113,12 @@ const racingFaqs = [
   {
     question: "What are the best things to do in Fort Myers when it rains?",
     answer:
-      "FastTrax is Fort Myers' top rainy day activity — 63,000 sq ft of fully indoor, climate-controlled entertainment including go-kart racing on multi-level tracks, 50+ arcade games, duckpin bowling, shuffleboard, and Nemo's Trackside Bistro. No weather worries. Open Mon-Thu 3-11 PM, Fri 3 PM-12 AM, Sat 11 AM-12 AM, Sun 11 AM-11 PM.",
+      "FastTrax is Fort Myers' top rainy day activity — 63,000 sq ft of fully indoor, climate-controlled entertainment including go-kart racing on multi-level tracks, 50+ arcade games, duckpin bowling, shuffleboard, and Nemo's Trackside. No weather worries. Open Mon-Thu 3-11 PM, Fri 3 PM-12 AM, Sat 11 AM-12 AM, Sun 11 AM-11 PM.",
   },
   {
     question: "Does FastTrax have birthday party packages?",
     answer:
-      "Yes! FastTrax hosts birthday parties for all ages with private racing heats, dedicated event coordinators, VIP viewing areas, and catering by Nemo's Trackside Bistro. Groups of 14 to 1,000+ guests. Visit our Group Events page or call to start planning your party.",
+      "Yes! FastTrax hosts birthday parties for all ages with private racing heats, dedicated event coordinators, VIP viewing areas, and catering by Nemo's Trackside. Groups of 14 to 1,000+ guests. Visit our Group Events page or call to start planning your party.",
   },
   {
     question: "What is duckpin bowling at FastTrax?",
@@ -128,12 +128,12 @@ const racingFaqs = [
   {
     question: "Is FastTrax good for a date night in Fort Myers?",
     answer:
-      "FastTrax is one of the best date night spots in Fort Myers. Race go-karts together, grab craft cocktails and brick oven pizza at Nemo's Trackside Bistro with trackside views, play arcade games, or try duckpin bowling. Way more exciting than dinner and a movie.",
+      "FastTrax is one of the best date night spots in Fort Myers. Race go-karts together, grab craft cocktails and brick oven pizza at Nemo's Trackside with trackside views, play arcade games, or try duckpin bowling. Way more exciting than dinner and a movie.",
   },
   {
     question: "Does FastTrax do corporate team building events?",
     answer:
-      "Yes — FastTrax is Fort Myers' premier corporate event venue. We offer private racing heats, team competitions with live timing, VIP lounge access, dedicated meeting rooms, catering packages by Nemo's Trackside Bistro, and dedicated event coordinators for groups of 14 to 1,000+. More engaging than Topgolf corporate events and more variety than Dave & Buster's.",
+      "Yes — FastTrax is Fort Myers' premier corporate event venue. We offer private racing heats, team competitions with live timing, VIP lounge access, dedicated meeting rooms, catering packages by Nemo's Trackside, and dedicated event coordinators for groups of 14 to 1,000+. More engaging than Topgolf corporate events and more variety than Dave & Buster's.",
   },
   {
     question: "What is the FastTrax Racing App?",
@@ -143,7 +143,7 @@ const racingFaqs = [
   {
     question: "Can you spend a whole day at FastTrax and HeadPinz?",
     answer:
-      "Absolutely — FastTrax and HeadPinz together are a full-day destination. With 116,000 sq ft across two connected buildings, you can race go-karts, hit the arcade, bowl duckpin or traditional, play laser tag, battle in the gel blaster arena, try shuffleboard, eat brick oven pizza at Nemo's Trackside Bistro. Most families and groups easily spend 3-5+ hours. It's the ultimate day out in Fort Myers.",
+      "Absolutely — FastTrax and HeadPinz together are a full-day destination. With 116,000 sq ft across two connected buildings, you can race go-karts, hit the arcade, bowl duckpin or traditional, play laser tag, battle in the gel blaster arena, try shuffleboard, eat brick oven pizza at Nemo's Trackside. Most families and groups easily spend 3-5+ hours. It's the ultimate day out in Fort Myers.",
   },
   {
     question: "Are electric go-karts better than gas go-karts?",

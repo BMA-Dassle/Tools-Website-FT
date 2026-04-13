@@ -4,9 +4,9 @@ import Image from "next/image";
 import { RestaurantJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
-  title: "Nemo's Trackside Bistro – Brick Oven Pizza & Trackside Dining | FastTrax Fort Myers",
+  title: "Nemo's Trackside – Brick Oven Pizza & Trackside Dining | FastTrax Fort Myers",
   description:
-    "Authentic wood-fired brick oven pizza, craft cocktails, beer & trackside dining at Nemo's Trackside Bistro inside FastTrax Fort Myers. Watch live racing while you eat. The best restaurant and sports bar near Gulf Coast Town Center.",
+    "Authentic wood-fired brick oven pizza, craft cocktails, beer & trackside dining at Nemo's Trackside inside FastTrax Fort Myers. Watch live racing while you eat. The best restaurant and sports bar near Gulf Coast Town Center.",
   keywords: [
     "restaurant Fort Myers",
     "pizza Fort Myers",
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     "sports bar Fort Myers",
     "restaurants near Gulf Coast Town Center",
     "dining Fort Myers",
-    "Nemos Trackside Bistro",
+    "Nemos Trackside",
     "trackside dining",
     
     "best pizza Fort Myers",
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     "craft cocktails Fort Myers",
   ],
   openGraph: {
-    title: "Nemo's Trackside Bistro – Pizza & Trackside Dining | FastTrax Fort Myers",
+    title: "Nemo's Trackside – Pizza & Trackside Dining | FastTrax Fort Myers",
     description:
       "Wood-fired brick oven pizza, craft drinks & trackside dining. Watch live go-kart racing from your table.",
     type: "website",
@@ -44,7 +44,7 @@ export default function MenuPage() {
     <>
       <RestaurantJsonLd />
       <SubpageHero
-        title="Nemo's Trackside Bistro"
+        title="Nemo's Trackside"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-hero.webp"
       />
 
@@ -84,7 +84,7 @@ export default function MenuPage() {
           <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "clamp(250px, 50vw, 400px)" }}>
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-interior.webp"
-              alt="Nemo's Trackside Bistro"
+              alt="Nemo's Trackside"
               fill
               className="object-cover"
               sizes="(max-width: 1024px) 100vw, 50vw"
@@ -112,7 +112,7 @@ export default function MenuPage() {
               The Star of the Show: Brick Oven Mastery
             </h2>
             <p className="font-body" style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6" }}>
-              At the center of our bistro sits the authentic Brick Oven. Fired at 800&deg;, it delivers the perfect charred, artisan crust that defines true Italian pizza. We use premium ingredients and traditional techniques to bring an elevated dining experience to the trackside lounge.
+              At the center sits the authentic Brick Oven. Fired at 800&deg;, it delivers the perfect charred, artisan crust that defines true Italian pizza. We use premium ingredients and traditional techniques to bring an elevated dining experience to the trackside lounge.
             </p>
           </div>
         </div>
@@ -156,7 +156,7 @@ export default function MenuPage() {
                   The Experience
                 </h3>
                 <p className="font-body" style={{ color: "rgb(245,236,238)", fontSize: "18px", lineHeight: "1.5" }}>
-                  Nemo&apos;s Trackside Bistro is your pit stop for incredible food and an unbeatable view. Watch the racing action from our trackside dining area while enjoying handcrafted brick oven pizza and fresh cocktails.
+                  Nemo&apos;s Trackside is your pit stop for incredible food and an unbeatable view. Watch the racing action from our trackside dining area while enjoying handcrafted brick oven pizza and fresh cocktails.
                 </p>
               </div>
 
@@ -197,7 +197,7 @@ export default function MenuPage() {
             className="text-center mx-auto mb-10 font-body"
             style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
           >
-            Check out what&apos;s happening at Nemo&apos;s Trackside Bistro.
+            Check out what&apos;s happening at Nemo&apos;s Trackside.
           </p>
 
           {/* Event Cards - Vertical Full-Width Layout */}
