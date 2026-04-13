@@ -4,11 +4,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type {
   ClassifiedProduct,
   BmiProposal,
-  BmiBlock,
-  BmiBookResponse,
   PackSchedule,
 } from "../data";
-import { bmiPost } from "../data";
+import { bookRaceHeat } from "../data";
 import type { PackBookingResult } from "./OrderSummary";
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -166,7 +164,8 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
   const [currentRace, setCurrentRace] = useState(0); // 0-indexed
   const totalRaces = race.raceCount;
   const [schedules, setSchedules] = useState<PackSchedule[]>([]);
-  const [orderId, setOrderId] = useState<number | null>(null);
+  const [orderId, setOrderId] = useState<string | null>(null); // raw string to avoid precision loss
+  const bookedStarts = useRef<Set<string>>(new Set());
   const ctaRef = useRef<HTMLDivElement>(null);
 
   // Scroll to CTA on selection
@@ -176,23 +175,53 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     }
   }, [selectedIdx]);
 
-  // Fetch heats from BMI availability endpoint
+  // Fetch heats via SMS-Timing dayplanner (BMI availability on this product
+  // only returns day-level open/closed, not time slots).
   const fetchHeats = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await bmiPost(
-        "availability",
-        { productId: race.productId, quantity },
-        { date },
+      const dateOnly = date.split("T")[0];
+      const [y, m, d] = dateOnly.split("-").map(Number);
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+      const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
+        ? [11, 13, 15, 17, 19, 20, 21, 22, 23]
+        : [15, 17, 18, 19, 20, 21, 22, 23];
+      const all: BmiProposal[] = [];
+      const seen = new Set<string>();
+      for (const hour of startHours) {
+        const h = String(hour).padStart(2, "0");
+        const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            productId: race.productId,
+            pageId: race.pageId,
+            quantity: 1,
+            dynamicLines: null,
+            date: `${dateOnly}T${h}:00:00.000Z`,
+          }),
+        });
+        const data = await res.json();
+        for (const p of (data.proposals || [])) {
+          const key = p.blocks?.[0]?.block?.start;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            all.push(p);
+          }
+        }
+      }
+      // Sort by start time; hide already-booked heats in this session
+      all.sort((a, b) =>
+        (a.blocks?.[0]?.block?.start || "").localeCompare(b.blocks?.[0]?.block?.start || "")
       );
-      setProposals(res.proposals || []);
+      setProposals(all.filter(p => !bookedStarts.current.has(p.blocks?.[0]?.block?.start || "")));
     } catch {
       setError("Couldn't load time slots. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [race.productId, date, quantity]);
+  }, [race.productId, race.pageId, date]);
 
   // Fetch initial heats on mount
   useEffect(() => { fetchHeats(); }, [fetchHeats]);
@@ -207,66 +236,24 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     if (!block) return;
 
     try {
-      const payload: Record<string, unknown> = {
-        productId: race.productId,
-        quantity,
-        resourceId: String(block.resourceId),
-        proposal: {
-          blocks: proposal.blocks.map(pb => ({
-            productLineIds: pb.productLineIds || [],
-            block: pb.block,
-          })),
-          productLineId: proposal.productLineId ?? null,
-        },
-      };
+      // bookRaceHeat handles raw-string orderId/personId to avoid Number() precision loss
+      const { rawOrderId } = await bookRaceHeat(race, quantity, proposal, orderId ?? null);
+      if (rawOrderId) setOrderId(rawOrderId);
 
-      // Include orderId for subsequent heats (2nd, 3rd, etc.)
-      if (orderId !== null) {
-        payload.orderId = orderId;
-      }
-
-      const result: BmiBookResponse = await bmiPost("booking/book", payload);
-
-      // Capture orderId from first booking
-      const newOrderId = result.orderId ?? orderId;
-      if (newOrderId !== null) setOrderId(newOrderId);
-
-      // Record this schedule
-      const newSchedule: PackSchedule = {
-        start: block.start,
-        stop: block.stop,
-        name: block.name,
-      };
+      bookedStarts.current.add(block.start);
+      const newSchedule: PackSchedule = { start: block.start, stop: block.stop, name: block.name };
       const updatedSchedules = [...schedules, newSchedule];
       setSchedules(updatedSchedules);
 
       const nextRace = currentRace + 1;
 
       if (nextRace < totalRaces) {
-        // More races to pick -- fetch updated availability
-        // BMI API does not return nextProposals; we call availability again
-        // which will automatically exclude already-booked heats
         setCurrentRace(nextRace);
         setSelectedIdx(null);
-        setLoading(true);
-        try {
-          const availRes = await bmiPost(
-            "availability",
-            { productId: race.productId, quantity },
-            { date },
-          );
-          setProposals(availRes.proposals || []);
-        } catch {
-          setError("Couldn't load time slots for the next race.");
-        } finally {
-          setLoading(false);
-        }
+        // Refetch with the just-booked heat excluded
+        await fetchHeats();
       } else {
-        // All races booked -- use schedules from response if available, otherwise our local ones
-        const finalSchedules = result.schedules?.length
-          ? result.schedules.map(s => ({ start: s.start, stop: "", name: s.name }))
-          : updatedSchedules;
-        onComplete({ billId: String(newOrderId), schedules: finalSchedules });
+        onComplete({ billId: rawOrderId || orderId || "", schedules: updatedSchedules });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to book heat");

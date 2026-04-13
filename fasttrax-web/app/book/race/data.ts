@@ -172,6 +172,10 @@ interface StaticRaceProduct {
   category: RaceCategory;
   track: string | null;
   price: number;
+  /** Pack type — "combo" books N heats on one bill via booking/book. "sell" uses credits (currently broken). */
+  packType?: PackType;
+  /** Number of races included in a pack (only meaningful when packType !== "none") */
+  raceCount?: number;
 }
 
 const RACE_PRODUCTS: StaticRaceProduct[] = [
@@ -239,6 +243,20 @@ const RACE_PRODUCTS: StaticRaceProduct[] = [
   { schedule: "mega", racerType: "existing", productId: "43733733", pageId: "43734751", name: "Pro Race Mega", tier: "pro", category: "adult", track: "Mega", price: 20.99 },
   { schedule: "mega", racerType: "existing", productId: "43732358", pageId: "43734751", name: "Junior Intermediate Race Mega", tier: "intermediate", category: "junior", track: "Mega", price: 20.99 },
   { schedule: "mega", racerType: "existing", productId: "43732675", pageId: "43734751", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
+
+  // ════════════════════════════════════════════════════════════════════════
+  // COMBO PRODUCTS — book all N races on one bill via booking/book repeatedly.
+  // Does NOT use race-pack credits, so sidesteps the broken credit-assignment
+  // pipeline at BMI. Requires a private "combo" page configured in BMI.
+  // ════════════════════════════════════════════════════════════════════════
+  {
+    schedule: "mega", racerType: "existing",
+    productId: "44276020", pageId: "44286218",
+    name: "Pro Mega 3-Race Combo",
+    tier: "pro", category: "adult", track: "Mega",
+    price: 49.98,
+    packType: "combo", raceCount: 3,
+  },
 ];
 
 /** Minimal BmiProduct stub for static products (HeatPicker uses raw.message) */
@@ -284,9 +302,9 @@ export function getStaticProducts(date: string, racerType: RacerType = "new"): C
       category: p.category,
       track: p.track,
       price: p.price,
-      isCombo: false,
-      packType: "none" as PackType,
-      raceCount: 1,
+      isCombo: p.packType === "combo",
+      packType: (p.packType ?? "none") as PackType,
+      raceCount: p.raceCount ?? 1,
       sessionGroup: "Unknown",
       raw: stubRaw(p),
     }));
@@ -383,8 +401,9 @@ export function filterProducts(
   const hasQualifiedIntermediate = mems.some(m => m.includes("intermediate"));
 
   return products.filter(p => {
-    // Hide race packs for now
-    if (p.packType !== "none") return false;
+    // Hide race-pack credit products (BMI credit pipeline is broken).
+    // Keep combo products (they use booking/book, not credits).
+    if (p.packType === "sell") return false;
     if (p.category === "adult" && adultCount === 0) return false;
     if (p.category === "junior" && juniorCount === 0) return false;
 
