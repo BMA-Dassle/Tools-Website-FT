@@ -32,36 +32,53 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
+/** Minimum gap between racer's heats on the same track (matches single-race HeatPicker). */
+const SAME_TRACK_MIN_GAP_MIN = 20;
+
 function HeatGrid({
   proposals,
   selectedIdx,
   onSelect,
   quantity,
+  bookedStarts,
 }: {
   proposals: BmiProposal[];
   selectedIdx: number | null;
   onSelect: (idx: number) => void;
   quantity: number;
+  /** Starts (ISO) of heats already booked on this bill — used to grey out back-to-back slots. */
+  bookedStarts: string[];
 }) {
+  const bookedTimes = bookedStarts.map(s => new Date(s.replace(/Z$/, "")).getTime());
+
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
       {proposals.map((proposal, idx) => {
         const block = proposal.blocks?.[0]?.block;
         if (!block) return null;
-        const isFull = block.freeSpots < quantity;
+
+        const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
+        // Back-to-back block: too close to any already-picked heat (same-track rule = 20 min).
+        // Combo product is always same track (Mega), so we don't need to track-check.
+        const isBackToBack = bookedTimes.some(t => Math.abs(blockStart - t) < SAME_TRACK_MIN_GAP_MIN * 60_000);
+        const isLowCap = block.freeSpots < quantity;
+        const isDisabled = isLowCap || isBackToBack;
         const isSelected = selectedIdx === idx;
-        const spots = spotsLabel(block.freeSpots, block.capacity);
+        const spots = isBackToBack
+          ? { text: "text-amber-400", label: "Too close to picked heat" }
+          : spotsLabel(block.freeSpots, block.capacity);
 
         return (
           <button
             key={idx}
-            onClick={() => !isFull && onSelect(idx)}
-            disabled={isFull}
+            onClick={() => !isDisabled && onSelect(idx)}
+            disabled={isDisabled}
+            title={isBackToBack ? "Need at least 20 min between your heats to switch karts." : undefined}
             className={`
               rounded-xl border p-3 text-left transition-all duration-150
               ${isSelected
                 ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-                : isFull
+                : isDisabled
                   ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
                   : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
               }
@@ -70,12 +87,12 @@ function HeatGrid({
             <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
             <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
             <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-            <div className={`text-[13px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
-              {isFull ? `Need ${quantity}, only ${block.freeSpots} left` : spots.label}
+            <div className={`text-[13px] font-medium ${isLowCap ? "text-red-400" : spots.text}`}>
+              {isLowCap ? `Need ${quantity}, only ${block.freeSpots} left` : spots.label}
             </div>
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
               <div
-                className={`h-full rounded-full ${isFull ? "bg-red-500" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
                 style={{ width: `${(block.freeSpots / block.capacity) * 100}%` }}
               />
             </div>
@@ -298,7 +315,13 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         </div>
       ) : (
         <>
-          <HeatGrid proposals={proposals} selectedIdx={selectedIdx} onSelect={setSelectedIdx} quantity={quantity} />
+          <HeatGrid
+            proposals={proposals}
+            selectedIdx={selectedIdx}
+            onSelect={setSelectedIdx}
+            quantity={quantity}
+            bookedStarts={schedules.map(s => s.start)}
+          />
 
           <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdx !== null ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
             {selectedIdx !== null ? (
