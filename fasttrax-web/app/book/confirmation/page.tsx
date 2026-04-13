@@ -313,12 +313,37 @@ export default function ConfirmationPage() {
             groupMap.get(key)!.racers.push(r.racerName || "Racer");
           }
 
-          const groups = [...groupMap.values()].map(g => ({
+          let groups = [...groupMap.values()].map(g => ({
             ...g,
             resNumber: primary.resNumber,
             resCode: primary.resCode,
             billId: primary.billId,
           }));
+
+          // Fallback: check bill overview for scheduled races not in racer assignments
+          // (handles "Add Another Race" where racerNames may not have been set)
+          const coveredHeats = new Set(groups.map(g => g.heatStart));
+          for (const ov of (bookingRecord.overviews || [])) {
+            for (const line of (ov.lines || [])) {
+              if (line.productGroup !== "Karting" || !line.scheduledTime?.start) continue;
+              if (coveredHeats.has(line.scheduledTime.start)) continue;
+              // This scheduled race has no racer assignments — add it as a group
+              const trackMatch = (line.name || "").match(/(Red|Blue|Mega)/i);
+              groups.push({
+                product: line.name,
+                track: trackMatch ? trackMatch[1] : null,
+                heatStart: line.scheduledTime.start,
+                heatName: line.name,
+                racers: Array.from({ length: line.quantity || 1 }, (_, i) => `Racer ${i + 1}`),
+                resNumber: primary.resNumber,
+                resCode: primary.resCode,
+                billId: primary.billId,
+              });
+            }
+          }
+          // Sort by heat start time
+          groups.sort((a, b) => a.heatStart.localeCompare(b.heatStart));
+
           setRaceGroups(groups);
 
           // Also update confirmations with first racer name for backwards compat
