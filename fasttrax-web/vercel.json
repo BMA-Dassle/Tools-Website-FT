@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/race-day-emails",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}
