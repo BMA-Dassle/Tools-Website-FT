@@ -504,9 +504,8 @@ export default function BookRacePage() {
       );
       sessionStorage.setItem("attractionOrderId", result.billId);
     }
-    // Pack bookings create the bill during heat selection, so skip straight to contact
-    // (We still need contact info for the reservation)
-    changeStep("contact");
+    // Follow the same upsell sequence as single-race bookings: POV → add-ons → contact.
+    changeStep("pov");
   }
 
   async function handleConfirmHeat(proposal: BmiProposal, block: BmiBlock) {
