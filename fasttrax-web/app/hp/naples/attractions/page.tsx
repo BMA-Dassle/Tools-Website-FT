@@ -4,6 +4,7 @@ import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 import AttractionVideo from "@/components/headpinz/AttractionVideo";
 import AutoplayVideo from "@/components/headpinz/AutoplayVideo";
+import SeoFaq from "@/components/headpinz/SeoFaq";
 
 export const metadata: Metadata = {
   title:
@@ -342,6 +343,82 @@ export default function NaplesAttractionsPage() {
           })}
         </div>
       </section>
+
+      {/* ====== SEO CONTENT — Laser Tag + Gel Blaster + Arcade ====== */}
+      <section
+        className="bg-[#071027]"
+        style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}
+      >
+        <div className="max-w-4xl mx-auto">
+          <h2
+            className="font-heading font-black uppercase text-white text-center mb-6"
+            style={{ fontSize: "clamp(26px, 5vw, 44px)", letterSpacing: "-0.5px" }}
+          >
+            Laser Tag in Naples, FL
+          </h2>
+          <p
+            className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto mb-10"
+            style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
+          >
+            Southwest Florida&apos;s most immersive laser tag experience is right here in
+            Naples. Our NEXUS arena is a two-story, glow-in-the-dark space-themed battlefield
+            built for team missions, birthday parties, and adrenaline-charged date nights.
+            Play with up to 20 players per session — no experience needed. Walk-ins welcome
+            during peak hours; book ahead on weekends and holidays.
+          </p>
+
+          <h2
+            className="font-heading font-black uppercase text-white text-center mb-6"
+            style={{ fontSize: "clamp(26px, 5vw, 44px)", letterSpacing: "-0.5px" }}
+          >
+            Gel Blasters in Naples, FL
+          </h2>
+          <p
+            className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto"
+            style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
+          >
+            Naples&apos; only indoor gel blaster arena — the same glow-in-the-dark space
+            themed NEXUS environment as our laser tag, swapped for eco-friendly gel blasters
+            with haptic-feedback vests. Gellets evaporate on impact, so there&apos;s zero
+            cleanup and no mess on you or your clothes. Great for ages 8+, groups, and
+            team-building. Safety gear and training included.
+          </p>
+        </div>
+      </section>
+
+      <SeoFaq
+        title="Laser Tag, Gel Blasters &amp; Arcade — Naples FAQ"
+        items={[
+          {
+            q: "Where can I play laser tag in Naples, FL?",
+            a: "HeadPinz Naples has Southwest Florida's largest indoor laser tag arena — a two-story NEXUS glow arena at 1919 Tamiami Trail N. Walk-ins are welcome; we recommend booking ahead for weekends and holidays.",
+          },
+          {
+            q: "How much does laser tag cost at HeadPinz Naples?",
+            a: "Laser tag is $10 per person for a 15-minute mission. Discounted packages are available for birthday parties and group events of 10+ players.",
+          },
+          {
+            q: "What age is laser tag appropriate for?",
+            a: "Our Naples NEXUS laser tag arena is designed for ages 7 and up. Younger kids can play with an older partner. There are no height restrictions.",
+          },
+          {
+            q: "Where can I play gel blasters in Naples, FL?",
+            a: "HeadPinz Naples has the only indoor gel blaster arena in Naples. Gel blasters fire biodegradable water-bead Gellets that evaporate on contact — no mess and no marks on clothes. Sessions are $12 per person and include safety gear.",
+          },
+          {
+            q: "Is gel blaster safe for kids?",
+            a: "Yes. We recommend ages 8 and up. All players wear eye protection and haptic vests. Gellets are made of water and biodegradable polymer, and our referees enforce safe-play rules throughout every session.",
+          },
+          {
+            q: "Does HeadPinz Naples have an arcade?",
+            a: "Yes — our Naples Game Zone has 40+ premier arcade games, VR simulators, and The Winner's Circle prize center. Load any dollar amount onto a Game Card at the kiosks — no need to buy tokens or tickets in advance.",
+          },
+          {
+            q: "How do I book laser tag or gel blasters in Naples?",
+            a: "Book online at headpinz.com/book/laser-tag or headpinz.com/book/gel-blaster. You can also walk in at 1919 Tamiami Trail N, Naples, FL 34102 or call (239) 455-3755.",
+          },
+        ]}
+      />
 
       {/* ====== BOTTOM CTA ====== */}
       <section

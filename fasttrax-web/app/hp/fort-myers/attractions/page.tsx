@@ -4,6 +4,7 @@ import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 import AttractionVideo from "@/components/headpinz/AttractionVideo";
 import AutoplayVideo from "@/components/headpinz/AutoplayVideo";
+import SeoFaq from "@/components/headpinz/SeoFaq";
 
 export const metadata: Metadata = {
   title:
@@ -367,6 +368,81 @@ export default function AttractionsPage() {
           })}
         </div>
       </section>
+
+      {/* ====== SEO CONTENT — Arcade + Bowling + Youth Leagues ====== */}
+      <section
+        className="bg-[#071027]"
+        style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}
+      >
+        <div className="max-w-4xl mx-auto">
+          <h2
+            className="font-heading font-black uppercase text-white text-center mb-6"
+            style={{ fontSize: "clamp(26px, 5vw, 44px)", letterSpacing: "-0.5px" }}
+          >
+            Arcade in Fort Myers
+          </h2>
+          <p
+            className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto mb-10"
+            style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
+          >
+            One of the largest arcades in Fort Myers — 40+ premier arcade games, VR
+            simulators, and The Winner&apos;s Circle redemption prize center. Everything
+            runs off a single Game Card you can load at any kiosk, so there&apos;s no waiting
+            in line for tokens. Located at 14513 Global Parkway, one minute from I-75 at
+            Gateway Boulevard.
+          </p>
+
+          <h2
+            className="font-heading font-black uppercase text-white text-center mb-6"
+            style={{ fontSize: "clamp(26px, 5vw, 44px)", letterSpacing: "-0.5px" }}
+          >
+            Bowling Leagues &amp; Youth Programs
+          </h2>
+          <p
+            className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto"
+            style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
+          >
+            HeadPinz Fort Myers hosts adult bowling leagues year-round plus seasonal
+            youth bowling leagues for ages 5–17. Youth leagues run in 10-week sessions
+            (fall, winter, spring) with USBC-certified coaches. Ask us about
+            league signup, open play nights, and Kids Bowl Free summer passes.
+          </p>
+        </div>
+      </section>
+
+      <SeoFaq
+        title="Arcade, Bowling &amp; Leagues — Fort Myers FAQ"
+        items={[
+          {
+            q: "Where can I find arcades in Fort Myers?",
+            a: "HeadPinz Fort Myers has one of the largest family arcades in Fort Myers with 40+ premier arcade games, VR simulators, and a prize redemption center. We're at 14513 Global Parkway, one minute off I-75 at the Gateway Boulevard exit.",
+          },
+          {
+            q: "How much does the arcade cost at HeadPinz Fort Myers?",
+            a: "There's no cover charge to enter the arcade — load any amount onto a Game Card at our kiosks and play. Most games run $1–$5 in Game Card credit per play. Ticket redemption is tracked automatically on your card.",
+          },
+          {
+            q: "Do you have a youth bowling league?",
+            a: "Yes. HeadPinz Fort Myers offers youth bowling leagues for ages 5 through 17 in fall, winter, and spring sessions. All leagues are USBC-certified and come with coaching. Ask at the front desk or call (239) 288-8385 for upcoming signup dates.",
+          },
+          {
+            q: "Are you the best bowling alley in Fort Myers?",
+            a: "We'd like to think so — 24 state-of-the-art lanes, VIP bowling with NeoVerse interactive walls, HyperBowling LED target bumpers, cosmic glow bowling, and Nemo's Sports Bistro for food and drinks all under one roof.",
+          },
+          {
+            q: "Is HeadPinz Fort Myers open late?",
+            a: "Yes. We're open until midnight Sunday through Thursday and until 2 AM on Friday and Saturday. Full bar and kitchen are open throughout all bowling hours.",
+          },
+          {
+            q: "Do you take walk-ins or do I need to book ahead?",
+            a: "Walk-ins are welcome. For guaranteed lane times on Friday nights, weekends, or for VIP lanes, we recommend booking online at headpinz.com/book/bowling. Groups of 10+ should always reserve ahead.",
+          },
+          {
+            q: "Does HeadPinz Fort Myers have go-karts?",
+            a: "HeadPinz doesn't have go-karts in Fort Myers, but our sister property FastTrax — right next door at 14501 Global Parkway — has a multi-level electric go-kart track, Nemo's Trackside sports bar, and more. Visit fasttraxent.com for racing info.",
+          },
+        ]}
+      />
 
       {/* ====== BOTTOM CTA ====== */}
       <section

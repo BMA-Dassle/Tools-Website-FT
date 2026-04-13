@@ -1,0 +1,5 @@
+# Never commit GSC reports — they change every run and clutter diffs
+reports/*.txt
+# Never commit service account keys
+*.json
+seo/scripts/__pycache__/

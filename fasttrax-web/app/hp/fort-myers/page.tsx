@@ -710,6 +710,57 @@ export default function FortMyersPage() {
         </div>
       </section>
 
+      {/* ====== SISTER PROPERTY — FastTrax Go-Karts ====== */}
+      <section
+        className="relative overflow-hidden"
+        style={{
+          padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)",
+          background:
+            "radial-gradient(ellipse at 30% 30%, rgba(228,28,29,0.18) 0%, transparent 55%), #071027",
+        }}
+      >
+        <div className="relative z-10 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+          <div className="relative rounded-lg overflow-hidden" style={{ aspectRatio: "16/10" }}>
+            <Image
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp"
+              alt="FastTrax Entertainment go-kart racing in Fort Myers"
+              fill
+              className="object-cover"
+              sizes="(max-width: 768px) 100vw, 50vw"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent" />
+            <span className="absolute top-4 left-4 text-white text-xs font-bold font-body uppercase tracking-wider px-3 py-1.5 rounded-full bg-[#E41C1D]">
+              Next Door
+            </span>
+          </div>
+          <div>
+            <p className="font-body text-[#E41C1D] uppercase tracking-[0.3em] mb-3 text-sm">
+              Looking for Go-Karts?
+            </p>
+            <h2
+              className="font-heading font-black uppercase text-white mb-5"
+              style={{ fontSize: "clamp(28px, 5vw, 48px)", lineHeight: "1.05", letterSpacing: "-1px" }}
+            >
+              FastTrax Is Right Next Door
+            </h2>
+            <p className="font-body text-white/75 leading-relaxed mb-6" style={{ fontSize: "clamp(15px, 2vw, 17px)" }}>
+              HeadPinz doesn&apos;t have go-karts — but our sister property{" "}
+              <strong>FastTrax Entertainment</strong> does. Multi-level electric go-kart
+              racing, Nemo&apos;s Trackside sports bar, duckpin bowling, shuffly, and more —
+              one minute from HeadPinz at 14501 Global Parkway.
+            </p>
+            <Link
+              href="https://fasttraxent.com"
+              className="inline-flex items-center bg-[#E41C1D] hover:bg-[#ff3a3b] text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3.5 rounded-full transition-all hover:scale-105"
+              style={{ boxShadow: "0 0 24px rgba(228,28,29,0.4)" }}
+            >
+              Visit FastTrax
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* ====== NEMO'S FOOD & DRINKS ====== */}
       <section id="menu" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 70% 30%, rgba(253,91,86,0.08) 0%, transparent 50%), radial-gradient(ellipse at 20% 70%, rgba(18,48,117,0.15) 0%, transparent 60%), #0a1628" }} />
