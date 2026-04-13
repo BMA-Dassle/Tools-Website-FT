@@ -601,6 +601,29 @@ export default function BookRacePage() {
 
       const updatedBookings = [...bookings, booking];
       setBookings(updatedBookings);
+
+      // Immediately sync racer assignments to sessionStorage (don't wait for effect)
+      const allAssignments = updatedBookings.flatMap(b =>
+        (b.racerNames || []).map(name => {
+          const racer = verifiedRacers.find(r => r.fullName === name);
+          return {
+            racerName: name,
+            personId: racer?.personId || null,
+            product: b.product.name,
+            productId: String(b.product.productId),
+            tier: b.product.tier,
+            track: b.product.track,
+            category: b.product.category,
+            heatName: b.block.name,
+            heatStart: b.block.start,
+            heatStop: b.block.stop || null,
+          };
+        })
+      );
+      if (allAssignments.length > 0) {
+        sessionStorage.setItem("racerAssignments", JSON.stringify(allAssignments));
+      }
+
       setSelectedProposal(proposal);
       setSelectedBlock(block);
 
