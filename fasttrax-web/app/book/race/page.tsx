@@ -494,6 +494,16 @@ export default function BookRacePage() {
 
   function handlePackComplete(result: PackBookingResult) {
     setPackResult(result);
+    // The pack booking already created the bill during heat selection.
+    // Register it in activeBills so the summary/payment step can render — it keys off activeOrderId.
+    if (result.billId) {
+      setActiveBills(prev =>
+        prev.some(b => b.billId === result.billId)
+          ? prev
+          : [...prev, { billId: result.billId, racerName: "Pack", category: selectedProduct?.category ?? "adult" }]
+      );
+      sessionStorage.setItem("attractionOrderId", result.billId);
+    }
     // Pack bookings create the bill during heat selection, so skip straight to contact
     // (We still need contact info for the reservation)
     changeStep("contact");

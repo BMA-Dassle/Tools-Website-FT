@@ -37,19 +37,23 @@ const SAME_TRACK_MIN_GAP_MIN = 20;
 
 function HeatGrid({
   proposals,
-  selectedIdx,
-  onSelect,
+  selectedIdxs,
+  onToggle,
   quantity,
   bookedStarts,
+  atCap,
 }: {
   proposals: BmiProposal[];
-  selectedIdx: number | null;
-  onSelect: (idx: number) => void;
+  selectedIdxs: number[];
+  onToggle: (idx: number) => void;
   quantity: number;
-  /** Starts (ISO) of heats already booked on this bill — used to grey out back-to-back slots. */
+  /** Starts (ISO) of heats currently picked — used to grey out back-to-back slots. */
   bookedStarts: string[];
+  /** When the user has already picked the maximum number of heats. */
+  atCap: boolean;
 }) {
   const bookedTimes = bookedStarts.map(s => new Date(s.replace(/Z$/, "")).getTime());
+  const selectedSet = new Set(selectedIdxs);
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -57,21 +61,24 @@ function HeatGrid({
         const block = proposal.blocks?.[0]?.block;
         if (!block) return null;
 
+        const isSelected = selectedSet.has(idx);
         const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
         // Back-to-back block: too close to any already-picked heat (same-track rule = 20 min).
         // Combo product is always same track (Mega), so we don't need to track-check.
-        const isBackToBack = bookedTimes.some(t => Math.abs(blockStart - t) < SAME_TRACK_MIN_GAP_MIN * 60_000);
+        const isBackToBack = !isSelected && bookedTimes.some(t => Math.abs(blockStart - t) < SAME_TRACK_MIN_GAP_MIN * 60_000);
         const isLowCap = block.freeSpots < quantity;
-        const isDisabled = isLowCap || isBackToBack;
-        const isSelected = selectedIdx === idx;
+        const isCapped = atCap && !isSelected;
+        const isDisabled = isLowCap || isBackToBack || isCapped;
         const spots = isBackToBack
           ? { text: "text-amber-400", label: "Too close to picked heat" }
-          : spotsLabel(block.freeSpots, block.capacity);
+          : isCapped
+            ? { text: "text-white/40", label: "Unselect a picked heat to change" }
+            : spotsLabel(block.freeSpots, block.capacity);
 
         return (
           <button
             key={idx}
-            onClick={() => !isDisabled && onSelect(idx)}
+            onClick={() => !isDisabled && onToggle(idx)}
             disabled={isDisabled}
             title={isBackToBack ? "Need at least 20 min between your heats to switch karts." : undefined}
             className={`
@@ -174,23 +181,18 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [confirming, setConfirming] = useState(false);
-
-  // Multi-step state
-  const [currentRace, setCurrentRace] = useState(0); // 0-indexed
+  /** Set of selected proposal indexes. Ordered visually by proposal order (time). */
+  const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
+  const [committing, setCommitting] = useState(false);
   const totalRaces = race.raceCount;
-  const [schedules, setSchedules] = useState<PackSchedule[]>([]);
-  const [orderId, setOrderId] = useState<string | null>(null); // raw string to avoid precision loss
-  const bookedStarts = useRef<Set<string>>(new Set());
   const ctaRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to CTA on selection
+  // Scroll CTA into view when we reach the required selection count
   useEffect(() => {
-    if (selectedIdx !== null) {
+    if (selectedIdxs.length === totalRaces) {
       setTimeout(() => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     }
-  }, [selectedIdx]);
+  }, [selectedIdxs.length, totalRaces]);
 
   // Fetch heats via SMS-Timing dayplanner (BMI availability on this product
   // only returns day-level open/closed, not time slots).
@@ -228,11 +230,10 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
           }
         }
       }
-      // Sort by start time; hide already-booked heats in this session
       all.sort((a, b) =>
         (a.blocks?.[0]?.block?.start || "").localeCompare(b.blocks?.[0]?.block?.start || "")
       );
-      setProposals(all.filter(p => !bookedStarts.current.has(p.blocks?.[0]?.block?.start || "")));
+      setProposals(all);
     } catch {
       setError("Couldn't load time slots. Please try again.");
     } finally {
@@ -240,44 +241,60 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     }
   }, [race.productId, race.pageId, date]);
 
-  // Fetch initial heats on mount
   useEffect(() => { fetchHeats(); }, [fetchHeats]);
 
-  async function handleConfirmHeat() {
-    if (selectedIdx === null) return;
-    setConfirming(true);
+  function toggleSelect(idx: number) {
+    setSelectedIdxs(prev => {
+      if (prev.includes(idx)) return prev.filter(i => i !== idx);
+      if (prev.length >= totalRaces) return prev; // at cap — ignore new picks
+      return [...prev, idx].sort((a, b) => a - b); // keep visual order by time
+    });
+  }
+
+  /** Book all selected heats sequentially against one bill, then hand off. */
+  async function handleCommit() {
+    if (selectedIdxs.length !== totalRaces) return;
+    setCommitting(true);
     setError(null);
 
-    const proposal = proposals[selectedIdx];
-    const block = proposal.blocks?.[0]?.block;
-    if (!block) return;
-
+    let rawOrderId: string | null = null;
+    const schedules: PackSchedule[] = [];
     try {
-      // bookRaceHeat handles raw-string orderId/personId to avoid Number() precision loss
-      const { rawOrderId } = await bookRaceHeat(race, quantity, proposal, orderId ?? null);
-      if (rawOrderId) setOrderId(rawOrderId);
-
-      bookedStarts.current.add(block.start);
-      const newSchedule: PackSchedule = { start: block.start, stop: block.stop, name: block.name };
-      const updatedSchedules = [...schedules, newSchedule];
-      setSchedules(updatedSchedules);
-
-      const nextRace = currentRace + 1;
-
-      if (nextRace < totalRaces) {
-        setCurrentRace(nextRace);
-        setSelectedIdx(null);
-        // Refetch with the just-booked heat excluded
-        await fetchHeats();
-      } else {
-        onComplete({ billId: rawOrderId || orderId || "", schedules: updatedSchedules });
+      for (const idx of selectedIdxs) {
+        const proposal = proposals[idx];
+        const block = proposal.blocks?.[0]?.block;
+        if (!block) throw new Error("Invalid heat selected");
+        const result = await bookRaceHeat(race, quantity, proposal, rawOrderId);
+        if (result.rawOrderId) rawOrderId = result.rawOrderId;
+        schedules.push({ start: block.start, stop: block.stop, name: block.name });
       }
+      if (!rawOrderId) throw new Error("No bill created");
+      onComplete({ billId: rawOrderId, schedules });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to book heat");
+      // Partial failure — cancel whatever was created so we don't leave orphaned bills.
+      if (rawOrderId) {
+        try {
+          await fetch(`/api/bmi?endpoint=${encodeURIComponent(`bill/${rawOrderId}/cancel`)}`, { method: "DELETE" });
+        } catch { /* best-effort */ }
+      }
+      setError(err instanceof Error ? err.message : "Failed to book heats");
     } finally {
-      setConfirming(false);
+      setCommitting(false);
     }
   }
+
+  /** Starts that are "picked" in the UI — used to grey out back-to-back slots. */
+  const pickedStarts = selectedIdxs
+    .map(i => proposals[i]?.blocks?.[0]?.block?.start)
+    .filter((s): s is string => !!s);
+
+  /** Preview of what the user has picked so far (in time order). */
+  const previewSchedules: PackSchedule[] = selectedIdxs.map(i => {
+    const block = proposals[i]?.blocks?.[0]?.block;
+    return block
+      ? { start: block.start, stop: block.stop, name: block.name }
+      : { start: "", stop: "", name: "" };
+  }).filter(s => s.start);
 
   const displayDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
@@ -291,12 +308,12 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
           <span className="text-white/80">{race.name}</span> · {displayDate}
         </p>
         <p className="text-[#00E2E5] text-sm font-semibold mt-1">
-          Race {currentRace + 1} of {totalRaces}
+          Pick {totalRaces} heats — ${race.price.toFixed(2)} total
         </p>
       </div>
 
-      <ProgressDots current={currentRace} total={totalRaces} />
-      <SelectedHeats schedules={schedules} />
+      <ProgressDots current={selectedIdxs.length} total={totalRaces} />
+      <SelectedHeats schedules={previewSchedules} />
 
       {loading ? (
         <div className="h-48 flex items-center justify-center">
@@ -305,9 +322,7 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       ) : error ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <p className="text-red-400 text-sm">{error}</p>
-          {currentRace === 0 && (
-            <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">Retry</button>
-          )}
+          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">Retry</button>
         </div>
       ) : proposals.length === 0 ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
@@ -317,42 +332,41 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         <>
           <HeatGrid
             proposals={proposals}
-            selectedIdx={selectedIdx}
-            onSelect={setSelectedIdx}
+            selectedIdxs={selectedIdxs}
+            onToggle={toggleSelect}
             quantity={quantity}
-            bookedStarts={schedules.map(s => s.start)}
+            bookedStarts={pickedStarts}
+            atCap={selectedIdxs.length >= totalRaces}
           />
 
-          <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdx !== null ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
-            {selectedIdx !== null ? (
+          <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdxs.length === totalRaces ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
+            {selectedIdxs.length === totalRaces ? (
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <p className="text-white/50 text-xs mb-1">Race {currentRace + 1} of {totalRaces}</p>
-                  <p className="text-white font-bold">
-                    {proposals[selectedIdx].blocks?.[0]?.block.name} · {formatTime(proposals[selectedIdx].blocks?.[0]?.block.start)}
+                  <p className="text-white/50 text-xs mb-1">All {totalRaces} heats selected</p>
+                  <p className="text-[#00E2E5] text-sm font-semibold">
+                    ${race.price.toFixed(2)} for {totalRaces} races
                   </p>
-                  {currentRace === 0 && (
-                    <p className="text-[#00E2E5] text-sm font-semibold mt-0.5">
-                      ${race.price.toFixed(2)} for {totalRaces} races
-                    </p>
-                  )}
                 </div>
                 <button
-                  onClick={handleConfirmHeat}
-                  disabled={confirming}
+                  onClick={handleCommit}
+                  disabled={committing}
                   className="shrink-0 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50"
                 >
-                  {confirming ? (
-                    <div className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
-                  ) : currentRace < totalRaces - 1 ? (
-                    `Confirm & Pick Race ${currentRace + 2} →`
+                  {committing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
+                      Booking {totalRaces} heats…
+                    </>
                   ) : (
                     "Confirm & Continue to Checkout →"
                   )}
                 </button>
               </div>
             ) : (
-              <p className="text-center text-white/30 text-sm">Select a heat for race {currentRace + 1} above</p>
+              <p className="text-center text-white/40 text-sm">
+                Selected <span className="text-white font-bold">{selectedIdxs.length}</span> of <span className="text-white font-bold">{totalRaces}</span> heats
+              </p>
             )}
           </div>
         </>
