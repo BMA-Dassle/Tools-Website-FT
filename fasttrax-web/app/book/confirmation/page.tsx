@@ -882,7 +882,7 @@ export default function ConfirmationPage() {
           {/* Additional Attractions for express lane bookings with mixed items */}
           {expressLane && (() => {
             const allOvLines = order?.lines || storedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-            const attractionLines = allOvLines.filter((l: OrderLine) => l.productGroup !== "Karting" && !l.name.toLowerCase().includes("license"));
+            const attractionLines = allOvLines.filter((l: OrderLine) => l.productGroup !== "Karting" && !l.name.toLowerCase().includes("license") && !l.name.toLowerCase().includes("pov"));
             if (attractionLines.length === 0) return null;
             return (
               <div className="max-w-2xl mx-auto mt-6">
