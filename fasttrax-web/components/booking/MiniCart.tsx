@@ -105,7 +105,13 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                     ) : null}
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-white/50 text-xs">
-                        {item.quantity} {item.product.bookingMode === "per-person" ? `person${item.quantity !== 1 ? "s" : ""}` : `table${item.quantity !== 1 ? "s" : ""}`}
+                        {(() => {
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          const schedCount = (item as any).packSchedules?.length;
+                          if (schedCount) return `${schedCount} races`;
+                          const unit = item.product.bookingMode === "per-person" ? "person" : "table";
+                          return `${item.quantity} ${unit}${item.quantity !== 1 ? "s" : ""}`;
+                        })()}
                       </span>
                       <span className="text-[#00E2E5] text-xs">${(item.product.price * item.quantity).toFixed(2)}</span>
                     </div>

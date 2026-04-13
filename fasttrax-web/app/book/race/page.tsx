@@ -199,7 +199,8 @@ export default function BookRacePage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nonRacing = existingCart.filter((item: any) => item.attraction !== "racing");
     // Add current racing items
-    const racingItems = bookings.map(b => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const racingItems: any[] = bookings.map(b => ({
       attraction: "racing",
       attractionName: "Racing",
       product: { name: b.product.name, price: b.blockPrice || 0, bookingMode: "per-person" },
@@ -210,6 +211,23 @@ export default function BookRacePage() {
       color: "#E41C1D",
       racerNames: b.racerNames,
     }));
+    // Pack/combo bookings live in packResult, not bookings[] — add them too so
+    // the MiniCart shows the reservation.
+    if (packResult && selectedProduct && packResult.schedules.length > 0) {
+      const firstStart = packResult.schedules[0]?.start || "";
+      racingItems.push({
+        attraction: "racing",
+        attractionName: "Racing",
+        product: { name: selectedProduct.name, price: selectedProduct.price, bookingMode: "per-pack" },
+        date: firstStart.split("T")[0],
+        time: { block: { start: firstStart } },
+        quantity: 1,
+        billLineId: null,
+        color: "#E41C1D",
+        racerNames: undefined,
+        packSchedules: packResult.schedules.map(s => ({ start: s.start, name: s.name })),
+      });
+    }
     // Add license if sold
     if (licenseSold) {
       racingItems.push({
@@ -255,7 +273,7 @@ export default function BookRacePage() {
       sessionStorage.setItem("primaryPersonId", verifiedPerson.personId);
       console.log("[cart sync] saved primaryPersonId:", verifiedPerson.personId);
     }
-  }, [bookings, licenseSold, verifiedRacers, verifiedPerson]);
+  }, [bookings, licenseSold, verifiedRacers, verifiedPerson, packResult, selectedProduct]);
 
   // Load product catalog from static registry based on day-of-week and racer type
   const fetchCatalog = useCallback((date: string) => {
