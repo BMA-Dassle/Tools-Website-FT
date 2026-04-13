@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/race-day-emails",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/level-up-watch",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
