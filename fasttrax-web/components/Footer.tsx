@@ -91,7 +91,7 @@ export default function Footer() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 mt-10 pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30">
-        <p>© 2026 FastTrax Entertainment. All rights reserved.</p>
+        <p>© 2026 Fast Trax FEC LLC. All rights reserved.</p>
         <p>
           <a href="https://kiosk.bmileisure.com/headpinzftmyers" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Waiver</a>
           <span className="mx-2">·</span>

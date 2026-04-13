@@ -130,7 +130,7 @@ export default function HeadPinzFooter() {
 
         {/* Copyright */}
         <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30 font-body">
-          <p>&copy; 2026 BMA Leisure. All rights reserved.</p>
+          <p>&copy; 2026 Pinboyz LLC. All rights reserved.</p>
           <p>
             <a
               href="https://kiosk.bmileisure.com/headpinzftmyers"
