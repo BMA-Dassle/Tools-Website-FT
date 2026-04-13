@@ -1,6 +1,12 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /api-docs
+Disallow: /embed/
+Disallow: /e/
+Disallow: /s/
+Disallow: /book/checkout
+Disallow: /book/confirmation
 Disallow: /hp/book/bowling/confirmation
 
 Sitemap: https://fasttraxent.com/sitemap.xml

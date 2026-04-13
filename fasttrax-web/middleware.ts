@@ -41,16 +41,111 @@ export function middleware(request: NextRequest) {
   // HeadPinz legacy WordPress URL redirects (301 permanent)
   if (isHeadPinz) {
     const legacyRedirects: Record<string, string> = {
+      // Location pages
       "/headpinz-fort-myers": "/fort-myers",
-      "/headpinz-naples": "/naples",
       "/headpinz-fort-myers/": "/fort-myers",
+      "/headpinz-naples": "/naples",
       "/headpinz-naples/": "/naples",
+      // Attractions
       "/fort-myers-attractions": "/fort-myers/attractions",
       "/naples-attractions": "/naples/attractions",
+      "/headpinz-fort-myers/attractions": "/fort-myers/attractions",
+      "/headpinz-fort-myers/attractions/": "/fort-myers/attractions",
+      "/headpinz-naples/attractions": "/naples/attractions",
+      "/headpinz-naples/attractions/": "/naples/attractions",
+      // Group events
       "/fort-myers-group-events": "/fort-myers/group-events",
       "/naples-group-events": "/naples/group-events",
+      "/headpinz-fort-myers/group-events": "/fort-myers/group-events",
+      "/headpinz-fort-myers/group-events/": "/fort-myers/group-events",
+      "/headpinz-naples/group-events": "/naples/group-events",
+      "/headpinz-naples/group-events/": "/naples/group-events",
+      // Birthdays
       "/fort-myers-birthdays": "/fort-myers/birthdays",
       "/naples-birthdays": "/naples/birthdays",
+      "/headpinz-fort-myers/birthdays": "/fort-myers/birthdays",
+      "/headpinz-fort-myers/birthdays/": "/fort-myers/birthdays",
+      "/headpinz-naples/birthdays": "/naples/birthdays",
+      "/headpinz-naples/birthdays/": "/naples/birthdays",
+      "/headpinz-fort-myers/kids-birthday-parties": "/fort-myers/birthdays",
+      "/headpinz-fort-myers/kids-birthday-parties/": "/fort-myers/birthdays",
+      "/headpinz-naples/kids-birthday-parties": "/naples/birthdays",
+      "/headpinz-naples/kids-birthday-parties/": "/naples/birthdays",
+      // Menu
+      "/headpinz-fort-myers/menu": "/menu",
+      "/headpinz-fort-myers/menu/": "/menu",
+      "/headpinz-naples/menu": "/menu",
+      "/headpinz-naples/menu/": "/menu",
+      "/qr-menu": "/menu",
+      "/qr-menu/": "/menu",
+      // Reservations / booking
+      "/headpinz-fort-myers/reservations": "/book",
+      "/headpinz-fort-myers/reservations/": "/book",
+      "/headpinz-naples/reservations": "/book",
+      "/headpinz-naples/reservations/": "/book",
+      "/headpinz-fort-myers/booking": "/book/bowling",
+      "/headpinz-fort-myers/booking/": "/book/bowling",
+      "/bowling-reservation": "/book/bowling",
+      "/bowling-reservation/": "/book/bowling",
+      // Specials
+      "/headpinz-fort-myers/specials": "/fort-myers",
+      "/headpinz-fort-myers/specials/": "/fort-myers",
+      "/headpinz-naples/specials": "/naples",
+      "/headpinz-naples/specials/": "/naples",
+      // Attractions — gel blaster
+      "/headpinz-fort-myers/gel-blaster-nexus": "/book/gel-blaster",
+      "/headpinz-fort-myers/gel-blaster-nexus/": "/book/gel-blaster",
+      "/headpinz-fort-myers/nexus-gel-blaster": "/book/gel-blaster",
+      "/headpinz-fort-myers/nexus-gel-blaster/": "/book/gel-blaster",
+      "/headpinz-naples/gel-blaster-nexus": "/book/gel-blaster",
+      "/headpinz-naples/gel-blaster-nexus/": "/book/gel-blaster",
+      "/headpinz-naples/nexus-gel-blaster": "/book/gel-blaster",
+      "/headpinz-naples/nexus-gel-blaster/": "/book/gel-blaster",
+      // Attractions — laser tag
+      "/headpinz-fort-myers/laser-tag": "/book/laser-tag",
+      "/headpinz-fort-myers/laser-tag/": "/book/laser-tag",
+      "/headpinz-fort-myers/nexus-laser-tag": "/book/laser-tag",
+      "/headpinz-fort-myers/nexus-laser-tag/": "/book/laser-tag",
+      "/headpinz-naples/laser-tag": "/book/laser-tag",
+      "/headpinz-naples/laser-tag/": "/book/laser-tag",
+      // Careers / team — no dedicated page yet, send to home
+      "/headpinz-fort-myers/join-our-team": "/",
+      "/headpinz-fort-myers/join-our-team/": "/",
+      "/headpinz-naples/join-our-team": "/",
+      "/headpinz-naples/join-our-team/": "/",
+      "/careers": "/",
+      "/careers/": "/",
+      // Gift cards — no dedicated page yet, send to home
+      "/headpinz-fort-myers/gift-card": "/",
+      "/headpinz-fort-myers/gift-card/": "/",
+      "/headpinz-naples/gift-card": "/",
+      "/headpinz-naples/gift-card/": "/",
+      "/gift-cards": "/",
+      "/gift-cards/": "/",
+      // Leagues
+      "/youth-league": "/fort-myers",
+      "/youth-league/": "/fort-myers",
+      "/headpinz-fort-myers/fall-league-sign-up": "/fort-myers",
+      "/headpinz-fort-myers/fall-league-sign-up/": "/fort-myers",
+      "/headpinz-naples/fall-league-sign-up": "/naples",
+      "/headpinz-naples/fall-league-sign-up/": "/naples",
+      // Waiver — HeadPinz has no waiver page, send to home
+      "/headpinz-fort-myers/waiver-2": "/",
+      "/headpinz-fort-myers/waiver-2/": "/",
+      "/headpinz-naples/waiver-2": "/",
+      "/headpinz-naples/waiver-2/": "/",
+      "/waiver-2": "/",
+      "/waiver-2/": "/",
+      "/waiver": "/",
+      "/waiver/": "/",
+      // Blog articles — redirect to home
+      "/enjoying-family-fun-with-kids-bowl-free-at-headpinz": "/kids-bowl-free",
+      "/enjoying-family-fun-with-kids-bowl-free-at-headpinz/": "/kids-bowl-free",
+      "/brief-history-of-bowling": "/",
+      "/brief-history-of-bowling/": "/",
+      // Rewards / KBF / trailing slashes
+      "/rewards/": "/rewards",
+      "/kids-bowl-free/": "/kids-bowl-free",
     };
     const redirect = legacyRedirects[pathname.toLowerCase()];
     if (redirect) {
