@@ -4,7 +4,7 @@
  * (nav, cart, checkout, API calls) can read it without URL params.
  */
 
-import type { LocationKey } from "./attractions-data";
+import { normalizeLocationSlug, type LocationKey } from "./attractions-data";
 
 const KEY = "bookingLocation";
 
@@ -41,6 +41,7 @@ export function getBookingClientKey(): string | undefined {
  */
 export function syncLocationFromUrl() {
   if (typeof window === "undefined") return;
-  const param = new URLSearchParams(window.location.search).get("location") as LocationKey | null;
-  if (param) setBookingLocation(param);
+  const raw = new URLSearchParams(window.location.search).get("location");
+  const normalized = normalizeLocationSlug(raw);
+  if (normalized) setBookingLocation(normalized);
 }

@@ -9,6 +9,38 @@ export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly
 export type BookingMode = "per-person" | "per-slot";
 export type LocationKey = "fasttrax" | "headpinz" | "naples";
 
+/**
+ * Normalize an external location slug (from URL params, GBP links, ads) to the
+ * internal LocationKey. Accepts friendly names like "fort-myers" in addition
+ * to the internal keys so marketing can share clean links.
+ * Returns null if the value doesn't map to any known location.
+ */
+export function normalizeLocationSlug(raw: string | null | undefined): LocationKey | null {
+  if (!raw) return null;
+  const v = raw.toLowerCase().trim();
+  switch (v) {
+    case "fasttrax":
+    case "fast-trax":
+    case "ft":
+      return "fasttrax";
+    case "headpinz":
+    case "fort-myers":
+    case "fortmyers":
+    case "fort_myers":
+    case "ftmyers":
+    case "fm":
+    case "hp":
+    case "headpinz-fort-myers":
+      return "headpinz";
+    case "naples":
+    case "headpinz-naples":
+    case "np":
+      return "naples";
+    default:
+      return null;
+  }
+}
+
 export interface AttractionProductDef {
   productId: string;
   name: string;

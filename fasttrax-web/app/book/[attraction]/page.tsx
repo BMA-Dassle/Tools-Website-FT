@@ -26,6 +26,7 @@ import {
   type BmiProposal,
   type BmiBlock,
   type BmiProposalBlock,
+  normalizeLocationSlug,
 } from "@/lib/attractions-data";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -980,8 +981,9 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
 
   // Resolve location: URL param > sessionStorage > hostname > config default
   // URL param takes absolute priority (Naples links pass ?location=naples)
+  // Accepts friendly aliases: ?location=fort-myers, ?location=naples, etc.
   const urlLoc = typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search).get("location") as LocationKey | null
+    ? normalizeLocationSlug(new URLSearchParams(window.location.search).get("location"))
     : null;
   const validUrlLoc = urlLoc && config?.products.some(p => p.location === urlLoc) ? urlLoc : null;
   const storedLoc = getBookingLocation();
@@ -1036,11 +1038,15 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
     }
   }, [step]);
 
-  // Set initial step and location when config becomes available (useParams may be async)
+  // Set initial step and location when config becomes available (useParams may be async).
+  // CRITICAL: don't overwrite a location that was already resolved from URL param /
+  // sessionStorage / hostname — that's why we computed `initialLocation` above.
   useEffect(() => {
     if (!config) return;
     if (config.location === "both") {
-      setStep("location");
+      // Only show the picker if we couldn't resolve a location from URL/storage/hostname
+      if (!booking.location) setStep("location");
+      else setStep("product");
     } else {
       setBooking(prev => ({ ...prev, location: config.location as LocationKey }));
       setStep("product");
