@@ -731,17 +731,23 @@ export default function ConfirmationPage() {
 
                   {/* Main content */}
                   <div className="p-5 sm:p-6">
-                    {/* Track badge — top */}
-                    {trackName && (
-                      <div className="mb-3">
-                        <span
-                          className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
-                          style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
-                        >
-                          {trackName}
-                        </span>
-                      </div>
-                    )}
+                    {/* Track badge — top: "Mega Starter 47" or "Blue Pro 55" */}
+                    {trackName && (() => {
+                      const raceType = /pro/i.test(group.product) ? "Pro"
+                        : /intermediate/i.test(group.product) ? "Intermediate"
+                        : "Starter";
+                      const heatNum = group.heatName?.match(/\d+/)?.[0] || "";
+                      return (
+                        <div className="mb-3">
+                          <span
+                            className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
+                            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
+                          >
+                            {group.track || "Race"} {raceType}{heatNum ? ` ${heatNum}` : ""}
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {/* Racer names — big */}
                     <div>

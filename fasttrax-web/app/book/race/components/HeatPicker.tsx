@@ -183,9 +183,8 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
               // Same track: must skip at least one heat (every other OK)
               // Different track: 30 min buffer required
               const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-              const blockTrack = block.name.toLowerCase().includes("red") ? "red"
-                : block.name.toLowerCase().includes("blue") ? "blue"
-                : block.name.toLowerCase().includes("mega") ? "mega" : "unknown";
+              // Use the product's track (reliable) — block.name may be "Heat 29" now
+              const blockTrack = (race.track || "unknown").toLowerCase();
               const isConflict = bookedHeats.some(bh => {
                 const bhStart = new Date(bh.start.replace(/Z$/, "")).getTime();
                 const bhTrack = bh.track?.toLowerCase() || "unknown";
