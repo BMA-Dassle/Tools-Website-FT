@@ -622,8 +622,8 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
 }
 
 export default function LeaderboardsPage() {
-  const trackStatus = useTrackStatus();
-  const isMega = trackStatus?.megaTrackEnabled ?? estNow().weekday === "Tuesday";
+  const trackResult = useTrackStatus();
+  const isMega = trackResult?.trackStatus.megaTrackEnabled ?? estNow().weekday === "Tuesday";
   const [timeRange, setTimeRange] = useState<TimeRange>("month");
   const [activeTrack, setActiveTrack] = useState<Track>("blue");
   const [classFilter, setClassFilter] = useState<"adult" | "junior">("adult");

@@ -41,7 +41,9 @@ function dotColor(status: string) {
 }
 
 export default function RacerJourney() {
-  const trackData = useTrackStatus();
+  const result = useTrackStatus();
+  const trackData = result?.trackStatus ?? null;
+  const currentRaces = result?.currentRaces ?? null;
 
   return (
     <section id="racers-journey" className="relative overflow-hidden" style={{ backgroundColor: "#000418" }}>
@@ -80,19 +82,30 @@ export default function RacerJourney() {
               LIVE TRACK STATUS
             </p>
             <div className="flex flex-col gap-2">
-              {trackData?.tracks.map((t) => (
-                <div
-                  key={t.trackName}
-                  className="flex items-center justify-between px-4 py-3 rounded-xl"
-                  style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}80` }}
-                >
-                  <span style={{ color: t.colors.trackIdentity, fontSize: "18px", fontFamily: "var(--font-body)", fontWeight: 600 }}>{t.trackName}</span>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
-                    <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{t.delayFormatted}</span>
+              {trackData?.tracks.map((t) => {
+                const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as "blue" | "red" | "mega";
+                const race = currentRaces?.[key] ?? null;
+                return (
+                  <div
+                    key={t.trackName}
+                    className="px-4 py-3 rounded-xl"
+                    style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}80` }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: t.colors.trackIdentity, fontSize: "18px", fontFamily: "var(--font-body)", fontWeight: 600 }}>{t.trackName}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                        <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{t.delayFormatted}</span>
+                      </div>
+                    </div>
+                    {race && (
+                      <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
+                        Checking In: Heat #{race.heatNumber} — {race.raceType}
+                      </p>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {!trackData && (
                 <>
                   <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}>

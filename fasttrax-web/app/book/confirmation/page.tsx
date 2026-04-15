@@ -999,32 +999,46 @@ function dotColor(status: string) {
 }
 
 function ExpressTrackStatus() {
-  const trackData = useTrackStatus();
-  if (!trackData) return null;
+  const result = useTrackStatus();
+  if (!result) return null;
+  const { trackStatus: trackData, currentRaces } = result;
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-3">Live Track Status</p>
       <div className="space-y-2">
-        {trackData.tracks.map((t) => (
-          <div
-            key={t.trackName}
-            className="flex items-center justify-between px-4 py-2.5 rounded-lg"
-            style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
-          >
-            <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
-              <span className="text-white/70 text-sm">{t.delayFormatted}</span>
+        {trackData.tracks.map((t) => {
+          const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as "blue" | "red" | "mega";
+          const race = currentRaces[key] || null;
+          return (
+            <div
+              key={t.trackName}
+              className="px-4 py-2.5 rounded-lg"
+              style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                  <span className="text-white/70 text-sm">{t.delayFormatted}</span>
+                </div>
+              </div>
+              {race && (
+                <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
+                  Checking In: Heat #{race.heatNumber} — {race.raceType}
+                </p>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 function RacerJourneySteps() {
-  const trackData = useTrackStatus();
+  const result = useTrackStatus();
+  const trackData = result?.trackStatus ?? null;
+  const currentRaces = result?.currentRaces ?? null;
 
   return (
     <div className="space-y-4">
@@ -1040,19 +1054,30 @@ function RacerJourneySteps() {
       {trackData && (
         <div className="space-y-1.5">
           <p className="text-white/30 text-xs uppercase tracking-wider font-semibold">Live Track Status</p>
-          {trackData.tracks.map((t) => (
-            <div
-              key={t.trackName}
-              className="flex items-center justify-between px-3 py-2 rounded-lg"
-              style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
-            >
-              <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
-              <div className="flex items-center gap-2">
-                <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)} animate-pulse`} />
-                <span className="text-white/70 text-xs">{t.delayFormatted}</span>
+          {trackData.tracks.map((t) => {
+            const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as "blue" | "red" | "mega";
+            const race = currentRaces?.[key] ?? null;
+            return (
+              <div
+                key={t.trackName}
+                className="px-3 py-2 rounded-lg"
+                style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}50` }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                    <span className="text-white/70 text-xs">{t.delayFormatted}</span>
+                  </div>
+                </div>
+                {race && (
+                  <p className="text-amber-400 text-[11px] font-bold mt-1 animate-pulse">
+                    Checking In: Heat #{race.heatNumber} — {race.raceType}
+                  </p>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
