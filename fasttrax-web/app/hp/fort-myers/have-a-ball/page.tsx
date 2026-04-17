@@ -182,8 +182,8 @@ export default function HaveABallPage() {
             style={{ aspectRatio: "4/3" }}
           >
             <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg"
-              alt="Bowlers at HeadPinz Fort Myers"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/have-a-ball-hero.jpg"
+              alt="Bowlers having a ball at HeadPinz Fort Myers"
               fill
               className="object-cover"
               sizes="(max-width: 768px) 100vw, 50vw"
@@ -243,8 +243,8 @@ export default function HaveABallPage() {
       {/* FINAL CTA */}
       <section className="relative overflow-hidden" style={{ minHeight: "360px" }}>
         <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/have-a-ball-hero.jpg"
-          alt="Bowling at HeadPinz Fort Myers"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
+          alt="HeadPinz bowling lanes"
           fill
           className="object-cover"
           sizes="100vw"

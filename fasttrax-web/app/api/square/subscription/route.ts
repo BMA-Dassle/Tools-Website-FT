@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 
 /**
- * Square Subscription creation endpoint.
+ * Square Subscription creation.
  *
  * POST /api/square/subscription
  *
- * Flow:
- *   1. Find or create Square customer by phone (reuse pattern from /api/square/customer)
- *   2. Save the tokenized card to that customer -> POST /v2/cards
- *   3. Create subscription with planVariationId + startDate -> POST /v2/subscriptions
+ * 1. Create Square customer (simple create — no search to avoid phone-filter
+ *    edge cases; Square de-dupes by email internally)
+ * 2. Save card to customer -> POST /v2/cards
+ * 3. Create DRAFT order with the eligible item variation (required for
+ *    RELATIVE-priced plans)
+ * 4. Create subscription with phases referencing that order template
  *
- * No charge runs from this endpoint — Square bills on the start_date.
+ * No charge runs at signup — Square bills on start_date.
  */
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -27,85 +29,39 @@ function sqHeaders() {
 }
 
 /**
- * Normalize to E.164 US format (+1XXXXXXXXXX).
- * Returns null if the input isn't a recognizable US phone (10 digits, or 11 starting with 1).
+ * Normalize to E.164 US format if we can. Returns undefined if input isn't a
+ * recognizable US phone — Square will just not have a phone on the customer
+ * rather than rejecting the whole signup.
  */
-function normalizePhone(phone: string): string | null {
+function normalizePhone(phone?: string): string | undefined {
+  if (!phone) return undefined;
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return null;
+  return undefined;
 }
 
-async function findOrCreateCustomer(params: {
-  phone: string;
+async function createCustomer(params: {
+  phone?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
 }): Promise<{ customerId: string; error?: string }> {
-  const formattedPhone = normalizePhone(params.phone);
-  if (!formattedPhone) {
-    return {
-      customerId: "",
-      error: "Please enter a valid 10-digit US phone number (e.g. (239) 555-1212).",
-    };
-  }
-
-  // Search is best-effort — phone format Square accepts here can vary.
-  // If it errors, log and fall through to create.
-  let existingCustomer: { id?: string; given_name?: string; family_name?: string; email_address?: string } | null = null;
-  try {
-    const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        query: { filter: { phone_number: { exact: formattedPhone } } },
-      }),
-    });
-    const searchData = await searchRes.json();
-    if (searchData.customers && searchData.customers.length > 0) {
-      existingCustomer = searchData.customers[0];
-    }
-  } catch (err) {
-    console.error("[square/subscription] customer search error:", err);
-  }
-
-  if (existingCustomer && existingCustomer.id) {
-    const existing = existingCustomer;
-    // Backfill missing name/email if we have new info
-    const needsUpdate =
-      (!existing.given_name && params.firstName) ||
-      (!existing.family_name && params.lastName) ||
-      (!existing.email_address && params.email);
-    if (needsUpdate) {
-      await fetch(`${SQUARE_BASE}/customers/${existing.id}`, {
-        method: "PUT",
-        headers: sqHeaders(),
-        body: JSON.stringify({
-          given_name: existing.given_name || params.firstName || undefined,
-          family_name: existing.family_name || params.lastName || undefined,
-          email_address: existing.email_address || params.email || undefined,
-        }),
-      }).catch(() => { /* best-effort */ });
-    }
-    return { customerId: existing.id! };
-  }
-
-  const createRes = await fetch(`${SQUARE_BASE}/customers`, {
+  const res = await fetch(`${SQUARE_BASE}/customers`, {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
-      idempotency_key: `cust-${formattedPhone}-${Date.now()}`,
+      idempotency_key: randomUUID(),
       given_name: params.firstName || undefined,
       family_name: params.lastName || undefined,
       email_address: params.email || undefined,
-      phone_number: formattedPhone,
+      phone_number: normalizePhone(params.phone),
     }),
   });
-  const createData = await createRes.json();
-  if (createData.customer?.id) return { customerId: createData.customer.id };
-  console.error("[square/subscription] customer create failed:", createData);
-  return { customerId: "", error: createData.errors?.[0]?.detail || "Customer create failed" };
+  const data = await res.json();
+  if (data.customer?.id) return { customerId: data.customer.id };
+  console.error("[square/subscription] customer create failed:", JSON.stringify(data));
+  return { customerId: "", error: data.errors?.[0]?.detail || "Customer create failed" };
 }
 
 async function saveCardToCustomer(params: {
@@ -117,7 +73,7 @@ async function saveCardToCustomer(params: {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
-      idempotency_key: `card-${params.customerId}-${Date.now()}`,
+      idempotency_key: randomUUID(),
       source_id: params.cardToken,
       verification_token: params.verificationToken || undefined,
       card: { customer_id: params.customerId },
@@ -125,7 +81,7 @@ async function saveCardToCustomer(params: {
   });
   const data = await res.json();
   if (data.card?.id) return { cardId: data.card.id };
-  console.error("[square/subscription] card save failed:", data);
+  console.error("[square/subscription] card save failed:", JSON.stringify(data));
   return { cardId: "", error: data.errors?.[0]?.detail || "Card save failed" };
 }
 
@@ -154,7 +110,7 @@ async function createDraftOrder(params: {
   });
   const data = await res.json();
   if (data.order?.id) return { orderId: data.order.id };
-  console.error("[square/subscription] draft order failed:", data);
+  console.error("[square/subscription] draft order failed:", JSON.stringify(data));
   return { orderId: "", error: data.errors?.[0]?.detail || "Draft order failed" };
 }
 
@@ -163,34 +119,28 @@ async function createSubscription(params: {
   planVariationId: string;
   customerId: string;
   cardId: string;
-  startDate: string; // YYYY-MM-DD
-  /** Draft order ID used as the billing template for each cycle (RELATIVE pricing) */
-  orderTemplateId?: string;
+  startDate: string;
+  orderTemplateId: string;
 }): Promise<{ subscriptionId: string; status: string; error?: string }> {
-  const body: Record<string, unknown> = {
-    idempotency_key: randomUUID(),
-    location_id: params.locationId,
-    plan_variation_id: params.planVariationId,
-    customer_id: params.customerId,
-    card_id: params.cardId,
-    start_date: params.startDate,
-    timezone: "America/New_York",
-  };
-  // For RELATIVE-priced plans, Square requires a phase with an order_template_id
-  // that references a draft order containing the eligible item variation.
-  if (params.orderTemplateId) {
-    body.phases = [{ ordinal: 0, order_template_id: params.orderTemplateId }];
-  }
   const res = await fetch(`${SQUARE_BASE}/subscriptions`, {
     method: "POST",
     headers: sqHeaders(),
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      idempotency_key: randomUUID(),
+      location_id: params.locationId,
+      plan_variation_id: params.planVariationId,
+      customer_id: params.customerId,
+      card_id: params.cardId,
+      start_date: params.startDate,
+      timezone: "America/New_York",
+      phases: [{ ordinal: 0, order_template_id: params.orderTemplateId }],
+    }),
   });
   const data = await res.json();
   if (data.subscription?.id) {
     return { subscriptionId: data.subscription.id, status: data.subscription.status };
   }
-  console.error("[square/subscription] subscription create failed:", data);
+  console.error("[square/subscription] subscription create failed:", JSON.stringify(data));
   return {
     subscriptionId: "",
     status: "",
@@ -205,35 +155,35 @@ export async function POST(req: NextRequest) {
       cardToken,
       verificationToken,
       planVariationId,
+      itemVariationId,
       locationId,
       startDate,
       phone,
       firstName,
       lastName,
       email,
-      itemVariationId,
     } = body as {
       cardToken?: string;
       verificationToken?: string;
       planVariationId?: string;
+      itemVariationId?: string;
       locationId?: string;
       startDate?: string;
       phone?: string;
       firstName?: string;
       lastName?: string;
       email?: string;
-      /** Required for RELATIVE-priced plans — catalog item variation to bill each cycle */
-      itemVariationId?: string;
     };
 
     if (!cardToken) return NextResponse.json({ error: "cardToken required" }, { status: 400 });
     if (!planVariationId) return NextResponse.json({ error: "planVariationId required" }, { status: 400 });
+    if (!itemVariationId) return NextResponse.json({ error: "itemVariationId required" }, { status: 400 });
     if (!locationId) return NextResponse.json({ error: "locationId required" }, { status: 400 });
     if (!startDate) return NextResponse.json({ error: "startDate required" }, { status: 400 });
-    if (!phone) return NextResponse.json({ error: "phone required" }, { status: 400 });
+    if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
     // 1. Customer
-    const cust = await findOrCreateCustomer({ phone, firstName, lastName, email });
+    const cust = await createCustomer({ phone, firstName, lastName, email });
     if (cust.error) return NextResponse.json({ error: cust.error }, { status: 500 });
 
     // 2. Save card
@@ -242,33 +192,31 @@ export async function POST(req: NextRequest) {
       cardToken,
       verificationToken,
     });
-    if (card.error) return NextResponse.json({ error: card.error, customerId: cust.customerId }, { status: 500 });
-
-    // 3. If plan uses RELATIVE pricing, create a draft order as the billing template
-    let orderTemplateId: string | undefined;
-    if (itemVariationId) {
-      const draft = await createDraftOrder({
-        locationId,
-        itemVariationId,
-        customerId: cust.customerId,
-      });
-      if (draft.error) {
-        return NextResponse.json(
-          { error: `Draft order: ${draft.error}`, customerId: cust.customerId, cardId: card.cardId },
-          { status: 500 },
-        );
-      }
-      orderTemplateId = draft.orderId;
+    if (card.error) {
+      return NextResponse.json({ error: card.error, customerId: cust.customerId }, { status: 500 });
     }
 
-    // 4. Create subscription
+    // 3. Draft order (required for RELATIVE-priced plans)
+    const draft = await createDraftOrder({
+      locationId,
+      itemVariationId,
+      customerId: cust.customerId,
+    });
+    if (draft.error) {
+      return NextResponse.json(
+        { error: `Draft order: ${draft.error}`, customerId: cust.customerId, cardId: card.cardId },
+        { status: 500 },
+      );
+    }
+
+    // 4. Subscription
     const sub = await createSubscription({
       locationId,
       planVariationId,
       customerId: cust.customerId,
       cardId: card.cardId,
       startDate,
-      orderTemplateId,
+      orderTemplateId: draft.orderId,
     });
     if (sub.error) {
       return NextResponse.json(
