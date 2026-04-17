@@ -108,24 +108,40 @@ export default function SignupModal({ onClose }: Props) {
         return;
       }
 
-      // 3. Store signup record
-      await fetch("/api/leagues/have-a-ball/signups", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          subscriptionId: subData.subscriptionId,
-          customerId: subData.customerId,
-          cardId: subData.cardId,
-          firstName: bowler.firstName,
-          lastName: bowler.lastName,
-          email: bowler.email,
-          phone: bowler.phone,
-          dob: bowler.dob,
-          teamName: bowler.teamName || null,
-          smsOptIn: bowler.smsOptIn,
-          startDate: subData.startDate,
-        }),
-      }).catch(() => { /* non-fatal — subscription succeeded */ });
+      // 3. Store signup record + send confirmation email in parallel.
+      // Both are non-fatal — subscription already succeeded.
+      await Promise.all([
+        fetch("/api/leagues/have-a-ball/signups", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            subscriptionId: subData.subscriptionId,
+            customerId: subData.customerId,
+            cardId: subData.cardId,
+            firstName: bowler.firstName,
+            lastName: bowler.lastName,
+            email: bowler.email,
+            phone: bowler.phone,
+            dob: bowler.dob,
+            teamName: bowler.teamName || null,
+            smsOptIn: bowler.smsOptIn,
+            startDate: subData.startDate,
+          }),
+        }).catch(() => { /* non-fatal */ }),
+        fetch("/api/notifications/have-a-ball-signup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            firstName: bowler.firstName,
+            lastName: bowler.lastName,
+            email: bowler.email,
+            phone: bowler.phone,
+            teamName: bowler.teamName || null,
+            subscriptionId: subData.subscriptionId,
+            startDate: subData.startDate,
+          }),
+        }).catch(() => { /* non-fatal */ }),
+      ]);
 
       setConfirmation({ subscriptionId: subData.subscriptionId, startDate: subData.startDate });
       setStep("success");
