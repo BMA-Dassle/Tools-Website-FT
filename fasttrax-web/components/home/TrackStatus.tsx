@@ -6,10 +6,17 @@ function dotColor(status: string) {
   return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
 }
 
+function formatShortTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+  } catch { return ""; }
+}
+
 function CheckingInTag({ race }: { race: CurrentRace }) {
+  const time = race.scheduledStart ? formatShortTime(race.scheduledStart) : "";
   return (
     <span className="text-amber-400 text-[11px] font-bold animate-pulse">
-      Checking In: Heat #{race.heatNumber} — {race.raceType}
+      Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
     </span>
   );
 }

@@ -98,11 +98,15 @@ export default function RacerJourney() {
                         <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{t.delayFormatted}</span>
                       </div>
                     </div>
-                    {race && (
-                      <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
-                        Checking In: Heat #{race.heatNumber} — {race.raceType}
-                      </p>
-                    )}
+                    {race && (() => {
+                      let time = "";
+                      try { time = race.scheduledStart ? new Date(race.scheduledStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : ""; } catch { /* skip */ }
+                      return (
+                        <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
+                          Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
+                        </p>
+                      );
+                    })()}
                   </div>
                 );
               })}

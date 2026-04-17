@@ -100,6 +100,8 @@ export default function ConfirmationPage() {
   /** Race groups — confirmations grouped by heat for display */
   const [raceGroups, setRaceGroups] = useState<{ product: string; track: string | null; heatStart: string; heatName: string; racers: string[]; resNumber: string; resCode: string; billId: string }[]>([]);
   const confirmStarted = useRef(false);
+  const liveStatus = useTrackStatus();
+  const currentRaces = liveStatus?.currentRaces ?? null;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -718,6 +720,12 @@ export default function ConfirmationPage() {
               const trackColor = group.track === "Red" ? "#E53935" : group.track === "Blue" ? "#004AAD" : group.track === "Mega" ? "#8B5CF6" : "#00E2E5";
               const qr = racerQrCodes[group.billId] || qrDataUrl;
 
+              // Match this card's booked heat to live checking-in status
+              const trackKey = (group.track || "").toLowerCase() as "blue" | "red" | "mega";
+              const liveRace = currentRaces?.[trackKey] ?? null;
+              const isMyHeat = !!(liveRace?.scheduledStart && group.heatStart &&
+                liveRace.scheduledStart.replace(/Z$/, "").startsWith(group.heatStart.replace(/Z$/, "").slice(0, 16)));
+
               return (
                 <div
                   key={gi}
@@ -731,6 +739,15 @@ export default function ConfirmationPage() {
 
                   {/* Main content */}
                   <div className="p-5 sm:p-6">
+                    {/* YOUR HEAT banner — pulses when this card matches the live checking-in heat */}
+                    {isMyHeat && (
+                      <div className="mb-3 rounded-lg bg-amber-500/20 border border-amber-500/50 px-4 py-2 animate-pulse">
+                        <p className="text-amber-400 font-bold text-sm uppercase tracking-wider text-center">
+                          🏁 Your Heat Is Now Checking In!
+                        </p>
+                      </div>
+                    )}
+
                     {/* Track badge — top: "Mega Starter 47" or "Blue Pro 55" */}
                     {trackName && (() => {
                       const raceType = /pro/i.test(group.product) ? "Pro"
@@ -1028,11 +1045,15 @@ function ExpressTrackStatus() {
                   <span className="text-white/70 text-sm">{t.delayFormatted}</span>
                 </div>
               </div>
-              {race && (
-                <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
-                  Checking In: Heat #{race.heatNumber} — {race.raceType}
-                </p>
-              )}
+              {race && (() => {
+                let time = "";
+                try { time = race.scheduledStart ? new Date(race.scheduledStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : ""; } catch { /* skip */ }
+                return (
+                  <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
+                    Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
+                  </p>
+                );
+              })()}
             </div>
           );
         })}
@@ -1076,11 +1097,15 @@ function RacerJourneySteps() {
                     <span className="text-white/70 text-xs">{t.delayFormatted}</span>
                   </div>
                 </div>
-                {race && (
-                  <p className="text-amber-400 text-[11px] font-bold mt-1 animate-pulse">
-                    Checking In: Heat #{race.heatNumber} — {race.raceType}
-                  </p>
-                )}
+                {race && (() => {
+                  let time = "";
+                  try { time = race.scheduledStart ? new Date(race.scheduledStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : ""; } catch { /* skip */ }
+                  return (
+                    <p className="text-amber-400 text-[11px] font-bold mt-1 animate-pulse">
+                      Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
+                    </p>
+                  );
+                })()}
               </div>
             );
           })}

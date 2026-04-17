@@ -32,7 +32,8 @@ export type CurrentRace = {
   trackName: string;
   raceType: string;      // "Pro", "Intermediate", "Starter"
   heatNumber: number;
-  calledAt: string;       // ISO
+  scheduledStart: string; // ISO — the heat's scheduled start time (matches booked heatStart)
+  calledAt: string;       // ISO — when BMI fired the SessionAboutToStart notification
   sessionId: number;
 };
 
