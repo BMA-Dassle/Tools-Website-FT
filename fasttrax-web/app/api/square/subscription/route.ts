@@ -78,28 +78,48 @@ async function saveCardToCustomer(params: {
   return { cardId: "", error: data.errors?.[0]?.detail || "Card save failed" };
 }
 
+/** Lee County Sales Tax — 6.5%. HeadPinz Fort Myers sits in Lee County. */
+const LEE_COUNTY_TAX_ID = "UBPQTR3W6ZKVRYFC7DXN2SJN";
+
 async function createDraftOrder(params: {
   locationId: string;
   itemVariationId: string;
   customerId: string;
+  /** Optional catalog Tax object ID to apply to the line item (e.g. Lee County) */
+  taxCatalogId?: string;
 }): Promise<{ orderId: string; error?: string }> {
+  // Local UID so the line item can reference the tax entry on the order.
+  const TAX_UID = "line-tax";
+  const body: Record<string, unknown> = {
+    idempotency_key: randomUUID(),
+    order: {
+      location_id: params.locationId,
+      state: "DRAFT",
+      customer_id: params.customerId,
+      line_items: [
+        {
+          catalog_object_id: params.itemVariationId,
+          quantity: "1",
+          ...(params.taxCatalogId ? { applied_taxes: [{ tax_uid: TAX_UID }] } : {}),
+        },
+      ],
+      ...(params.taxCatalogId
+        ? {
+            taxes: [
+              {
+                uid: TAX_UID,
+                catalog_object_id: params.taxCatalogId,
+                scope: "LINE_ITEM",
+              },
+            ],
+          }
+        : {}),
+    },
+  };
   const res = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",
     headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: randomUUID(),
-      order: {
-        location_id: params.locationId,
-        state: "DRAFT",
-        customer_id: params.customerId,
-        line_items: [
-          {
-            catalog_object_id: params.itemVariationId,
-            quantity: "1",
-          },
-        ],
-      },
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (data.order?.id) return { orderId: data.order.id };
@@ -190,11 +210,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: card.error, customerId: cust.customerId }, { status: 500 });
     }
 
-    // 3. Draft order (required for RELATIVE-priced plans)
+    // 3. Draft order (required for RELATIVE-priced plans). Lee County tax
+    //    auto-applied since HeadPinz Fort Myers is in Lee County.
     const draft = await createDraftOrder({
       locationId,
       itemVariationId,
       customerId: cust.customerId,
+      taxCatalogId: LEE_COUNTY_TAX_ID,
     });
     if (draft.error) {
       return NextResponse.json(

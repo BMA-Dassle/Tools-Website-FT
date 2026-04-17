@@ -69,7 +69,7 @@ function renderEmail(p: {
 
           <h3 style="margin:24px 0 12px 0;font-size:16px;color:#1a1a1a;border-bottom:1px solid #eee;padding-bottom:8px">What's Next</h3>
           <p style="margin:0 0 8px 0;line-height:1.5">Closer to the start date we'll send a ball-selection email — pick between the Brunswick T-Zone or Columbia White Dot, four colors each.</p>
-          <p style="margin:0 0 8px 0;line-height:1.5">Questions? Reply to this email or call <a href="tel:+12392888385" style="color:#fd5b56">(239) 288-8385</a>.</p>
+          <p style="margin:0 0 8px 0;line-height:1.5">Questions? Reply to this email or call <a href="tel:+12393022155" style="color:#fd5b56">(239) 302-2155</a>.</p>
 
           <p style="margin:32px 0 0 0;font-size:12px;color:#aaa;border-top:1px solid #eee;padding-top:16px">
             Subscription ID: ${escape(p.subscriptionId)}<br>

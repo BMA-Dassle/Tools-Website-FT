@@ -282,8 +282,8 @@ export default function SignupModal({ onClose }: Props) {
               <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
                 <p className="text-white font-semibold mb-1">Signing up: {bowler.firstName} {bowler.lastName}</p>
                 <p>
-                  Your card will be <strong className="text-white">charged $20 every week for 12 weeks</strong>, starting{" "}
-                  <strong className="text-white">Tuesday, May 26, 2026</strong>. Total: $240. You won&apos;t be charged anything today — the first
+                  Your card will be <strong className="text-white">charged $21.30 every week for 12 weeks</strong> ($20 + $1.30 Lee County sales tax),
+                  starting <strong className="text-white">Tuesday, May 26, 2026</strong>. Season total: $255.60. You won&apos;t be charged anything today — the first
                   charge runs on the start date. Cancel any time by contacting HeadPinz.
                 </p>
               </div>
