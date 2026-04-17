@@ -107,27 +107,62 @@ async function saveCardToCustomer(params: {
   return { cardId: "", error: data.errors?.[0]?.detail || "Card save failed" };
 }
 
+async function createDraftOrder(params: {
+  locationId: string;
+  itemVariationId: string;
+  customerId: string;
+}): Promise<{ orderId: string; error?: string }> {
+  const res = await fetch(`${SQUARE_BASE}/orders`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: randomUUID(),
+      order: {
+        location_id: params.locationId,
+        state: "DRAFT",
+        customer_id: params.customerId,
+        line_items: [
+          {
+            catalog_object_id: params.itemVariationId,
+            quantity: "1",
+          },
+        ],
+      },
+    }),
+  });
+  const data = await res.json();
+  if (data.order?.id) return { orderId: data.order.id };
+  console.error("[square/subscription] draft order failed:", data);
+  return { orderId: "", error: data.errors?.[0]?.detail || "Draft order failed" };
+}
+
 async function createSubscription(params: {
   locationId: string;
   planVariationId: string;
   customerId: string;
   cardId: string;
   startDate: string; // YYYY-MM-DD
+  /** Draft order ID used as the billing template for each cycle (RELATIVE pricing) */
+  orderTemplateId?: string;
 }): Promise<{ subscriptionId: string; status: string; error?: string }> {
-  // Plan has `eligible_item_ids` set — Square uses that item's price with
-  // RELATIVE pricing. No extra params needed on subscription create.
+  const body: Record<string, unknown> = {
+    idempotency_key: randomUUID(),
+    location_id: params.locationId,
+    plan_variation_id: params.planVariationId,
+    customer_id: params.customerId,
+    card_id: params.cardId,
+    start_date: params.startDate,
+    timezone: "America/New_York",
+  };
+  // For RELATIVE-priced plans, Square requires a phase with an order_template_id
+  // that references a draft order containing the eligible item variation.
+  if (params.orderTemplateId) {
+    body.phases = [{ ordinal: 0, order_template_id: params.orderTemplateId }];
+  }
   const res = await fetch(`${SQUARE_BASE}/subscriptions`, {
     method: "POST",
     headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: randomUUID(),
-      location_id: params.locationId,
-      plan_variation_id: params.planVariationId,
-      customer_id: params.customerId,
-      card_id: params.cardId,
-      start_date: params.startDate,
-      timezone: "America/New_York",
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (data.subscription?.id) {
@@ -154,6 +189,7 @@ export async function POST(req: NextRequest) {
       firstName,
       lastName,
       email,
+      itemVariationId,
     } = body as {
       cardToken?: string;
       verificationToken?: string;
@@ -164,6 +200,8 @@ export async function POST(req: NextRequest) {
       firstName?: string;
       lastName?: string;
       email?: string;
+      /** Required for RELATIVE-priced plans — catalog item variation to bill each cycle */
+      itemVariationId?: string;
     };
 
     if (!cardToken) return NextResponse.json({ error: "cardToken required" }, { status: 400 });
@@ -184,13 +222,31 @@ export async function POST(req: NextRequest) {
     });
     if (card.error) return NextResponse.json({ error: card.error, customerId: cust.customerId }, { status: 500 });
 
-    // 3. Create subscription
+    // 3. If plan uses RELATIVE pricing, create a draft order as the billing template
+    let orderTemplateId: string | undefined;
+    if (itemVariationId) {
+      const draft = await createDraftOrder({
+        locationId,
+        itemVariationId,
+        customerId: cust.customerId,
+      });
+      if (draft.error) {
+        return NextResponse.json(
+          { error: `Draft order: ${draft.error}`, customerId: cust.customerId, cardId: card.cardId },
+          { status: 500 },
+        );
+      }
+      orderTemplateId = draft.orderId;
+    }
+
+    // 4. Create subscription
     const sub = await createSubscription({
       locationId,
       planVariationId,
       customerId: cust.customerId,
       cardId: card.cardId,
       startDate,
+      orderTemplateId,
     });
     if (sub.error) {
       return NextResponse.json(

@@ -9,6 +9,7 @@ import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/Car
  */
 
 const PLAN_VARIATION_ID = "VGQZDMULELNJNVLC3SUSY2R3"; // "Have A Ball" subscription plan variation
+const ITEM_VARIATION_ID = "HO5ZCRAWE35NMYDHSP2RXMM2"; // "Have A Ball" catalog item variation ($20)
 const LOCATION_ID = "TXBSQN0FEKQ11"; // HeadPinz Fort Myers Square location
 const START_DATE = "2026-05-26";
 
@@ -91,6 +92,7 @@ export default function SignupModal({ onClose }: Props) {
         body: JSON.stringify({
           cardToken: tok.token,
           planVariationId: PLAN_VARIATION_ID,
+          itemVariationId: ITEM_VARIATION_ID,
           locationId: LOCATION_ID,
           startDate: START_DATE,
           phone: bowler.phone,
