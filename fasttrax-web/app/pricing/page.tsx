@@ -75,7 +75,7 @@ export default function PricingPage() {
                   $4.99
                 </p>
                 <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5", marginBottom: "16px" }}>
-                  Required for all racers. Valid for one year. Includes your head/neck protector, a free race during your birthday month, and access to your stats in the FastTrax Racing App.
+                  Required for all racers. Valid for one year. Includes your head/neck protector and access to your stats in the FastTrax Racing App.
                 </p>
                 <BookingLink
                   href="/book/race"
