@@ -57,7 +57,7 @@ export default function HaveABallPage() {
             League
           </h1>
           <p className="font-body text-white/80 max-w-xl" style={{ fontSize: "clamp(16px, 2.5vw, 20px)" }}>
-            12 weeks of bowling. Weekly prize fund. And yes — <span style={{ color: gold }}>you take home a new ball</span>.
+            12 weeks of bowling. And yes — <span style={{ color: gold }}>you take home a new ball</span>.
           </p>
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
             <button
@@ -106,7 +106,7 @@ export default function HaveABallPage() {
               className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 6vw, 56px)", letterSpacing: "-0.5px" }}
             >
-              Roll Up, Win Prizes,
+              Roll Up,
               <br />
               <span style={{ color: coral }}>Keep the Ball.</span>
             </h2>
@@ -117,11 +117,14 @@ export default function HaveABallPage() {
               Register solo and enter a team name or who you&apos;re bowling with — we&apos;ll group you. Doubles or trios (trios preferred).
             </Card>
             <Card title="Bowl 12 Weeks" num="2" accent={gold}>
-              Show up every Tuesday at 6:30 PM. Weekly fee is $20, auto-billed to your card. $14.50 lineage, $5.50 into the prize fund.
+              Show up every Tuesday at 6:30 PM. Weekly fee is $20, auto-billed to your card. $14.50 lineage, $5.50 toward your ball.
             </Card>
             <Card title="Take the Ball" num="3" accent="#00E2E5">
               At the end of the season, pick your new bowling ball — Brunswick T-Zone or Columbia White Dot, four colors.
             </Card>
+          </div>
+          <div className="text-center mt-10">
+            <CtaButton onClick={() => setOpen(true)}>Reserve Your Spot</CtaButton>
           </div>
         </div>
       </section>
@@ -135,7 +138,7 @@ export default function HaveABallPage() {
           </h2>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
             <Row label="Lineage (lanes + shoes)" value="$14.50" />
-            <Row label="Prize Fund" value="$5.50" />
+            <Row label="Toward Your Ball" value="$5.50" />
             <div className="border-t border-white/10 px-5 py-3 flex justify-between bg-white/[0.05]">
               <span className="text-white font-bold">Weekly Total</span>
               <span className="text-white font-bold">$20.00</span>
@@ -148,6 +151,9 @@ export default function HaveABallPage() {
           <p className="text-white/40 text-xs mt-4 text-center">
             Your card is charged $20 automatically each week starting May 26, 2026. No charge today.
           </p>
+          <div className="text-center mt-8">
+            <CtaButton onClick={() => setOpen(true)}>Reserve My Spot · $20/week</CtaButton>
+          </div>
         </div>
       </section>
 
@@ -164,19 +170,20 @@ export default function HaveABallPage() {
               of the most popular recreational balls on the planet. Four color choices each. Ball selection opens after the league starts — we&apos;ll email
               you the picker.
             </p>
-            <ul className="text-white/60 text-sm space-y-1">
+            <ul className="text-white/60 text-sm space-y-1 mb-6">
               <li>· Brunswick T-Zone — classic polyester, smooth roll</li>
               <li>· Columbia White Dot — softer coverstock, more hook potential</li>
               <li>· Four colors per model (details coming soon)</li>
             </ul>
+            <CtaButton onClick={() => setOpen(true)}>Sign Up Now</CtaButton>
           </div>
           <div
             className="relative rounded-2xl overflow-hidden border border-white/10"
             style={{ aspectRatio: "4/3" }}
           >
             <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg"
-              alt="Bowler at HeadPinz Fort Myers"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg"
+              alt="Bowlers at HeadPinz Fort Myers"
               fill
               className="object-cover"
               sizes="(max-width: 768px) 100vw, 50vw"
@@ -214,6 +221,9 @@ export default function HaveABallPage() {
             </div>
           ))}
         </div>
+        <div className="text-center mt-8">
+          <CtaButton onClick={() => setOpen(true)}>Join the League</CtaButton>
+        </div>
       </section>
 
       {/* FAQ */}
@@ -221,7 +231,7 @@ export default function HaveABallPage() {
         title="Have-A-Ball · FAQ"
         items={[
           { q: "When does the league start?", a: "Tuesday, May 26, 2026 at 6:30 PM. The season runs 12 consecutive weeks." },
-          { q: "How much does it cost?", a: "$20 per person per week for 12 weeks ($240 total). $14.50 lineage, $5.50 prize fund. Your card is auto-charged each week — no big upfront payment." },
+          { q: "How much does it cost?", a: "$20 per person per week for 12 weeks ($240 total). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment." },
           { q: "Do I really get to keep the ball?", a: "Yes! Every bowler takes home a new Brunswick T-Zone or Columbia White Dot at the end of the season. Four colors to choose from when the league starts." },
           { q: "Can I join with a friend or as a team?", a: "Yes. Everyone signs up individually, but enter a team name or who you're bowling with so we can group you. Format is doubles or trios — trios preferred." },
           { q: "I'm a beginner — is this league for me?", a: "Absolutely. Have-A-Ball is built for bowlers at every skill level, including first-timers. It's more about fun than scores." },
@@ -287,5 +297,17 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-white/70">{label}</span>
       <span className="text-white font-bold">{value}</span>
     </div>
+  );
+}
+
+function CtaButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center font-body font-bold uppercase tracking-widest text-white px-8 py-4 rounded-full transition-all hover:scale-105"
+      style={{ backgroundColor: "#fd5b56", boxShadow: "0 0 24px rgba(253,91,86,0.45)", fontSize: "14px" }}
+    >
+      {children}
+    </button>
   );
 }
