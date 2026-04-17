@@ -265,7 +265,7 @@ export default function SignupModal({ onClose }: Props) {
                   onChange={(e) => setBowler({ ...bowler, smsOptIn: e.target.checked })}
                   className="mt-1"
                 />
-                <span>Text me league updates (lane assignments, weekly reminders, ball pickup info).</span>
+                <span>Text me league updates.</span>
               </label>
               <button
                 type="submit"

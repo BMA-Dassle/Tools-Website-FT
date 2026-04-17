@@ -26,9 +26,15 @@ function sqHeaders() {
   };
 }
 
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "").replace(/^1/, "");
-  return digits.length === 10 ? `+1${digits}` : `+${digits}`;
+/**
+ * Normalize to E.164 US format (+1XXXXXXXXXX).
+ * Returns null if the input isn't a recognizable US phone (10 digits, or 11 starting with 1).
+ */
+function normalizePhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
 }
 
 async function findOrCreateCustomer(params: {
@@ -38,18 +44,34 @@ async function findOrCreateCustomer(params: {
   email?: string;
 }): Promise<{ customerId: string; error?: string }> {
   const formattedPhone = normalizePhone(params.phone);
+  if (!formattedPhone) {
+    return {
+      customerId: "",
+      error: "Please enter a valid 10-digit US phone number (e.g. (239) 555-1212).",
+    };
+  }
 
-  const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      query: { filter: { phone_number: { exact: formattedPhone } } },
-    }),
-  });
-  const searchData = await searchRes.json();
+  // Search is best-effort — phone format Square accepts here can vary.
+  // If it errors, log and fall through to create.
+  let existingCustomer: { id?: string; given_name?: string; family_name?: string; email_address?: string } | null = null;
+  try {
+    const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        query: { filter: { phone_number: { exact: formattedPhone } } },
+      }),
+    });
+    const searchData = await searchRes.json();
+    if (searchData.customers && searchData.customers.length > 0) {
+      existingCustomer = searchData.customers[0];
+    }
+  } catch (err) {
+    console.error("[square/subscription] customer search error:", err);
+  }
 
-  if (searchData.customers && searchData.customers.length > 0) {
-    const existing = searchData.customers[0];
+  if (existingCustomer && existingCustomer.id) {
+    const existing = existingCustomer;
     // Backfill missing name/email if we have new info
     const needsUpdate =
       (!existing.given_name && params.firstName) ||
@@ -66,7 +88,7 @@ async function findOrCreateCustomer(params: {
         }),
       }).catch(() => { /* best-effort */ });
     }
-    return { customerId: existing.id };
+    return { customerId: existing.id! };
   }
 
   const createRes = await fetch(`${SQUARE_BASE}/customers`, {
