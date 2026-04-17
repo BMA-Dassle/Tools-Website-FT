@@ -15,7 +15,7 @@ export default function HaveABallPage() {
   return (
     <div style={{ backgroundColor: bg }}>
       {/* HERO */}
-      <section className="relative overflow-hidden" style={{ minHeight: "70vh" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "80vh" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
           alt="HeadPinz Fort Myers bowling lanes"
@@ -33,8 +33,8 @@ export default function HaveABallPage() {
           }}
         />
         <div
-          className="relative z-10 flex flex-col items-center justify-center text-center px-4"
-          style={{ minHeight: "70vh" }}
+          className="relative z-10 flex flex-col items-center justify-center text-center px-4 pt-40 pb-12"
+          style={{ minHeight: "80vh" }}
         >
           <p
             className="font-body text-white uppercase tracking-[0.3em] mb-3 px-4 py-1.5 rounded-full"
@@ -243,8 +243,8 @@ export default function HaveABallPage() {
       {/* FINAL CTA */}
       <section className="relative overflow-hidden" style={{ minHeight: "360px" }}>
         <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
-          alt="HeadPinz bowling lanes"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/have-a-ball-hero.jpg"
+          alt="Bowling at HeadPinz Fort Myers"
           fill
           className="object-cover"
           sizes="100vw"
