@@ -27,6 +27,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${hp}/fort-myers/attractions`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.8 },
     { url: `${hp}/fort-myers/birthdays`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },
     { url: `${hp}/fort-myers/group-events`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },
+    { url: `${hp}/fort-myers/have-a-ball`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.75 },
     { url: `${hp}/naples`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.9 },
     { url: `${hp}/naples/attractions`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.8 },
     { url: `${hp}/naples/birthdays`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },

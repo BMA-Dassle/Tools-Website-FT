@@ -54,6 +54,8 @@ export default function HeadPinzNav() {
     { label: "Specials", href: `${currentLoc.href}#specials` },
     { label: "Nemo's", href: "/menu" },
     { label: "Leagues", href: currentLoc.leagues },
+    // Have-A-Ball league is Fort Myers only
+    ...(currentLoc.key === "fort-myers" ? [{ label: "Have-A-Ball", href: "/fort-myers/have-a-ball" }] : []),
     { label: "Rewards", href: "/rewards" },
     { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
     { label: "Waiver", href: currentLoc.waiver },
