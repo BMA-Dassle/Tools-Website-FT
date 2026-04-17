@@ -493,8 +493,16 @@ function TimeSlotPicker({
   const displayDate = formatDate(date);
   const selectedProposal = selectedIdx !== null ? proposals[selectedIdx] : null;
   const selectedBlock = selectedProposal?.blocks?.[0]?.block ?? null;
-  const blockPrice = selectedBlock?.prices?.find(p => p.depositKind === 0)?.amount ?? product.price;
-  const lineTotal = product.bookingMode === "per-person" ? blockPrice * quantity : blockPrice;
+  // Dayplanner is called with the group's quantity, so the price returned is
+  // already the TOTAL for that many people — do not multiply by quantity again.
+  // Fallback (no selected block yet): use catalog price × qty as an estimate.
+  const blockTotalPrice = selectedBlock?.prices?.find(p => p.depositKind === 0)?.amount;
+  const perPersonPrice = blockTotalPrice != null && quantity > 0
+    ? blockTotalPrice / quantity
+    : product.price;
+  const lineTotal = blockTotalPrice != null
+    ? blockTotalPrice
+    : (product.bookingMode === "per-person" ? product.price * quantity : product.price);
 
   return (
     <div className="space-y-6">
@@ -586,7 +594,7 @@ function TimeSlotPicker({
                   <p className="text-white font-bold">{selectedBlock.name} · {formatTime(selectedBlock.start)}</p>
                   <p className="text-sm font-semibold mt-0.5" style={{ color }}>
                     {product.bookingMode === "per-person"
-                      ? <>${blockPrice.toFixed(2)} x {quantity} = <span className="text-lg">${lineTotal.toFixed(2)}</span></>
+                      ? <>${perPersonPrice.toFixed(2)} x {quantity} = <span className="text-lg">${lineTotal.toFixed(2)}</span></>
                       : <span className="text-lg">${lineTotal.toFixed(2)}</span>
                     }
                   </p>
