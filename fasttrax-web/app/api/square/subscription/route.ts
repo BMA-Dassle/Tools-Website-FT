@@ -28,25 +28,18 @@ function sqHeaders() {
   };
 }
 
-/**
- * Normalize to E.164 US format if we can. Returns undefined if input isn't a
- * recognizable US phone — Square will just not have a phone on the customer
- * rather than rejecting the whole signup.
- */
-function normalizePhone(phone?: string): string | undefined {
-  if (!phone) return undefined;
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return undefined;
-}
-
 async function createCustomer(params: {
-  phone?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
+  /** Optional reference note — we store the user's phone in our own Redis record, not Square. */
+  note?: string;
 }): Promise<{ customerId: string; error?: string }> {
+  // Intentionally NOT sending phone_number to Square — some user-entered phones
+  // fail Square's "valid phone number" validator even when they pass our 10-digit
+  // format check (fake/test numbers, invalid area codes). We keep the real phone
+  // in our signup record + email. Square only needs email for subscription
+  // billing reminders.
   const res = await fetch(`${SQUARE_BASE}/customers`, {
     method: "POST",
     headers: sqHeaders(),
@@ -55,7 +48,7 @@ async function createCustomer(params: {
       given_name: params.firstName || undefined,
       family_name: params.lastName || undefined,
       email_address: params.email || undefined,
-      phone_number: normalizePhone(params.phone),
+      note: params.note || undefined,
     }),
   });
   const data = await res.json();
@@ -182,8 +175,9 @@ export async function POST(req: NextRequest) {
     if (!startDate) return NextResponse.json({ error: "startDate required" }, { status: 400 });
     if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
-    // 1. Customer
-    const cust = await createCustomer({ phone, firstName, lastName, email });
+    // 1. Customer (phone stored in our Redis signup record, not Square)
+    const note = phone ? `Have-A-Ball signup. Phone: ${phone}` : "Have-A-Ball signup";
+    const cust = await createCustomer({ firstName, lastName, email, note });
     if (cust.error) return NextResponse.json({ error: cust.error }, { status: 500 });
 
     // 2. Save card
