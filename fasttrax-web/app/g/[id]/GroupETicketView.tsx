@@ -174,7 +174,7 @@ export default function GroupETicketView({ group, initial }: Props) {
             return (
               <div key={key}>
                 {!s.onSession && !isPast ? (
-                  <InvalidCard />
+                  <InvalidCard details={m} />
                 ) : isPast ? (
                   <PastCard details={m} />
                 ) : s.checkingIn ? (

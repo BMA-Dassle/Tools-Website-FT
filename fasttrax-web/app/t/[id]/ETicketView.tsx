@@ -91,7 +91,7 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
         </div>
 
         {!onSession && !isPast ? (
-          <InvalidCard />
+          <InvalidCard details={ticket} />
         ) : isPast ? (
           <PastCard details={ticket} />
         ) : checkingIn ? (
