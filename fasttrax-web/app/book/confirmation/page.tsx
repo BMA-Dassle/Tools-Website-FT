@@ -739,9 +739,9 @@ export default function ConfirmationPage() {
 
                   {/* Main content */}
                   <div className="p-5 sm:p-6">
-                    {/* YOUR HEAT banner — pulses when this card matches the live checking-in heat */}
+                    {/* YOUR HEAT banner — shows when this card matches the live checking-in heat */}
                     {isMyHeat && (
-                      <div className="mb-3 rounded-lg bg-amber-500/20 border border-amber-500/50 px-4 py-2 animate-pulse">
+                      <div className="mb-3 rounded-lg bg-amber-500/20 border border-amber-500/50 px-4 py-2">
                         <p className="text-amber-400 font-bold text-sm uppercase tracking-wider text-center">
                           🏁 Your Heat Is Now Checking In!
                         </p>
@@ -1041,7 +1041,7 @@ function ExpressTrackStatus() {
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
                 <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                  <span className={`w-2 h-2 rounded-full ${dotColor(t.status)}`} />
                   <span className="text-white/70 text-sm">{t.delayFormatted}</span>
                 </div>
               </div>
@@ -1049,8 +1049,8 @@ function ExpressTrackStatus() {
                 let time = "";
                 try { time = race.scheduledStart ? new Date(race.scheduledStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : ""; } catch { /* skip */ }
                 return (
-                  <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
-                    Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
+                  <p className="text-amber-400 text-xs font-bold mt-1">
+                    Now Checking In: {race.raceType} #{race.heatNumber}{time ? ` · ${time}` : ""}
                   </p>
                 );
               })()}
@@ -1093,7 +1093,7 @@ function RacerJourneySteps() {
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>{t.trackName}</span>
                   <div className="flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)}`} />
                     <span className="text-white/70 text-xs">{t.delayFormatted}</span>
                   </div>
                 </div>
@@ -1101,8 +1101,8 @@ function RacerJourneySteps() {
                   let time = "";
                   try { time = race.scheduledStart ? new Date(race.scheduledStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : ""; } catch { /* skip */ }
                   return (
-                    <p className="text-amber-400 text-[11px] font-bold mt-1 animate-pulse">
-                      Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
+                    <p className="text-amber-400 text-[11px] font-bold mt-1">
+                      Now Checking In: {race.raceType} #{race.heatNumber}{time ? ` · ${time}` : ""}
                     </p>
                   );
                 })()}
