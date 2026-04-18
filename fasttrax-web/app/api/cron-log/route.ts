@@ -65,7 +65,8 @@ export async function GET(req: NextRequest) {
   }
   const summary: Record<string, { fires: number; lastFiredAt: string | null; totalSent: number; autonomous: number }> = {};
   for (const [k, list] of byCron) {
-    const autonomous = list.filter((e) => e.invoker === "vercel-cron").length;
+    // Vercel sends invoker="vercel-cron/1.0" (with version suffix), so match by prefix
+    const autonomous = list.filter((e) => (e.invoker || "").startsWith("vercel-cron")).length;
     const sent = list.reduce((a, b) => a + (b.sent || 0), 0);
     summary[k] = {
       fires: list.length,
