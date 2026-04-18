@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/checkin-alerts",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/pre-race-tickets",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

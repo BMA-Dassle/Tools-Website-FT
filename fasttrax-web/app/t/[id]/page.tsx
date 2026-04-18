@@ -41,7 +41,9 @@ async function isCurrentlyCheckingIn(ticket: RaceTicket): Promise<boolean> {
       mega?: { sessionId?: number } | null;
     };
     const key = ticket.track.toLowerCase() as "blue" | "red" | "mega";
-    return data?.[key]?.sessionId === ticket.sessionId;
+    // sessionId may be string (sessions-list endpoint) or number (current-races).
+    // Compare as strings.
+    return String(data?.[key]?.sessionId ?? "") === String(ticket.sessionId ?? "");
   } catch {
     return false;
   }

@@ -8,7 +8,8 @@ import redis from "@/lib/redis";
  */
 
 export interface RaceTicket {
-  sessionId: number;
+  /** Pandora returns sessionId as string on the sessions-list endpoint and as number on the current-races endpoint — accept both. */
+  sessionId: number | string;
   locationId: string;
   personId: number | string;
   firstName: string;

@@ -63,7 +63,9 @@ export default function ETicketView({ ticket, initialCheckingIn }: Props) {
         if (!res.ok) return;
         const d = await res.json();
         const key = ticket.track.toLowerCase() as "blue" | "red" | "mega";
-        const matches = d?.[key]?.sessionId === ticket.sessionId;
+        // sessionId can be string or number depending on which Pandora endpoint
+        // populated the ticket. Normalize for comparison.
+        const matches = String(d?.[key]?.sessionId ?? "") === String(ticket.sessionId ?? "");
         if (!cancelled) setCheckingIn(matches);
       } catch { /* silent */ }
     }
