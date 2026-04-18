@@ -6,6 +6,7 @@ import type { RaceTicket } from "@/lib/race-tickets";
 interface Props {
   ticket: RaceTicket;
   initialCheckingIn: boolean;
+  initialOnSession: boolean;
 }
 
 const TRACK_COLORS: Record<string, string> = {
@@ -45,33 +46,50 @@ function minutesUntil(iso: string): number {
   return Math.round((then - now) / 60_000);
 }
 
-export default function ETicketView({ ticket, initialCheckingIn }: Props) {
+export default function ETicketView({ ticket, initialCheckingIn, initialOnSession }: Props) {
   const [checkingIn, setCheckingIn] = useState(initialCheckingIn);
+  const [onSession, setOnSession] = useState(initialOnSession);
   const mins = minutesUntil(ticket.scheduledStart);
 
   // Past state: heat ran > 30 min ago
   const isPast = mins < -30;
 
-  // Poll Pandora every 20s so the view flips automatically if the user
-  // leaves the page open from pre-race into check-in.
+  // Poll Pandora every 20s: races-current (for checking-in flip) AND
+  // session-participants (to catch staff-removed racers).
   useEffect(() => {
     if (isPast) return;
     let cancelled = false;
+
     async function poll() {
       try {
-        const res = await fetch("/api/pandora/races-current", { cache: "no-store" });
-        if (!res.ok) return;
-        const d = await res.json();
-        const key = ticket.track.toLowerCase() as "blue" | "red" | "mega";
-        // sessionId can be string or number depending on which Pandora endpoint
-        // populated the ticket. Normalize for comparison.
-        const matches = String(d?.[key]?.sessionId ?? "") === String(ticket.sessionId ?? "");
-        if (!cancelled) setCheckingIn(matches);
+        const [currentRes, partRes] = await Promise.all([
+          fetch("/api/pandora/races-current", { cache: "no-store" }),
+          fetch(
+            `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}`,
+            { cache: "no-store" },
+          ),
+        ]);
+        if (currentRes.ok) {
+          const d = await currentRes.json();
+          const key = ticket.track.toLowerCase() as "blue" | "red" | "mega";
+          const matches = String(d?.[key]?.sessionId ?? "") === String(ticket.sessionId ?? "");
+          if (!cancelled) setCheckingIn(matches);
+        }
+        if (partRes.ok) {
+          const d = await partRes.json();
+          const list = Array.isArray(d?.data) ? d.data : [];
+          // Ignore empty responses (Pandora 500s look empty to us) — don't flip valid→invalid on a spurious zero.
+          if (list.length > 0) {
+            const target = String(ticket.personId);
+            const stillOn = list.some((p: { personId: string | number }) => String(p.personId) === target);
+            if (!cancelled) setOnSession(stillOn);
+          }
+        }
       } catch { /* silent */ }
     }
     const id = setInterval(poll, 20_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [ticket.sessionId, ticket.track, isPast]);
+  }, [ticket.sessionId, ticket.track, ticket.locationId, ticket.personId, isPast]);
 
   const trackColor = TRACK_COLORS[ticket.track.toLowerCase()] || "#00E2E5";
   const badgeText = `${ticket.track} ${ticket.raceType} ${ticket.heatNumber}`;
@@ -93,7 +111,7 @@ export default function ETicketView({ ticket, initialCheckingIn }: Props) {
           <p className="text-white/60 text-sm font-semibold">E-Ticket</p>
         </div>
 
-        {isPast ? <PastCard ticket={ticket} /> : checkingIn ? (
+        {!onSession && !isPast ? <InvalidCard /> : isPast ? <PastCard ticket={ticket} /> : checkingIn ? (
           <CheckingInCard ticket={ticket} fullName={fullName} trackColor={trackColor} badgeText={badgeText} />
         ) : (
           <PreRaceCard ticket={ticket} fullName={fullName} trackColor={trackColor} badgeText={badgeText} mins={mins} />
@@ -232,6 +250,23 @@ function PreRaceCard({
           <p className="text-[#00E2E5]/50 font-bold text-xs mt-4">{ticket.resNumber}</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function InvalidCard() {
+  return (
+    <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-8 text-center">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-4" style={{ backgroundColor: "rgba(156,163,175,0.15)", border: "1px solid rgba(156,163,175,0.35)" }}>
+        <svg className="w-7 h-7 text-white/50" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </div>
+      <p className="text-white font-display uppercase tracking-wider text-xl mb-2">Ticket No Longer Valid</p>
+      <p className="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">
+        You&apos;re no longer assigned to this session. If you think this is a mistake, please see the Karting counter at FastTrax.
+      </p>
+      <p className="text-white/30 text-xs mt-4">Need help? Call (239) 204-4227</p>
     </div>
   );
 }

@@ -167,9 +167,10 @@ function formatTimeET(iso: string): string {
   }
 }
 
-function buildSmsBody(track: string, raceType: string, scheduledStart: string, shortUrl: string): string {
+function buildSmsBody(sessionName: string, firstName: string, scheduledStart: string, shortUrl: string): string {
   const time = formatTimeET(scheduledStart);
-  return `FastTrax: Your ${raceType} race on the ${track} Track is at ${time}. Arrive 30 min early. Your e-ticket: ${shortUrl}`;
+  // sessionName arrives pre-formatted from Pandora like "54 - Blue Pro"
+  return `FastTrax ${firstName}: Session ${sessionName} at ${time}. Arrive 30 min early. E-ticket: ${shortUrl}`;
 }
 
 function buildEmailHtml(firstName: string, track: string, raceType: string, scheduledStart: string, shortUrl: string): string {
@@ -279,7 +280,7 @@ export async function GET(req: NextRequest) {
 
             let ok = false;
             if (channel.channel === "sms") {
-              ok = await sendSms(channel.phone, buildSmsBody(trackDisplay, session.type, session.scheduledStart, shortUrl));
+              ok = await sendSms(channel.phone, buildSmsBody(session.name, p.firstName || "Racer", session.scheduledStart, shortUrl));
             } else {
               ok = await sendEmail(
                 channel.email,

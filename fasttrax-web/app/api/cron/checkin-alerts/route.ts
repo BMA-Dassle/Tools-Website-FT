@@ -123,9 +123,10 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
   }
 }
 
-function buildSmsBody(race: CurrentRace, shortUrl: string): string {
-  // Target <= 160 chars
-  return `FastTrax: Now checking in ${race.trackName} ${race.raceType} Race ${race.heatNumber}. Head to 1st Floor Karting now. Your e-ticket: ${shortUrl}`;
+function buildSmsBody(race: CurrentRace, firstName: string, shortUrl: string): string {
+  // Target <= 160 chars. Session label = "53 - Blue Pro" format.
+  const sessionLabel = `${race.heatNumber} - ${race.trackName} ${race.raceType}`;
+  return `FastTrax ${firstName}: Now checking in — Session ${sessionLabel}. Head to 1st Floor Karting now. E-ticket: ${shortUrl}`;
 }
 
 function buildEmailHtml(race: CurrentRace, firstName: string, shortUrl: string): string {
@@ -253,7 +254,7 @@ export async function GET(req: NextRequest) {
 
           let ok = false;
           if (channel.channel === "sms") {
-            ok = await sendSms(channel.phone, buildSmsBody(race, shortUrl));
+            ok = await sendSms(channel.phone, buildSmsBody(race, p.firstName || "Racer", shortUrl));
           } else {
             ok = await sendEmail(
               channel.email,
