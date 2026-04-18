@@ -11,10 +11,22 @@ interface PageProps {
 export async function generateMetadata({ params }: PageProps) {
   const { id } = await params;
   const ticket = await getRaceTicket(id);
-  if (!ticket) return { title: "E-Ticket — FastTrax" };
+  if (!ticket) {
+    return {
+      title: "E-Ticket — FastTrax",
+      description: "Your FastTrax e-ticket",
+      openGraph: { title: "E-Ticket — FastTrax", description: "Your FastTrax e-ticket", siteName: "FastTrax E-Ticket" },
+      twitter: { card: "summary" as const, title: "E-Ticket — FastTrax", description: "Your FastTrax e-ticket" },
+    };
+  }
+  const title = `${ticket.firstName}'s ${ticket.raceType} Race — FastTrax E-Ticket`;
+  const description = `Heat ${ticket.heatNumber} · ${ticket.track} ${ticket.raceType} · Show this screen at check-in.`;
   return {
-    title: `${ticket.firstName}'s ${ticket.raceType} Race — FastTrax E-Ticket`,
+    title,
+    description,
     robots: { index: false, follow: false },
+    openGraph: { title, description, siteName: "FastTrax E-Ticket", type: "website" as const },
+    twitter: { card: "summary" as const, title, description },
   };
 }
 

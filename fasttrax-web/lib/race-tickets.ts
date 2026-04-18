@@ -68,3 +68,54 @@ export async function getRaceTicket(id: string): Promise<RaceTicket | null> {
     return null;
   }
 }
+
+/**
+ * Group ticket — one per (canonical phone) when a phone number maps to 2+
+ * racers in the current cron window. Renders at /g/{id}.
+ */
+export interface GroupTicketMember {
+  sessionId: number | string;
+  personId: number | string;
+  firstName: string;
+  lastName: string;
+  scheduledStart: string;
+  track: string;        // "Blue" | "Red" | "Mega"
+  raceType: string;
+  heatNumber: number;
+}
+
+export interface GroupTicket {
+  id: string;
+  phone: string;        // canonical +1...
+  locationId: string;
+  members: GroupTicketMember[];
+  createdAt: string;    // ISO
+}
+
+function groupKey(id: string) {
+  return `group:${id}`;
+}
+
+/**
+ * Create a new group ticket. No byPhone lookup — each cron run that needs a
+ * group ticket gets a fresh id, and short-url dedup lets the old one expire.
+ * Returns the new id.
+ */
+export async function upsertGroupTicket(
+  input: Omit<GroupTicket, "id" | "createdAt">,
+): Promise<string> {
+  const id = newTicketId();
+  const record: GroupTicket = { ...input, id, createdAt: new Date().toISOString() };
+  await redis.set(groupKey(id), JSON.stringify(record), "EX", TICKET_TTL);
+  return id;
+}
+
+export async function getGroupTicket(id: string): Promise<GroupTicket | null> {
+  try {
+    const raw = await redis.get(groupKey(id));
+    if (!raw) return null;
+    return JSON.parse(raw) as GroupTicket;
+  } catch {
+    return null;
+  }
+}

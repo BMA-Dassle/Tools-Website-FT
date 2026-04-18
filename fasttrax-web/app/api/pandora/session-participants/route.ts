@@ -9,13 +9,13 @@ import { NextRequest, NextResponse } from "next/server";
  *
  * Response: { success, message, data: [{ personId, firstName, lastName, email, phone }] }
  *
- * Server-side 30s in-memory cache keyed by sessionId so the check-in cron can
- * hit the same session a few times within a minute without thrashing Pandora.
+ * No caching — rosters change in real time as racers are added/removed, and
+ * stale cache was causing the pre-race cron to miss fresh participants and
+ * send single-ticket SMS where a grouped one was correct.
  */
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const CACHE_TTL_MS = 30_000;
 
 const ALLOWED_LOCATIONS = new Set([
   "LAB52GY480CJF", // FastTrax
@@ -27,8 +27,6 @@ const ALLOWED_LOCATIONS = new Set([
 export type { Participant } from "@/lib/participant-contact";
 import type { Participant } from "@/lib/participant-contact";
 
-const cache: Map<string, { data: Participant[]; expiry: number }> = new Map();
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const locationId = searchParams.get("locationId");
@@ -39,15 +37,6 @@ export async function GET(req: NextRequest) {
   }
   if (!sessionId || !/^\d+$/.test(sessionId)) {
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
-  }
-
-  const key = `${locationId}:${sessionId}`;
-  const hit = cache.get(key);
-  if (hit && Date.now() < hit.expiry) {
-    return NextResponse.json(
-      { data: hit.data },
-      { headers: { "X-Cache": "HIT", "Cache-Control": "no-store" } },
-    );
   }
 
   try {
@@ -70,17 +59,15 @@ export async function GET(req: NextRequest) {
     }
     const json = await res.json();
     const data: Participant[] = Array.isArray(json.data) ? json.data : [];
-    cache.set(key, { data, expiry: Date.now() + CACHE_TTL_MS });
     return NextResponse.json(
       { data },
-      { headers: { "X-Cache": "MISS", "Cache-Control": "no-store" } },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {
     console.error("[session-participants] fetch error:", err);
-    const stale = cache.get(key)?.data ?? [];
     return NextResponse.json(
-      { data: stale, error: "fetch failed" },
-      { headers: { "X-Cache": "ERROR", "Cache-Control": "no-store" } },
+      { data: [], error: "fetch failed" },
+      { headers: { "Cache-Control": "no-store" } },
     );
   }
 }

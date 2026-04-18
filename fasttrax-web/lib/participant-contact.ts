@@ -41,11 +41,37 @@ export type ContactChannel =
   | { channel: "none"; reason: string };
 
 /**
+ * Pandora placeholder personIds — unassigned-seat stand-ins that carry bogus
+ * contact info (e.g. phone "2222222222"). Never notify these.
+ */
+const PLACEHOLDER_PERSON_IDS: ReadonlySet<string> = new Set([
+  "17750277", // DRIVER 1 PLACEHOLDER
+]);
+
+function isPlaceholderPerson(p: Participant): boolean {
+  return PLACEHOLDER_PERSON_IDS.has(String(p.personId));
+}
+
+/**
  * Pick the best phone number for SMS. Prefer mobilePhone (guaranteed SMS-capable),
  * fall back to homePhone, then legacy `phone`. Returns null if none are present.
  */
 export function pickPhone(p: Participant): string | null {
   return p.mobilePhone || p.homePhone || p.phone || null;
+}
+
+/**
+ * Canonicalize a US phone number to E.164 (`+1XXXXXXXXXX`). Returns null for
+ * anything that isn't a 10-digit US number or an 11-digit number starting with 1.
+ * Used as both the SMS `to` value and the grouping key when bucketing family
+ * members who share a phone.
+ */
+export function canonicalizePhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
 }
 
 /**
@@ -60,26 +86,32 @@ export function pickPhone(p: Participant): string | null {
  *   4. Otherwise skip.
  */
 export function pickContactChannel(p: Participant): ContactChannel {
-  const phone = pickPhone(p);
+  if (isPlaceholderPerson(p)) {
+    return { channel: "none", reason: "placeholder person" };
+  }
 
-  // 1. SMS path — explicit opt-in + any phone (prefer mobile)
-  if (p.acceptSmsCommercial === true && phone) {
+  const phone = canonicalizePhone(pickPhone(p));
+
+  // SMS eligibility. Consent is applied at the PHONE level by the cron, not
+  // here: shared-phone family bookings where ANY member consented still get
+  // the grouped SMS covering everyone. Here we just say "SMS is possible".
+  if (phone) {
     return { channel: "sms", phone };
   }
 
-  // 2. Legacy fallback: consent flag absent + any phone present.
-  //    Remove once every Pandora response guarantees the opt-in field.
-  if (p.acceptSmsCommercial === undefined && phone) {
-    return { channel: "sms", phone };
-  }
-
-  // 3. Email path — allow when commercial consent is true OR not provided
-  //    (transition period). Once Pandora's response is stable, tighten to
-  //    `=== true` only.
-  const emailAllowed = p.acceptMailCommercial !== false;
-  if (emailAllowed && p.email) {
+  // Email fallback when no phone is on file.
+  if (p.email) {
     return { channel: "email", email: p.email };
   }
 
-  return { channel: "none", reason: "no consented channel" };
+  return { channel: "none", reason: "no contact info" };
+}
+
+/**
+ * True when this participant has not opted out of SMS (flag true or absent).
+ * Used at the phone-bucket level in the race-alert crons — if ANY member at
+ * the phone returns true, the household gets the grouped SMS.
+ */
+export function hasSmsConsent(p: Participant): boolean {
+  return p.acceptSmsCommercial !== false;
 }

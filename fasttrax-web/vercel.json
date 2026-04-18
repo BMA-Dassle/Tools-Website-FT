@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/cron/pre-race-tickets",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

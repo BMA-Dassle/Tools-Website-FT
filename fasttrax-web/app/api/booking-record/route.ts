@@ -33,7 +33,34 @@ function requireAuth(req: NextRequest): NextResponse | null {
  *   bookingrecord:res:{resNumber} — Reverse index → billId
  *   bookingrecord:person:{personId} — SET of billIds for this person
  *   bookingrecord:date:{YYYY-MM-DD} — SET of billIds for this date
+ *   bookingrecord:express:session:{sessionId} — SET of billIds for this Pandora
+ *     session (only populated when fastLane===true and racer has a sessionId).
+ *     Used by the checkin-alerts cron to notify express-lane holders who bypass
+ *     Pandora's Guest Services check-in.
  */
+
+type RecordRacer = { sessionId?: string | number | null } & Record<string, unknown>;
+
+/**
+ * When fastLane===true, index each racer's sessionId → billId so the checkin
+ * cron can reach express-lane holders who aren't on Pandora's session roster.
+ */
+async function writeExpressSessionIndex(
+  record: { fastLane?: boolean; racers?: RecordRacer[] },
+  billId: string,
+): Promise<void> {
+  if (record.fastLane !== true || !Array.isArray(record.racers)) return;
+  const seen = new Set<string>();
+  for (const racer of record.racers) {
+    const sid = racer.sessionId;
+    if (sid === undefined || sid === null || sid === "") continue;
+    const key = `bookingrecord:express:session:${sid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await redis.sadd(key, billId);
+    await redis.expire(key, TTL);
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -68,6 +95,8 @@ export async function POST(req: NextRequest) {
       await redis.expire(`bookingrecord:person:${data.primaryPersonId}`, TTL);
     }
 
+    await writeExpressSessionIndex(data, billId);
+
     console.log(`[booking-record] saved billId=${billId} racers=${data.racers?.length || 0}`);
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -100,6 +129,8 @@ export async function PATCH(req: NextRequest) {
     if (updates.reservationNumber) {
       await redis.set(`bookingrecord:res:${updates.reservationNumber}`, billId, "EX", TTL);
     }
+
+    await writeExpressSessionIndex(updated, billId);
 
     console.log(`[booking-record] updated billId=${billId} fields=${Object.keys(updates).join(",")}`);
     return NextResponse.json({ ok: true });

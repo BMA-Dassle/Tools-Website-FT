@@ -46,6 +46,79 @@ function formatDate(iso: string) {
   return parseLocal(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
 
+/**
+ * Resolve the Pandora `sessionId` for each racer by fetching today's sessions
+ * per track and matching on (track + heatStart minute). Returns racers with
+ * `sessionId` attached when a match is found; leaves others untouched.
+ *
+ * Used to power the `bookingrecord:express:session:{sessionId}` reverse index
+ * so the checkin-alerts cron can reach express-lane holders who bypass
+ * Pandora's Guest Services check-in.
+ */
+async function attachSessionIds<T extends { track?: string | null; heatStart?: string; sessionId?: string | number | null }>(
+  racers: T[],
+): Promise<T[]> {
+  if (!Array.isArray(racers) || racers.length === 0) return racers;
+
+  const tracks = new Set(racers.map(r => r.track).filter((t): t is string => !!t));
+  if (tracks.size === 0) return racers;
+
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  const startDate = `${ymd}T00:00:00`;
+  const endDate = `${ymd}T23:59:59`;
+  const locationId = "LAB52GY480CJF";
+
+  // Normalize to ET wall-clock minute. Booking records may store heatStart as
+  // naked local ET (no tz) while Pandora sessions-list returns UTC Z — converting
+  // both to ET wall-clock lets them compare.
+  const minuteKey = (iso: string): string => {
+    if (!/Z$|[+-]\d{2}:\d{2}$/.test(iso)) return iso.slice(0, 16);
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso.slice(0, 16);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(d);
+    const get = (type: string) => parts.find(p => p.type === type)?.value || "";
+    return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+  };
+  const resourceFor = (track: string): string | null => {
+    const t = track.toLowerCase();
+    if (t === "blue") return "Blue Track";
+    if (t === "red") return "Red Track";
+    if (t === "mega") return "Mega";
+    return null;
+  };
+
+  const lookup = new Map<string, string>(); // `${track}|${minute}` → sessionId
+  await Promise.all(Array.from(tracks).map(async (track) => {
+    const resourceName = resourceFor(track);
+    if (!resourceName) return;
+    try {
+      const qs = new URLSearchParams({ locationId, resourceName, startDate, endDate });
+      const res = await fetch(`/api/pandora/sessions?${qs.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const sessions: { sessionId: string; scheduledStart: string }[] = Array.isArray(data?.data) ? data.data : [];
+      for (const s of sessions) {
+        if (!s?.scheduledStart || !s?.sessionId) continue;
+        lookup.set(`${track}|${minuteKey(s.scheduledStart)}`, s.sessionId);
+      }
+    } catch { /* graceful: leave racers without sessionId */ }
+  }));
+
+  return racers.map(r => {
+    if (r.sessionId) return r;
+    if (!r.track || !r.heatStart) return r;
+    const sid = lookup.get(`${r.track}|${minuteKey(r.heatStart)}`);
+    return sid ? { ...r, sessionId: sid } : r;
+  });
+}
+
 interface Schedule {
   start: string;
   stop?: string;
@@ -396,11 +469,14 @@ export default function ConfirmationPage() {
                   body: JSON.stringify({ resNumber: primaryRes.resNumber, racers: bookingRecord.racers }),
                 }).then(async (schedRes) => {
                   if (schedRes.ok) {
+                    // Resolve Pandora sessionId per racer so the checkin cron can
+                    // reach express-lane holders via bookingrecord:express:session:*
+                    const racersWithSession = await attachSessionIds(bookingRecord.racers);
                     // Mark FastLane based on waiver check result
                     fetch("/api/booking-record", {
                       method: "PATCH",
                       headers: { "content-type": "application/json", "x-api-key": BOOKING_API_KEY },
-                      body: JSON.stringify({ billId: id, fastLane: allWaiversValid }),
+                      body: JSON.stringify({ billId: id, fastLane: allWaiversValid, racers: racersWithSession }),
                     }).catch(() => {});
                   }
                 }).catch(() => {});

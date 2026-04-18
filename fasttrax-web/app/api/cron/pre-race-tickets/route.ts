@@ -1,15 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
-import { upsertRaceTicket, type RaceTicket } from "@/lib/race-tickets";
-import { pickContactChannel, pickPhone, type Participant } from "@/lib/participant-contact";
+import {
+  upsertRaceTicket,
+  upsertGroupTicket,
+  type RaceTicket,
+  type GroupTicketMember,
+} from "@/lib/race-tickets";
+import {
+  canonicalizePhone,
+  hasSmsConsent,
+  pickContactChannel,
+  pickPhone,
+  type Participant,
+} from "@/lib/participant-contact";
 
 /**
  * Flow A — Pre-race e-ticket cron.
  *
  * Every 10 min, looks at all sessions starting in the next ~2 hours on the
  * operating tracks for today (Blue + Red on normal days, Mega only on Tuesdays),
- * and sends each participant an e-ticket via SMS (priority) or email (fallback).
+ * and sends each participant an e-ticket.
+ *
+ * Participants sharing a phone number (family bookings) are bucketed so they
+ * receive ONE SMS pointing to a combined /g/{id} page. Email recipients stay
+ * one-per-person.
  *
  * ?dryRun=1  — log who would receive but don't send
  */
@@ -23,7 +38,7 @@ const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const SHORT_TTL = 60 * 60 * 24 * 90; // 90 days
 const DEDUP_TTL = 60 * 60 * 24;       // 24 hours
 const WINDOW_AHEAD_MS = 2 * 60 * 60 * 1000; // 2 hours
-const WINDOW_SKEW_BEHIND_MS = 5 * 60 * 1000; // include heats that started <5 min ago (cron overlap grace)
+const WINDOW_SKEW_BEHIND_MS = 5 * 60 * 1000; // include heats that started <5 min ago
 
 interface PandoraSession {
   sessionId: string;
@@ -33,14 +48,19 @@ interface PandoraSession {
   heatNumber: number;
 }
 
-/** "Blue Track" | "Red Track" | "Mega" → display name used in copy + ticket */
+/** One fetched participant tied to the session it belongs to. */
+interface Candidate {
+  session: PandoraSession;
+  trackDisplay: string;
+  participant: Participant;
+}
+
 function resourceToTrackDisplay(r: string): string {
   if (r.toLowerCase().startsWith("blue")) return "Blue";
   if (r.toLowerCase().startsWith("red")) return "Red";
   return "Mega";
 }
 
-/** Resources to poll based on today's weekday in ET. Tuesday = Mega only. */
 function activeResourcesForToday(): string[] {
   const weekday = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -50,14 +70,13 @@ function activeResourcesForToday(): string[] {
   return ["Blue Track", "Red Track"];
 }
 
-/** Day start + day end in ET, in the YYYY-MM-DDTHH:MM:SS format the endpoint uses. */
 function todayETRange(): { startDate: string; endDate: string } {
   const ymd = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date()); // YYYY-MM-DD
+  }).format(new Date());
   return {
     startDate: `${ymd}T00:00:00`,
     endDate: `${ymd}T23:59:59`,
@@ -99,13 +118,7 @@ async function sendSms(to: string, body: string): Promise<boolean> {
     console.error("[pre-race] VOX_API_KEY missing");
     return false;
   }
-  const digits = to.replace(/\D/g, "");
-  const toFormatted =
-    digits.length === 10
-      ? `+1${digits}`
-      : digits.length === 11 && digits.startsWith("1")
-        ? `+${digits}`
-        : null;
+  const toFormatted = canonicalizePhone(to);
   if (!toFormatted) return false;
 
   try {
@@ -167,22 +180,61 @@ function formatTimeET(iso: string): string {
   }
 }
 
-function buildSmsBody(sessionName: string, firstName: string, scheduledStart: string, shortUrl: string): string {
-  const time = formatTimeET(scheduledStart);
-  // sessionName arrives pre-formatted from Pandora like "54 - Blue Pro"
-  return (
-    `FastTrax ${firstName}: Session ${sessionName} at ${time}.\n` +
-    `\n` +
-    `PLEASE READ — IMPORTANT RACE INFORMATION\n` +
-    `\n` +
-    `The time listed on your ticket is your CHECK-IN CUT-OFF TIME. Please arrive at the karting check-in desk on the first floor at least five minutes prior to avoid losing your spot. If you miss check-in, we may not be able to reschedule your race, and missed races are non-refundable.\n` +
-    `\n` +
-    `Please allow approximately 30 minutes from check-in to race time for briefing, helmet fitting, and preparation. Lockers are located in the briefing rooms. NO LOOSE ITEMS are permitted on the track.\n` +
-    `\n` +
-    `This is live racing, and yellow flags or track conditions may cause delays. We will announce upcoming races.\n` +
-    `\n` +
-    `E-ticket: ${shortUrl}`
+const IMPORTANT_INFO = [
+  `PLEASE READ — IMPORTANT RACE INFO`,
+  ``,
+  `The time on your ticket is your CHECK-IN CUT-OFF. Arrive at the Karting check-in desk on the 1st Floor at least 5 min early. Miss check-in and we may not be able to reschedule — missed races are non-refundable.`,
+  ``,
+  `Allow ~30 min from check-in to race time for briefing, helmet fitting, and prep. Lockers are in the briefing rooms. NO LOOSE ITEMS on the track.`,
+  ``,
+  `This is live racing — yellow flags or track conditions may cause delays. We'll announce upcoming races.`,
+].join("\n");
+
+function racerLabel(m: { firstName: string; lastName: string }): string {
+  return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
+}
+
+function buildSingleSmsBody(sessionName: string, member: GroupTicketMember, shortUrl: string): string {
+  return [
+    `FastTrax e-ticket`,
+    `Session ${sessionName} at ${formatTimeET(member.scheduledStart)}`,
+    racerLabel(member),
+    ``,
+    shortUrl,
+    ``,
+    IMPORTANT_INFO,
+  ].join("\n");
+}
+
+function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): string {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
+  const bySession = new Map<string, GroupTicketMember[]>();
+  for (const m of sorted) {
+    const k = String(m.sessionId);
+    if (!bySession.has(k)) bySession.set(k, []);
+    bySession.get(k)!.push(m);
+  }
+  const lines: string[] = [`FastTrax e-tickets`];
+  const sessionBlocks: string[][] = [];
+  for (const group of bySession.values()) {
+    const first = group[0];
+    const heatName = `${first.heatNumber} - ${first.track} ${first.raceType}`;
+    const block = [`Session ${heatName} at ${formatTimeET(first.scheduledStart)}`];
+    for (const m of group) block.push(`- ${racerLabel(m)}`);
+    sessionBlocks.push(block);
+  }
+  // Blank line separating each session block
+  for (let i = 0; i < sessionBlocks.length; i++) {
+    if (i > 0) lines.push(``);
+    lines.push(...sessionBlocks[i]);
+  }
+  lines.push(``);
+  lines.push(shortUrl);
+  lines.push(``);
+  lines.push(IMPORTANT_INFO);
+  return lines.join("\n");
 }
 
 function buildEmailHtml(firstName: string, track: string, raceType: string, scheduledStart: string, shortUrl: string): string {
@@ -210,117 +262,234 @@ function buildEmailHtml(firstName: string, track: string, raceType: string, sche
 </body></html>`;
 }
 
+function memberFromCandidate(c: Candidate): GroupTicketMember {
+  return {
+    sessionId: c.session.sessionId,
+    personId: c.participant.personId,
+    firstName: c.participant.firstName || "Racer",
+    lastName: c.participant.lastName || "",
+    scheduledStart: c.session.scheduledStart,
+    track: c.trackDisplay,
+    raceType: c.session.type,
+    heatNumber: c.session.heatNumber,
+  };
+}
+
+function dedupKey(c: Candidate): string {
+  return `alert:pre-race:${c.session.sessionId}:${c.participant.personId}`;
+}
+
 export async function GET(req: NextRequest) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();
   const windowStart = Date.now() - WINDOW_SKEW_BEHIND_MS;
   const windowEnd = Date.now() + WINDOW_AHEAD_MS;
 
-  const perTrack: {
-    track: string;
-    sessionsInWindow: number;
-    sent: number;
-    skipped: number;
-    errors: number;
-  }[] = [];
+  let sent = 0;
+  let skipped = 0;
+  let errors = 0;
+  let groupedSmsSends = 0;
+  let singleSmsSends = 0;
+  let emailSends = 0;
 
   try {
     const resources = activeResourcesForToday();
 
+    // 1. Collect every (session, participant) pair in the window across all resources.
+    const candidates: Candidate[] = [];
     for (const resourceName of resources) {
       const trackDisplay = resourceToTrackDisplay(resourceName);
       const sessions = await fetchSessions(resourceName);
-
-      // Filter to the [now-5min, now+2h] window
       const upcoming = sessions.filter((s) => {
         const ms = new Date(s.scheduledStart).getTime();
         return !isNaN(ms) && ms >= windowStart && ms <= windowEnd;
       });
-
-      let sent = 0;
-      let skipped = 0;
-      let errors = 0;
-
       for (const session of upcoming) {
-        const sid = session.sessionId;
         let participants: Participant[] = [];
         try {
-          participants = await fetchParticipants(sid);
+          participants = await fetchParticipants(session.sessionId);
         } catch {
           continue;
         }
-        if (participants.length === 0) continue;
-
         for (const p of participants) {
-          const personKey = `alert:pre-race:${sid}:${p.personId}`;
-          if (!dryRun && (await redis.get(personKey))) {
-            skipped++;
-            continue;
-          }
-
-          // Decide channel first — respects acceptSmsCommercial / acceptMailCommercial
-          const channel = pickContactChannel(p);
-          if (channel.channel === "none") {
-            skipped++;
-            continue;
-          }
-
-          const ticket: RaceTicket = {
-            sessionId: sid,
-            locationId: FASTTRAX_LOCATION_ID,
-            personId: p.personId,
-            firstName: p.firstName || "Racer",
-            lastName: p.lastName || "",
-            email: p.email || undefined,
-            phone: pickPhone(p) || undefined,
-            scheduledStart: session.scheduledStart,
-            track: trackDisplay,
-            raceType: session.type,
-            heatNumber: session.heatNumber,
-          };
-
-          if (dryRun) {
-            console.log(
-              `[pre-race DRY] would ${channel.channel} ${p.firstName} ${p.lastName} session=${sid} (${session.name} @ ${session.scheduledStart})`,
-            );
-            continue;
-          }
-
-          try {
-            const ticketId = await upsertRaceTicket(ticket);
-            const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
-
-            let ok = false;
-            if (channel.channel === "sms") {
-              ok = await sendSms(channel.phone, buildSmsBody(session.name, p.firstName || "Racer", session.scheduledStart, shortUrl));
-            } else {
-              ok = await sendEmail(
-                channel.email,
-                `Your FastTrax e-ticket · ${session.type} Race on ${trackDisplay} Track`,
-                buildEmailHtml(p.firstName || "Racer", trackDisplay, session.type, session.scheduledStart, shortUrl),
-              );
-            }
-
-            if (ok) {
-              await redis.set(personKey, "1", "EX", DEDUP_TTL);
-              sent++;
-            } else {
-              errors++;
-            }
-          } catch (err) {
-            console.error(`[pre-race] error for personId=${p.personId}:`, err);
-            errors++;
-          }
+          candidates.push({ session, trackDisplay, participant: p });
         }
       }
+    }
 
-      perTrack.push({
-        track: resourceName,
-        sessionsInWindow: upcoming.length,
-        sent,
-        skipped,
-        errors,
-      });
+    // 2. Split into fresh SMS candidates (eligible for phone-grouping) and everyone else.
+    //    "Everyone else" = email path, no-channel, or already-dedup'd SMS.
+    const freshSmsByPhone = new Map<string, Candidate[]>();
+    const allByPhone = new Map<string, Candidate[]>(); // for enriching group tickets with already-sent members
+    const emailCandidates: Candidate[] = [];
+
+    for (const c of candidates) {
+      const channel = pickContactChannel(c.participant);
+      if (channel.channel === "none") {
+        skipped++;
+        continue;
+      }
+      if (channel.channel === "email") {
+        emailCandidates.push(c);
+        continue;
+      }
+      // SMS — channel.phone is already canonical
+      const phone = channel.phone;
+      if (!allByPhone.has(phone)) allByPhone.set(phone, []);
+      allByPhone.get(phone)!.push(c);
+
+      const alreadySent = !dryRun && (await redis.get(dedupKey(c)));
+      if (alreadySent) {
+        skipped++;
+        continue;
+      }
+      if (!freshSmsByPhone.has(phone)) freshSmsByPhone.set(phone, []);
+      freshSmsByPhone.get(phone)!.push(c);
+    }
+
+    // 3. For each phone with at least one fresh SMS candidate, decide single vs group.
+    for (const [phone, fresh] of freshSmsByPhone) {
+      const all = allByPhone.get(phone) || fresh;
+
+      // Phone-level consent gate: skip this phone only if EVERY person on it
+      // has explicitly opted out. One consenting family member covers an
+      // opted-out one on the same line.
+      const householdConsented = all.some((c) => hasSmsConsent(c.participant));
+      if (!householdConsented) {
+        skipped += fresh.length;
+        continue;
+      }
+
+      if (all.length === 1) {
+        // Single-racer single-phone — existing path unchanged.
+        const c = fresh[0];
+        const ticket: RaceTicket = {
+          sessionId: c.session.sessionId,
+          locationId: FASTTRAX_LOCATION_ID,
+          personId: c.participant.personId,
+          firstName: c.participant.firstName || "Racer",
+          lastName: c.participant.lastName || "",
+          email: c.participant.email || undefined,
+          phone: pickPhone(c.participant) || undefined,
+          scheduledStart: c.session.scheduledStart,
+          track: c.trackDisplay,
+          raceType: c.session.type,
+          heatNumber: c.session.heatNumber,
+        };
+
+        if (dryRun) {
+          console.log(
+            `[pre-race DRY] would sms ${phone} (1 racer: ${c.participant.firstName} ${c.participant.lastName}, session=${c.session.sessionId})`,
+          );
+          continue;
+        }
+
+        try {
+          const ticketId = await upsertRaceTicket(ticket);
+          const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
+          const ok = await sendSms(
+            phone,
+            buildSingleSmsBody(c.session.name, memberFromCandidate(c), shortUrl),
+          );
+          if (ok) {
+            await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
+            sent++;
+            singleSmsSends++;
+          } else {
+            errors++;
+          }
+        } catch (err) {
+          console.error(`[pre-race] single-sms error for phone=${phone}:`, err);
+          errors++;
+        }
+        continue;
+      }
+
+      // Multiple racers share this phone → send ONE grouped SMS + /g/{id} page.
+      // Page shows the full picture (all heats today), so include already-sent members too.
+      const members: GroupTicketMember[] = all.map(memberFromCandidate);
+
+      if (dryRun) {
+        const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
+        console.log(`[pre-race DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length})`);
+        continue;
+      }
+
+      try {
+        const groupId = await upsertGroupTicket({
+          phone,
+          locationId: FASTTRAX_LOCATION_ID,
+          members,
+        });
+        const shortUrl = await shortenUrl(`${BASE}/g/${groupId}`);
+        const ok = await sendSms(phone, buildGroupSmsBody(members, shortUrl));
+        if (ok) {
+          // Set dedup keys only for FRESH members — already-sent members keep their existing keys.
+          for (const c of fresh) {
+            await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
+          }
+          sent += fresh.length;
+          groupedSmsSends++;
+        } else {
+          errors += fresh.length;
+        }
+      } catch (err) {
+        console.error(`[pre-race] group-sms error for phone=${phone}:`, err);
+        errors += fresh.length;
+      }
+    }
+
+    // 4. Email path — one per person, no grouping. Dedup key is shared with SMS path.
+    for (const c of emailCandidates) {
+      const key = dedupKey(c);
+      if (!dryRun && (await redis.get(key))) {
+        skipped++;
+        continue;
+      }
+
+      const channel = pickContactChannel(c.participant);
+      if (channel.channel !== "email") continue; // sanity
+
+      const ticket: RaceTicket = {
+        sessionId: c.session.sessionId,
+        locationId: FASTTRAX_LOCATION_ID,
+        personId: c.participant.personId,
+        firstName: c.participant.firstName || "Racer",
+        lastName: c.participant.lastName || "",
+        email: c.participant.email || undefined,
+        phone: pickPhone(c.participant) || undefined,
+        scheduledStart: c.session.scheduledStart,
+        track: c.trackDisplay,
+        raceType: c.session.type,
+        heatNumber: c.session.heatNumber,
+      };
+
+      if (dryRun) {
+        console.log(
+          `[pre-race DRY] would email ${channel.email} (${c.participant.firstName} ${c.participant.lastName}, session=${c.session.sessionId})`,
+        );
+        continue;
+      }
+
+      try {
+        const ticketId = await upsertRaceTicket(ticket);
+        const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
+        const ok = await sendEmail(
+          channel.email,
+          `Your FastTrax e-ticket · ${c.session.type} Race on ${c.trackDisplay} Track`,
+          buildEmailHtml(c.participant.firstName || "Racer", c.trackDisplay, c.session.type, c.session.scheduledStart, shortUrl),
+        );
+        if (ok) {
+          await redis.set(key, "1", "EX", DEDUP_TTL);
+          sent++;
+          emailSends++;
+        } else {
+          errors++;
+        }
+      } catch (err) {
+        console.error(`[pre-race] email error for personId=${c.participant.personId}:`, err);
+        errors++;
+      }
     }
 
     return NextResponse.json({
@@ -330,12 +499,18 @@ export async function GET(req: NextRequest) {
       windowStart: new Date(windowStart).toISOString(),
       windowEnd: new Date(windowEnd).toISOString(),
       activeResources: resources,
-      perTrack,
+      candidates: candidates.length,
+      sent,
+      skipped,
+      errors,
+      groupedSmsSends,
+      singleSmsSends,
+      emailSends,
     });
   } catch (err) {
     console.error("[pre-race] error:", err);
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "cron error", perTrack },
+      { ok: false, error: err instanceof Error ? err.message : "cron error", sent, skipped, errors },
       { status: 500 },
     );
   }
