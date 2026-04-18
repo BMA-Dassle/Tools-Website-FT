@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { RaceTicket } from "@/lib/race-tickets";
+import TrackStatus from "@/components/home/TrackStatus";
 import {
   CheckingInCard,
   InvalidCard,
@@ -81,6 +82,10 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
         ) : (
           <PreRaceCard details={ticket} />
         )}
+
+        <div className="mt-6">
+          <TrackStatus />
+        </div>
 
         <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>

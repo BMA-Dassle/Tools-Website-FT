@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
+import TrackStatus from "@/components/home/TrackStatus";
 import {
   CheckingInCard,
   InvalidCard,
@@ -157,7 +158,11 @@ export default function GroupETicketView({ group, initial }: Props) {
           })}
         </div>
 
-        <div className="mt-8 text-center">
+        <div className="mt-8">
+          <TrackStatus />
+        </div>
+
+        <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>
           <p className="text-white/20 text-[11px] mt-1">Show this screen at check-in · No paper ticket needed</p>
         </div>
