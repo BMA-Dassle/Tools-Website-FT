@@ -219,13 +219,12 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
 function buildSingleSmsBody(race: CurrentRace, member: GroupTicketMember, shortUrl: string): string {
   return [
     `FastTrax · NOW CHECKING IN`,
+    `Have your e-ticket ready: ${shortUrl}`,
     ``,
     raceHeader(race),
     racerLabel(member),
     ``,
     `Head to Karting · 1st Floor NOW`,
-    ``,
-    shortUrl,
   ].join("\n");
 }
 
@@ -239,23 +238,18 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     if (!bySession.has(k)) bySession.set(k, []);
     bySession.get(k)!.push(m);
   }
-  const lines: string[] = [`FastTrax · NOW CHECKING IN`];
-  const blocks: string[][] = [];
+  const lines: string[] = [
+    `FastTrax · NOW CHECKING IN`,
+    `Have your e-tickets ready: ${shortUrl}`,
+  ];
   for (const group of bySession.values()) {
     const first = group[0];
-    const block = [`${first.heatNumber} - ${first.track} ${first.raceType} · ${timeET(first.scheduledStart)}`];
-    for (const m of group) block.push(`- ${racerLabel(m)}`);
-    blocks.push(block);
-  }
-  // Blank line between session blocks + before the call-to-action + url
-  for (let i = 0; i < blocks.length; i++) {
     lines.push(``);
-    lines.push(...blocks[i]);
+    lines.push(`${first.heatNumber} - ${first.track} ${first.raceType} · ${timeET(first.scheduledStart)}`);
+    for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
   lines.push(``);
   lines.push(`Head to Karting · 1st Floor NOW`);
-  lines.push(``);
-  lines.push(shortUrl);
   return lines.join("\n");
 }
 
