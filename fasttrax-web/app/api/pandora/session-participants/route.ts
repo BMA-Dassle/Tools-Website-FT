@@ -7,7 +7,15 @@ import { NextRequest, NextResponse } from "next/server";
  *
  * Upstream: GET /bmi/session/{locationID}/{sessionId}/participants
  *
- * Response: { success, message, data: [{ personId, firstName, lastName, email, phone }] }
+ * Response: { success, message, data: [{ personId, firstName, lastName, email, phone, paid }] }
+ *
+ * Upstream filters always ON:
+ *   excludeRemoved=true — skip participants with F_PAR_STATE = 5
+ *   excludeUnpaid=true  — skip participants whose linked bill is unpaid / missing
+ *
+ * Downstream consumers (e-ticket page + both SMS crons) must never notify
+ * someone whose booking is unpaid or who has been pulled from a session, so
+ * applying both at the source avoids every caller reimplementing the filter.
  *
  * No caching — rosters change in real time as racers are added/removed, and
  * stale cache was causing the pre-race cron to miss fresh participants and
@@ -40,8 +48,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const upstreamQs = new URLSearchParams({ excludeRemoved: "true", excludeUnpaid: "true" }).toString();
     const res = await fetch(
-      `${PANDORA_URL}/bmi/session/${locationId}/${sessionId}/participants`,
+      `${PANDORA_URL}/bmi/session/${locationId}/${sessionId}/participants?${upstreamQs}`,
       {
         headers: {
           Authorization: `Bearer ${API_KEY}`,
