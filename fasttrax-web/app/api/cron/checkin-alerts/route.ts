@@ -219,6 +219,7 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
 function buildSingleSmsBody(race: CurrentRace, member: GroupTicketMember, shortUrl: string): string {
   return [
     `FastTrax · NOW CHECKING IN`,
+    ``,
     `Have your e-ticket ready: ${shortUrl}`,
     ``,
     raceHeader(race),
@@ -240,6 +241,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
   }
   const lines: string[] = [
     `FastTrax · NOW CHECKING IN`,
+    ``,
     `Have your e-tickets ready: ${shortUrl}`,
   ];
   for (const group of bySession.values()) {
