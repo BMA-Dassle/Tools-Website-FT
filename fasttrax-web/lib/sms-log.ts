@@ -70,3 +70,56 @@ export async function readSmsLog(
   }
   return out;
 }
+
+/**
+ * Cron-run log — one entry per cron invocation, regardless of whether any SMS
+ * went out. Answers "did the cron actually fire?" when the SMS log is quiet.
+ *
+ * Redis: cron:log:{YYYY-MM-DD} LIST (LPUSH newest-first), 90-day TTL, capped
+ * at 10k entries/day.
+ */
+
+export interface CronRunEntry {
+  ts: string;
+  cron: "pre-race" | "checkin";
+  dryRun: boolean;
+  elapsedMs: number;
+  /** Caller IP / source (approximate — useful to distinguish Vercel cron vs manual curl) */
+  invoker?: string;
+  candidates: number;
+  sent: number;
+  skipped: number;
+  errors: number;
+  groupedSmsSends?: number;
+  singleSmsSends?: number;
+  emailSends?: number;
+  /** For checkin: which sessions were in /races-current during this fire */
+  sessions?: { track: string; sessionId: number; reason?: string }[];
+  /** Free-form error if the cron itself threw */
+  fatalError?: string;
+}
+
+export async function logCronRun(entry: CronRunEntry): Promise<void> {
+  try {
+    const key = dayKey(entry.ts);
+    // reuse the sms:log day computation — different list name
+    const cronKey = key.replace("sms:log:", "cron:log:");
+    await redis.lpush(cronKey, JSON.stringify(entry));
+    await redis.ltrim(cronKey, 0, MAX_PER_DAY - 1);
+    await redis.expire(cronKey, LOG_TTL);
+  } catch (err) {
+    console.error("[cron-log] write failed:", err);
+  }
+}
+
+export async function readCronLog(
+  dateYmdEt: string,
+  { limit = 200, offset = 0 }: { limit?: number; offset?: number } = {},
+): Promise<CronRunEntry[]> {
+  const raw = await redis.lrange(`cron:log:${dateYmdEt}`, offset, offset + limit - 1);
+  const out: CronRunEntry[] = [];
+  for (const s of raw) {
+    try { out.push(JSON.parse(s) as CronRunEntry); } catch { /* skip */ }
+  }
+  return out;
+}

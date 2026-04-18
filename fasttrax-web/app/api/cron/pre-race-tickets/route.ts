@@ -14,7 +14,7 @@ import {
   pickPhone,
   type Participant,
 } from "@/lib/participant-contact";
-import { logSms } from "@/lib/sms-log";
+import { logSms, logCronRun } from "@/lib/sms-log";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -520,6 +520,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    await logCronRun({
+      ts: new Date().toISOString(),
+      cron: "pre-race",
+      dryRun,
+      elapsedMs: Date.now() - started,
+      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      candidates: candidates.length,
+      sent,
+      skipped,
+      errors,
+      groupedSmsSends,
+      singleSmsSends,
+      emailSends,
+    });
+
     return NextResponse.json({
       ok: true,
       dryRun,
@@ -537,6 +552,18 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("[pre-race] error:", err);
+    await logCronRun({
+      ts: new Date().toISOString(),
+      cron: "pre-race",
+      dryRun,
+      elapsedMs: Date.now() - started,
+      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      candidates: 0,
+      sent,
+      skipped,
+      errors,
+      fatalError: err instanceof Error ? err.message : "cron error",
+    });
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "cron error", sent, skipped, errors },
       { status: 500 },
