@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
 import { upsertRaceTicket, type RaceTicket } from "@/lib/race-tickets";
-import { pickContactChannel, type Participant } from "@/lib/participant-contact";
+import { pickContactChannel, pickPhone, type Participant } from "@/lib/participant-contact";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -235,7 +235,7 @@ export async function GET(req: NextRequest) {
           firstName: p.firstName || "Racer",
           lastName: p.lastName || "",
           email: p.email || undefined,
-          phone: channel.channel === "sms" ? channel.phone : (p.mobilePhone || p.homePhone || p.phone || undefined),
+          phone: pickPhone(p) || undefined,
           scheduledStart: race.scheduledStart,
           track: trackFromName(race.trackName)?.display || race.trackName,
           raceType: race.raceType,

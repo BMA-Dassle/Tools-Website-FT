@@ -41,26 +41,36 @@ export type ContactChannel =
   | { channel: "none"; reason: string };
 
 /**
+ * Pick the best phone number for SMS. Prefer mobilePhone (guaranteed SMS-capable),
+ * fall back to homePhone, then legacy `phone`. Returns null if none are present.
+ */
+export function pickPhone(p: Participant): string | null {
+  return p.mobilePhone || p.homePhone || p.phone || null;
+}
+
+/**
  * Decide which channel to use for a participant.
  *
- * SMS gating is `acceptSmsCommercial === true` AND they have a mobilePhone.
- * Email is a fallback, gated by `acceptMailCommercial` when present.
- *
- * During the schema transition we fall back to the legacy `phone` field if
- * the opt-in flags are absent. (Pandora can't retroactively know an old
- * record's consent state — treat undefined as "unknown, skip SMS" going
- * forward once we're sure every response has the new fields.)
+ * Priority:
+ *   1. SMS if `acceptSmsCommercial === true` AND any phone is present
+ *      (mobile preferred, home secondary, legacy last).
+ *   2. SMS fallback during schema transition — if consent flags are absent
+ *      but a phone is present, still send (legacy behavior).
+ *   3. Email if `acceptMailCommercial !== false` AND email is present.
+ *   4. Otherwise skip.
  */
 export function pickContactChannel(p: Participant): ContactChannel {
-  // 1. SMS path — explicit opt-in + mobile number
-  if (p.acceptSmsCommercial === true && p.mobilePhone) {
-    return { channel: "sms", phone: p.mobilePhone };
+  const phone = pickPhone(p);
+
+  // 1. SMS path — explicit opt-in + any phone (prefer mobile)
+  if (p.acceptSmsCommercial === true && phone) {
+    return { channel: "sms", phone };
   }
 
-  // 2. Legacy fallback: opt-in field absent + plain phone field present.
-  //    Remove this branch once Pandora confirms every record has the new shape.
-  if (p.acceptSmsCommercial === undefined && !p.mobilePhone && p.phone) {
-    return { channel: "sms", phone: p.phone };
+  // 2. Legacy fallback: consent flag absent + any phone present.
+  //    Remove once every Pandora response guarantees the opt-in field.
+  if (p.acceptSmsCommercial === undefined && phone) {
+    return { channel: "sms", phone };
   }
 
   // 3. Email path — allow when commercial consent is true OR not provided
