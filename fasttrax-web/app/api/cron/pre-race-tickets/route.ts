@@ -170,7 +170,19 @@ function formatTimeET(iso: string): string {
 function buildSmsBody(sessionName: string, firstName: string, scheduledStart: string, shortUrl: string): string {
   const time = formatTimeET(scheduledStart);
   // sessionName arrives pre-formatted from Pandora like "54 - Blue Pro"
-  return `FastTrax ${firstName}: Session ${sessionName} at ${time}. Arrive 30 min early. E-ticket: ${shortUrl}`;
+  return (
+    `FastTrax ${firstName}: Session ${sessionName} at ${time}.\n` +
+    `\n` +
+    `PLEASE READ — IMPORTANT RACE INFORMATION\n` +
+    `\n` +
+    `The time listed on your ticket is your CHECK-IN CUT-OFF TIME. Please arrive at the karting check-in desk on the first floor at least five minutes prior to avoid losing your spot. If you miss check-in, we may not be able to reschedule your race, and missed races are non-refundable.\n` +
+    `\n` +
+    `Please allow approximately 30 minutes from check-in to race time for briefing, helmet fitting, and preparation. Lockers are located in the briefing rooms. NO LOOSE ITEMS are permitted on the track.\n` +
+    `\n` +
+    `This is live racing, and yellow flags or track conditions may cause delays. We will announce upcoming races.\n` +
+    `\n` +
+    `E-ticket: ${shortUrl}`
+  );
 }
 
 function buildEmailHtml(firstName: string, track: string, raceType: string, scheduledStart: string, shortUrl: string): string {
