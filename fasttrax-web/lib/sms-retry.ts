@@ -173,7 +173,24 @@ export async function listDead(max = 200): Promise<RetryEntry[]> {
 /**
  * Voxtelesys send — shared by both crons + the sweep so retries don't
  * duplicate the HTTP call.
+ *
+ * Throttled to MIN_VOX_SPACING_MS between consecutive calls within the same
+ * runtime instance, to stay under Voxtelesys's per-second burst cap. This
+ * eliminates 429s at the source rather than relying on the retry queue to
+ * absorb them. Module-scoped, so every call path (main send, retry drain,
+ * sweep) naturally serializes against the same clock.
  */
+const MIN_VOX_SPACING_MS = 150;
+let lastVoxSendAt = 0;
+
+async function voxThrottle(): Promise<void> {
+  const sinceLast = Date.now() - lastVoxSendAt;
+  if (sinceLast < MIN_VOX_SPACING_MS) {
+    await new Promise((r) => setTimeout(r, MIN_VOX_SPACING_MS - sinceLast));
+  }
+  lastVoxSendAt = Date.now();
+}
+
 export async function voxSend(
   toFormatted: string,
   body: string,
@@ -181,6 +198,9 @@ export async function voxSend(
   const VOX_API_KEY = process.env.VOX_API_KEY || "";
   const VOX_FROM = "+12394819666";
   if (!VOX_API_KEY) return { ok: false, status: null, error: "VOX_API_KEY missing" };
+
+  await voxThrottle();
+
   try {
     const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
       method: "POST",
