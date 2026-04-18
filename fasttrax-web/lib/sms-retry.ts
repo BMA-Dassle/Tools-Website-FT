@@ -1,5 +1,7 @@
 import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
+import { canonicalizePhone } from "@/lib/participant-contact";
+import { logSms } from "@/lib/sms-log";
 
 /**
  * SMS retry queue — failed sends get re-attempted on subsequent cron ticks
@@ -166,4 +168,85 @@ export async function listDead(max = 200): Promise<RetryEntry[]> {
     try { out.push(JSON.parse(r) as RetryEntry); } catch { /* skip */ }
   }
   return out;
+}
+
+/**
+ * Voxtelesys send — shared by both crons + the sweep so retries don't
+ * duplicate the HTTP call.
+ */
+export async function voxSend(
+  toFormatted: string,
+  body: string,
+): Promise<{ ok: boolean; status: number | null; error?: string }> {
+  const VOX_API_KEY = process.env.VOX_API_KEY || "";
+  const VOX_FROM = "+12394819666";
+  if (!VOX_API_KEY) return { ok: false, status: null, error: "VOX_API_KEY missing" };
+  try {
+    const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${VOX_API_KEY}`,
+      },
+      body: JSON.stringify({ to: toFormatted, from: VOX_FROM, body }),
+    });
+    if (!res.ok) {
+      const errText = (await res.text()).slice(0, 500);
+      return { ok: false, status: res.status, error: errText };
+    }
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return { ok: false, status: null, error: err instanceof Error ? err.message : "network error" };
+  }
+}
+
+/**
+ * Drain pending retries for a given cron. On success sets the cron's dedup
+ * keys for every (sessionId, personId) the SMS covered. Used by both the
+ * main cron handlers and the dedicated retry-sweep cron — sweep runs every
+ * minute so 5-minute pre-race gaps don't strand retries.
+ */
+export async function drainRetries(
+  cron: SmsRetryCron,
+): Promise<{ attempted: number; ok: number; requeued: number; dead: number }> {
+  const DEDUP_TTL_PRE_RACE = 60 * 60 * 24;
+  const DEDUP_TTL_CHECKIN = 60 * 60 * 6;
+  const prefix = cron === "pre-race-cron" ? "alert:pre-race" : "alert:checkin";
+  const dedupTtl = cron === "pre-race-cron" ? DEDUP_TTL_PRE_RACE : DEDUP_TTL_CHECKIN;
+
+  const due = await dueRetries(cron);
+  let ok = 0, requeued = 0, dead = 0;
+  for (const { raw, entry } of due) {
+    const toFormatted = canonicalizePhone(entry.phone);
+    if (!toFormatted) { await removeRetry(raw); continue; }
+    const ts = new Date().toISOString();
+    const result = await voxSend(toFormatted, entry.body);
+    if (result.ok) {
+      await removeRetry(raw);
+      await logSms({
+        ts, phone: toFormatted, source: cron,
+        status: result.status, ok: true, body: entry.body,
+        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
+      });
+      for (const sid of entry.audit.sessionIds) {
+        for (const pid of entry.audit.personIds) {
+          await redis.set(`${prefix}:${sid}:${pid}`, "1", "EX", dedupTtl);
+        }
+      }
+      ok++;
+    } else {
+      await logSms({
+        ts, phone: toFormatted, source: cron,
+        status: result.status, ok: false,
+        error: `[retry attempt ${entry.attempts + 1}] ${result.error}`, body: entry.body,
+        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
+      });
+      const movedToDead = await reQueueOrDead(raw, entry, result.status, result.error || "");
+      if (movedToDead) dead++; else requeued++;
+    }
+  }
+  return { attempted: due.length, ok, requeued, dead };
 }

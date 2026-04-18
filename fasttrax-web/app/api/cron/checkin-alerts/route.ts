@@ -15,7 +15,7 @@ import {
   type Participant,
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
-import { queueRetry, dueRetries, removeRetry, reQueueOrDead } from "@/lib/sms-retry";
+import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -154,27 +154,6 @@ interface SmsAudit {
   shortCode?: string;
 }
 
-async function voxSend(toFormatted: string, body: string): Promise<{ ok: boolean; status: number | null; error?: string }> {
-  try {
-    const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${VOX_API_KEY}`,
-      },
-      body: JSON.stringify({ to: toFormatted, from: VOX_FROM, body }),
-    });
-    if (!res.ok) {
-      const errText = (await res.text()).slice(0, 500);
-      return { ok: false, status: res.status, error: errText };
-    }
-    return { ok: true, status: res.status };
-  } catch (err) {
-    return { ok: false, status: null, error: err instanceof Error ? err.message : "network error" };
-  }
-}
-
 async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boolean> {
   const ts = new Date().toISOString();
   const toFormatted = canonicalizePhone(to);
@@ -200,33 +179,8 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
   return false;
 }
 
-async function drainCheckinRetries(): Promise<{ attempted: number; ok: number; requeued: number; dead: number }> {
-  const due = await dueRetries("checkin-cron");
-  let ok = 0, requeued = 0, dead = 0;
-  for (const { raw, entry } of due) {
-    const toFormatted = canonicalizePhone(entry.phone);
-    if (!toFormatted) { await removeRetry(raw); continue; }
-    const ts = new Date().toISOString();
-    const result = await voxSend(toFormatted, entry.body);
-    if (result.ok) {
-      await removeRetry(raw);
-      await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: result.status, ok: true, body: entry.body,
-        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds, memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode });
-      for (const sid of entry.audit.sessionIds) {
-        for (const pid of entry.audit.personIds) {
-          await redis.set(`alert:checkin:${sid}:${pid}`, "1", "EX", DEDUP_TTL);
-        }
-      }
-      ok++;
-    } else {
-      await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: result.status, ok: false, error: `[retry attempt ${entry.attempts + 1}] ${result.error}`, body: entry.body,
-        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds, memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode });
-      const movedToDead = await reQueueOrDead(raw, entry, result.status, result.error || "");
-      if (movedToDead) dead++; else requeued++;
-    }
-  }
-  return { attempted: due.length, ok, requeued, dead };
-}
+// Retry drain is centralized in lib/sms-retry.ts so the sweep cron can
+// reuse it without duplicating Voxtelesys send + dedup-setting logic.
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
@@ -370,7 +324,7 @@ export async function GET(req: NextRequest) {
   let singleSmsSends = 0;
   let emailSends = 0;
   const sessionResults: { track: string; sessionId: number; reason?: string }[] = [];
-  const retryStats = !dryRun ? await drainCheckinRetries() : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
+  const retryStats = !dryRun ? await drainRetries("checkin-cron") : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
 
   try {
     const races = await fetchCurrentRaces();
