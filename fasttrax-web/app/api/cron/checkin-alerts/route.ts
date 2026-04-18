@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
 import { upsertRaceTicket, type RaceTicket } from "@/lib/race-tickets";
+import { pickContactChannel, type Participant } from "@/lib/participant-contact";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -41,14 +42,6 @@ interface CurrentRace {
 }
 type TrackKey = "blue" | "red" | "mega";
 type CurrentRaces = Record<TrackKey, CurrentRace | null>;
-
-interface Participant {
-  personId: number;
-  firstName: string;
-  lastName: string;
-  email: string | null;
-  phone: string | null;
-}
 
 async function fetchCurrentRaces(): Promise<CurrentRaces> {
   const res = await fetch(`${BASE}/api/pandora/races-current`, { cache: "no-store" });
@@ -226,6 +219,14 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
+        // Decide channel first — respects acceptSmsCommercial / acceptMailCommercial
+        const channel = pickContactChannel(p);
+        if (channel.channel === "none") {
+          console.log(`[checkin-alerts] skipping ${p.firstName} ${p.lastName} personId=${p.personId}: ${channel.reason}`);
+          skipped++;
+          continue;
+        }
+
         // Prepare ticket (reuse if one already exists for this session/person)
         const ticket: RaceTicket = {
           sessionId,
@@ -234,7 +235,7 @@ export async function GET(req: NextRequest) {
           firstName: p.firstName || "Racer",
           lastName: p.lastName || "",
           email: p.email || undefined,
-          phone: p.phone || undefined,
+          phone: channel.channel === "sms" ? channel.phone : (p.mobilePhone || p.homePhone || p.phone || undefined),
           scheduledStart: race.scheduledStart,
           track: trackFromName(race.trackName)?.display || race.trackName,
           raceType: race.raceType,
@@ -242,7 +243,7 @@ export async function GET(req: NextRequest) {
         };
 
         if (dryRun) {
-          console.log(`[checkin-alerts DRY] would notify ${p.firstName} ${p.lastName} phone=${!!p.phone} email=${!!p.email} sessionId=${sessionId}`);
+          console.log(`[checkin-alerts DRY] would ${channel.channel} ${p.firstName} ${p.lastName} sessionId=${sessionId}`);
           continue;
         }
 
@@ -251,14 +252,14 @@ export async function GET(req: NextRequest) {
           const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
 
           let ok = false;
-          if (p.phone) {
-            ok = await sendSms(p.phone, buildSmsBody(race, shortUrl));
-          } else if (p.email) {
-            ok = await sendEmail(p.email, "Your heat is checking in — head to Karting 1st Floor", buildEmailHtml(race, p.firstName || "Racer", shortUrl));
+          if (channel.channel === "sms") {
+            ok = await sendSms(channel.phone, buildSmsBody(race, shortUrl));
           } else {
-            console.log(`[checkin-alerts] no contact for personId=${p.personId}`);
-            skipped++;
-            continue;
+            ok = await sendEmail(
+              channel.email,
+              "Your heat is checking in — head to Karting 1st Floor",
+              buildEmailHtml(race, p.firstName || "Racer", shortUrl),
+            );
           }
 
           if (ok) {

@@ -23,13 +23,9 @@ const ALLOWED_LOCATIONS = new Set([
   "PPTR5G2N0QXF7", // HeadPinz Naples
 ]);
 
-export interface Participant {
-  personId: number;
-  firstName: string;
-  lastName: string;
-  email: string | null;
-  phone: string | null;
-}
+// The upstream shape — re-export our shared canonical type for consumers.
+export type { Participant } from "@/lib/participant-contact";
+import type { Participant } from "@/lib/participant-contact";
 
 const cache: Map<string, { data: Participant[]; expiry: number }> = new Map();
 

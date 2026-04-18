@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
 import { upsertRaceTicket, type RaceTicket } from "@/lib/race-tickets";
+import { pickContactChannel, type Participant } from "@/lib/participant-contact";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -30,14 +31,6 @@ interface PandoraSession {
   scheduledStart: string;
   type: string;
   heatNumber: number;
-}
-
-interface Participant {
-  personId: number;
-  firstName: string;
-  lastName: string;
-  email: string | null;
-  phone: string | null;
 }
 
 /** "Blue Track" | "Red Track" | "Mega" → display name used in copy + ticket */
@@ -252,6 +245,13 @@ export async function GET(req: NextRequest) {
             continue;
           }
 
+          // Decide channel first — respects acceptSmsCommercial / acceptMailCommercial
+          const channel = pickContactChannel(p);
+          if (channel.channel === "none") {
+            skipped++;
+            continue;
+          }
+
           const ticket: RaceTicket = {
             sessionId: sid,
             locationId: FASTTRAX_LOCATION_ID,
@@ -259,7 +259,7 @@ export async function GET(req: NextRequest) {
             firstName: p.firstName || "Racer",
             lastName: p.lastName || "",
             email: p.email || undefined,
-            phone: p.phone || undefined,
+            phone: channel.channel === "sms" ? channel.phone : (p.mobilePhone || p.homePhone || p.phone || undefined),
             scheduledStart: session.scheduledStart,
             track: trackDisplay,
             raceType: session.type,
@@ -268,7 +268,7 @@ export async function GET(req: NextRequest) {
 
           if (dryRun) {
             console.log(
-              `[pre-race DRY] would notify ${p.firstName} ${p.lastName} phone=${!!p.phone} email=${!!p.email} session=${sid} (${session.name} @ ${session.scheduledStart})`,
+              `[pre-race DRY] would ${channel.channel} ${p.firstName} ${p.lastName} session=${sid} (${session.name} @ ${session.scheduledStart})`,
             );
             continue;
           }
@@ -278,17 +278,14 @@ export async function GET(req: NextRequest) {
             const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
 
             let ok = false;
-            if (p.phone) {
-              ok = await sendSms(p.phone, buildSmsBody(trackDisplay, session.type, session.scheduledStart, shortUrl));
-            } else if (p.email) {
+            if (channel.channel === "sms") {
+              ok = await sendSms(channel.phone, buildSmsBody(trackDisplay, session.type, session.scheduledStart, shortUrl));
+            } else {
               ok = await sendEmail(
-                p.email,
+                channel.email,
                 `Your FastTrax e-ticket · ${session.type} Race on ${trackDisplay} Track`,
                 buildEmailHtml(p.firstName || "Racer", trackDisplay, session.type, session.scheduledStart, shortUrl),
               );
-            } else {
-              skipped++;
-              continue;
             }
 
             if (ok) {
