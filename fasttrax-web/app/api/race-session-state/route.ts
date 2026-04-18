@@ -18,9 +18,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
   try {
-    const v = await redis.get(`race:called:${sessionId}`);
+    // Either signal counts: race:called (written on first /races-current sight)
+    // OR alert:checkin:session (written when an alert fired). Both mean the
+    // session entered the checking-in window at some point.
+    const [called, alerted] = await Promise.all([
+      redis.get(`race:called:${sessionId}`),
+      redis.get(`alert:checkin:session:${sessionId}`),
+    ]);
     return NextResponse.json(
-      { sessionId, wasCalled: !!v },
+      { sessionId, wasCalled: !!called || !!alerted },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {

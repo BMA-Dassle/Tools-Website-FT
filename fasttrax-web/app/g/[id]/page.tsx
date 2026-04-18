@@ -70,8 +70,11 @@ export default async function GroupETicketPage({ params }: PageProps) {
 
 async function wasSessionCalled(sessionId: string): Promise<boolean> {
   try {
-    const v = await redis.get(`race:called:${sessionId}`);
-    return !!v;
+    const [called, alerted] = await Promise.all([
+      redis.get(`race:called:${sessionId}`),
+      redis.get(`alert:checkin:session:${sessionId}`),
+    ]);
+    return !!called || !!alerted;
   } catch {
     return false;
   }
