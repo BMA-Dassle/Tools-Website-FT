@@ -15,6 +15,7 @@ import {
   type Participant,
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
+import { queueRetry, dueRetries, removeRetry, reQueueOrDead } from "@/lib/sms-retry";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -121,6 +122,31 @@ interface SmsAudit {
   shortCode?: string;
 }
 
+/**
+ * Raw Voxtelesys send — returns {ok, status, error}. Used by both the main
+ * send path (sendSms) and the retry drain.
+ */
+async function voxSend(toFormatted: string, body: string): Promise<{ ok: boolean; status: number | null; error?: string }> {
+  try {
+    const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${VOX_API_KEY}`,
+      },
+      body: JSON.stringify({ to: toFormatted, from: VOX_FROM, body }),
+    });
+    if (!res.ok) {
+      const errText = (await res.text()).slice(0, 500);
+      return { ok: false, status: res.status, error: errText };
+    }
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return { ok: false, status: null, error: err instanceof Error ? err.message : "network error" };
+  }
+}
+
 async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boolean> {
   const ts = new Date().toISOString();
   const toFormatted = canonicalizePhone(to);
@@ -134,29 +160,50 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
     return false;
   }
 
-  try {
-    const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${VOX_API_KEY}`,
-      },
-      body: JSON.stringify({ to: toFormatted, from: VOX_FROM, body }),
-    });
-    if (!res.ok) {
-      const errText = (await res.text()).slice(0, 500);
-      console.error(`[pre-race] SMS ${res.status}: ${errText}`);
-      await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: res.status, ok: false, error: errText, body, ...audit });
-      return false;
-    }
-    await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: res.status, ok: true, body, ...audit });
+  const result = await voxSend(toFormatted, body);
+  if (result.ok) {
+    await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: result.status, ok: true, body, ...audit });
     return true;
-  } catch (err) {
-    console.error("[pre-race] SMS error:", err);
-    await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: null, ok: false, error: err instanceof Error ? err.message : "network error", body, ...audit });
-    return false;
   }
+
+  console.error(`[pre-race] SMS ${result.status}: ${result.error}`);
+  await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: result.status, ok: false, error: result.error || "", body, ...audit });
+  // Queue for retry so 429 bursts + transient failures self-heal on next cron tick.
+  await queueRetry({ cron: "pre-race-cron", phone: toFormatted, body, audit, status: result.status, error: result.error || "" });
+  return false;
+}
+
+/**
+ * Drain pending retries for this cron. Called at the top of the handler.
+ * Returns counts. Sets pre-race dedup keys on successful resend.
+ */
+async function drainPreRaceRetries(): Promise<{ attempted: number; ok: number; requeued: number; dead: number }> {
+  const due = await dueRetries("pre-race-cron");
+  let ok = 0, requeued = 0, dead = 0;
+  for (const { raw, entry } of due) {
+    const toFormatted = canonicalizePhone(entry.phone);
+    if (!toFormatted) { await removeRetry(raw); continue; }
+    const ts = new Date().toISOString();
+    const result = await voxSend(toFormatted, entry.body);
+    if (result.ok) {
+      await removeRetry(raw);
+      await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: result.status, ok: true, body: entry.body,
+        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds, memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode });
+      // Set dedup keys for every personId this SMS covered
+      for (const sid of entry.audit.sessionIds) {
+        for (const pid of entry.audit.personIds) {
+          await redis.set(`alert:pre-race:${sid}:${pid}`, "1", "EX", DEDUP_TTL);
+        }
+      }
+      ok++;
+    } else {
+      await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: result.status, ok: false, error: `[retry attempt ${entry.attempts + 1}] ${result.error}`, body: entry.body,
+        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds, memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode });
+      const movedToDead = await reQueueOrDead(raw, entry, result.status, result.error || "");
+      if (movedToDead) dead++; else requeued++;
+    }
+  }
+  return { attempted: due.length, ok, requeued, dead };
 }
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
@@ -308,6 +355,9 @@ export async function GET(req: NextRequest) {
   let groupedSmsSends = 0;
   let singleSmsSends = 0;
   let emailSends = 0;
+  // Drain any retries due now — 429s and transient failures self-heal without
+  // having to wait for the main scan to re-identify the racer as fresh.
+  const retryStats = !dryRun ? await drainPreRaceRetries() : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
 
   try {
     const resources = activeResourcesForToday();
@@ -549,6 +599,7 @@ export async function GET(req: NextRequest) {
       groupedSmsSends,
       singleSmsSends,
       emailSends,
+      retries: retryStats,
     });
   } catch (err) {
     console.error("[pre-race] error:", err);

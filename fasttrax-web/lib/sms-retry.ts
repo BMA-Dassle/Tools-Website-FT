@@ -1,0 +1,169 @@
+import redis from "@/lib/redis";
+import { randomBytes } from "crypto";
+
+/**
+ * SMS retry queue — failed sends get re-attempted on subsequent cron ticks
+ * with exponential backoff, up to MAX_ATTEMPTS. Entries that exhaust retries
+ * are moved to a dead-letter list for manual review.
+ *
+ * Redis layout:
+ *   sms:retry:pending   SORTED SET  (score = unix-ms retry-after)
+ *     member = JSON blob (see RetryEntry)
+ *   sms:retry:dead      LIST (LPUSH newest-first), 90-day TTL
+ *
+ * Flow:
+ *   queueRetry(entry)   — called from sendSms on failure
+ *   drainRetryQueue(cron, send) — called at the top of each cron fire;
+ *     pulls due entries, attempts via `send(phone, body, audit)`, on success
+ *     the caller's retry wrapper sets dedup keys; on failure re-queues with
+ *     longer backoff or moves to dead.
+ */
+
+export type SmsRetryCron = "pre-race-cron" | "checkin-cron";
+
+export interface SmsRetryAudit {
+  sessionIds: (string | number)[];
+  personIds: (string | number)[];
+  memberCount: number;
+  shortCode?: string;
+}
+
+export interface RetryEntry {
+  id: string;
+  cron: SmsRetryCron;
+  phone: string;       // canonical +1...
+  body: string;
+  audit: SmsRetryAudit;
+  attempts: number;
+  firstFailedAt: string;
+  lastFailedAt: string;
+  lastStatus: number | null;
+  lastError: string;
+}
+
+const PENDING = "sms:retry:pending";
+const DEAD = "sms:retry:dead";
+const DEAD_TTL = 60 * 60 * 24 * 90;
+const MAX_ATTEMPTS = 3;
+
+/** Exponential-ish backoff: 30s, 2m, 10m for attempts 1..3. */
+function backoffMsFor(attempt: number): number {
+  if (attempt <= 1) return 30_000;
+  if (attempt === 2) return 120_000;
+  return 600_000;
+}
+
+function newId(): string {
+  return randomBytes(6).toString("base64url").slice(0, 10);
+}
+
+/**
+ * Queue a failed send for retry. Called from sendSms when Voxtelesys
+ * returns non-2xx or throws.
+ */
+export async function queueRetry(params: {
+  cron: SmsRetryCron;
+  phone: string;
+  body: string;
+  audit: SmsRetryAudit;
+  status: number | null;
+  error: string;
+}): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    const entry: RetryEntry = {
+      id: newId(),
+      cron: params.cron,
+      phone: params.phone,
+      body: params.body,
+      audit: params.audit,
+      attempts: 0,
+      firstFailedAt: now,
+      lastFailedAt: now,
+      lastStatus: params.status,
+      lastError: (params.error || "").slice(0, 500),
+    };
+    const retryAt = Date.now() + backoffMsFor(1);
+    await redis.zadd(PENDING, retryAt, JSON.stringify(entry));
+  } catch (err) {
+    console.error("[sms-retry] queueRetry failed:", err);
+  }
+}
+
+/**
+ * Pull all entries whose retry-after has passed AND that target this cron.
+ * Returns them with the raw Redis member string so the caller can remove
+ * them on success.
+ */
+export async function dueRetries(cron: SmsRetryCron, now = Date.now()): Promise<{ raw: string; entry: RetryEntry }[]> {
+  const raws = await redis.zrangebyscore(PENDING, 0, now);
+  const out: { raw: string; entry: RetryEntry }[] = [];
+  for (const r of raws) {
+    try {
+      const entry = JSON.parse(r) as RetryEntry;
+      if (entry.cron === cron) out.push({ raw: r, entry });
+    } catch { /* skip corrupt */ }
+  }
+  return out;
+}
+
+/**
+ * Remove a pending retry (on success).
+ */
+export async function removeRetry(raw: string): Promise<void> {
+  await redis.zrem(PENDING, raw);
+}
+
+/**
+ * Re-queue (on another failure) with longer backoff, or move to dead if
+ * MAX_ATTEMPTS reached. Returns true if moved to dead.
+ */
+export async function reQueueOrDead(
+  raw: string,
+  entry: RetryEntry,
+  status: number | null,
+  error: string,
+): Promise<boolean> {
+  await redis.zrem(PENDING, raw);
+  const nextAttempts = entry.attempts + 1;
+  const updated: RetryEntry = {
+    ...entry,
+    attempts: nextAttempts,
+    lastFailedAt: new Date().toISOString(),
+    lastStatus: status,
+    lastError: (error || "").slice(0, 500),
+  };
+  if (nextAttempts >= MAX_ATTEMPTS) {
+    await redis.lpush(DEAD, JSON.stringify(updated));
+    await redis.expire(DEAD, DEAD_TTL);
+    return true;
+  }
+  const retryAt = Date.now() + backoffMsFor(nextAttempts + 1);
+  await redis.zadd(PENDING, retryAt, JSON.stringify(updated));
+  return false;
+}
+
+/**
+ * Count of pending retries across all crons (for dashboards).
+ */
+export async function pendingCount(): Promise<number> {
+  return await redis.zcard(PENDING);
+}
+
+export async function listPending(max = 200): Promise<RetryEntry[]> {
+  const raws = await redis.zrange(PENDING, 0, max - 1);
+  const out: RetryEntry[] = [];
+  for (const r of raws) {
+    try { out.push(JSON.parse(r) as RetryEntry); } catch { /* skip */ }
+  }
+  return out;
+}
+
+export async function listDead(max = 200): Promise<RetryEntry[]> {
+  const raws = await redis.lrange(DEAD, 0, max - 1);
+  const out: RetryEntry[] = [];
+  for (const r of raws) {
+    try { out.push(JSON.parse(r) as RetryEntry); } catch { /* skip */ }
+  }
+  return out;
+}
