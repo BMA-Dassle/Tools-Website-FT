@@ -81,7 +81,7 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
   }, [ticket.sessionId, ticket.track, ticket.locationId, ticket.personId, longPast]);
 
   return (
-    <div className="min-h-screen bg-[#010A20] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#010A20] flex items-start justify-center px-4 pt-28 sm:pt-32 pb-8">
       <style>{TICKET_PULSE_CSS}</style>
 
       <div className="w-full max-w-lg">

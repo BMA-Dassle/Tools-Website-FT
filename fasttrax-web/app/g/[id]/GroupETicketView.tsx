@@ -151,7 +151,7 @@ export default function GroupETicketView({ group, initial }: Props) {
     : earliestDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/New_York" });
 
   return (
-    <div className="min-h-screen bg-[#010A20] flex items-start justify-center p-4 py-8">
+    <div className="min-h-screen bg-[#010A20] flex items-start justify-center px-4 pt-28 sm:pt-32 pb-8">
       <style>{TICKET_PULSE_CSS}</style>
 
       <div className="w-full max-w-lg">
