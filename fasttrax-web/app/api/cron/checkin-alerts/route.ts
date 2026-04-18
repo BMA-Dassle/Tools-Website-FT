@@ -331,6 +331,14 @@ export async function GET(req: NextRequest) {
       if (!race) continue;
       const sessionId = race.sessionId;
 
+      // Mark this session as "called for check-in" — the ticket page uses
+      // this signal to flip to MissedCard once Pandora drops the session
+      // from /races-current (roughly 20 min after the heat is called).
+      // TTL 12h so the flag persists through the whole operating day.
+      if (!dryRun) {
+        await redis.set(`race:called:${sessionId}`, "1", "EX", 60 * 60 * 12);
+      }
+
       const scheduledMs = new Date(race.scheduledStart).getTime();
       if (!isNaN(scheduledMs) && scheduledMs < now - 30 * 60_000) {
         sessionResults.push({ track: trackKey, sessionId, reason: "stale" });

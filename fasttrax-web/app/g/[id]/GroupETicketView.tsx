@@ -15,6 +15,7 @@ import {
 export interface MemberInitialState {
   checkingIn: boolean;
   onSession: boolean;
+  wasCalled: boolean;
 }
 
 interface Props {
@@ -25,6 +26,7 @@ interface Props {
 interface MemberState {
   checkingIn: boolean;
   onSession: boolean;
+  wasCalled: boolean;
 }
 
 function memberKey(m: Pick<GroupTicketMember, "sessionId" | "personId">): string {
@@ -39,7 +41,10 @@ export default function GroupETicketView({ group, initial }: Props) {
   const [state, setState] = useState<Record<string, MemberState>>(() => {
     const s: Record<string, MemberState> = {};
     for (const m of group.members) {
-      s[memberKey(m)] = initial[memberKey(m)] ?? { checkingIn: false, onSession: true };
+      const seed = initial[memberKey(m)];
+      s[memberKey(m)] = seed
+        ? { ...seed, wasCalled: seed.wasCalled || seed.checkingIn }
+        : { checkingIn: false, onSession: true, wasCalled: false };
     }
     return s;
   });
@@ -51,8 +56,9 @@ export default function GroupETicketView({ group, initial }: Props) {
     return ta - tb;
   });
 
-  // Stop polling once every heat is past by > 30 min.
-  const allPast = group.members.every((m) => minutesUntil(m.scheduledStart) < -30);
+  // Stop polling once every heat is 90+ min past AND was never called — no
+  // state transitions to watch for.
+  const allPast = group.members.every((m) => minutesUntil(m.scheduledStart) < -90);
 
   useEffect(() => {
     if (allPast) return;
@@ -62,7 +68,10 @@ export default function GroupETicketView({ group, initial }: Props) {
 
     async function poll() {
       try {
-        const [currentRes, ...partResponses] = await Promise.all([
+        const stateFetches = distinctSessions.map((sid) =>
+          fetch(`/api/race-session-state?sessionId=${encodeURIComponent(sid)}`, { cache: "no-store" }),
+        );
+        const [currentRes, ...rest] = await Promise.all([
           fetch("/api/pandora/races-current", { cache: "no-store" }),
           ...distinctSessions.map((sid) =>
             fetch(
@@ -70,7 +79,10 @@ export default function GroupETicketView({ group, initial }: Props) {
               { cache: "no-store" },
             ),
           ),
+          ...stateFetches,
         ]);
+        const partResponses = rest.slice(0, distinctSessions.length);
+        const stateResponses = rest.slice(distinctSessions.length);
 
         let current: { blue?: { sessionId?: number | string } | null; red?: { sessionId?: number | string } | null; mega?: { sessionId?: number | string } | null } = {};
         if (currentRes.ok) current = await currentRes.json();
@@ -84,6 +96,17 @@ export default function GroupETicketView({ group, initial }: Props) {
           const list = Array.isArray(data?.data) ? data.data : [];
           if (list.length === 0) continue; // trust prior state on empty
           rosterBySession.set(sid, new Set(list.map((p: { personId: string | number }) => String(p.personId))));
+        }
+
+        const calledBySession = new Map<string, boolean>();
+        for (let i = 0; i < distinctSessions.length; i++) {
+          const sid = distinctSessions[i];
+          const res = stateResponses[i];
+          if (!res.ok) continue;
+          try {
+            const d = await res.json();
+            if (d?.wasCalled) calledBySession.set(sid, true);
+          } catch { /* skip */ }
         }
 
         if (cancelled) return;
@@ -104,7 +127,11 @@ export default function GroupETicketView({ group, initial }: Props) {
                 onSession = roster.has(String(m.personId));
               }
             }
-            next[key] = { checkingIn, onSession };
+            const wasCalled =
+              (prev[key]?.wasCalled ?? false) ||
+              checkingIn ||
+              (calledBySession.get(String(m.sessionId)) ?? false);
+            next[key] = { checkingIn, onSession, wasCalled };
           }
           return next;
         });
@@ -139,9 +166,11 @@ export default function GroupETicketView({ group, initial }: Props) {
         <div className="space-y-5">
           {sortedMembers.map((m) => {
             const key = memberKey(m);
-            const s = state[key] ?? { checkingIn: false, onSession: true };
+            const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
             const mins = minutesUntil(m.scheduledStart);
-            const isPast = mins < -30;
+            const longPast = mins < -90;
+            const dropped = s.wasCalled && !s.checkingIn;
+            const isPast = longPast || dropped;
             return (
               <div key={key}>
                 {!s.onSession && !isPast ? (

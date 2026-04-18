@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import redis from "@/lib/redis";
 import { getRaceTicket, type RaceTicket } from "@/lib/race-tickets";
 import ETicketView from "./ETicketView";
 
@@ -35,9 +36,10 @@ export default async function ETicketPage({ params }: PageProps) {
   const ticket = await getRaceTicket(id);
   if (!ticket) notFound();
 
-  const [initialCheckingIn, stillOnSession] = await Promise.all([
+  const [initialCheckingIn, stillOnSession, wasCalled] = await Promise.all([
     isCurrentlyCheckingIn(ticket),
     isStillOnSession(ticket),
+    wasSessionCalled(ticket.sessionId),
   ]);
 
   return (
@@ -45,8 +47,18 @@ export default async function ETicketPage({ params }: PageProps) {
       ticket={ticket}
       initialCheckingIn={initialCheckingIn}
       initialOnSession={stillOnSession}
+      initialWasCalled={wasCalled}
     />
   );
+}
+
+async function wasSessionCalled(sessionId: number | string): Promise<boolean> {
+  try {
+    const v = await redis.get(`race:called:${sessionId}`);
+    return !!v;
+  } catch {
+    return false;
+  }
 }
 
 async function isCurrentlyCheckingIn(ticket: RaceTicket): Promise<boolean> {

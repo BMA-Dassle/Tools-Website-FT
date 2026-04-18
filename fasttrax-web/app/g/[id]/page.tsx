@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import redis from "@/lib/redis";
 import { getGroupTicket, type GroupTicket, type GroupTicketMember } from "@/lib/race-tickets";
 import GroupETicketView, { type MemberInitialState } from "./GroupETicketView";
 
@@ -39,7 +40,7 @@ export default async function GroupETicketPage({ params }: PageProps) {
 
   // Resolve per-session state in parallel (dedupe distinct sessions).
   const distinctSessions = Array.from(new Set(group.members.map((m) => String(m.sessionId))));
-  const [racesCurrent, participantsBySession] = await Promise.all([
+  const [racesCurrent, participantsBySession, calledBySession] = await Promise.all([
     fetchRacesCurrent(),
     Promise.all(
       distinctSessions.map(async (sid) => ({
@@ -47,9 +48,12 @@ export default async function GroupETicketPage({ params }: PageProps) {
         personIds: await fetchSessionPersonIds(group.locationId, sid),
       })),
     ),
+    Promise.all(distinctSessions.map(async (sid) => ({ sid, wasCalled: await wasSessionCalled(sid) }))),
   ]);
   const partMap = new Map<string, Set<string>>();
   for (const p of participantsBySession) partMap.set(p.sid, p.personIds);
+  const calledMap = new Map<string, boolean>();
+  for (const c of calledBySession) calledMap.set(c.sid, c.wasCalled);
 
   const initial: Record<string, MemberInitialState> = {};
   for (const m of group.members) {
@@ -57,10 +61,20 @@ export default async function GroupETicketPage({ params }: PageProps) {
     initial[key] = {
       checkingIn: isCheckingIn(racesCurrent, m),
       onSession: isStillOn(partMap.get(String(m.sessionId)), m),
+      wasCalled: calledMap.get(String(m.sessionId)) || false,
     };
   }
 
   return <GroupETicketView group={group} initial={initial} />;
+}
+
+async function wasSessionCalled(sessionId: string): Promise<boolean> {
+  try {
+    const v = await redis.get(`race:called:${sessionId}`);
+    return !!v;
+  } catch {
+    return false;
+  }
 }
 
 interface RacesCurrent {

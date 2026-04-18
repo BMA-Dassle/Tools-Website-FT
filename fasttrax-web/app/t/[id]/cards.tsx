@@ -234,16 +234,50 @@ export function InvalidCard() {
 }
 
 export function PastCard({ details }: { details: CardDetails }) {
+  const trackColor = trackColorFor(details);
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
-      <p className="text-white/40 text-xs uppercase tracking-widest mb-2">Session Complete</p>
-      <p className="text-white font-display uppercase tracking-wider text-2xl mb-2">
-        {details.firstName}&apos;s {details.raceType} Race
-      </p>
-      <p className="text-white/50 text-sm">
-        {formatDate(details.scheduledStart)} · {formatTime(details.scheduledStart)}
-      </p>
-      <p className="text-white/30 text-xs mt-4">Your heat has already run. Check your email for results.</p>
+    <div className="rounded-2xl overflow-hidden border border-white/15 bg-white/[0.03]">
+      <div className="bg-white/5 border-b border-white/10 px-4 py-3">
+        <p
+          className="text-white/50 font-bold uppercase tracking-wider text-center"
+          style={{ fontSize: "clamp(12px, 2vw, 14px)" }}
+        >
+          Session Complete
+        </p>
+      </div>
+
+      <div className="p-5 sm:p-6 text-center">
+        <div className="mb-4">
+          <span
+            className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full opacity-70"
+            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
+          >
+            {badgeFor(details)}
+          </span>
+        </div>
+
+        <p
+          className="text-white/70 font-display uppercase tracking-wider leading-none"
+          style={{ fontSize: "clamp(36px, 10vw, 60px)" }}
+        >
+          {fullNameOf(details)}
+        </p>
+
+        <div className="mt-5">
+          <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-1">Check-In Closed</p>
+          <p
+            className="text-white/60 font-display uppercase tracking-wider leading-none"
+            style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
+          >
+            {formatTime(details.scheduledStart)}
+          </p>
+          <p className="text-white/40 text-xs mt-2">{formatDate(details.scheduledStart)}</p>
+        </div>
+
+        <p className="text-white/30 text-xs mt-5">This heat&apos;s check-in window has closed.</p>
+
+        {details.resNumber && <p className="text-white/30 font-bold text-xs mt-4">{details.resNumber}</p>}
+      </div>
     </div>
   );
 }
