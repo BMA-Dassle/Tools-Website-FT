@@ -14,6 +14,7 @@ import {
   pickPhone,
   type Participant,
 } from "@/lib/participant-contact";
+import { logSms } from "@/lib/sms-log";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -139,19 +140,31 @@ async function fetchExpressParticipants(sessionId: number): Promise<Participant[
   }
 }
 
-async function shortenUrl(fullUrl: string): Promise<string> {
+async function shortenUrl(fullUrl: string): Promise<{ code: string; url: string }> {
   const code = randomBytes(4).toString("base64url").slice(0, 6);
   await redis.set(`short:${code}`, fullUrl, "EX", SHORT_TTL);
-  return `${BASE}/s/${code}`;
+  return { code, url: `${BASE}/s/${code}` };
 }
 
-async function sendSms(to: string, body: string): Promise<boolean> {
+interface SmsAudit {
+  sessionIds: (string | number)[];
+  personIds: (string | number)[];
+  memberCount: number;
+  shortCode?: string;
+}
+
+async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boolean> {
+  const ts = new Date().toISOString();
+  const toFormatted = canonicalizePhone(to);
   if (!VOX_API_KEY) {
     console.error("[checkin-alerts] VOX_API_KEY missing");
+    await logSms({ ts, phone: toFormatted || to, source: "checkin-cron", status: null, ok: false, error: "VOX_API_KEY missing", body, ...audit });
     return false;
   }
-  const toFormatted = canonicalizePhone(to);
-  if (!toFormatted) return false;
+  if (!toFormatted) {
+    await logSms({ ts, phone: to, source: "checkin-cron", status: null, ok: false, error: "invalid phone format", body, ...audit });
+    return false;
+  }
 
   try {
     const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
@@ -164,12 +177,16 @@ async function sendSms(to: string, body: string): Promise<boolean> {
       body: JSON.stringify({ to: toFormatted, from: VOX_FROM, body }),
     });
     if (!res.ok) {
-      console.error(`[checkin-alerts] SMS ${res.status}: ${await res.text()}`);
+      const errText = (await res.text()).slice(0, 500);
+      console.error(`[checkin-alerts] SMS ${res.status}: ${errText}`);
+      await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: res.status, ok: false, error: errText, body, ...audit });
       return false;
     }
+    await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: res.status, ok: true, body, ...audit });
     return true;
   } catch (err) {
     console.error("[checkin-alerts] SMS error:", err);
+    await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: null, ok: false, error: err instanceof Error ? err.message : "network error", body, ...audit });
     return false;
   }
 }
@@ -445,10 +462,16 @@ export async function GET(req: NextRequest) {
 
         try {
           const ticketId = await upsertRaceTicket(ticket);
-          const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
+          const { code, url } = await shortenUrl(`${BASE}/t/${ticketId}`);
           const ok = await sendSms(
             phone,
-            buildSingleSmsBody(c.race, memberFromCandidate(c), shortUrl),
+            buildSingleSmsBody(c.race, memberFromCandidate(c), url),
+            {
+              sessionIds: [c.race.sessionId],
+              personIds: [c.participant.personId],
+              memberCount: 1,
+              shortCode: code,
+            },
           );
           if (ok) {
             await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
@@ -481,8 +504,13 @@ export async function GET(req: NextRequest) {
           locationId: FASTTRAX_LOCATION_ID,
           members,
         });
-        const shortUrl = await shortenUrl(`${BASE}/g/${groupId}`);
-        const ok = await sendSms(phone, buildGroupSmsBody(members, shortUrl));
+        const { code, url } = await shortenUrl(`${BASE}/g/${groupId}`);
+        const ok = await sendSms(phone, buildGroupSmsBody(members, url), {
+          sessionIds: Array.from(new Set(members.map((m) => m.sessionId))),
+          personIds: members.map((m) => m.personId),
+          memberCount: members.length,
+          shortCode: code,
+        });
         if (ok) {
           for (const c of fresh) {
             await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
@@ -532,11 +560,11 @@ export async function GET(req: NextRequest) {
 
       try {
         const ticketId = await upsertRaceTicket(ticket);
-        const shortUrl = await shortenUrl(`${BASE}/t/${ticketId}`);
+        const { url } = await shortenUrl(`${BASE}/t/${ticketId}`);
         const ok = await sendEmail(
           channel.email,
           "Your heat is checking in — head to Karting 1st Floor",
-          buildEmailHtml(c.race, c.participant.firstName || "Racer", shortUrl),
+          buildEmailHtml(c.race, c.participant.firstName || "Racer", url),
         );
         if (ok) {
           await redis.set(key, "1", "EX", DEDUP_TTL);
