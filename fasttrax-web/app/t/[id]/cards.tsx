@@ -117,7 +117,7 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
 
         <div className="mt-5">
           <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: "#ff6b6b" }}>
-            Race Time
+            Check-In Closes
           </p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
@@ -190,7 +190,7 @@ export function PreRaceCard({ details }: { details: CardDetails }) {
         </p>
 
         <div className="mt-5">
-          <p className="text-[#00E2E5]/80 text-xs font-bold uppercase tracking-wider mb-1">Race Time</p>
+          <p className="text-[#00E2E5]/80 text-xs font-bold uppercase tracking-wider mb-1">Check-In Closes</p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
             style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
