@@ -78,9 +78,9 @@ export default function ETicketView({ ticket, initialCheckingIn }: Props) {
   return (
     <div className="min-h-screen bg-[#010A20] flex items-center justify-center p-4">
       <style>{`
-        @keyframes expressGlow {
-          0%, 100% { box-shadow: 0 0 20px rgba(16,185,129,0.3), 0 0 40px rgba(16,185,129,0.15); }
-          50% { box-shadow: 0 0 30px rgba(16,185,129,0.5), 0 0 60px rgba(16,185,129,0.25); }
+        @keyframes ticketPulse {
+          0%, 100% { box-shadow: 0 0 20px rgba(228,28,29,0.35), 0 0 40px rgba(228,28,29,0.15); }
+          50% { box-shadow: 0 0 32px rgba(228,28,29,0.6), 0 0 64px rgba(228,28,29,0.28); }
         }
       `}</style>
 
@@ -120,16 +120,17 @@ function CheckingInCard({
 }) {
   return (
     <div
-      className="rounded-2xl overflow-hidden border-2 border-emerald-400"
+      className="rounded-2xl overflow-hidden border-2"
       style={{
-        animation: "expressGlow 3s ease-in-out infinite",
-        background: "linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.03))",
+        borderColor: "#E41C1D",
+        animation: "ticketPulse 2.4s ease-in-out infinite",
+        background: "linear-gradient(135deg, rgba(228,28,29,0.14), rgba(228,28,29,0.03))",
       }}
     >
-      {/* Pulsing amber banner */}
-      <div className="bg-amber-500/20 border-b border-amber-500/50 px-4 py-3 animate-pulse">
-        <p className="text-amber-400 font-bold uppercase tracking-wider text-center" style={{ fontSize: "clamp(14px, 2.5vw, 18px)" }}>
-          🏁 Now Checking In — Head to Karting, 1st Floor
+      {/* Red urgent banner */}
+      <div className="px-4 py-3 animate-pulse" style={{ backgroundColor: "rgba(228,28,29,0.22)", borderBottom: "1px solid rgba(228,28,29,0.55)" }}>
+        <p className="font-bold uppercase tracking-wider text-center" style={{ fontSize: "clamp(14px, 2.5vw, 18px)", color: "#ff6b6b" }}>
+          ⚠ Your Heat Is Being Called — Check In Now
         </p>
       </div>
 
@@ -148,16 +149,24 @@ function CheckingInCard({
         </p>
 
         <div className="mt-5">
-          <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">Race Time</p>
+          <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: "#ff6b6b" }}>Race Time</p>
           <p className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(40px, 12vw, 72px)" }}>
             {formatTime(ticket.scheduledStart)}
           </p>
-          <p className="text-emerald-400/70 text-xs mt-2">Arrive 5 min before — go straight to Karting, 1st Floor</p>
+        </div>
+
+        {/* Check-in directions — clear + prominent */}
+        <div className="mt-6 rounded-xl px-4 py-4" style={{ backgroundColor: "rgba(228,28,29,0.12)", border: "1px solid rgba(228,28,29,0.4)" }}>
+          <p className="font-bold text-white uppercase tracking-wider mb-1" style={{ fontSize: "clamp(13px, 2vw, 16px)" }}>
+            Head to Karting Check-In
+          </p>
+          <p className="text-white/80 text-sm">1st Floor · Karting Counter</p>
+          <p className="text-white/50 text-xs mt-1">Check in immediately — your heat is being staged now.</p>
         </div>
 
         <p className="text-white/40 text-xs mt-5">{formatDate(ticket.scheduledStart)}</p>
         {ticket.resNumber && (
-          <p className="text-emerald-400/50 font-bold text-xs mt-1">{ticket.resNumber}</p>
+          <p className="font-bold text-xs mt-1" style={{ color: "rgba(255,107,107,0.6)" }}>{ticket.resNumber}</p>
         )}
       </div>
     </div>
