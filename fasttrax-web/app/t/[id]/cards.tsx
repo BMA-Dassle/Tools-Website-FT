@@ -110,7 +110,7 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
 
         <p
           className="text-white font-display uppercase tracking-wider leading-none"
-          style={{ fontSize: "clamp(30px, 8vw, 56px)" }}
+          style={{ fontSize: "clamp(36px, 10vw, 60px)" }}
         >
           {fullNameOf(details)}
         </p>
@@ -121,7 +121,7 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
           </p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
-            style={{ fontSize: "clamp(40px, 12vw, 72px)" }}
+            style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
           >
             {formatTime(details.scheduledStart)}
           </p>
@@ -184,7 +184,7 @@ export function PreRaceCard({ details }: { details: CardDetails }) {
 
         <p
           className="text-white font-display uppercase tracking-wider leading-none"
-          style={{ fontSize: "clamp(30px, 8vw, 56px)" }}
+          style={{ fontSize: "clamp(36px, 10vw, 60px)" }}
         >
           {fullNameOf(details)}
         </p>
@@ -193,7 +193,7 @@ export function PreRaceCard({ details }: { details: CardDetails }) {
           <p className="text-[#00E2E5]/80 text-xs font-bold uppercase tracking-wider mb-1">Race Time</p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
-            style={{ fontSize: "clamp(40px, 12vw, 72px)" }}
+            style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
           >
             {formatTime(details.scheduledStart)}
           </p>
