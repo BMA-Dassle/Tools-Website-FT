@@ -650,8 +650,16 @@ export default function BowlingBookingPage() {
   const [fbSodaItem, setFbSodaItem] = useState<{ item: FbItem; modifiers: ItemModifiers } | null>(null);
   const [fbChipsItem, setFbChipsItem] = useState<FbItem | null>(null); // VIP complimentary — no modifier UI needed
   // Per-group selections: { [IdModifierGroup]: Set<IdOriginal> }
-  const [fbPizzaSelections, setFbPizzaSelections] = useState<Record<number, Set<number>>>({});
-  const [fbSodaSelections, setFbSodaSelections] = useState<Record<number, Set<number>>>({});
+  // Per-lane selections. Index 0 = lane 1. Each entry is the same
+  // { [modifierGroupId]: Set<modifierId> } shape. Scales with `includedLaneCount`
+  // so a 2-lane Pizza Bowl booking can have Pizza 1: Pepperoni, Pizza 2: Cheese,
+  // Soda 1: Pepsi, Soda 2: Dr. Pepper — independently customizable.
+  const [fbPizzaSelections, setFbPizzaSelections] = useState<Array<Record<number, Set<number>>>>([{}]);
+  const [fbSodaSelections, setFbSodaSelections] = useState<Array<Record<number, Set<number>>>>([{}]);
+  // Number of included pizzas + soda pitchers in this package. One per lane.
+  // Derived when the offer is picked — falls back to 1 when we can't infer lanes
+  // from the offer data. Safe to bump this for manual testing.
+  const [includedLaneCount, setIncludedLaneCount] = useState(1);
 
   // VIP upgrade modal
   const [showVipUpgrade, setShowVipUpgrade] = useState(false);
@@ -1079,8 +1087,14 @@ export default function BowlingBookingPage() {
     setFbPizzaItem(null);
     setFbSodaItem(null);
     setFbChipsItem(null);
-    setFbPizzaSelections({});
-    setFbSodaSelections({});
+    // Infer included lane count from the offer items. `Lanes` on the offer item
+    // reflects how many lanes this reservation covers. Pizza Bowl packages are
+    // 1 pizza + 1 pitcher per lane, so the count maps 1:1.
+    const offerLanes = offer.Items?.[0]?.Lanes ?? 1;
+    const laneCount = Math.max(1, offerLanes || 1);
+    setIncludedLaneCount(laneCount);
+    setFbPizzaSelections(Array.from({ length: laneCount }, () => ({})));
+    setFbSodaSelections(Array.from({ length: laneCount }, () => ({})));
     try {
       const isVip = classifyOffer(offer.Name) === "vip";
       const categoryCalls: Promise<FbItem[]>[] = [
@@ -1108,24 +1122,26 @@ export default function BowlingBookingPage() {
     }
   }
 
-  /** Toggle a modifier selection for a given group. Enforces MaxQuantity (=1 → radio). */
+  /** Toggle a modifier selection for a given lane + group. MaxQuantity=1 is radio-style. */
   function toggleModifier(
-    selections: Record<number, Set<number>>,
-    setSelections: (fn: (prev: Record<number, Set<number>>) => Record<number, Set<number>>) => void,
+    setSelections: (fn: (prev: Array<Record<number, Set<number>>>) => Array<Record<number, Set<number>>>) => void,
+    laneIdx: number,
     group: ModifierGroup,
     modifierId: number,
   ) {
     setSelections((prev) => {
-      const next = { ...prev };
-      const existing = new Set(prev[group.IdModifierGroup] || []);
+      const next = [...prev];
+      const laneSelections = { ...(next[laneIdx] || {}) };
+      const existing = new Set(laneSelections[group.IdModifierGroup] || []);
       const max = group.Rules.MaxQuantity;
       if (existing.has(modifierId)) {
         existing.delete(modifierId);
       } else {
-        if (max === 1) existing.clear(); // radio behavior
+        if (max === 1) existing.clear();
         existing.add(modifierId);
       }
-      next[group.IdModifierGroup] = existing;
+      laneSelections[group.IdModifierGroup] = existing;
+      next[laneIdx] = laneSelections;
       return next;
     });
   }
@@ -1217,25 +1233,29 @@ export default function BowlingBookingPage() {
         fbItems.push({ PriceKeyId: ITEM_ID_CHIPS_SALSA, Quantity: Math.ceil(playerCount / 6), UnitPrice: 0, Note: "", Modifiers: [] });
       }
       if (offerIsPizzaBowl) {
-        if (fbPizzaItem) {
-          const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections);
-          fbItems.push({
-            PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
-            Quantity: 1,
-            UnitPrice: upchargeTotal,
-            Note: "",
-            Modifiers: modifiers.map((m) => ({ OriginalId: m.OriginalId })),
-          });
-        }
-        if (fbSodaItem) {
-          const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections);
-          fbItems.push({
-            PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
-            Quantity: 1,
-            UnitPrice: upchargeTotal,
-            Note: "",
-            Modifiers: modifiers.map((m) => ({ OriginalId: m.OriginalId })),
-          });
+        // Emit one line item per lane so each has its own Modifiers[] —
+        // Pizza 1: Pepperoni, Pizza 2: Cheese; Soda 1: Pepsi, Soda 2: Dr. Pepper, etc.
+        for (let laneIdx = 0; laneIdx < includedLaneCount; laneIdx++) {
+          if (fbPizzaItem) {
+            const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections[laneIdx] || {});
+            fbItems.push({
+              PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
+              Quantity: 1,
+              UnitPrice: upchargeTotal,
+              Note: "",
+              Modifiers: modifiers.map((m) => ({ OriginalId: m.OriginalId })),
+            });
+          }
+          if (fbSodaItem) {
+            const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections[laneIdx] || {});
+            fbItems.push({
+              PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
+              Quantity: 1,
+              UnitPrice: upchargeTotal,
+              Note: "",
+              Modifiers: modifiers.map((m) => ({ OriginalId: m.OriginalId })),
+            });
+          }
         }
       }
 
@@ -1337,29 +1357,33 @@ export default function BowlingBookingPage() {
 
       // Pizza Bowl included items (pizza + soda pitcher) with chosen modifiers.
       // Confirmed via HAR: guest/confirm expects Modifiers[].{OriginalId,Name}
-      // (the Name is used on receipts / confirmation emails).
+      // (the Name is used on receipts / confirmation emails). Emit one line
+      // per lane so each lane's picks are recorded independently.
       if (isPizzaBowl(selectedOffer!.Name)) {
-        if (fbPizzaItem) {
-          const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections);
-          cartItems.push({
-            Name: fbPizzaItem.item.Name,
-            Type: "FoodBeverage",
-            PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
-            Quantity: 1,
-            UnitPrice: upchargeTotal,
-            Modifiers: modifiers,
-          });
-        }
-        if (fbSodaItem) {
-          const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections);
-          cartItems.push({
-            Name: fbSodaItem.item.Name,
-            Type: "FoodBeverage",
-            PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
-            Quantity: 1,
-            UnitPrice: upchargeTotal,
-            Modifiers: modifiers,
-          });
+        for (let laneIdx = 0; laneIdx < includedLaneCount; laneIdx++) {
+          const laneLabel = includedLaneCount > 1 ? ` — Lane ${laneIdx + 1}` : "";
+          if (fbPizzaItem) {
+            const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections[laneIdx] || {});
+            cartItems.push({
+              Name: `${fbPizzaItem.item.Name}${laneLabel}`,
+              Type: "FoodBeverage",
+              PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
+              Quantity: 1,
+              UnitPrice: upchargeTotal,
+              Modifiers: modifiers,
+            });
+          }
+          if (fbSodaItem) {
+            const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections[laneIdx] || {});
+            cartItems.push({
+              Name: `${fbSodaItem.item.Name}${laneLabel}`,
+              Type: "FoodBeverage",
+              PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
+              Quantity: 1,
+              UnitPrice: upchargeTotal,
+              Modifiers: modifiers,
+            });
+          }
         }
       }
 
@@ -2056,31 +2080,33 @@ export default function BowlingBookingPage() {
                   </div>
                 )}
 
-                {/* Pizza Bowl Pizza */}
-                {fbPizzaItem && (
+                {/* Pizza Bowl Pizza — one card per lane */}
+                {fbPizzaItem && Array.from({ length: includedLaneCount }).map((_, laneIdx) => (
                   <ModifierCard
-                    title={fbPizzaItem.item.Name}
-                    subtitle="Included — 1 per lane"
+                    key={`pizza-${laneIdx}`}
+                    title={includedLaneCount > 1 ? `${fbPizzaItem.item.Name} — Lane ${laneIdx + 1}` : fbPizzaItem.item.Name}
+                    subtitle={includedLaneCount > 1 ? "Included — customize each lane separately" : "Included — 1 per lane"}
                     imageUrl={fbPizzaItem.item.ImageUrl}
                     accent={coral}
                     modifiers={fbPizzaItem.modifiers}
-                    selections={fbPizzaSelections}
-                    onToggle={(group, id) => toggleModifier(fbPizzaSelections, setFbPizzaSelections, group, id)}
+                    selections={fbPizzaSelections[laneIdx] || {}}
+                    onToggle={(group, id) => toggleModifier(setFbPizzaSelections, laneIdx, group, id)}
                   />
-                )}
+                ))}
 
-                {/* Pizza Bowl Soda Pitcher */}
-                {fbSodaItem && (
+                {/* Pizza Bowl Soda Pitcher — one card per lane */}
+                {fbSodaItem && Array.from({ length: includedLaneCount }).map((_, laneIdx) => (
                   <ModifierCard
-                    title={fbSodaItem.item.Name}
-                    subtitle="Included — 1 per lane"
+                    key={`soda-${laneIdx}`}
+                    title={includedLaneCount > 1 ? `${fbSodaItem.item.Name} — Lane ${laneIdx + 1}` : fbSodaItem.item.Name}
+                    subtitle={includedLaneCount > 1 ? "Included — pick a flavor for each lane" : "Included — 1 per lane"}
                     imageUrl={fbSodaItem.item.ImageUrl}
                     accent={coral}
                     modifiers={fbSodaItem.modifiers}
-                    selections={fbSodaSelections}
-                    onToggle={(group, id) => toggleModifier(fbSodaSelections, setFbSodaSelections, group, id)}
+                    selections={fbSodaSelections[laneIdx] || {}}
+                    onToggle={(group, id) => toggleModifier(setFbSodaSelections, laneIdx, group, id)}
                   />
-                )}
+                ))}
 
                 {!fbPizzaItem && !fbSodaItem && !fbChipsItem && (
                   <p className="font-body text-white/50 text-sm text-center py-8">
@@ -2096,17 +2122,54 @@ export default function BowlingBookingPage() {
               </>
             )}
 
-            <div className="pt-2">
-              <button
-                onClick={() => setStep("extras")}
-                disabled={fbLoading}
-                className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-                style={{ backgroundColor: coral, boxShadow: fbLoading ? "none" : `0 0 16px ${coral}30` }}
-              >
-                Continue
-              </button>
-              <button onClick={goBack} className="mt-3 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
-            </div>
+            {(() => {
+              // Gate Continue — every radio (MaxQuantity=1) group on each included
+              // item + lane must have a selection. QAMF's MinQuantity=0 on these
+              // groups isn't enforced server-side but we want the guest to make
+              // an explicit choice (even if it's "No Topping" / "No beverage")
+              // so nothing ends up defaulted silently.
+              const missing: string[] = [];
+              const checkItem = (
+                item: { Name: string; ImageUrl?: string } | null,
+                modifiers: ItemModifiers | undefined,
+                laneSelections: Array<Record<number, Set<number>>>,
+                itemKind: "pizza" | "soda",
+              ) => {
+                if (!item || !modifiers) return;
+                for (let laneIdx = 0; laneIdx < includedLaneCount; laneIdx++) {
+                  const laneSel = laneSelections[laneIdx] || {};
+                  const requiredGroups = modifiers.ModifiersGroups.filter((g) => g.Rules.MaxQuantity === 1);
+                  for (const g of requiredGroups) {
+                    const picked = laneSel[g.IdModifierGroup];
+                    if (!picked || picked.size === 0) {
+                      const laneLabel = includedLaneCount > 1 ? ` · Lane ${laneIdx + 1}` : "";
+                      missing.push(`${itemKind === "pizza" ? "Pizza" : "Soda"}${laneLabel}: ${g.Name}`);
+                    }
+                  }
+                }
+              };
+              checkItem(fbPizzaItem?.item || null, fbPizzaItem?.modifiers, fbPizzaSelections, "pizza");
+              checkItem(fbSodaItem?.item || null, fbSodaItem?.modifiers, fbSodaSelections, "soda");
+              const canContinue = !fbLoading && missing.length === 0;
+              return (
+                <div className="pt-2">
+                  {missing.length > 0 && (
+                    <p className="font-body text-amber-400/80 text-xs text-center mb-2">
+                      Please choose {missing.join(" · ")}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => setStep("extras")}
+                    disabled={!canContinue}
+                    className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                    style={{ backgroundColor: coral, boxShadow: !canContinue ? "none" : `0 0 16px ${coral}30` }}
+                  >
+                    Continue
+                  </button>
+                  <button onClick={goBack} className="mt-3 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2348,13 +2411,14 @@ export default function BowlingBookingPage() {
                   </div>
                 )}
 
-                {/* Pizza Bowl included items with chosen modifiers */}
-                {selectedOffer && isPizzaBowl(selectedOffer.Name) && fbPizzaItem && (() => {
-                  const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections);
+                {/* Pizza Bowl included items with chosen modifiers — one row per lane */}
+                {selectedOffer && isPizzaBowl(selectedOffer.Name) && fbPizzaItem && Array.from({ length: includedLaneCount }).map((_, laneIdx) => {
+                  const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections[laneIdx] || {});
+                  const laneLabel = includedLaneCount > 1 ? ` (Lane ${laneIdx + 1})` : "";
                   return (
-                    <div className="mt-1">
+                    <div key={`pizza-summary-${laneIdx}`} className="mt-1">
                       <div className="flex justify-between">
-                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>{fbPizzaItem.item.Name}</span>
+                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>{fbPizzaItem.item.Name}{laneLabel}</span>
                         <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>
                           {upchargeTotal > 0 ? `$${upchargeTotal.toFixed(2)}` : "FREE"}
                         </span>
@@ -2366,13 +2430,14 @@ export default function BowlingBookingPage() {
                       )}
                     </div>
                   );
-                })()}
-                {selectedOffer && isPizzaBowl(selectedOffer.Name) && fbSodaItem && (() => {
-                  const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections);
+                })}
+                {selectedOffer && isPizzaBowl(selectedOffer.Name) && fbSodaItem && Array.from({ length: includedLaneCount }).map((_, laneIdx) => {
+                  const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections[laneIdx] || {});
+                  const laneLabel = includedLaneCount > 1 ? ` (Lane ${laneIdx + 1})` : "";
                   return (
-                    <div className="mt-1">
+                    <div key={`soda-summary-${laneIdx}`} className="mt-1">
                       <div className="flex justify-between">
-                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>{fbSodaItem.item.Name}</span>
+                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>{fbSodaItem.item.Name}{laneLabel}</span>
                         <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>
                           {upchargeTotal > 0 ? `$${upchargeTotal.toFixed(2)}` : "FREE"}
                         </span>
@@ -2384,7 +2449,7 @@ export default function BowlingBookingPage() {
                       )}
                     </div>
                   );
-                })()}
+                })}
               </div>
               {/* BMI add-ons with prices */}
               {getBmiAddons().length > 0 && (
