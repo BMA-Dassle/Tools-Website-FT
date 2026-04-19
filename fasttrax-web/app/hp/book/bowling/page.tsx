@@ -934,6 +934,52 @@ export default function BowlingBookingPage() {
     contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [step]);
 
+  // Food step: as each required radio group gets answered, advance the viewport
+  // to the next un-answered card (pizza-0 → soda-0 → pizza-1 → soda-1 → Continue).
+  // Uses `data-fb-card` attributes on each card wrapper. Tracks the previous
+  // "first incomplete" so an initial render or unrelated state changes don't
+  // trigger a scroll.
+  const firstIncompleteRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (step !== "food-beverage") return;
+    // Compute the first incomplete required (radio) group in canonical order:
+    // pizza-0, soda-0, pizza-1, soda-1, …
+    let firstKey: string | null = null;
+    for (let laneIdx = 0; laneIdx < includedLaneCount && firstKey === null; laneIdx++) {
+      for (const type of ["pizza", "soda"] as const) {
+        const item = type === "pizza" ? fbPizzaItem : fbSodaItem;
+        const laneSels = type === "pizza" ? fbPizzaSelections[laneIdx] : fbSodaSelections[laneIdx];
+        if (!item) continue;
+        const requiredGroups = item.modifiers.ModifiersGroups.filter((g) => g.Rules.MaxQuantity === 1);
+        const missing = requiredGroups.some((g) => !(laneSels?.[g.IdModifierGroup]?.size));
+        if (missing) { firstKey = `${type}-${laneIdx}`; break; }
+      }
+    }
+    // First time we evaluate on this step — remember the starting point but
+    // don't scroll. Subsequent changes scroll to the new target.
+    if (firstIncompleteRef.current === undefined) {
+      firstIncompleteRef.current = firstKey;
+      return;
+    }
+    if (firstKey === firstIncompleteRef.current) return;
+    firstIncompleteRef.current = firstKey;
+    // Wait a tick so the DOM reflects the just-pressed button's selected state
+    // before we scroll (smoother visual transition).
+    setTimeout(() => {
+      if (firstKey) {
+        document.querySelector(`[data-fb-card="${firstKey}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        document.querySelector(`[data-fb-continue]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 80);
+  }, [step, includedLaneCount, fbPizzaItem, fbSodaItem, fbPizzaSelections, fbSodaSelections]);
+
+  // When leaving the food-beverage step, reset the tracker so the next entry
+  // starts fresh and doesn't auto-scroll immediately.
+  useEffect(() => {
+    if (step !== "food-beverage") firstIncompleteRef.current = undefined;
+  }, [step]);
+
   // Keep-alive
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
   const startKeepAlive = useCallback((key: string, cid: string) => {
@@ -2095,30 +2141,32 @@ export default function BowlingBookingPage() {
 
                 {/* Pizza Bowl Pizza — one card per lane */}
                 {fbPizzaItem && Array.from({ length: includedLaneCount }).map((_, laneIdx) => (
-                  <ModifierCard
-                    key={`pizza-${laneIdx}`}
-                    title={includedLaneCount > 1 ? `${fbPizzaItem.item.Name} — Lane ${laneIdx + 1}` : fbPizzaItem.item.Name}
-                    subtitle={includedLaneCount > 1 ? "Included — customize each lane separately" : "Included — 1 per lane"}
-                    imageUrl={fbPizzaItem.item.ImageUrl}
-                    accent={coral}
-                    modifiers={fbPizzaItem.modifiers}
-                    selections={fbPizzaSelections[laneIdx] || {}}
-                    onToggle={(group, id) => toggleModifier(setFbPizzaSelections, laneIdx, group, id)}
-                  />
+                  <div key={`pizza-${laneIdx}`} data-fb-card={`pizza-${laneIdx}`} className="scroll-mt-[170px]">
+                    <ModifierCard
+                      title={includedLaneCount > 1 ? `${fbPizzaItem.item.Name} — Lane ${laneIdx + 1}` : fbPizzaItem.item.Name}
+                      subtitle={includedLaneCount > 1 ? "Included — customize each lane separately" : "Included — 1 per lane"}
+                      imageUrl={fbPizzaItem.item.ImageUrl}
+                      accent={coral}
+                      modifiers={fbPizzaItem.modifiers}
+                      selections={fbPizzaSelections[laneIdx] || {}}
+                      onToggle={(group, id) => toggleModifier(setFbPizzaSelections, laneIdx, group, id)}
+                    />
+                  </div>
                 ))}
 
                 {/* Pizza Bowl Soda Pitcher — one card per lane */}
                 {fbSodaItem && Array.from({ length: includedLaneCount }).map((_, laneIdx) => (
-                  <ModifierCard
-                    key={`soda-${laneIdx}`}
-                    title={includedLaneCount > 1 ? `${fbSodaItem.item.Name} — Lane ${laneIdx + 1}` : fbSodaItem.item.Name}
-                    subtitle={includedLaneCount > 1 ? "Included — pick a flavor for each lane" : "Included — 1 per lane"}
-                    imageUrl={fbSodaItem.item.ImageUrl}
-                    accent={coral}
-                    modifiers={fbSodaItem.modifiers}
-                    selections={fbSodaSelections[laneIdx] || {}}
-                    onToggle={(group, id) => toggleModifier(setFbSodaSelections, laneIdx, group, id)}
-                  />
+                  <div key={`soda-${laneIdx}`} data-fb-card={`soda-${laneIdx}`} className="scroll-mt-[170px]">
+                    <ModifierCard
+                      title={includedLaneCount > 1 ? `${fbSodaItem.item.Name} — Lane ${laneIdx + 1}` : fbSodaItem.item.Name}
+                      subtitle={includedLaneCount > 1 ? "Included — pick a flavor for each lane" : "Included — 1 per lane"}
+                      imageUrl={fbSodaItem.item.ImageUrl}
+                      accent={coral}
+                      modifiers={fbSodaItem.modifiers}
+                      selections={fbSodaSelections[laneIdx] || {}}
+                      onToggle={(group, id) => toggleModifier(setFbSodaSelections, laneIdx, group, id)}
+                    />
+                  </div>
                 ))}
 
                 {!fbPizzaItem && !fbSodaItem && !fbChipsItem && (
@@ -2165,7 +2213,7 @@ export default function BowlingBookingPage() {
               checkItem(fbSodaItem?.item || null, fbSodaItem?.modifiers, fbSodaSelections, "soda");
               const canContinue = !fbLoading && missing.length === 0;
               return (
-                <div className="pt-2">
+                <div data-fb-continue className="pt-2 scroll-mt-[200px]">
                   {missing.length > 0 && (
                     <p className="font-body text-amber-400/80 text-xs text-center mb-2">
                       Please choose {missing.join(" · ")}
