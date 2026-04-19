@@ -920,6 +920,19 @@ export default function BowlingBookingPage() {
 
   // Refs
   const timePickerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
+  // Prevent the initial mount from scrolling — only scroll on real step transitions.
+  const prevStepRef = useRef<Step>(step);
+
+  // Auto-scroll the content area into view whenever the step changes. Skips
+  // the very first render so loading the page doesn't force a scroll past
+  // whatever the user was looking at (e.g. hero / nav). scroll-mt-[160px] on
+  // the section accounts for the sticky nav + step-indicator + context bar.
+  useEffect(() => {
+    if (prevStepRef.current === step) return;
+    prevStepRef.current = step;
+    contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [step]);
 
   // Keep-alive
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
@@ -1623,7 +1636,7 @@ export default function BowlingBookingPage() {
         </div>
       )}
 
-      <section className="max-w-5xl mx-auto px-4 py-8 pb-24">
+      <section ref={contentRef} className="max-w-5xl mx-auto px-4 py-8 pb-24 scroll-mt-[160px]">
 
         {/* ── LOCATION CONFIRM ── */}
         {step === "location" && !loading && centerId && (
