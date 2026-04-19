@@ -530,13 +530,39 @@ interface ItemModifiers {
   ModifiersGroups: ModifierGroup[];
 }
 
-/** Category IDs for "included in the package" items (category 3 = VIP Chips & Salsa, 36 = Pizza Bowl pizza + soda) */
-const FB_CAT_VIP_COMPLIMENTARY = 3;
-const FB_CAT_PIZZA_BOWL_INCLUDED = 36;
-/** Well-known item IDs we reach for directly (avoid confusing category lookups if Name changes) */
-const ITEM_ID_CHIPS_SALSA = 13186;
-const ITEM_ID_PIZZA_BOWL_PIZZA = 13036;
-const ITEM_ID_PIZZA_BOWL_SODA_PITCHER = 13037;
+/**
+ * QAMF Pizza Bowl catalog per center. Fort Myers (9172) and Naples (3148) use
+ * completely different category + item IDs for the same conceptual products,
+ * so we key each into a map and pick by `centerId` at load time.
+ *
+ * Confirmed by HARs: Pizza Bowl.har (Fort Myers) and pizza bowl naples.har.
+ */
+interface PizzaBowlCatalog {
+  pizzaBowlCategory: number;
+  vipCompCategory: number | null;
+  pizzaItemId: number;
+  sodaItemId: number;
+  chipsItemId: number | null;
+}
+const PIZZA_BOWL_CATALOG: Record<string, PizzaBowlCatalog> = {
+  "9172": { // HeadPinz Fort Myers
+    pizzaBowlCategory: 36,
+    vipCompCategory: 3,
+    pizzaItemId: 13036,
+    sodaItemId: 13037,
+    chipsItemId: 13186,
+  },
+  "3148": { // HeadPinz Naples
+    pizzaBowlCategory: 24,
+    vipCompCategory: null, // Naples doesn't return VIP Chips & Salsa in the HAR — leave as null
+    pizzaItemId: 22168,
+    sodaItemId: 22169,
+    chipsItemId: null,
+  },
+};
+/** Fallback for any unknown center — defaults to FM's IDs so the flow at
+ * least doesn't hard-crash; the modifier fetches will just return empty. */
+const DEFAULT_CATALOG = PIZZA_BOWL_CATALOG["9172"];
 
 function getAvailableTimes(offer: Offer): string[] {
   const times: string[] = [];
@@ -1147,27 +1173,25 @@ export default function BowlingBookingPage() {
     setFbPizzaItem(null);
     setFbSodaItem(null);
     setFbChipsItem(null);
-    // Infer included lane count from the offer items. `Lanes` on the offer item
-    // reflects how many lanes this reservation covers. Pizza Bowl packages are
-    // 1 pizza + 1 pitcher per lane, so the count maps 1:1.
     const offerLanes = offer.Items?.[0]?.Lanes ?? 1;
     const laneCount = Math.max(1, offerLanes || 1);
     setIncludedLaneCount(laneCount);
     setFbPizzaSelections(Array.from({ length: laneCount }, () => ({})));
     setFbSodaSelections(Array.from({ length: laneCount }, () => ({})));
+    const catalog = PIZZA_BOWL_CATALOG[centerId] || DEFAULT_CATALOG;
     try {
       const isVip = classifyOffer(offer.Name) === "vip";
       const categoryCalls: Promise<FbItem[]>[] = [
-        qamf(`centers/${centerId}/offers/food-beverage?systemId=${centerId}&datetime=${encodedDateTime}&categoryId=${FB_CAT_PIZZA_BOWL_INCLUDED}&page=1&itemsPerPage=50`).catch(() => []),
+        qamf(`centers/${centerId}/offers/food-beverage?systemId=${centerId}&datetime=${encodedDateTime}&categoryId=${catalog.pizzaBowlCategory}&page=1&itemsPerPage=50`).catch(() => []),
       ];
-      if (isVip) {
-        categoryCalls.push(qamf(`centers/${centerId}/offers/food-beverage?systemId=${centerId}&datetime=${encodedDateTime}&categoryId=${FB_CAT_VIP_COMPLIMENTARY}&page=1&itemsPerPage=50`).catch(() => []));
+      if (isVip && catalog.vipCompCategory !== null) {
+        categoryCalls.push(qamf(`centers/${centerId}/offers/food-beverage?systemId=${centerId}&datetime=${encodedDateTime}&categoryId=${catalog.vipCompCategory}&page=1&itemsPerPage=50`).catch(() => []));
       }
       const [pizzaBowlItems, vipItems = []] = await Promise.all(categoryCalls);
 
-      const pizzaItem = pizzaBowlItems.find((i) => i.Id === ITEM_ID_PIZZA_BOWL_PIZZA);
-      const sodaItem = pizzaBowlItems.find((i) => i.Id === ITEM_ID_PIZZA_BOWL_SODA_PITCHER);
-      const chipsItem = vipItems.find((i) => i.Id === ITEM_ID_CHIPS_SALSA);
+      const pizzaItem = pizzaBowlItems.find((i) => i.Id === catalog.pizzaItemId);
+      const sodaItem = pizzaBowlItems.find((i) => i.Id === catalog.sodaItemId);
+      const chipsItem = catalog.chipsItemId !== null ? vipItems.find((i) => i.Id === catalog.chipsItemId) : undefined;
       if (chipsItem) setFbChipsItem(chipsItem);
 
       // Fetch modifier groups for each included item (no modifiers needed for chips & salsa).
@@ -1289,17 +1313,16 @@ export default function BowlingBookingPage() {
       const fbItems: { PriceKeyId: number; Quantity: number; UnitPrice: number; Note: string; Modifiers: { OriginalId: number }[] }[] = [];
       const offerIsVip = classifyOffer(selectedOffer!.Name) === "vip";
       const offerIsPizzaBowl = isPizzaBowl(selectedOffer!.Name);
-      if (offerIsVip) {
-        fbItems.push({ PriceKeyId: ITEM_ID_CHIPS_SALSA, Quantity: Math.ceil(playerCount / 6), UnitPrice: 0, Note: "", Modifiers: [] });
+      const catalog = PIZZA_BOWL_CATALOG[centerId] || DEFAULT_CATALOG;
+      if (offerIsVip && catalog.chipsItemId !== null) {
+        fbItems.push({ PriceKeyId: catalog.chipsItemId, Quantity: Math.ceil(playerCount / 6), UnitPrice: 0, Note: "", Modifiers: [] });
       }
       if (offerIsPizzaBowl) {
-        // Emit one line item per lane so each has its own Modifiers[] —
-        // Pizza 1: Pepperoni, Pizza 2: Cheese; Soda 1: Pepsi, Soda 2: Dr. Pepper, etc.
         for (let laneIdx = 0; laneIdx < includedLaneCount; laneIdx++) {
           if (fbPizzaItem) {
             const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections[laneIdx] || {});
             fbItems.push({
-              PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
+              PriceKeyId: catalog.pizzaItemId,
               Quantity: 1,
               UnitPrice: upchargeTotal,
               Note: "",
@@ -1309,7 +1332,7 @@ export default function BowlingBookingPage() {
           if (fbSodaItem) {
             const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections[laneIdx] || {});
             fbItems.push({
-              PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
+              PriceKeyId: catalog.sodaItemId,
               Quantity: 1,
               UnitPrice: upchargeTotal,
               Note: "",
@@ -1404,12 +1427,14 @@ export default function BowlingBookingPage() {
         }
       });
 
-      // Add free chips & salsa for VIP packages
-      if (classifyOffer(selectedOffer!.Name) === "vip") {
+      const submitCatalog = PIZZA_BOWL_CATALOG[centerId] || DEFAULT_CATALOG;
+
+      // Add free chips & salsa for VIP packages (center-specific item ID)
+      if (classifyOffer(selectedOffer!.Name) === "vip" && submitCatalog.chipsItemId !== null) {
         cartItems.push({
           Name: "VIP Chips & Salsa",
           Type: "FoodBeverage",
-          PriceKeyId: ITEM_ID_CHIPS_SALSA,
+          PriceKeyId: submitCatalog.chipsItemId,
           Quantity: playerCount,
           UnitPrice: 0,
         });
@@ -1427,7 +1452,7 @@ export default function BowlingBookingPage() {
             cartItems.push({
               Name: `${fbPizzaItem.item.Name}${laneLabel}`,
               Type: "FoodBeverage",
-              PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
+              PriceKeyId: submitCatalog.pizzaItemId,
               Quantity: 1,
               UnitPrice: upchargeTotal,
               Modifiers: modifiers,
@@ -1438,7 +1463,7 @@ export default function BowlingBookingPage() {
             cartItems.push({
               Name: `${fbSodaItem.item.Name}${laneLabel}`,
               Type: "FoodBeverage",
-              PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
+              PriceKeyId: submitCatalog.sodaItemId,
               Quantity: 1,
               UnitPrice: upchargeTotal,
               Modifiers: modifiers,
