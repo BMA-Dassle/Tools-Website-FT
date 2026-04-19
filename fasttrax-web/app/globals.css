@@ -66,6 +66,16 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-track { background: var(--color-bg-deep); }
 ::-webkit-scrollbar-thumb { background: var(--color-cyan); border-radius: 2px; }
 
+/* Utility: hide horizontal scrollbars on overflow-x-auto containers where the
+   scrollbar itself reads as a stray cyan bar (e.g. booking step indicators). */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Hide 3CX default floating button — shown via JS when agents are online */
 call-us-selector {
   display: none !important;

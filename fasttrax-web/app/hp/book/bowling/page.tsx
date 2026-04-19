@@ -10,7 +10,7 @@ import { getBookingClientKey } from "@/lib/booking-location";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type Step = "location" | "players" | "date" | "lane-type" | "offer" | "extras" | "review" | "details";
+type Step = "location" | "players" | "date" | "lane-type" | "offer" | "food-beverage" | "extras" | "review" | "details";
 type LaneType = "regular" | "vip" | "oldtime";
 
 interface OpenDate {
@@ -223,6 +223,131 @@ function setSessionToken(tok: string) {
   else sessionStorage.removeItem("qamf_session_token");
 }
 
+/**
+ * Renders one QAMF item's modifier groups. Groups are reordered so
+ * radio/single-select (MaxQuantity=1) come first — that's usually the
+ * "pick-one-included" choice — and multi-select "add extras" come last.
+ * Radio groups render as larger pills with an active-check dot; multi-select
+ * chips are tag-style with the per-item price suffix.
+ */
+function ModifierCard({
+  title,
+  subtitle,
+  imageUrl,
+  accent,
+  modifiers,
+  selections,
+  onToggle,
+}: {
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  accent: string;
+  modifiers: ItemModifiers;
+  selections: Record<number, Set<number>>;
+  onToggle: (group: ModifierGroup, modifierId: number) => void;
+}) {
+  // Radio-style (single-select) groups first; multi-select extras last.
+  const sortedGroups = [...modifiers.ModifiersGroups].sort((a, b) => {
+    const aSingle = a.Rules.MaxQuantity === 1 ? 0 : 1;
+    const bSingle = b.Rules.MaxQuantity === 1 ? 0 : 1;
+    return aSingle - bSingle;
+  });
+
+  return (
+    <div className="rounded-xl overflow-hidden bg-white/[0.03] border border-white/10">
+      {/* Header with thumbnail */}
+      <div className="flex items-stretch gap-3 p-4 border-b border-white/8">
+        {imageUrl && (
+          <div className="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-white/5">
+            <img
+              src={imageUrl}
+              alt={title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // QAMF occasionally returns 404 for missing images — hide the
+                // thumbnail container so we don't leave a broken alt-text box.
+                const wrapper = (e.currentTarget as HTMLImageElement).parentElement;
+                if (wrapper) wrapper.style.display = "none";
+              }}
+            />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 flex flex-col justify-center">
+          <h3 className="font-body text-white font-bold text-sm">{title}</h3>
+          {subtitle && <p className="font-body text-white/50 text-xs mt-0.5">{subtitle}</p>}
+        </div>
+      </div>
+
+      <div className="p-4 space-y-5">
+        {sortedGroups.map((group) => {
+          const single = group.Rules.MaxQuantity === 1;
+          const chosen = selections[group.IdModifierGroup] || new Set<number>();
+          return (
+            <div key={group.IdModifierGroup}>
+              <div className="flex items-baseline gap-2 mb-2">
+                <p className="font-body text-white font-semibold text-xs uppercase tracking-wider">{group.Name}</p>
+                <p className="font-body text-white/40 text-[11px] normal-case tracking-normal">
+                  {single ? "(pick one)" : "(optional add-ons)"}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {group.Modifiers.map((m) => {
+                  const isOn = chosen.has(m.IdOriginal);
+                  return single
+                    ? (
+                      <button
+                        key={m.IdOriginal}
+                        onClick={() => onToggle(group, m.IdOriginal)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium font-body transition-colors cursor-pointer"
+                        style={{
+                          backgroundColor: isOn ? accent : "rgba(255,255,255,0.05)",
+                          color: isOn ? "#0a1628" : "rgba(255,255,255,0.75)",
+                          border: `1px solid ${isOn ? accent : "rgba(255,255,255,0.12)"}`,
+                          fontWeight: isOn ? 700 : 500,
+                        }}
+                      >
+                        <span
+                          className="w-3 h-3 rounded-full border flex items-center justify-center shrink-0"
+                          style={{
+                            borderColor: isOn ? "#0a1628" : "rgba(255,255,255,0.3)",
+                            backgroundColor: isOn ? "#0a1628" : "transparent",
+                          }}
+                        >
+                          {isOn && <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: accent }} />}
+                        </span>
+                        {m.Name}
+                      </button>
+                    )
+                    : (
+                      <button
+                        key={m.IdOriginal}
+                        onClick={() => onToggle(group, m.IdOriginal)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-body transition-colors cursor-pointer"
+                        style={{
+                          backgroundColor: isOn ? `${accent}25` : "rgba(255,255,255,0.04)",
+                          color: isOn ? accent : "rgba(255,255,255,0.7)",
+                          border: `1px solid ${isOn ? `${accent}60` : "rgba(255,255,255,0.1)"}`,
+                          fontWeight: isOn ? 700 : 500,
+                        }}
+                      >
+                        {isOn && <span className="text-[10px]">✓</span>}
+                        <span>{m.Name}</span>
+                        {m.Price > 0 && (
+                          <span className="opacity-70 font-normal">+${m.Price.toFixed(2)}</span>
+                        )}
+                      </button>
+                    );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 async function qamf(path: string, options?: RequestInit) {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
@@ -366,6 +491,53 @@ function classifyOffer(name: string): LaneType {
   return "regular";
 }
 
+/** True when an offer is one of the Pizza Bowl packages (includes pizza + soda). */
+function isPizzaBowl(name: string): boolean {
+  return /pizza\s*bowl/i.test(name);
+}
+
+/* ------------------------------------------------------------------ */
+/*  F&B (Food & Beverage) types — QAMF /offers/food-beverage +         */
+/*  /Items/{id}/Modifiers. See docs/qamf-bowling-api.md.               */
+/* ------------------------------------------------------------------ */
+
+interface FbItem {
+  Id: number;               // ⚠ QAMF returns this as `Id`, NOT `ItemId` (unlike the ItemId used in /Items/{id}/Modifiers paths)
+  Name: string;
+  Description?: string;
+  Price?: number;
+  ImageUrl?: string;
+  CategoryId?: number;
+  IsOutOfStock?: boolean;
+  Type?: string;
+}
+
+interface Modifier {
+  Name: string;
+  IdOriginal: number;
+  Price: number;
+}
+
+interface ModifierGroup {
+  Name: string;
+  IdModifierGroup: number;
+  Rules: { MinQuantity: number; MaxQuantity: number | null };
+  Modifiers: Modifier[];
+}
+
+interface ItemModifiers {
+  Name: string;
+  ModifiersGroups: ModifierGroup[];
+}
+
+/** Category IDs for "included in the package" items (category 3 = VIP Chips & Salsa, 36 = Pizza Bowl pizza + soda) */
+const FB_CAT_VIP_COMPLIMENTARY = 3;
+const FB_CAT_PIZZA_BOWL_INCLUDED = 36;
+/** Well-known item IDs we reach for directly (avoid confusing category lookups if Name changes) */
+const ITEM_ID_CHIPS_SALSA = 13186;
+const ITEM_ID_PIZZA_BOWL_PIZZA = 13036;
+const ITEM_ID_PIZZA_BOWL_SODA_PITCHER = 13037;
+
 function getAvailableTimes(offer: Offer): string[] {
   const times: string[] = [];
   for (const item of offer.Items || []) {
@@ -469,6 +641,17 @@ export default function BowlingBookingPage() {
   const bmiAddonOrderIdRef = useRef<string | null>(null);
   const bmiAddonLineIdsRef = useRef<Record<string, string>>({});
   const [bmiBookingAddon, setBmiBookingAddon] = useState(false);
+
+  // F&B (Pizza Bowl included items) — pizza + soda pitcher per package, plus
+  // complimentary VIP Chips & Salsa. `null` means not yet loaded; array means
+  // loaded (possibly empty).
+  const [fbLoading, setFbLoading] = useState(false);
+  const [fbPizzaItem, setFbPizzaItem] = useState<{ item: FbItem; modifiers: ItemModifiers } | null>(null);
+  const [fbSodaItem, setFbSodaItem] = useState<{ item: FbItem; modifiers: ItemModifiers } | null>(null);
+  const [fbChipsItem, setFbChipsItem] = useState<FbItem | null>(null); // VIP complimentary — no modifier UI needed
+  // Per-group selections: { [IdModifierGroup]: Set<IdOriginal> }
+  const [fbPizzaSelections, setFbPizzaSelections] = useState<Record<number, Set<number>>>({});
+  const [fbSodaSelections, setFbSodaSelections] = useState<Record<number, Set<number>>>({});
 
   // VIP upgrade modal
   const [showVipUpgrade, setShowVipUpgrade] = useState(false);
@@ -871,7 +1054,15 @@ export default function BowlingBookingPage() {
       setShoes(shoesData.Shoes || []);
       setExtras(Array.isArray(extrasData) ? extrasData : []);
       trackBowlingStep("Package Selected", { offer: offer.Name, tariff: tariff.Name, price: tariff.Price, laneType });
-      setStep("extras");
+      // Pizza Bowl packages route through the new F&B step so the guest can
+      // pick pizza toppings + soda flavor. Other packages keep the old flow.
+      if (isPizzaBowl(offer.Name)) {
+        // Fire-and-forget: load included items + modifiers while the step renders.
+        loadPizzaBowlIncludedItems(offer, dte);
+        setStep("food-beverage");
+      } else {
+        setStep("extras");
+      }
       // Show VIP upgrade modal if regular and not already shown
       if (classifyOffer(offer.Name) === "regular" && !vipUpgradeShown) {
         const upgrade = findVipUpgrade(offer, allOffers, useTime);
@@ -879,6 +1070,91 @@ export default function BowlingBookingPage() {
       }
     } catch { setError("Failed to create reservation"); }
     finally { setLoading(false); }
+  }
+
+  /* ── Step: Load Pizza Bowl included items + modifiers ────────── */
+
+  async function loadPizzaBowlIncludedItems(offer: Offer, encodedDateTime: string) {
+    setFbLoading(true);
+    setFbPizzaItem(null);
+    setFbSodaItem(null);
+    setFbChipsItem(null);
+    setFbPizzaSelections({});
+    setFbSodaSelections({});
+    try {
+      const isVip = classifyOffer(offer.Name) === "vip";
+      const categoryCalls: Promise<FbItem[]>[] = [
+        qamf(`centers/${centerId}/offers/food-beverage?systemId=${centerId}&datetime=${encodedDateTime}&categoryId=${FB_CAT_PIZZA_BOWL_INCLUDED}&page=1&itemsPerPage=50`).catch(() => []),
+      ];
+      if (isVip) {
+        categoryCalls.push(qamf(`centers/${centerId}/offers/food-beverage?systemId=${centerId}&datetime=${encodedDateTime}&categoryId=${FB_CAT_VIP_COMPLIMENTARY}&page=1&itemsPerPage=50`).catch(() => []));
+      }
+      const [pizzaBowlItems, vipItems = []] = await Promise.all(categoryCalls);
+
+      const pizzaItem = pizzaBowlItems.find((i) => i.Id === ITEM_ID_PIZZA_BOWL_PIZZA);
+      const sodaItem = pizzaBowlItems.find((i) => i.Id === ITEM_ID_PIZZA_BOWL_SODA_PITCHER);
+      const chipsItem = vipItems.find((i) => i.Id === ITEM_ID_CHIPS_SALSA);
+      if (chipsItem) setFbChipsItem(chipsItem);
+
+      // Fetch modifier groups for each included item (no modifiers needed for chips & salsa).
+      const [pizzaMods, sodaMods] = await Promise.all([
+        pizzaItem ? qamf(`centers/${centerId}/Items/${pizzaItem.Id}/Modifiers`).catch(() => null) : Promise.resolve(null),
+        sodaItem ? qamf(`centers/${centerId}/Items/${sodaItem.Id}/Modifiers`).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (pizzaItem && pizzaMods) setFbPizzaItem({ item: pizzaItem, modifiers: pizzaMods });
+      if (sodaItem && sodaMods) setFbSodaItem({ item: sodaItem, modifiers: sodaMods });
+    } finally {
+      setFbLoading(false);
+    }
+  }
+
+  /** Toggle a modifier selection for a given group. Enforces MaxQuantity (=1 → radio). */
+  function toggleModifier(
+    selections: Record<number, Set<number>>,
+    setSelections: (fn: (prev: Record<number, Set<number>>) => Record<number, Set<number>>) => void,
+    group: ModifierGroup,
+    modifierId: number,
+  ) {
+    setSelections((prev) => {
+      const next = { ...prev };
+      const existing = new Set(prev[group.IdModifierGroup] || []);
+      const max = group.Rules.MaxQuantity;
+      if (existing.has(modifierId)) {
+        existing.delete(modifierId);
+      } else {
+        if (max === 1) existing.clear(); // radio behavior
+        existing.add(modifierId);
+      }
+      next[group.IdModifierGroup] = existing;
+      return next;
+    });
+  }
+
+  /**
+   * Build the Modifiers[] payload for a given item + the up-charge total.
+   * QAMF POST quirk: the `Items/{id}/Modifiers` GET returns `IdOriginal`, but
+   * the CreateSummary POST expects the same field renamed to `OriginalId`.
+   * The F&B line item's UnitPrice is the sum of non-zero modifier prices
+   * (e.g. pizza with Pepperoni extra → UnitPrice: 2.00).
+   */
+  function buildItemModifiers(
+    itemModifiers: ItemModifiers | undefined,
+    selections: Record<number, Set<number>>,
+  ): { modifiers: { OriginalId: number; Name: string }[]; upchargeTotal: number } {
+    if (!itemModifiers) return { modifiers: [], upchargeTotal: 0 };
+    const modifiers: { OriginalId: number; Name: string }[] = [];
+    let upchargeTotal = 0;
+    for (const group of itemModifiers.ModifiersGroups) {
+      const chosen = selections[group.IdModifierGroup];
+      if (!chosen) continue;
+      for (const id of chosen) {
+        const mod = group.Modifiers.find((m) => m.IdOriginal === id);
+        if (!mod) continue;
+        modifiers.push({ OriginalId: mod.IdOriginal, Name: mod.Name });
+        upchargeTotal += mod.Price;
+      }
+    }
+    return { modifiers, upchargeTotal };
   }
 
   /* ── Step: Review cart ───────────────────────────────────────── */
@@ -930,6 +1206,39 @@ export default function BowlingBookingPage() {
         }
       }
 
+      // Build FoodAndBeverage line items. Confirmed against the QAMF POST
+      // body in the Pizza Bowl HAR — Modifiers use `OriginalId` (no Name/Qty)
+      // and the line item's UnitPrice is the sum of chargeable modifier
+      // prices (e.g. +$2 Pepperoni → UnitPrice: 2).
+      const fbItems: { PriceKeyId: number; Quantity: number; UnitPrice: number; Note: string; Modifiers: { OriginalId: number }[] }[] = [];
+      const offerIsVip = classifyOffer(selectedOffer!.Name) === "vip";
+      const offerIsPizzaBowl = isPizzaBowl(selectedOffer!.Name);
+      if (offerIsVip) {
+        fbItems.push({ PriceKeyId: ITEM_ID_CHIPS_SALSA, Quantity: Math.ceil(playerCount / 6), UnitPrice: 0, Note: "", Modifiers: [] });
+      }
+      if (offerIsPizzaBowl) {
+        if (fbPizzaItem) {
+          const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections);
+          fbItems.push({
+            PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
+            Quantity: 1,
+            UnitPrice: upchargeTotal,
+            Note: "",
+            Modifiers: modifiers.map((m) => ({ OriginalId: m.OriginalId })),
+          });
+        }
+        if (fbSodaItem) {
+          const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections);
+          fbItems.push({
+            PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
+            Quantity: 1,
+            UnitPrice: upchargeTotal,
+            Note: "",
+            Modifiers: modifiers.map((m) => ({ OriginalId: m.OriginalId })),
+          });
+        }
+      }
+
       const summary = await qamf(`centers/${centerId}/Cart/CreateSummary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -937,9 +1246,7 @@ export default function BowlingBookingPage() {
           Time: resolveDateTime(selectedDate, selectedTime),
           Items: {
             Extra: extraItems,
-            FoodAndBeverage: classifyOffer(selectedOffer!.Name) === "vip"
-              ? [{ PriceKeyId: 13186, Quantity: Math.ceil(playerCount / 6), UnitPrice: 0, Note: "", Modifiers: [] }]
-              : [],
+            FoodAndBeverage: fbItems,
             ShoesSocks: shoeItems,
             WebOffer: {
               Id: selectedOffer!.OfferId,
@@ -965,7 +1272,7 @@ export default function BowlingBookingPage() {
     setError("");
     try {
       // Build cart items in QAMF format with Type + PriceKeyId
-      const cartItems: { Name: string; Type: string; PriceKeyId: number; Quantity: number; UnitPrice: number; Modifiers?: never[] }[] = [];
+      const cartItems: { Name: string; Type: string; PriceKeyId: number; Quantity: number; UnitPrice: number; Modifiers?: { OriginalId: number; Name: string }[] }[] = [];
 
       // WebOffer (the bowling package)
       cartItems.push({
@@ -1022,10 +1329,38 @@ export default function BowlingBookingPage() {
         cartItems.push({
           Name: "VIP Chips & Salsa",
           Type: "FoodBeverage",
-          PriceKeyId: 13186,
+          PriceKeyId: ITEM_ID_CHIPS_SALSA,
           Quantity: playerCount,
           UnitPrice: 0,
         });
+      }
+
+      // Pizza Bowl included items (pizza + soda pitcher) with chosen modifiers.
+      // Confirmed via HAR: guest/confirm expects Modifiers[].{OriginalId,Name}
+      // (the Name is used on receipts / confirmation emails).
+      if (isPizzaBowl(selectedOffer!.Name)) {
+        if (fbPizzaItem) {
+          const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections);
+          cartItems.push({
+            Name: fbPizzaItem.item.Name,
+            Type: "FoodBeverage",
+            PriceKeyId: ITEM_ID_PIZZA_BOWL_PIZZA,
+            Quantity: 1,
+            UnitPrice: upchargeTotal,
+            Modifiers: modifiers,
+          });
+        }
+        if (fbSodaItem) {
+          const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections);
+          cartItems.push({
+            Name: fbSodaItem.item.Name,
+            Type: "FoodBeverage",
+            PriceKeyId: ITEM_ID_PIZZA_BOWL_SODA_PITCHER,
+            Quantity: 1,
+            UnitPrice: upchargeTotal,
+            Modifiers: modifiers,
+          });
+        }
       }
 
       const returnUrl = `${window.location.origin}/hp/book/bowling/confirmation?key=${reservationKey}&center=${centerId}`;
@@ -1119,8 +1454,22 @@ export default function BowlingBookingPage() {
 
   /* ── Navigation ──────────────────────────────────────────────── */
 
-  const allSteps: Step[] = ["location", "players", "date", "lane-type", "offer", "extras", "review", "details"];
-  const stepLabels = ["Location", "Party", "Date", "Type", "Package", "Extras", "Review", "Pay"];
+  // Conditionally insert the F&B step only for Pizza Bowl offers; non-Pizza
+  // Bowl packages keep the existing flow and don't show F&B on the indicator.
+  const allSteps: Step[] = (() => {
+    const base: Step[] = ["location", "players", "date", "lane-type", "offer"];
+    if (selectedOffer && isPizzaBowl(selectedOffer.Name)) base.push("food-beverage");
+    base.push("extras", "review", "details");
+    return base;
+  })();
+  // Label index must match allSteps order. For Pizza Bowl we splice in "Food"
+  // at position 5 (between Package and Extras).
+  const stepLabels = (() => {
+    const base = ["Location", "Party", "Date", "Type", "Package"];
+    if (selectedOffer && isPizzaBowl(selectedOffer.Name)) base.push("Food");
+    base.push("Extras", "Review", "Pay");
+    return base;
+  })();
   const stepIndex = allSteps.indexOf(step);
 
   function goBack() {
@@ -1143,53 +1492,56 @@ export default function BowlingBookingPage() {
       {/* Sticky step nav (mirrors racing style) */}
       <div className="sticky top-[72px] sm:top-[80px] z-30">
         <div className="border-b border-white/8 bg-[#0a1628]">
-          <div className="max-w-4xl mx-auto px-4 py-3 overflow-x-auto">
-            <div className="flex items-center gap-0 min-w-max">
+          <div className="max-w-4xl mx-auto px-3 py-2.5 relative">
+            <div className="flex items-center justify-center gap-0 flex-nowrap">
               {allSteps.map((s, i) => {
                 const isPast = i < stepIndex;
                 const isCurrent = i === stepIndex;
                 const isFuture = i > stepIndex;
                 return (
-                  <div key={s} className="flex items-center">
-                    <div
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs sm:text-sm font-body font-bold transition-all ${
-                        isCurrent ? `text-[${coral}]` :
-                        isPast ? "text-white/60" :
-                        "text-white/20"
+                  <div key={s} className="flex items-center min-w-0">
+                    <button
+                      onClick={() => isPast && setStep(s)}
+                      disabled={isFuture || isCurrent}
+                      type="button"
+                      className={`flex items-center gap-1 px-1 py-0.5 rounded text-[11px] font-body font-bold transition-all whitespace-nowrap ${
+                        isCurrent ? "" :
+                        isPast ? "text-white/60 hover:text-white/90 cursor-pointer" :
+                        "text-white/25 cursor-not-allowed"
                       }`}
                       style={{ color: isCurrent ? coral : undefined }}
                     >
                       <span
-                        className="w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold"
+                        className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shrink-0"
                         style={{
                           backgroundColor: isCurrent ? coral : isPast ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)",
-                          color: isCurrent ? "#fff" : isPast ? "#fff" : "rgba(255,255,255,0.2)",
+                          color: isCurrent ? "#fff" : isPast ? "#fff" : "rgba(255,255,255,0.3)",
                         }}
                       >
                         {isPast ? "\u2713" : i + 1}
                       </span>
-                      <span className="hidden sm:inline">{stepLabels[i]}</span>
-                    </div>
-                    {i < allSteps.length - 1 && <span className="text-white/15 mx-0.5">&rsaquo;</span>}
+                      <span className="hidden md:inline">{stepLabels[i]}</span>
+                    </button>
+                    {i < allSteps.length - 1 && <span className="text-white/15 px-0.5 text-xs shrink-0">&rsaquo;</span>}
                   </div>
                 );
               })}
-
-              {/* Lane held indicator */}
-              {reservationKey && countdown && (
-                <span
-                  className="ml-auto inline-flex items-center gap-1.5 font-body text-xs px-3 py-1 rounded-full shrink-0"
-                  style={{
-                    backgroundColor: countdown === "Expired" ? "rgba(253,91,86,0.15)" : "rgba(255,215,0,0.1)",
-                    color: countdown === "Expired" ? coral : gold,
-                  }}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: countdown === "Expired" ? coral : gold, animation: countdown !== "Expired" ? "pulse 2s infinite" : "none" }} />
-                  {countdown === "Expired" ? "Expired" : countdown}
-                  <button onClick={clearReservation} className="ml-1 text-white/40 hover:text-white cursor-pointer">&times;</button>
-                </span>
-              )}
             </div>
+
+            {/* Lane held indicator — absolute so it doesn't throw off centering */}
+            {reservationKey && countdown && (
+              <span
+                className="hidden sm:inline-flex items-center gap-1 font-body text-[10px] px-2 py-0.5 rounded-full shrink-0 absolute right-3 top-1/2 -translate-y-1/2"
+                style={{
+                  backgroundColor: countdown === "Expired" ? "rgba(253,91,86,0.15)" : "rgba(255,215,0,0.1)",
+                  color: countdown === "Expired" ? coral : gold,
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: countdown === "Expired" ? coral : gold, animation: countdown !== "Expired" ? "pulse 2s infinite" : "none" }} />
+                {countdown === "Expired" ? "Expired" : countdown}
+                <button onClick={clearReservation} className="ml-0.5 text-white/40 hover:text-white cursor-pointer">&times;</button>
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1658,6 +2010,106 @@ export default function BowlingBookingPage() {
           </div>
         )}
 
+        {/* ── FOOD & BEVERAGE (Pizza Bowl only, for now) ── */}
+        {step === "food-beverage" && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div className="text-center mb-2">
+              <p className="font-body text-[11px] uppercase tracking-[0.2em]" style={{ color: coral }}>Included with Pizza Bowl</p>
+              <h2 className="font-heading uppercase text-white text-lg tracking-wider mt-1">Customize Your Food</h2>
+              <p className="font-body text-white/50 text-xs mt-1">Pick your pizza toppings and soda flavor.</p>
+            </div>
+
+            {fbLoading && (
+              <div className="flex items-center justify-center py-16 gap-3">
+                <div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+                <span className="font-body text-white/50 text-sm">Loading menu…</span>
+              </div>
+            )}
+
+            {!fbLoading && (
+              <>
+                {/* Complimentary VIP Chips & Salsa — read-only, proportional to the other cards */}
+                {fbChipsItem && (
+                  <div className="rounded-xl overflow-hidden bg-white/[0.03] border border-white/10">
+                    <div className="flex items-center gap-3 p-4">
+                      {fbChipsItem.ImageUrl && (
+                        <div className="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-white/5">
+                          <img
+                            src={fbChipsItem.ImageUrl}
+                            alt={fbChipsItem.Name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const wrapper = (e.currentTarget as HTMLImageElement).parentElement;
+                              if (wrapper) wrapper.style.display = "none";
+                            }}
+                          />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: gold, color: "#0a1628" }}>Complimentary</span>
+                          <h3 className="font-body text-white font-bold text-sm">{fbChipsItem.Name}</h3>
+                        </div>
+                        <p className="font-body text-white/50 text-xs">Included with your VIP lane — one order per 6 bowlers.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Pizza Bowl Pizza */}
+                {fbPizzaItem && (
+                  <ModifierCard
+                    title={fbPizzaItem.item.Name}
+                    subtitle="Included — 1 per lane"
+                    imageUrl={fbPizzaItem.item.ImageUrl}
+                    accent={coral}
+                    modifiers={fbPizzaItem.modifiers}
+                    selections={fbPizzaSelections}
+                    onToggle={(group, id) => toggleModifier(fbPizzaSelections, setFbPizzaSelections, group, id)}
+                  />
+                )}
+
+                {/* Pizza Bowl Soda Pitcher */}
+                {fbSodaItem && (
+                  <ModifierCard
+                    title={fbSodaItem.item.Name}
+                    subtitle="Included — 1 per lane"
+                    imageUrl={fbSodaItem.item.ImageUrl}
+                    accent={coral}
+                    modifiers={fbSodaItem.modifiers}
+                    selections={fbSodaSelections}
+                    onToggle={(group, id) => toggleModifier(fbSodaSelections, setFbSodaSelections, group, id)}
+                  />
+                )}
+
+                {!fbPizzaItem && !fbSodaItem && !fbChipsItem && (
+                  <p className="font-body text-white/50 text-sm text-center py-8">
+                    No included items to configure for this package.
+                  </p>
+                )}
+
+                {/* Placeholder for future paid F&B items (wings, pizzas, sandwiches, etc.) */}
+                <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.015] p-5 text-center">
+                  <p className="font-body text-white/35 text-xs uppercase tracking-[0.2em]">Order more food &amp; drink</p>
+                  <p className="font-body text-white/25 text-[11px] mt-1.5">Appetizers, wings, sandwiches, pizzas, and desserts — coming soon.</p>
+                </div>
+              </>
+            )}
+
+            <div className="pt-2">
+              <button
+                onClick={() => setStep("extras")}
+                disabled={fbLoading}
+                className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                style={{ backgroundColor: coral, boxShadow: fbLoading ? "none" : `0 0 16px ${coral}30` }}
+              >
+                Continue
+              </button>
+              <button onClick={goBack} className="mt-3 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
+            </div>
+          </div>
+        )}
+
         {/* ── EXTRAS ── */}
         {step === "extras" && !loading && (
           <div>
@@ -1895,6 +2347,44 @@ export default function BowlingBookingPage() {
                     <span className="font-body text-sm" style={{ color: gold }}>FREE</span>
                   </div>
                 )}
+
+                {/* Pizza Bowl included items with chosen modifiers */}
+                {selectedOffer && isPizzaBowl(selectedOffer.Name) && fbPizzaItem && (() => {
+                  const { modifiers, upchargeTotal } = buildItemModifiers(fbPizzaItem.modifiers, fbPizzaSelections);
+                  return (
+                    <div className="mt-1">
+                      <div className="flex justify-between">
+                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>{fbPizzaItem.item.Name}</span>
+                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>
+                          {upchargeTotal > 0 ? `$${upchargeTotal.toFixed(2)}` : "FREE"}
+                        </span>
+                      </div>
+                      {modifiers.length > 0 && (
+                        <p className="font-body text-white/50 text-xs mt-0.5">
+                          {modifiers.map((m) => m.Name).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+                {selectedOffer && isPizzaBowl(selectedOffer.Name) && fbSodaItem && (() => {
+                  const { modifiers, upchargeTotal } = buildItemModifiers(fbSodaItem.modifiers, fbSodaSelections);
+                  return (
+                    <div className="mt-1">
+                      <div className="flex justify-between">
+                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>{fbSodaItem.item.Name}</span>
+                        <span className="font-body text-sm" style={{ color: upchargeTotal > 0 ? "#fff" : gold }}>
+                          {upchargeTotal > 0 ? `$${upchargeTotal.toFixed(2)}` : "FREE"}
+                        </span>
+                      </div>
+                      {modifiers.length > 0 && (
+                        <p className="font-body text-white/50 text-xs mt-0.5">
+                          {modifiers.map((m) => m.Name).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               {/* BMI add-ons with prices */}
               {getBmiAddons().length > 0 && (
