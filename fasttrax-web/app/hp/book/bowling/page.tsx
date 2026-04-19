@@ -884,8 +884,33 @@ export default function BowlingBookingPage() {
   /* ── Step: Review cart ───────────────────────────────────────── */
 
   async function goToReview() {
-    setLoading(true);
     setError("");
+
+    // Validate: every add-on with qty > 0 must have a time slot selected.
+    // Without this gate, the user could proceed with an unscheduled add-on
+    // and end up at checkout with no slot held for it.
+    const missing = currentAddons.filter((addon) => {
+      const qty = bmiAddonQty[addon.productId] || 0;
+      if (qty <= 0) return false;
+      const slots = bmiTimeSlots[addon.productId] || [];
+      if (slots.length === 0) return false; // will render "No times available" — user can't pick anyway
+      return bmiSelectedTime[addon.productId] === undefined;
+    });
+    if (missing.length > 0) {
+      const names = missing.map((a) => a.shortName || a.name).join(", ");
+      setError(`Please choose a time for: ${names}`);
+      // Scroll the first offending add-on into view if we can find it by id
+      const first = missing[0];
+      const el = typeof document !== "undefined"
+        ? document.querySelector(`[data-addon-id="${first.productId}"]`)
+        : null;
+      if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
+        (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
+
+    setLoading(true);
     try {
       const shoeItems = wantShoes && shoes.length > 0
         ? shoes.map(s => ({ PriceKeyId: s.PriceKeyId, Quantity: playerCount, UnitPrice: s.Price }))
@@ -1687,6 +1712,7 @@ export default function BowlingBookingPage() {
                   return (
                     <div
                       key={addon.productId}
+                      data-addon-id={addon.productId}
                       className="rounded-lg overflow-hidden transition-all"
                       style={{
                         backgroundColor: isSelected ? `${addon.accent}08` : "rgba(7,16,39,0.5)",
@@ -1813,9 +1839,33 @@ export default function BowlingBookingPage() {
               </div>
             )}
 
-            <button onClick={goToReview}
-              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}>Review Order</button>
+            {(() => {
+              const missingTimes = currentAddons.filter((addon) => {
+                const qty = bmiAddonQty[addon.productId] || 0;
+                if (qty <= 0) return false;
+                const slots = bmiTimeSlots[addon.productId] || [];
+                if (slots.length === 0) return false;
+                return bmiSelectedTime[addon.productId] === undefined;
+              });
+              const disabled = missingTimes.length > 0;
+              return (
+                <>
+                  {disabled && (
+                    <p className="font-body text-amber-400/80 text-xs text-center mb-2">
+                      Select a time for: {missingTimes.map((a) => a.shortName || a.name).join(", ")}
+                    </p>
+                  )}
+                  <button
+                    onClick={goToReview}
+                    disabled={disabled}
+                    className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                    style={{ backgroundColor: coral, boxShadow: disabled ? "none" : `0 0 16px ${coral}30` }}
+                  >
+                    Review Order
+                  </button>
+                </>
+              );
+            })()}
             <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto">&larr; Back</button>
           </div>
         )}
