@@ -554,10 +554,10 @@ const PIZZA_BOWL_CATALOG: Record<string, PizzaBowlCatalog> = {
   },
   "3148": { // HeadPinz Naples
     pizzaBowlCategory: 24,
-    vipCompCategory: null, // Naples doesn't return VIP Chips & Salsa in the HAR — leave as null
+    vipCompCategory: 4,       // "Free Chips and Salsa" category at Naples
     pizzaItemId: 22168,
     sodaItemId: 22169,
-    chipsItemId: null,
+    chipsItemId: 22280,       // VIP Chips & Salsa at Naples
   },
 };
 /** Fallback for any unknown center — defaults to FM's IDs so the flow at
