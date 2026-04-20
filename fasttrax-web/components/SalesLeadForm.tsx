@@ -87,6 +87,8 @@ const ACTIVITIES = [
   { value: "arcade", label: "Arcade" },
   { value: "racing", label: "Karting" },
   { value: "food-beverage", label: "Food" },
+  { value: "private-event-area", label: "Private event area" },
+  { value: "meeting-room", label: "Meeting room" },
 ];
 
 const CONTACT_METHODS = [
@@ -190,6 +192,15 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
   const [showKidsKartingWarning, setShowKidsKartingWarning] = useState(false);
   const [kidsKartingAck, setKidsKartingAck] = useState(false);
 
+  /**
+   * Short-notice warning — VIP/group events need planning lead time.
+   * Fires when preferredDate is <3 calendar days out. Same ack pattern
+   * as the kids-karting warning: dismiss once, re-fire if user changes
+   * to a short-notice date later.
+   */
+  const [showShortNoticeWarning, setShowShortNoticeWarning] = useState(false);
+  const [shortNoticeAck, setShortNoticeAck] = useState(false);
+
   const isKidsBirthday = eventType === "birthday-kid";
   const kartingPicked = activityInterest.includes("racing");
   const fastTraxCenter = selectedCenter === "fasttrax-ft-myers";
@@ -205,6 +216,38 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
       setKidsKartingAck(false);
     }
   }, [kidsKartingConflict, kidsKartingAck]);
+
+  // Short-notice check: preferredDate picked is <3 calendar days out.
+  // Uses local midnight anchors for both sides so TZ drift doesn't
+  // push a "tomorrow" pick into "today".
+  const isShortNotice = (() => {
+    if (!preferredDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const picked = new Date(`${preferredDate}T00:00:00`);
+    if (Number.isNaN(picked.getTime())) return false;
+    const days = Math.round((picked.getTime() - today.getTime()) / 86_400_000);
+    return days >= 0 && days < 3;
+  })();
+
+  useEffect(() => {
+    if (isShortNotice && !shortNoticeAck) {
+      setShowShortNoticeWarning(true);
+    }
+    if (!isShortNotice && shortNoticeAck) {
+      setShortNoticeAck(false);
+    }
+  }, [isShortNotice, shortNoticeAck]);
+
+  // Where "Book online instead" sends short-notice guests. Absolute URLs
+  // so the guest always lands on the right branded hub regardless of
+  // which domain the form was opened on.
+  const onlineBookingHref =
+    selectedCenter === "fasttrax-ft-myers"
+      ? "https://fasttraxent.com/book"
+      : selectedCenter === "headpinz-naples"
+        ? "https://headpinz.com/book?location=naples"
+        : "https://headpinz.com/book";
 
   // Resolve the "submit a HeadPinz kids party request" link from the
   // currently-selected center — stay in-domain on HP, go external from FT.
@@ -517,7 +560,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
               </div>
 
               <Field label="Interested in">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mt-1">
                   {ACTIVITIES.map((a) => {
                     const selected = activityInterest.includes(a.value);
                     return (
@@ -525,7 +568,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                         type="button"
                         key={a.value}
                         onClick={() => toggleActivity(a.value)}
-                        className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center whitespace-nowrap overflow-hidden"
+                        className="min-h-11 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center leading-tight"
                         style={{
                           border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
                           backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
@@ -833,6 +876,78 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
                 >
                   Keep my choices
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Short-notice warning — VIP group events need lead time.
+          Fires when preferredDate is <3 days out. Offers: keep the
+          date (ack + continue), or book online (no planner needed). */}
+      {showShortNoticeWarning && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-4 overflow-y-auto"
+          style={{ backgroundColor: "rgba(0,4,24,0.88)" }}
+          {...modalBackdropProps(() => {
+            setShortNoticeAck(true);
+            setShowShortNoticeWarning(false);
+          })}
+        >
+          <div
+            className="relative w-full max-w-xl rounded-xl my-8"
+            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,193,7,0.5)" }}
+          >
+            <button
+              type="button"
+              onClick={() => { setShortNoticeAck(true); setShowShortNoticeWarning(false); }}
+              aria-label="Close dialog"
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              style={{ fontSize: "20px", lineHeight: 1 }}
+            >
+              &times;
+            </button>
+            <div className="p-6 sm:p-8">
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: "#FFC107", fontSize: "11px", letterSpacing: "3px" }}
+              >
+                Short Notice
+              </div>
+              <h3
+                className="font-heading font-black uppercase italic text-white mb-4"
+                style={{ fontSize: "clamp(22px, 4vw, 30px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+              >
+                Booking within 3 days
+              </h3>
+              <div className="space-y-3 font-body text-white/80" style={{ fontSize: "14px", lineHeight: 1.6 }}>
+                <p>
+                  We may not be able to accommodate your request on such
+                  short notice. Our VIP events require planning to make
+                  your experience the best one.
+                </p>
+                <p>
+                  If you need something today, our online booking is
+                  available same-day for self-serve lanes, karts, and
+                  attractions.
+                </p>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
+                <a
+                  href={onlineBookingHref}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"
+                  style={{ backgroundColor: "#00E2E5", color: "#000418" }}
+                >
+                  Book online instead
+                </a>
+                <button
+                  type="button"
+                  onClick={() => { setShortNoticeAck(true); setShowShortNoticeWarning(false); }}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
+                >
+                  Keep my date
                 </button>
               </div>
             </div>
