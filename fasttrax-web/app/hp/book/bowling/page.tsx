@@ -1740,7 +1740,7 @@ export default function BowlingBookingPage() {
                 style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
               >
                 <span className="text-base leading-tight">Book a lane</span>
-                <span className="font-normal text-[11px] tracking-wide opacity-80 normal-case">Up to 6 per lane · book online now</span>
+                <span className="font-normal text-[11px] tracking-wide opacity-80 normal-case">Book online in minutes</span>
               </button>
               <Link
                 href={eventsHref}
