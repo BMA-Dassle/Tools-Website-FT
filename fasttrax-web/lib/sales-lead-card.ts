@@ -126,37 +126,57 @@ function leadFactsSet(state: SalesLeadState): Record<string, unknown> {
 }
 
 /**
- * Header — inline (no emphasis container) so it doesn't eat vertical space.
- * Three lines: eyebrow / name·guests / center·planner.
+ * Header — colored Container that signals state at a glance:
+ *   initial     → blue  (Container style "accent")
+ *   acked       → yellow (Container style "warning")
+ *   contacted   → green  (Container style "good")
+ *
+ * Bleed: true so the colored band spans the full card width.
+ *
+ * Eyebrow text also flips to match the state (NEW / ACKNOWLEDGED / CONTACTED)
+ * so planners scanning a busy chat can tell status from 3+ feet away.
  */
-function headerBlock(state: SalesLeadState): Array<Record<string, unknown>> {
-  return [
-    {
-      type: "TextBlock",
-      text: `NEW SALES LEAD · #${state.projectNumber}`,
-      weight: "Bolder",
-      size: "Small",
-      color: "Accent",
-      spacing: "None",
-      wrap: true,
-    },
-    {
-      type: "TextBlock",
-      text: `${state.lead.firstName} ${state.lead.lastName} · ${state.lead.guestCount} guests`,
-      weight: "Bolder",
-      size: "Large",
-      spacing: "Small",
-      wrap: true,
-    },
-    {
-      type: "TextBlock",
-      text: `${state.center.displayName} · ${state.planner.displayName}`,
-      isSubtle: true,
-      size: "Small",
-      spacing: "None",
-      wrap: true,
-    },
-  ];
+function headerContainer(state: SalesLeadState): Record<string, unknown> {
+  let style: "accent" | "warning" | "good" = "accent";
+  let eyebrow = `NEW SALES LEAD · #${state.projectNumber}`;
+  if (state.contactedBy) {
+    style = "good";
+    eyebrow = `CONTACTED · #${state.projectNumber}`;
+  } else if (state.ackedBy) {
+    style = "warning";
+    eyebrow = `ACKNOWLEDGED · #${state.projectNumber}`;
+  }
+  return {
+    type: "Container",
+    style,
+    bleed: true,
+    items: [
+      {
+        type: "TextBlock",
+        text: eyebrow,
+        weight: "Bolder",
+        size: "Small",
+        spacing: "None",
+        wrap: true,
+      },
+      {
+        type: "TextBlock",
+        text: `${state.lead.firstName} ${state.lead.lastName} · ${state.lead.guestCount} guests`,
+        weight: "Bolder",
+        size: "Large",
+        spacing: "Small",
+        wrap: true,
+      },
+      {
+        type: "TextBlock",
+        text: `${state.center.displayName} · ${state.planner.displayName}`,
+        isSubtle: true,
+        size: "Small",
+        spacing: "None",
+        wrap: true,
+      },
+    ],
+  };
 }
 
 /** Single TextBlock for notes — no wrapper container. */
@@ -213,7 +233,7 @@ function baseCard(body: Array<Record<string, unknown>>): Record<string, unknown>
 /** Initial card — both Acknowledged + Contacted buttons active. */
 export function buildSalesLeadCard(state: SalesLeadState): Record<string, unknown> {
   const body: Array<Record<string, unknown>> = [
-    ...headerBlock(state),
+    headerContainer(state),
     leadFactsSet(state),
   ];
   const notes = notesBlock(state);
@@ -237,7 +257,7 @@ export function buildSalesLeadCardAcked(state: SalesLeadState): Record<string, u
     return buildSalesLeadCard(state);
   }
   const body: Array<Record<string, unknown>> = [
-    ...headerBlock(state),
+    headerContainer(state),
     statusBanner(state.ackedBy, "Acknowledged", "warning"),
     leadFactsSet(state),
   ];
@@ -254,7 +274,7 @@ export function buildSalesLeadCardAcked(state: SalesLeadState): Record<string, u
 
 /** Contacted card — both banners shown, no more actions. */
 export function buildSalesLeadCardDone(state: SalesLeadState): Record<string, unknown> {
-  const body: Array<Record<string, unknown>> = [...headerBlock(state)];
+  const body: Array<Record<string, unknown>> = [headerContainer(state)];
   // Contacted implies Acknowledged — show both if we have them, else synthesize
   // the ack banner from the contacted actor.
   const ack = state.ackedBy || state.contactedBy;
