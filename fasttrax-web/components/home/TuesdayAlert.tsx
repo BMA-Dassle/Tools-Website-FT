@@ -15,17 +15,21 @@ export default function TuesdayAlert() {
   const [isTuesday, setIsTuesday] = useState(false);
 
   useEffect(() => {
-    // URL override for testing / ops preview: ?mega=1 forces the alert visible.
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mega") === "1") {
-      setIsTuesday(true);
-      return;
-    }
-    // Intl returns a weekday string; "Tue" on Tuesday in ET
-    const weekday = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-    }).format(new Date());
-    setIsTuesday(weekday === "Tue");
+    // Must run on client: uses window.location (URL override) and needs
+    // "now" in ET, which differs from Vercel's UTC server. setState in effect
+    // is the correct shape here — there is no pure-render alternative without
+    // causing SSR/client hydration mismatches.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsTuesday(() => {
+      // URL override for testing / ops preview: ?mega=1 forces the alert visible.
+      if (new URLSearchParams(window.location.search).get("mega") === "1") return true;
+      // Intl returns a weekday string; "Tue" on Tuesday in ET
+      const weekday = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+      }).format(new Date());
+      return weekday === "Tue";
+    });
   }, []);
 
   if (!isTuesday) return null;

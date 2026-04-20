@@ -179,7 +179,7 @@ export default function AttractionConfirmationPage() {
               </svg>
             </div>
             <h1 className="font-display text-3xl sm:text-4xl text-white uppercase tracking-widest mb-2">
-              You're Booked!
+              You&apos;re Booked!
             </h1>
             <p className="text-white/50 text-sm">{attractionName}</p>
             {resNumber && (

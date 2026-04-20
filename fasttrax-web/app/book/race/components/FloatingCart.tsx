@@ -36,13 +36,15 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
   const [open, setOpen] = useState(false);
   const [attractionItems, setAttractionItems] = useState<CartItem[]>([]);
 
-  // Load attraction items from sessionStorage (shared bill)
+  // Load attraction items from sessionStorage (shared bill).
+  // sessionStorage is client-only so this must run in an effect.
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem("attractionCart");
       if (!stored) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parsed: any[] = JSON.parse(stored);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAttractionItems(parsed.map(a => ({
         name: `${a.attractionName}: ${a.product?.name || ""}`,
         quantity: a.quantity || 1,
@@ -87,6 +89,8 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
                   </div>
                   {onRemove && !item.isAttraction && (
                     <button
+                      type="button"
+                      aria-label="Remove item"
                       onClick={(e) => { e.stopPropagation(); onRemove(i - attractionItems.length); }}
                       className="text-red-400/50 hover:text-red-400 transition-colors p-1"
                       title="Remove"

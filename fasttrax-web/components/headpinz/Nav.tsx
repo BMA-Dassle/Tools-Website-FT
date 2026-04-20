@@ -62,12 +62,17 @@ export default function HeadPinzNav() {
   ];
 
   useEffect(() => {
+    // Deferred to effect to avoid SSR/client text mismatch — server & client
+    // "now" can differ by seconds and land on different schedule rows.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTodayHours(getTodayHours());
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Close the mobile menu + location dropdown whenever we navigate.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setOpen(false); setLocOpen(false); }, [pathname]);
 
   return (

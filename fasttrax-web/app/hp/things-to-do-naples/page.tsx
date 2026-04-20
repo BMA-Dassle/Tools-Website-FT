@@ -93,8 +93,8 @@ export default function ThingsToDoNaplesPage() {
             style={{ fontSize: "clamp(16px, 2.2vw, 22px)", lineHeight: 1.5, maxWidth: "52ch" }}
           >
             Naples is known for its beaches, dining, and outdoor life — but when you want indoor
-            entertainment that works rain or shine, here's what's on the list. HeadPinz Naples is
-            our hometown spot on Radio Lane, and below we've added a few alternative comparisons
+            entertainment that works rain or shine, here&apos;s what&apos;s on the list. HeadPinz Naples is
+            our hometown spot on Radio Lane, and below we&apos;ve added a few alternative comparisons
             to help you decide what fits your group best.
           </p>
         </div>
@@ -168,7 +168,7 @@ export default function ThingsToDoNaplesPage() {
             Comparing Naples entertainment venues
           </h2>
           <p className="font-body text-white/60 text-center mx-auto mb-8" style={{ fontSize: "14px", maxWidth: "50ch" }}>
-            Here's how HeadPinz stacks up against other SWFL venues — pick what fits your group best.
+            Here&apos;s how HeadPinz stacks up against other SWFL venues — pick what fits your group best.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {otherVenues.map((v) => (

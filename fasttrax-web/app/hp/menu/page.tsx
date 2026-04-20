@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /* ------------------------------------------------------------------ */
 /*  Brand tokens                                                       */
@@ -589,11 +590,11 @@ export default function MenuPage() {
 
       {/* ====== HAPPY HOUR PDF MODAL ====== */}
       {showHappyHourPdf && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6" onClick={() => setShowHappyHourPdf(false)}>
-          <div className="relative w-full max-w-3xl h-[85vh] bg-[#0a1628] rounded-2xl border border-white/10 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 py-6" {...modalBackdropProps(() => setShowHappyHourPdf(false))}>
+          <div className="relative w-full max-w-3xl h-[85vh] bg-[#0a1628] rounded-2xl border border-white/10 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
               <h3 className="font-heading uppercase text-white text-sm tracking-wider">Happy Hour Menu</h3>
-              <button onClick={() => setShowHappyHourPdf(false)} className="text-white/40 hover:text-white transition-colors p-1 cursor-pointer">
+              <button type="button" aria-label="Close Happy Hour menu" onClick={() => setShowHappyHourPdf(false)} className="text-white/40 hover:text-white transition-colors p-1 cursor-pointer">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>

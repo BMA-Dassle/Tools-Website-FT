@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 
 export const metadata: Metadata = {
@@ -245,13 +246,13 @@ export default function PricingPage() {
           </div>
 
           <div className="text-center mt-8">
-            <a
+            <Link
               href="/book/race-packs"
               className="inline-block font-body font-semibold uppercase text-[#000418] tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "#00E2E5", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
             >
               Buy Race Packs
-            </a>
+            </Link>
           </div>
         </div>
       </section>

@@ -3,6 +3,7 @@
 import SubpageHero from "@/components/SubpageHero";
 import TrackStatus from "@/components/home/TrackStatus";
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 import { trackBookingClick } from "@/lib/analytics";
 
@@ -640,7 +641,7 @@ export default function RacingPage() {
 
           {/* CTA */}
           <div className="text-center mt-10">
-            <a
+            <Link
               href="/book/race"
               onClick={trackBookingClick}
               className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
@@ -652,7 +653,7 @@ export default function RacingPage() {
               }}
             >
               Book Your Race Now
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -898,7 +899,7 @@ export default function RacingPage() {
           >
             Ready to Race?
           </h2>
-          <a
+          <Link
             href="/book/race"
             onClick={trackBookingClick}
             className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
@@ -910,7 +911,7 @@ export default function RacingPage() {
             }}
           >
             BOOK NOW
-          </a>
+          </Link>
         </div>
       </section>
     </>

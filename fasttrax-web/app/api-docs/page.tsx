@@ -35,7 +35,6 @@ export default function ApiDocsPage() {
             onChange={e => { setApiKey(e.target.value); setError(""); }}
             placeholder="API Key"
             className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
-            autoFocus
           />
           {error && <p className="text-red-400 text-sm">{error}</p>}
           <button type="submit" className="w-full py-3 rounded-lg bg-cyan-500 text-gray-950 font-bold hover:bg-cyan-400 transition-colors">

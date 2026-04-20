@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/CardCaptureForm";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /**
  * Have-A-Ball league signup modal.
@@ -156,7 +157,7 @@ export default function SignupModal({ onClose }: Props) {
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto"
       style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...modalBackdropProps(onClose)}
     >
       <div
         className="relative w-full max-w-2xl rounded-xl my-8"

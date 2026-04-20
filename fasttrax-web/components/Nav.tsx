@@ -40,6 +40,9 @@ export default function Nav() {
   const pathname = usePathname();
 
   useEffect(() => {
+    // Deferred to effect to avoid SSR/client text mismatch — server & client
+    // "now" can differ by seconds and land on different schedule rows.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTodayHours(getTodayHours());
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll);
@@ -120,14 +123,14 @@ export default function Nav() {
 
           {/* Book Now + hamburger */}
           <div className="flex items-center gap-3 shrink-0">
-            <a
+            <Link
               href="/book/race"
               onClick={trackBookingClick}
               className="hidden sm:inline-flex items-center gap-2 bg-[#E41C1D] hover:bg-[#c62828] text-white font-body font-bold uppercase tracking-wider transition-colors"
               style={{ fontSize: "14px", padding: "16px 24px", borderRadius: "166px" }}
             >
               Book Now
-            </a>
+            </Link>
             <button
               onClick={() => setOpen(!open)}
               className="lg:hidden flex flex-col gap-1.5 p-2"
@@ -168,13 +171,13 @@ export default function Nav() {
                 </Link>
               )
             )}
-            <a
+            <Link
               href="/book/race"
               onClick={trackBookingClick}
               className="mt-2 bg-[#E41C1D] text-white font-body font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
             >
               Book Now
-            </a>
+            </Link>
           </div>
         </div>
       </nav>

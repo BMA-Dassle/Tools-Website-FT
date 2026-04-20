@@ -53,7 +53,7 @@ export default function FtAlternativesIndex() {
             className="font-body text-white/80 mx-auto"
             style={{ fontSize: "clamp(16px, 2.2vw, 20px)", lineHeight: 1.5, maxWidth: "50ch" }}
           >
-            Fort Myers has a lot of great entertainment venues. Here's how FastTrax stacks up
+            Fort Myers has a lot of great entertainment venues. Here&apos;s how FastTrax stacks up
             against the ones people compare us to — so you can pick what fits your group best.
           </p>
         </div>

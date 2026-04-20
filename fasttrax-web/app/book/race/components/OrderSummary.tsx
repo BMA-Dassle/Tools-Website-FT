@@ -198,7 +198,7 @@ export default function OrderSummary({
       let bmiTotal = 0;
       let bmiSubtotal = 0;
       let bmiTax = 0;
-      let bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string; lineId?: string; productGroup?: string }[] = [];
+      const bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string; lineId?: string; productGroup?: string }[] = [];
       let isCreditOrder = true; // assume credit until proven otherwise
       let cashOwed = 0;
       let creditApplied = 0;
@@ -645,7 +645,7 @@ export default function OrderSummary({
         });
 
         const xBtn = (onClick: () => void) => (
-          <button onClick={onClick} className="text-red-400/40 hover:text-red-400 transition-colors p-0.5 -mr-1 shrink-0">
+          <button type="button" aria-label="Remove item" onClick={onClick} className="text-red-400/40 hover:text-red-400 transition-colors p-0.5 -mr-1 shrink-0">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -739,6 +739,8 @@ export default function OrderSummary({
                       <span className="text-white">{line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}</span>
                       {canRemove && (
                         <button
+                          type="button"
+                          aria-label="Remove item"
                           onClick={async () => {
                             try {
                               await fetch(`/api/bmi?endpoint=booking%2FremoveItem${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`, {

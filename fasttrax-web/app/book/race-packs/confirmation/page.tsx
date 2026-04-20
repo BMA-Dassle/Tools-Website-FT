@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { trackBookingComplete } from "@/lib/analytics";
 
 export default function RacePackConfirmation() {
@@ -88,7 +89,7 @@ export default function RacePackConfirmation() {
         {!loading && error && (
           <div className="text-center space-y-4">
             <p className="text-red-400">{error}</p>
-            <a href="/book/race-packs" className="text-[#00E2E5] underline text-sm">Back to Race Packs</a>
+            <Link href="/book/race-packs" className="text-[#00E2E5] underline text-sm">Back to Race Packs</Link>
           </div>
         )}
 
@@ -155,12 +156,12 @@ export default function RacePackConfirmation() {
               >
                 Book a Race Now
               </a>
-              <a
+              <Link
                 href="/book/race-packs"
                 className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center"
               >
                 Buy Another Pack
-              </a>
+              </Link>
             </div>
           </div>
         )}

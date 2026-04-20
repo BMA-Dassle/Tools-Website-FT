@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import { modalBackdropProps } from "@/lib/a11y";
 
 const locations: Record<string, { phone: string; phoneTel: string; booking: string }> = {
   "fort-myers": { phone: "(239) 302-2155", phoneTel: "+12393022155", booking: "/hp/book/bowling" },
@@ -25,7 +26,7 @@ export default function HeadPinzMobileBookBar() {
       {showContact && (
         <div
           className="fixed inset-0 z-50 md:hidden"
-          onClick={() => setShowContact(false)}
+          {...modalBackdropProps(() => setShowContact(false))}
         >
           <div
             className="absolute bottom-20 right-3 overflow-hidden rounded-lg shadow-2xl shadow-black/50"
@@ -67,6 +68,7 @@ export default function HeadPinzMobileBookBar() {
             Book Now
           </a>
           <button
+            type="button"
             onClick={() => setShowContact(!showContact)}
             className="flex items-center justify-center text-white py-3.5 px-4 rounded-full transition-colors border border-white/10 cursor-pointer"
             style={{ backgroundColor: "rgba(7,16,39,0.8)" }}

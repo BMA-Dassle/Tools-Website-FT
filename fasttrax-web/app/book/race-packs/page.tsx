@@ -6,6 +6,7 @@ import { calculateTax, calculateTotal, isRelevantMembership } from "../race/data
 import { trackBookingStep } from "@/lib/analytics";
 import PaymentForm from "@/components/square/PaymentForm";
 import type { PaymentResult } from "@/components/square/PaymentForm";
+import { modalBackdropProps } from "@/lib/a11y";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
 
@@ -536,10 +537,9 @@ export default function RacePacksPage() {
 
       {/* Modal overlay */}
       {modalPhase !== "closed" && selectedPack && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6" onClick={() => !paying && setModalPhase("closed")}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6" {...modalBackdropProps(() => !paying && setModalPhase("closed"))}>
           <div
             className="w-full max-w-md bg-[#0a0e1a] border border-white/10 rounded-2xl p-5 sm:p-6 max-h-[85vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
@@ -550,7 +550,7 @@ export default function RacePacksPage() {
                 <p className="text-white font-bold text-lg">${selectedPack.price.toFixed(2)}</p>
               </div>
               {!paying && (
-                <button onClick={() => setModalPhase("closed")} className="text-white/30 hover:text-white/60 transition-colors p-1">
+                <button type="button" aria-label="Close dialog" onClick={() => setModalPhase("closed")} className="text-white/30 hover:text-white/60 transition-colors p-1">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               )}
@@ -632,7 +632,7 @@ export default function RacePacksPage() {
                       onKeyDown={e => e.key === "Enter" && handlePhoneSearch()}
                       placeholder="(239) 555-1234"
                       className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 placeholder:tracking-normal focus:border-[#00E2E5]/50 focus:outline-none"
-                      autoFocus
+
                     />
                     <button
                       onClick={handlePhoneSearch}
@@ -658,7 +658,7 @@ export default function RacePacksPage() {
                       onKeyDown={e => e.key === "Enter" && handleSmsVerify()}
                       placeholder="000000"
                       className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.4em] font-mono placeholder:text-white/20 focus:border-[#00E2E5]/50 focus:outline-none"
-                      autoFocus
+
                     />
                     {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
                     <button
@@ -705,7 +705,7 @@ export default function RacePacksPage() {
                       onKeyDown={e => e.key === "Enter" && handleEmailOtpVerify()}
                       placeholder="000000"
                       className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.4em] font-mono placeholder:text-white/20 focus:border-[#00E2E5]/50 focus:outline-none"
-                      autoFocus
+
                     />
                     {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
                     <button
@@ -745,10 +745,10 @@ export default function RacePacksPage() {
                     </div>
                     <input value={newPerson.email} onChange={e => setNewPerson(p => ({ ...p, email: e.target.value }))} placeholder="Email" type="email" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
                     <input value={newPerson.phone} onChange={e => setNewPerson(p => ({ ...p, phone: e.target.value }))} placeholder="Phone" type="tel" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
-                    <div>
-                      <label className="text-white/40 text-xs mb-1 block">Date of Birth</label>
+                    <label className="block">
+                      <span className="text-white/40 text-xs mb-1 block">Date of Birth</span>
                       <input value={newPerson.dob} onChange={e => setNewPerson(p => ({ ...p, dob: e.target.value }))} type="date" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm focus:border-[#00E2E5]/50 focus:outline-none [color-scheme:dark]" />
-                    </div>
+                    </label>
                     <button onClick={handleNewPerson} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors">
                       Continue
                     </button>
@@ -764,6 +764,8 @@ export default function RacePacksPage() {
                 {searchResults.map(a => (
                   <button
                     key={a.personId}
+                    type="button"
+                    aria-label={`Select account ${a.fullName}`}
                     onClick={() => handleSelectAccount(a)}
                     className="w-full rounded-xl border border-white/10 bg-white/5 hover:border-[#00E2E5]/50 hover:bg-[#00E2E5]/5 p-4 text-left transition-colors"
                   >

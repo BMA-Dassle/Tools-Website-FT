@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import Nav from "@/components/Nav";
 
 export default function CheckoutConfirmation() {
@@ -88,7 +89,7 @@ export default function CheckoutConfirmation() {
         {!loading && error && (
           <div className="text-center space-y-4 py-16">
             <p className="text-red-400">{error}</p>
-            <a href="/book" className="text-[#00E2E5] underline text-sm">Back to experiences</a>
+            <Link href="/book" className="text-[#00E2E5] underline text-sm">Back to experiences</Link>
           </div>
         )}
 
@@ -112,12 +113,12 @@ export default function CheckoutConfirmation() {
             )}
 
             <div className="flex flex-col gap-3 pt-4">
-              <a href="/book" className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors text-center shadow-lg shadow-[#00E2E5]/25">
+              <Link href="/book" className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors text-center shadow-lg shadow-[#00E2E5]/25">
                 Book More Activities
-              </a>
-              <a href="/" className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center">
+              </Link>
+              <Link href="/" className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center">
                 Back to Home
-              </a>
+              </Link>
             </div>
           </div>
         )}

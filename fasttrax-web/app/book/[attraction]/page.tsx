@@ -160,6 +160,8 @@ function LocationPicker({ config, onSelect, onBack, color }: { config: Attractio
         {locations.map(loc => (
           <button
             key={loc.key}
+            type="button"
+            aria-label={`Select ${loc.name}`}
             onClick={() => onSelect(loc.key)}
             className="rounded-xl border border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 p-5 text-left transition-all group"
           >
@@ -233,6 +235,8 @@ function ProductPickerStep({
         {products.map(p => (
           <button
             key={p.productId}
+            type="button"
+            aria-label={`Select ${p.name}`}
             onClick={() => onSelect(p)}
             className="rounded-xl border border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 p-5 text-left transition-all group"
           >
@@ -334,11 +338,11 @@ function AttractionDatePicker({
 
       {/* Month nav */}
       <div className="flex items-center justify-between px-2">
-        <button onClick={prevMonth} disabled={!canGoPrev} className={`p-2 rounded-lg ${canGoPrev ? "text-white/60 hover:text-white hover:bg-white/10" : "text-white/15 cursor-not-allowed"}`}>
+        <button type="button" aria-label="Previous month" onClick={prevMonth} disabled={!canGoPrev} className={`p-2 rounded-lg ${canGoPrev ? "text-white/60 hover:text-white hover:bg-white/10" : "text-white/15 cursor-not-allowed"}`}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
         </button>
         <span className="text-white font-display text-base uppercase tracking-wider">{monthName}</span>
-        <button onClick={nextMonth} className="p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/10">
+        <button type="button" aria-label="Next month" onClick={nextMonth} className="p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/10">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
         </button>
       </div>
@@ -1085,13 +1089,28 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
     : [];
   const productsLoading = false;
 
+  // Auto-select product for single-product attractions (Gel Blaster, Laser Tag).
+  // Must be declared before any early returns to satisfy rules-of-hooks.
+  // setStep target is computed inline to avoid depending on nextStepAfter()
+  // which is declared further down.
+  useEffect(() => {
+    if (step === "product" && products.length === 1 && !booking.product) {
+      const only = products[0];
+      setBooking(prev => ({ ...prev, product: only, date: null, time: null }));
+      // Pick the step that comes after "product" in the dynamic stepList used below.
+      // per-person flows go product -> quantity; others go product -> date.
+      setStep(config?.bookingMode === "per-person" ? "quantity" : "date");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, products.length, booking.product]);
+
   // 404 for invalid slugs
   if (!config) {
     return (
       <div className="min-h-screen bg-[#000418] flex flex-col items-center justify-center">
         {navComponent}
         <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-4">Not Found</h1>
-        <p className="text-white/50 mb-6">This attraction doesn't exist.</p>
+        <p className="text-white/50 mb-6">This attraction doesn&apos;t exist.</p>
         <Link href="/book" className="text-[#00E2E5] hover:underline text-sm">
           ← Browse all experiences
         </Link>
@@ -1153,13 +1172,8 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
     setStep(nextStepAfter("product"));
   }
 
-  // Auto-select product for single-product attractions (Gel Blaster, Laser Tag)
-  useEffect(() => {
-    if (step === "product" && products.length === 1 && !booking.product) {
-      handleProductSelect(products[0]);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, products.length, booking.product]);
+  // Note: single-product auto-select is handled by the hoisted useEffect above,
+  // declared before the early returns so hook order stays stable.
 
   function handleQuantityConfirm() {
     setStep(nextStepAfter("quantity"));
@@ -1358,20 +1372,20 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
 
               {/* Actions */}
               <div className="space-y-3">
-                <a
+                <Link
                   href="/book/checkout"
                   onClick={() => sessionStorage.setItem("checkoutReturnPath", `/book/${config.slug}`)}
                   className="w-full py-4 rounded-xl font-bold text-base text-[#000418] transition-colors shadow-lg text-center block"
                   style={{ backgroundColor: color }}
                 >
                   Continue to Checkout →
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/book"
                   className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center block"
                 >
                   + Add Another Activity
-                </a>
+                </Link>
               </div>
 
               {/* Cross-sell cards */}

@@ -68,7 +68,7 @@ export default function ContactForm({ initial, onSubmit, onBack }: ContactFormPr
     <div className="space-y-6 max-w-md mx-auto">
       <div className="text-center">
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">Your Details</h2>
-        <p className="text-white/50 text-sm">We'll send your confirmation and receipt here.</p>
+        <p className="text-white/50 text-sm">We&apos;ll send your confirmation and receipt here.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

@@ -6,6 +6,7 @@ import Image from "next/image";
 import { trackGroupRequestClick } from "@/lib/analytics";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
 import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { modalBackdropProps } from "@/lib/a11y";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const EVENT_GUIDE_URL = `${BLOB}/documents/FastTrax-Event-Guide.pdf`;
@@ -698,14 +699,16 @@ export default function GroupEventsPage() {
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(0,4,24,0.85)" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
+          {...modalBackdropProps(() => setShowForm(false))}
         >
           <div
             className="relative w-full max-w-5xl rounded-xl overflow-hidden"
             style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(228,28,29,0.4)", height: "90vh" }}
           >
             <button
+              type="button"
               onClick={() => setShowForm(false)}
+              aria-label="Close dialog"
               className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
               style={{ fontSize: "20px", lineHeight: 1 }}
             >

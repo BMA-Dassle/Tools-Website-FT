@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
 import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -764,7 +765,10 @@ export default function HeadPinzNaplesGroupEventsPage() {
           {/* Extra Frames -- collapsible accordion */}
           <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-6">
             <button
+              type="button"
               onClick={() => setExtrasOpen(!extrasOpen)}
+              aria-label="Toggle Extra Frames a la carte items"
+              aria-expanded={extrasOpen}
               className="w-full flex items-center justify-between px-5 py-4 cursor-pointer"
             >
               <div>
@@ -973,9 +977,7 @@ export default function HeadPinzNaplesGroupEventsPage() {
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowForm(false);
-          }}
+          {...modalBackdropProps(() => setShowForm(false))}
         >
           <div
             className="relative w-full max-w-5xl rounded-2xl overflow-hidden"

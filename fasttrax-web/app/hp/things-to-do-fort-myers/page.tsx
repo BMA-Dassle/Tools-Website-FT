@@ -88,7 +88,7 @@ export default function ThingsToDoFortMyersHpPage() {
             className="font-body text-white/80 mx-auto"
             style={{ fontSize: "clamp(16px, 2.2vw, 22px)", lineHeight: 1.5, maxWidth: "52ch" }}
           >
-            Fort Myers has great entertainment for any weather. Here's a guide to indoor, rain-or-shine
+            Fort Myers has great entertainment for any weather. Here&apos;s a guide to indoor, rain-or-shine
             attractions — starting with HeadPinz and FastTrax on Global Parkway, and including
             comparisons with other SWFL venues so you can pick what fits your group best.
           </p>
@@ -163,7 +163,7 @@ export default function ThingsToDoFortMyersHpPage() {
             Comparing Fort Myers entertainment venues
           </h2>
           <p className="font-body text-white/60 text-center mx-auto mb-8" style={{ fontSize: "14px", maxWidth: "50ch" }}>
-            Different venues do different things well. Here's how HeadPinz stacks up.
+            Different venues do different things well. Here&apos;s how HeadPinz stacks up.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {otherVenues.map((v) => (

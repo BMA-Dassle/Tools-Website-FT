@@ -9,10 +9,15 @@ import HeadPinzNav from "@/components/headpinz/Nav";
  * On fasttraxent.com → renders nothing (root layout handles FastTrax Nav)
  */
 export default function BrandNav() {
+  // Start false so SSR + first client render match (avoids hydration mismatch),
+  // then flip once we can read window.location on the client.
   const [isHP, setIsHP] = useState(false);
 
   useEffect(() => {
-    setIsHP(window.location.hostname.includes("headpinz"));
+    if (window.location.hostname.includes("headpinz")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsHP(true);
+    }
   }, []);
 
   if (!isHP) return null;

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import Link from "next/link";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { trackBookingClick } from "@/lib/analytics";
 
@@ -666,7 +667,7 @@ export default function LeaderboardsPage() {
               Real-time performance data straight from the timing line. Track
               every apex and every overtake as it happens.
             </p>
-            <a
+            <Link
               href="/book/race"
               onClick={trackBookingClick}
               className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
@@ -678,7 +679,7 @@ export default function LeaderboardsPage() {
               }}
             >
               Book today
-            </a>
+            </Link>
           </div>
           <div
             className="flex-1 relative rounded-2xl overflow-hidden w-full lg:w-auto"
@@ -983,7 +984,7 @@ export default function LeaderboardsPage() {
             Think you can beat the best?
           </h2>
           <div className="flex flex-wrap gap-4 justify-center">
-            <a
+            <Link
               href="/book/race"
               onClick={trackBookingClick}
               className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
@@ -995,7 +996,7 @@ export default function LeaderboardsPage() {
               }}
             >
               BOOK YOUR HEAT NOW
-            </a>
+            </Link>
             <a
               href="https://smstim.in/headpinzftmyers"
               target="_blank"

@@ -358,7 +358,6 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             onKeyDown={(e) => e.key === "Enter" && handleEmailLookup()}
             placeholder="racer@email.com"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:border-[#00E2E5] focus:ring-1 focus:ring-[#00E2E5]/30 outline-none transition-colors"
-            autoFocus
           />
           <button
             onClick={handleEmailLookup}
@@ -398,7 +397,6 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             onKeyDown={(e) => e.key === "Enter" && handlePhoneLookup()}
             placeholder="(239) 555-1234"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-lg tracking-wider placeholder:text-white/30 placeholder:text-base placeholder:tracking-normal focus:border-[#00E2E5] focus:ring-1 focus:ring-[#00E2E5]/30 outline-none transition-colors"
-            autoFocus
           />
           {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
           <button
@@ -446,7 +444,6 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             onKeyDown={(e) => e.key === "Enter" && handleSmsVerify()}
             placeholder="000000"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-2xl tracking-[0.5em] font-mono placeholder:text-white/20 focus:border-[#00E2E5] focus:ring-1 focus:ring-[#00E2E5]/30 outline-none transition-colors"
-            autoFocus
           />
           {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
           <button
@@ -477,6 +474,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           {accounts.map(a => (
             <button
               key={a.personId}
+              type="button"
+              aria-label={`Select account ${a.fullName}`}
               onClick={() => {
                 const person: PersonData = {
                   personId: a.personId,
@@ -544,7 +543,6 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             onKeyDown={(e) => e.key === "Enter" && handleCodeVerify()}
             placeholder="Enter your login code"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-lg tracking-widest placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal focus:border-[#8652FF] focus:ring-1 focus:ring-[#8652FF]/30 outline-none transition-colors"
-            autoFocus
           />
           {codeError && <p className="text-red-400 text-xs text-center">{codeError}</p>}
           <button

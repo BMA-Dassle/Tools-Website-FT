@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
 import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -693,7 +694,7 @@ export default function HeadPinzBirthdaysPage() {
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
+          {...modalBackdropProps(() => setShowForm(false))}
         >
           <div
             className="relative w-full max-w-5xl rounded-lg overflow-hidden"

@@ -61,13 +61,13 @@ export default function PromoCard() {
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <a
+                <Link
                   href="/book/race"
                   onClick={trackBookingClick}
                   className="bg-[#E53935] hover:bg-[#c62828] text-white font-heading font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors"
                 >
                   Book Your Race + Add-On
-                </a>
+                </Link>
                 <Link href="/pricing" className="bg-[#003580] hover:bg-[#004aaa] text-white font-heading font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors">
                   View All Combos
                 </Link>

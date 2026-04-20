@@ -91,8 +91,8 @@ export default function ThingsToDoFortMyersPage() {
             style={{ fontSize: "clamp(16px, 2.2vw, 22px)", lineHeight: 1.5, maxWidth: "52ch" }}
           >
             Fort Myers has a great mix of indoor entertainment, outdoor parks, dining, and nightlife.
-            Here's a locals-eye guide to what you can do — with a focus on the indoor, rain-or-shine,
-            works-for-any-group options that keep Southwest Florida fun even when the weather isn't.
+            Here&apos;s a locals-eye guide to what you can do — with a focus on the indoor, rain-or-shine,
+            works-for-any-group options that keep Southwest Florida fun even when the weather isn&apos;t.
           </p>
         </div>
       </section>
@@ -165,7 +165,7 @@ export default function ThingsToDoFortMyersPage() {
             Comparing Fort Myers entertainment venues
           </h2>
           <p className="font-body text-white/60 text-center mx-auto mb-8" style={{ fontSize: "14px", maxWidth: "50ch" }}>
-            A lot of venues in SWFL do one part of the entertainment stack really well. Here's how we compare.
+            A lot of venues in SWFL do one part of the entertainment stack really well. Here&apos;s how we compare.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {otherVenues.map((v) => (

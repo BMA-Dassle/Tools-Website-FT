@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import QRCode from "qrcode";
 import type { SmsBill } from "../data";
 
@@ -157,7 +158,7 @@ export default function ConfirmationPage() {
         {!loading && error && (
           <div className="text-center space-y-4">
             <p className="text-red-400">{error}</p>
-            <a href="/book/racing" className="text-[#00E2E5] underline text-sm">Book a race</a>
+            <Link href="/book/racing" className="text-[#00E2E5] underline text-sm">Book a race</Link>
           </div>
         )}
 
@@ -263,12 +264,12 @@ export default function ConfirmationPage() {
               >
                 Racing info
               </a>
-              <a
+              <Link
                 href="/book/racing"
                 className="flex-1 text-center px-6 py-3 rounded-xl bg-[#00E2E5] text-[#000418] hover:bg-white text-sm font-bold transition-colors shadow-lg shadow-[#00E2E5]/25"
               >
                 Book another race
-              </a>
+              </Link>
             </div>
           </div>
         )}

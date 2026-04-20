@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/a11y-gate.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "lint:a11y": "node scripts/a11y-gate.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

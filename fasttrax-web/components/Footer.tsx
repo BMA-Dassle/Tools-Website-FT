@@ -96,6 +96,8 @@ export default function Footer() {
           <a href="https://kiosk.bmileisure.com/headpinzftmyers" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Waiver</a>
           <span className="mx-2">·</span>
           <a href="https://bowlandheadpinzfasttrax.applytojob.com/apply" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">Careers</a>
+          <span className="mx-2">·</span>
+          <Link href="/accessibility" className="hover:text-white/60 transition-colors">Accessibility</Link>
         </p>
       </div>
     </footer>

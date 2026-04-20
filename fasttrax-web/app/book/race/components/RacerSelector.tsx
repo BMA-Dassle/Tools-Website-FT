@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PersonData } from "./ReturningRacerLookup";
 import { getRacerTier } from "../data";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /** Tier level for comparison: starter=0, intermediate=1, pro=2 */
 function tierLevel(tier: string): number {
@@ -61,7 +62,7 @@ export default function RacerSelector({ racers, raceTier, alreadyBookedPersonIds
   }).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" {...modalBackdropProps(onCancel)}>
     <div className="max-w-md w-full rounded-2xl border border-white/10 bg-[#000418] p-6 space-y-3 shadow-2xl max-h-[85vh] overflow-y-auto">
       <div className="flex items-center justify-between">
         <div>

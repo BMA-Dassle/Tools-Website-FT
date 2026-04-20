@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { trackBowlingStep } from "@/lib/analytics";
 import { bookAttractionSlot } from "@/lib/attractions-data";
 import { getBookingClientKey } from "@/lib/booking-location";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -2296,7 +2297,8 @@ export default function BowlingBookingPage() {
                     <h3 className="font-body text-white font-bold text-sm">Bowling Shoes</h3>
                     <p className="font-body text-white/40 text-xs">${shoes[0].Price}/person</p>
                   </div>
-                  <button onClick={() => setWantShoes(!wantShoes)}
+                  <button type="button" onClick={() => setWantShoes(!wantShoes)}
+                    role="switch" aria-checked={wantShoes} aria-label="Add bowling shoes"
                     className="w-12 h-7 rounded-full transition-all cursor-pointer" style={{ backgroundColor: wantShoes ? coral : "rgba(255,255,255,0.1)" }}>
                     <div className="w-5 h-5 rounded-full bg-white transition-all" style={{ marginLeft: wantShoes ? "26px" : "2px" }} />
                   </button>
@@ -2617,8 +2619,8 @@ export default function BowlingBookingPage() {
 
       {/* Location confirmation modal */}
       {showLocationConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4" onClick={() => setShowLocationConfirm(false)}>
-          <div className="rounded-lg p-6 max-w-sm w-full text-center" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${coral}40` }} onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4" {...modalBackdropProps(() => setShowLocationConfirm(false))}>
+          <div className="rounded-lg p-6 max-w-sm w-full text-center" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${coral}40` }}>
             <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
               Confirm Location
             </h3>
@@ -2650,8 +2652,8 @@ export default function BowlingBookingPage() {
         const upgrade = findVipUpgrade(selectedOffer, allOffers, selectedTime);
         if (!upgrade) return null;
         return (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 px-4" onClick={() => setShowVipUpgrade(false)}>
-            <div className="rounded-lg overflow-hidden max-w-md w-full" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }} onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 px-4" {...modalBackdropProps(() => setShowVipUpgrade(false))}>
+            <div className="rounded-lg overflow-hidden max-w-md w-full" style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}>
               {/* Large video */}
               <div className="relative h-48 overflow-hidden">
                 <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
@@ -2703,12 +2705,11 @@ export default function BowlingBookingPage() {
       {pendingOffer && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
-          onClick={() => setPendingOffer(null)}
+          {...modalBackdropProps(() => setPendingOffer(null))}
         >
           <div
             className="rounded-lg p-6 max-w-sm w-full text-center"
             style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}
-            onClick={e => e.stopPropagation()}
           >
             <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
               Time Change
@@ -2746,12 +2747,11 @@ export default function BowlingBookingPage() {
       {pendingTimeSwitch && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
-          onClick={() => setPendingTimeSwitch(null)}
+          {...modalBackdropProps(() => setPendingTimeSwitch(null))}
         >
           <div
             className="rounded-lg p-6 max-w-sm w-full text-center"
             style={{ backgroundColor: "#0a1628", border: `1.78px dashed ${gold}40` }}
-            onClick={e => e.stopPropagation()}
           >
             <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
               Switch Time?

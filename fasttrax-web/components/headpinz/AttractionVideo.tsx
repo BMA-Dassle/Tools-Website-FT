@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 interface AttractionVideoProps {
   videoUrl: string;
@@ -48,14 +49,12 @@ export default function AttractionVideo({ videoUrl, accent }: AttractionVideoPro
       {open && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85"
-          onClick={() => setOpen(false)}
+          {...modalBackdropProps(() => setOpen(false))}
         >
-          <div
-            className="relative w-full max-w-4xl mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="relative w-full max-w-4xl mx-4">
             {/* Close button */}
             <button
+              type="button"
               onClick={() => setOpen(false)}
               className="absolute -top-10 right-0 text-white/60 hover:text-white transition-colors text-sm font-body uppercase tracking-wider flex items-center gap-1"
             >
@@ -67,6 +66,7 @@ export default function AttractionVideo({ videoUrl, accent }: AttractionVideoPro
 
             {/* Video player */}
             <div className="rounded-lg overflow-hidden" style={{ border: `1.78px solid ${accent}40` }}>
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
               <video
                 ref={videoRef}
                 controls

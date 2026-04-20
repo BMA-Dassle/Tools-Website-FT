@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import QRCode from "qrcode";
 import { getBookingLocation, getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 import BrandNav from "@/components/BrandNav";
 import { bmiGet, bmiPost } from "../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { modalBackdropProps } from "@/lib/a11y";
 
 // Booking type detection — determines which features are active
 type BookingType = "racing" | "attraction";
@@ -388,7 +390,7 @@ export default function ConfirmationPage() {
             groupMap.get(key)!.racers.push(r.racerName || "Racer");
           }
 
-          let groups = [...groupMap.values()].map(g => ({
+          const groups = [...groupMap.values()].map(g => ({
             ...g,
             resNumber: primary.resNumber,
             resCode: primary.resCode,
@@ -690,7 +692,7 @@ export default function ConfirmationPage() {
           ) : error ? (
             <div className="space-y-4">
               <p className="text-red-400 text-lg">{error}</p>
-              <a href="/book" className="text-[#00E2E5] underline">Book an experience</a>
+              <Link href="/book" className="text-[#00E2E5] underline">Book an experience</Link>
             </div>
           ) : (
             <>
@@ -1053,7 +1055,7 @@ export default function ConfirmationPage() {
       {fullscreenQr && (
         <div
           className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center"
-          onClick={() => setFullscreenQr(null)}
+          {...modalBackdropProps(() => setFullscreenQr(null))}
         >
           <div className="text-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}

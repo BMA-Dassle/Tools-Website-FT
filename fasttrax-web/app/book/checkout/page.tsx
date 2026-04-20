@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
@@ -22,8 +23,11 @@ export default function CheckoutPage() {
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
+    // Initialize from sessionStorage — only available on the client, so this is
+    // the correct place for the initial state hydration.
     const stored = sessionStorage.getItem("attractionOrderId");
     if (!stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStep("error");
       setErrorMsg("No booking found. Start by picking an activity.");
       return;
@@ -61,7 +65,7 @@ export default function CheckoutPage() {
         {step === "error" && (
           <div className="text-center space-y-4 py-16">
             <p className="text-red-400">{errorMsg}</p>
-            <a href="/book" className="text-[#00E2E5] underline text-sm">Browse experiences</a>
+            <Link href="/book" className="text-[#00E2E5] underline text-sm">Browse experiences</Link>
           </div>
         )}
 

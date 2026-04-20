@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 
 interface StoredCartItem {
@@ -118,6 +119,8 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                   </div>
                   {!item.product.name.toLowerCase().includes("license") && (
                     <button
+                      type="button"
+                      aria-label="Remove item"
                       onClick={(e) => { e.stopPropagation(); handleRemove(i); }}
                       className="text-red-400/50 hover:text-red-400 transition-colors p-1 shrink-0"
                     >
@@ -144,21 +147,21 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                     Checkout →
                   </button>
                 ) : (
-                  <a
+                  <Link
                     href="/book/race?step=contact"
                     className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
                   >
                     Checkout →
-                  </a>
+                  </Link>
                 );
               }
               return (
-                <a
+                <Link
                   href="/book/checkout"
                   className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
                 >
                   Checkout →
-                </a>
+                </Link>
               );
             })()}
             {onStartOver && (
@@ -178,10 +181,12 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                     const cancelQs = ck ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}` : `endpoint=bill/${orderId}/cancel`;
                     fetch(`/api/bmi?${cancelQs}`, { method: "DELETE" }).catch(() => {});
                   }
-                  // Determine where to go based on cart contents
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const hasRacing = items.some((i: any) => i.attraction === "racing");
-                  const attractionSlug = !hasRacing && items.length > 0 ? (items[0] as any).attraction : null;
+                  // Determine where to go based on cart contents.
+                  // `attraction` is a sibling field added to stored items outside
+                  // the StoredCartItem type — widen just this read.
+                  const withAttraction = items as unknown as Array<{ attraction?: string }>;
+                  const hasRacing = withAttraction.some(i => i.attraction === "racing");
+                  const attractionSlug = !hasRacing && withAttraction.length > 0 ? withAttraction[0].attraction ?? null : null;
                   sessionStorage.removeItem("attractionOrderId");
                   sessionStorage.removeItem("attractionCart");
                   clearBookingLocation();

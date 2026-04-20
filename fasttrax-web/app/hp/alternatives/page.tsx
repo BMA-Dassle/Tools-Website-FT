@@ -53,7 +53,7 @@ export default function HpAlternativesIndex() {
             className="font-body text-white/80 mx-auto"
             style={{ fontSize: "clamp(16px, 2.2vw, 20px)", lineHeight: 1.5, maxWidth: "50ch" }}
           >
-            Southwest Florida has several great family entertainment venues. Here's how HeadPinz
+            Southwest Florida has several great family entertainment venues. Here&apos;s how HeadPinz
             stacks up against the ones people compare us to — so you can pick what fits your group
             best.
           </p>

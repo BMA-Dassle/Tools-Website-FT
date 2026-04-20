@@ -8,6 +8,7 @@ import { getStaticProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, rem
 import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackBookingResult } from "./components/OrderSummary";
 import BrandNav from "@/components/BrandNav";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /** A per-person bill in BMI */
 interface RacerBill {
@@ -992,6 +993,8 @@ export default function BookRacePage() {
                   </div>
                   {i > 0 && (
                     <button
+                      type="button"
+                      aria-label="Remove racer"
                       onClick={() => handleRemoveRacer(r.personId)}
                       className="text-red-400/40 hover:text-red-400 transition-colors p-1 shrink-0"
                     >
@@ -1592,7 +1595,7 @@ export default function BookRacePage() {
       {showLinkedModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) { setShowLinkedModal(false); setLinkedSelected(null); } }}
+          {...modalBackdropProps(() => { setShowLinkedModal(false); setLinkedSelected(null); })}
         >
           <div className="max-w-md w-full rounded-2xl border border-white/10 bg-[#000418] p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between">

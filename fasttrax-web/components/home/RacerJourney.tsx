@@ -122,14 +122,14 @@ export default function RacerJourney() {
 
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
-            <a
+            <Link
               href="/book/race"
               onClick={trackBookingClick}
               className="font-body font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)" }}
             >
               BOOK YOUR RACE NOW
-            </a>
+            </Link>
             <Link
               href="/attractions"
               className="font-body font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
