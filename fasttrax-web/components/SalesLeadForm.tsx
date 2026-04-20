@@ -379,9 +379,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
             </div>
           </Field>
 
-          {/* Preferences row — 3-col on lg (contact / time / notes side-by-side).
-              Buttons use h-11 matching the inputs above so rows all align. */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+          {/* Contact preferences row — 2-col on desktop so each button group
+              has enough width for "Afternoon" to breathe. Notes gets its own
+              full-width row below. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
             <Field label="Contact by">
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {CONTACT_METHODS.map((m) => {
@@ -404,7 +405,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                 })}
               </div>
             </Field>
-            <Field label="Best time">
+            <Field label="Best time to reach you">
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {BEST_TIMES.map((t) => {
                   const selected = bestTimeToCall === t.value;
@@ -426,17 +427,18 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                 })}
               </div>
             </Field>
-            <Field label="Notes">
-              <textarea
-                rows={1}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Anything else we should know?"
-                className={inputCls(accent) + " resize-none"}
-                style={{ height: "44px", paddingTop: "10px" }}
-              />
-            </Field>
           </div>
+
+          {/* Notes — own full-width row, resizable textarea */}
+          <Field label="Anything else we should know?">
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Dietary needs, age range, special occasions, timing flexibility…"
+              className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white font-body text-sm placeholder:text-white/30 focus:outline-none transition-colors resize-y"
+            />
+          </Field>
 
           {error && (
             <div
