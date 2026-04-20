@@ -27,6 +27,10 @@ export interface SalesLeadLead {
   guestCount: number;
   notes?: string;
   activityInterest?: string[];
+  /** How the customer prefers to be reached: "phone" | "text" | "email". */
+  preferredContactMethod?: string;
+  /** Best time of day to call: "Morning" | "Afternoon" | "Evening". */
+  bestTimeToCall?: string;
 }
 
 export interface SalesLeadActor {
@@ -92,106 +96,93 @@ function prettyPhone(e164: string): string {
 
 // ── Shared card fragments ───────────────────────────────────────────────────
 
+/**
+ * Compact FactSet — only the fields that aren't already in the header.
+ * Keeps the card short enough to read without scrolling in the Teams pane.
+ */
 function leadFactsSet(state: SalesLeadState): Record<string, unknown> {
+  const dateLine = state.lead.preferredTime
+    ? `${formatDate(state.lead.preferredDate)} · ${state.lead.preferredTime}`
+    : formatDate(state.lead.preferredDate);
+
+  const phoneLine = state.lead.preferredContactMethod
+    ? `${prettyPhone(state.lead.phone)} · prefers ${state.lead.preferredContactMethod}${
+        state.lead.bestTimeToCall ? ` (${state.lead.bestTimeToCall})` : ""
+      }`
+    : prettyPhone(state.lead.phone);
+
   const facts: Array<{ title: string; value: string }> = [
-    { title: "Inquiry", value: `#${state.projectNumber}` },
-    { title: "Event type", value: state.lead.eventType || "—" },
-    { title: "Guests", value: String(state.lead.guestCount) },
-    {
-      title: "Preferred date",
-      value: state.lead.preferredTime
-        ? `${formatDate(state.lead.preferredDate)} · ${state.lead.preferredTime}`
-        : formatDate(state.lead.preferredDate),
-    },
-    {
-      title: "Name",
-      value: `${state.lead.firstName} ${state.lead.lastName}`.trim(),
-    },
-    { title: "Email", value: state.lead.email },
-    { title: "Phone", value: prettyPhone(state.lead.phone) },
+    { title: "Date:", value: dateLine },
+    { title: "Phone:", value: phoneLine },
+    { title: "Email:", value: state.lead.email },
   ];
-  if (state.lead.activityInterest && state.lead.activityInterest.length > 0) {
-    facts.push({ title: "Interested in", value: state.lead.activityInterest.join(", ") });
+  if (state.lead.eventType) {
+    facts.push({ title: "Type:", value: state.lead.eventType });
   }
-  facts.push({ title: "Center", value: state.center.displayName });
-  facts.push({ title: "Assigned to", value: state.planner.displayName });
-  return { type: "FactSet", facts };
+  if (state.lead.activityInterest && state.lead.activityInterest.length > 0) {
+    facts.push({ title: "Interests:", value: state.lead.activityInterest.join(", ") });
+  }
+  return { type: "FactSet", facts, spacing: "Small" };
 }
 
-function headerBlock(state: SalesLeadState): Record<string, unknown> {
-  return {
-    type: "Container",
-    style: "emphasis",
-    bleed: true,
-    items: [
-      {
-        type: "TextBlock",
-        text: "🎉 NEW SALES LEAD",
-        weight: "Bolder",
-        size: "Small",
-        color: "Accent",
-        spacing: "None",
-      },
-      {
-        type: "TextBlock",
-        text: `${state.lead.firstName} ${state.lead.lastName} · ${state.lead.guestCount} guests`,
-        weight: "Bolder",
-        size: "Large",
-        spacing: "Small",
-        wrap: true,
-      },
-      {
-        type: "TextBlock",
-        text: `${state.center.displayName} · Assigned to ${state.planner.displayName}`,
-        isSubtle: true,
-        size: "Small",
-        spacing: "None",
-        wrap: true,
-      },
-    ],
-  };
+/**
+ * Header — inline (no emphasis container) so it doesn't eat vertical space.
+ * Three lines: eyebrow / name·guests / center·planner.
+ */
+function headerBlock(state: SalesLeadState): Array<Record<string, unknown>> {
+  return [
+    {
+      type: "TextBlock",
+      text: `NEW SALES LEAD · #${state.projectNumber}`,
+      weight: "Bolder",
+      size: "Small",
+      color: "Accent",
+      spacing: "None",
+      wrap: true,
+    },
+    {
+      type: "TextBlock",
+      text: `${state.lead.firstName} ${state.lead.lastName} · ${state.lead.guestCount} guests`,
+      weight: "Bolder",
+      size: "Large",
+      spacing: "Small",
+      wrap: true,
+    },
+    {
+      type: "TextBlock",
+      text: `${state.center.displayName} · ${state.planner.displayName}`,
+      isSubtle: true,
+      size: "Small",
+      spacing: "None",
+      wrap: true,
+    },
+  ];
 }
 
+/** Single TextBlock for notes — no wrapper container. */
 function notesBlock(state: SalesLeadState): Record<string, unknown> | null {
   const notes = (state.lead.notes || "").trim();
   if (!notes) return null;
   return {
-    type: "Container",
-    style: "default",
-    items: [
-      {
-        type: "TextBlock",
-        text: "Notes",
-        weight: "Bolder",
-        size: "Small",
-        spacing: "Medium",
-      },
-      {
-        type: "TextBlock",
-        text: notes,
-        wrap: true,
-        size: "Small",
-        isSubtle: true,
-        spacing: "Small",
-      },
-    ],
+    type: "TextBlock",
+    text: `📝 ${notes}`,
+    wrap: true,
+    size: "Small",
+    isSubtle: true,
+    spacing: "Small",
   };
 }
 
+/** Compact one-line status banner (no bleed, no big container padding). */
 function statusBanner(actor: SalesLeadActor, label: string, color: "good" | "warning"): Record<string, unknown> {
   return {
-    type: "Container",
-    style: color === "good" ? "good" : "warning",
-    bleed: true,
-    items: [
-      {
-        type: "TextBlock",
-        text: `✓ ${label} by ${actor.name} · ${formatTimeET(actor.at)}`,
-        weight: "Bolder",
-        size: "Small",
-        wrap: true,
-      },
-    ],
+    type: "TextBlock",
+    text: `✓ ${label} by ${actor.name} · ${formatTimeET(actor.at)}`,
+    weight: "Bolder",
+    size: "Small",
+    color: color === "good" ? "Good" : "Warning",
+    spacing: "Small",
+    wrap: true,
   };
 }
 
@@ -222,7 +213,7 @@ function baseCard(body: Array<Record<string, unknown>>): Record<string, unknown>
 /** Initial card — both Acknowledged + Contacted buttons active. */
 export function buildSalesLeadCard(state: SalesLeadState): Record<string, unknown> {
   const body: Array<Record<string, unknown>> = [
-    headerBlock(state),
+    ...headerBlock(state),
     leadFactsSet(state),
   ];
   const notes = notesBlock(state);
@@ -246,7 +237,7 @@ export function buildSalesLeadCardAcked(state: SalesLeadState): Record<string, u
     return buildSalesLeadCard(state);
   }
   const body: Array<Record<string, unknown>> = [
-    headerBlock(state),
+    ...headerBlock(state),
     statusBanner(state.ackedBy, "Acknowledged", "warning"),
     leadFactsSet(state),
   ];
@@ -263,7 +254,7 @@ export function buildSalesLeadCardAcked(state: SalesLeadState): Record<string, u
 
 /** Contacted card — both banners shown, no more actions. */
 export function buildSalesLeadCardDone(state: SalesLeadState): Record<string, unknown> {
-  const body: Array<Record<string, unknown>> = [headerBlock(state)];
+  const body: Array<Record<string, unknown>> = [...headerBlock(state)];
   // Contacted implies Acknowledged — show both if we have them, else synthesize
   // the ack banner from the contacted actor.
   const ack = state.ackedBy || state.contactedBy;

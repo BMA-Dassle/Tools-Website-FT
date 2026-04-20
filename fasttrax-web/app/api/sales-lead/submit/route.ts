@@ -123,6 +123,8 @@ export async function POST(req: NextRequest) {
     guestCount: Number(body.guestCount) || 1,
     notes: body.notes,
     activityInterest: body.activityInterest,
+    preferredContactMethod: body.preferredContactMethod,
+    bestTimeToCall: body.bestTimeToCall,
   };
 
   const state: SalesLeadState = {
