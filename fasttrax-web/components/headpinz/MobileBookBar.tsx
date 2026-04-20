@@ -18,7 +18,9 @@ export default function HeadPinzMobileBookBar() {
   // Also hide on the booking hub itself (/book or /hp/book) — no point
   // showing a Book Now bar that would just re-load the page you're on.
   if (pathname === "/book" || pathname === "/hp/book") return null;
-  if (pathname === "/hp" || pathname === "/hp/") return null;
+  // Hide on the HP landing / location-picker page. On prod this is "/"
+  // (headpinz.com/); in dev / internal routing it's "/hp".
+  if (pathname === "/" || pathname === "/hp" || pathname === "/hp/") return null;
 
   // Determine location from URL
   const loc = pathname?.includes("naples") ? locations.naples : locations["fort-myers"];
