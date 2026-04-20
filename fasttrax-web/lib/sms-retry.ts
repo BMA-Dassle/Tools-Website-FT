@@ -191,12 +191,26 @@ async function voxThrottle(): Promise<void> {
   lastVoxSendAt = Date.now();
 }
 
-export async function voxSend(
+export interface VoxSendOpts {
+  /**
+   * Override the Voxtelesys From number for this message (E.164, e.g. "+12392148353").
+   * Falls back to VOX_FROM when omitted. If Voxtelesys rejects the override with
+   * 400/403 (DID not owned by our account), we retry once with VOX_FROM and
+   * `fallbackPrefix` prepended to the body — so the customer still sees who it's from.
+   */
+  fromOverride?: string;
+  /** Prefix prepended on fallback, e.g. "From Stephanie (direct: 239-214-8353): ". */
+  fallbackPrefix?: string;
+}
+
+const VOX_FROM = "+12394819666";
+
+async function voxSendOnce(
   toFormatted: string,
   body: string,
+  fromNumber: string,
 ): Promise<{ ok: boolean; status: number | null; error?: string }> {
   const VOX_API_KEY = process.env.VOX_API_KEY || "";
-  const VOX_FROM = "+12394819666";
   if (!VOX_API_KEY) return { ok: false, status: null, error: "VOX_API_KEY missing" };
 
   await voxThrottle();
@@ -209,7 +223,7 @@ export async function voxSend(
         Accept: "application/json",
         Authorization: `Bearer ${VOX_API_KEY}`,
       },
-      body: JSON.stringify({ to: toFormatted, from: VOX_FROM, body }),
+      body: JSON.stringify({ to: toFormatted, from: fromNumber, body }),
     });
     if (!res.ok) {
       const errText = (await res.text()).slice(0, 500);
@@ -219,6 +233,30 @@ export async function voxSend(
   } catch (err) {
     return { ok: false, status: null, error: err instanceof Error ? err.message : "network error" };
   }
+}
+
+export async function voxSend(
+  toFormatted: string,
+  body: string,
+  opts?: VoxSendOpts,
+): Promise<{ ok: boolean; status: number | null; error?: string }> {
+  const from = opts?.fromOverride || VOX_FROM;
+  const result = await voxSendOnce(toFormatted, body, from);
+
+  // If we tried with an override and Voxtelesys rejected it (likely DID not owned),
+  // degrade to default VOX_FROM and prepend a "From {planner}" prefix so the
+  // customer still knows who's texting.
+  if (
+    !result.ok &&
+    opts?.fromOverride &&
+    (result.status === 400 || result.status === 403)
+  ) {
+    const prefix = opts.fallbackPrefix || `(From ${opts.fromOverride}) `;
+    const fallbackBody = prefix + body;
+    return await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
+  }
+
+  return result;
 }
 
 /**

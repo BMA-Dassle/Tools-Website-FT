@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { SalesLeadForm } from "@/components/SalesLeadForm";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -1013,7 +1014,7 @@ export default function HeadPinzGroupEventsPage() {
         </div>
       </section>
 
-      {/* ====== COGNITO FORM MODAL ====== */}
+      {/* ====== SALES LEAD FORM MODAL ====== */}
       {showForm && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
@@ -1023,7 +1024,7 @@ export default function HeadPinzGroupEventsPage() {
           }}
         >
           <div
-            className="relative w-full max-w-3xl rounded-2xl overflow-hidden"
+            className="relative w-full max-w-5xl rounded-2xl overflow-hidden"
             style={{ backgroundColor: bg, border: `2px solid rgba(253,91,86,0.4)`, height: "90vh" }}
           >
             <button
@@ -1033,11 +1034,11 @@ export default function HeadPinzGroupEventsPage() {
             >
               &times;
             </button>
-            <iframe
-              src="https://www.cognitoforms.com/f/u3qiZTtd8UeGo_mV4yHewA/21"
-              className="w-full h-full"
-              style={{ border: "none" }}
-              title="HeadPinz Event Quote Request Form"
+            <SalesLeadForm
+              centerKey="headpinz-ft-myers"
+              brand="hp"
+              kind="group"
+              onClose={() => setShowForm(false)}
             />
           </div>
         </div>

@@ -16,6 +16,7 @@ import {
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
+import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -34,8 +35,6 @@ import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
 const VOX_FROM = "+12394819666"; // FastTrax SMS sender
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const SHORT_TTL = 60 * 60 * 24 * 90; // 90 days
 const DEDUP_TTL = 60 * 60 * 24;       // 24 hours
@@ -152,29 +151,12 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
 // reuse it without duplicating Voxtelesys send + dedup-setting logic.
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  if (!SENDGRID_API_KEY) {
-    console.error("[pre-race] SENDGRID_API_KEY missing");
+  const result = await sendGridEmail({ to, subject, html });
+  if (!result.ok) {
+    console.error("[pre-race] Email error:", result.status, result.error);
     return false;
   }
-  try {
-    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${SENDGRID_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: to }] }],
-        from: { email: SENDGRID_FROM_EMAIL, name: "FastTrax Entertainment" },
-        subject,
-        content: [{ type: "text/html", value: html }],
-      }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error("[pre-race] Email error:", err);
-    return false;
-  }
+  return true;
 }
 
 function formatTimeET(iso: string): string {

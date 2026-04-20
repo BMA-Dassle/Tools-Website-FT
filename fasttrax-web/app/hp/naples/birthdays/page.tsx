@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { SalesLeadForm } from "@/components/SalesLeadForm";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -685,7 +686,7 @@ export default function HeadPinzBirthdaysPage() {
           onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
         >
           <div
-            className="relative w-full max-w-3xl rounded-lg overflow-hidden"
+            className="relative w-full max-w-5xl rounded-lg overflow-hidden"
             style={{ backgroundColor: bg, border: `1.78px dashed ${coral}40`, height: "90vh" }}
           >
             <button
@@ -695,11 +696,11 @@ export default function HeadPinzBirthdaysPage() {
             >
               &times;
             </button>
-            <iframe
-              src="https://www.cognitoforms.com/f/u3qiZTtd8UeGo_mV4yHewA/21"
-              className="w-full h-full"
-              style={{ border: "none" }}
-              title="HeadPinz Birthday Party Request Form"
+            <SalesLeadForm
+              centerKey="headpinz-naples"
+              brand="hp"
+              kind="birthday"
+              onClose={() => setShowForm(false)}
             />
           </div>
         </div>

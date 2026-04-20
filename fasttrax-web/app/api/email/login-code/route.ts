@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const SENDGRID_API_URL = "https://api.sendgrid.com/v3/mail/send";
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
-const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
+import { sendEmail } from "@/lib/sendgrid";
 
 interface AccountInfo {
   personId: string;
@@ -134,30 +130,15 @@ export async function POST(req: NextRequest) {
       `;
     }
 
-    const res = await fetch(SENDGRID_API_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${SENDGRID_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        personalizations: [
-          {
-            to: [{ email }],
-            subject,
-          },
-        ],
-        from: { email: FROM_EMAIL, name: FROM_NAME },
-        content: [
-          { type: "text/plain", value: plainText },
-          { type: "text/html", value: html },
-        ],
-      }),
+    const result = await sendEmail({
+      to: email,
+      subject,
+      html,
+      text: plainText,
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[SendGrid Error]", res.status, err);
+    if (!result.ok) {
+      console.error("[SendGrid Error]", result.status, result.error);
       return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
     }
 

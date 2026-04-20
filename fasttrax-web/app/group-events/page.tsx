@@ -4,6 +4,7 @@ import { useState } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import { trackGroupRequestClick } from "@/lib/analytics";
+import { SalesLeadForm } from "@/components/SalesLeadForm";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const EVENT_GUIDE_URL = `${BLOB}/documents/FastTrax-Event-Guide.pdf`;
@@ -684,7 +685,7 @@ export default function GroupEventsPage() {
         </div>
       </section>
 
-      {/* Cognito Form Modal */}
+      {/* Sales lead form modal */}
       {showForm && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
@@ -692,7 +693,7 @@ export default function GroupEventsPage() {
           onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
         >
           <div
-            className="relative w-full max-w-3xl rounded-xl overflow-hidden"
+            className="relative w-full max-w-5xl rounded-xl overflow-hidden"
             style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(228,28,29,0.4)", height: "90vh" }}
           >
             <button
@@ -702,11 +703,11 @@ export default function GroupEventsPage() {
             >
               &times;
             </button>
-            <iframe
-              src="https://www.cognitoforms.com/f/u3qiZTtd8UeGo_mV4yHewA/21"
-              className="w-full h-full"
-              style={{ border: "none" }}
-              title="Event Quote Request Form"
+            <SalesLeadForm
+              centerKey="fasttrax-ft-myers"
+              brand="ft"
+              kind="group"
+              onClose={() => setShowForm(false)}
             />
           </div>
         </div>

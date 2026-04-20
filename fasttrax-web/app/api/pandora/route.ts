@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PANDORA_LOCATION_MAP, PANDORA_DEFAULT_LOCATION_ID } from "@/lib/pandora-locations";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const DEFAULT_LOCATION_ID = "TXBSQN0FEKQ11";
-const LOCATION_MAP: Record<string, string> = {
-  fasttrax: "LAB52GY480CJF",
-  headpinz: "TXBSQN0FEKQ11",
-  naples: "PPTR5G2N0QXF7",
-};
+const DEFAULT_LOCATION_ID = PANDORA_DEFAULT_LOCATION_ID;
+const LOCATION_MAP: Record<string, string> = PANDORA_LOCATION_MAP;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
