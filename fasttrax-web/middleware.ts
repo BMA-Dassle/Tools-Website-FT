@@ -179,8 +179,32 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://headpinz.com${cleanPath}`, 301);
   }
 
-  // HeadPinz domain: rewrite to /hp prefix (unless already there or it's a shared route)
-  if (isHeadPinz && !pathname.startsWith("/hp") && !pathname.startsWith("/book") && !pathname.startsWith("/api")) {
+  // Root-level metadata / static paths that must bypass the /hp rewrite.
+  // Without this, Next.js serves /hp/robots.txt → 404 for crawlers hitting
+  // headpinz.com/robots.txt. Same story for sitemap, favicon, manifest,
+  // site verification files (Google / Bing / Pinterest / Facebook).
+  const isRootMetadataPath =
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/favicon.ico" ||
+    pathname === "/manifest.json" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/browserconfig.xml" ||
+    pathname === "/sw.js" ||
+    pathname === "/serviceworker.js" ||
+    pathname.startsWith("/.well-known/") ||
+    /^\/[a-zA-Z0-9_-]+\.txt$/.test(pathname) || // google*.txt, pinterest-*.txt etc
+    /^\/[a-zA-Z0-9_-]+\.html$/.test(pathname);  // bing*.html, facebook-domain-verification.html, etc
+
+  // HeadPinz domain: rewrite to /hp prefix (unless already there, shared
+  // route, or root-level metadata that must be served as-is).
+  if (
+    isHeadPinz &&
+    !pathname.startsWith("/hp") &&
+    !pathname.startsWith("/book") &&
+    !pathname.startsWith("/api") &&
+    !isRootMetadataPath
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = `/hp${pathname}`;
     const requestHeaders = new Headers(request.headers);
