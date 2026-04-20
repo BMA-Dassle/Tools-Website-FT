@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
+import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -358,6 +359,14 @@ export default function HeadPinzGroupEventsPage() {
 
   return (
     <>
+      <FAQJsonLd faqs={faqs.map((f) => ({ question: f.q, answer: f.a }))} />
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Fort Myers", url: "https://headpinz.com/fort-myers" },
+          { name: "Group Events", url: "https://headpinz.com/fort-myers/group-events" },
+        ]}
+      />
       {/* ====== 1. HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image

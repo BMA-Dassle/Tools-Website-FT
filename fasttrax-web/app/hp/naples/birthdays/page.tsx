@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
+import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -214,6 +215,14 @@ export default function HeadPinzBirthdaysPage() {
 
   return (
     <>
+      <FAQJsonLd faqs={faqs.map((f) => ({ question: f.q, answer: f.a }))} />
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Naples", url: "https://headpinz.com/naples" },
+          { name: "Birthdays", url: "https://headpinz.com/naples/birthdays" },
+        ]}
+      />
       {/* ====== 1. HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <Image

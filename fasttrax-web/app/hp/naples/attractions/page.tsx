@@ -5,6 +5,7 @@ import BookingLink from "@/components/BookingLink";
 import AttractionVideo from "@/components/headpinz/AttractionVideo";
 import AutoplayVideo from "@/components/headpinz/AutoplayVideo";
 import SeoFaq from "@/components/headpinz/SeoFaq";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
   title:
@@ -150,6 +151,13 @@ const attractions = [
 export default function NaplesAttractionsPage() {
   return (
     <div className="bg-[#0a1628]">
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Naples", url: "https://headpinz.com/naples" },
+          { name: "Attractions", url: "https://headpinz.com/naples/attractions" },
+        ]}
+      />
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "80vh" }}>
         <video

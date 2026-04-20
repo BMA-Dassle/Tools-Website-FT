@@ -5,6 +5,7 @@ import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import { trackGroupRequestClick } from "@/lib/analytics";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
+import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const EVENT_GUIDE_URL = `${BLOB}/documents/FastTrax-Event-Guide.pdf`;
@@ -210,6 +211,13 @@ export default function GroupEventsPage() {
 
   return (
     <>
+      <FAQJsonLd faqs={faqs.map((f) => ({ question: f.q, answer: f.a }))} />
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Group Events", url: "https://fasttraxent.com/group-events" },
+        ]}
+      />
       {/* 1. Hero */}
       <SubpageHero
         title="Group Events & Team Building"

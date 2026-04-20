@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
+import { listAlternatives } from "@/lib/alternatives-data";
 
 /**
  * Per-domain sitemap. Both fasttraxent.com and headpinz.com hit the same
@@ -37,6 +38,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${ft}/book/shuffly`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${ft}/book/gel-blaster`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${ft}/book/laser-tag`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    // SEO content hub + competitor-alternative landing pages.
+    { url: `${ft}/things-to-do-fort-myers`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${ft}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    ...listAlternatives("ft").map((a) => ({
+      url: `${ft}/alternatives/${a.slug}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
   ];
 
   const headPinzUrls: MetadataRoute.Sitemap = [
@@ -58,6 +68,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${hp}/book/laser-tag`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${hp}/book/shuffly`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${hp}/fwf`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+    // SEO content hubs + competitor-alternative landing pages.
+    { url: `${hp}/things-to-do-fort-myers`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${hp}/things-to-do-naples`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${hp}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    ...listAlternatives("hp").map((a) => ({
+      url: `${hp}/alternatives/${a.slug}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
   ];
 
   return isHeadPinz ? headPinzUrls : fastTraxUrls;
