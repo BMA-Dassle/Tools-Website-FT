@@ -1,10 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { getBookingLocation } from "@/lib/booking-location";
+import { hasActiveCart, clearAllCarts } from "@/lib/cart-clear";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /**
  * HeadPinz booking hub — served at `headpinz.com/book` (via middleware
@@ -32,9 +36,12 @@ const BG = "#0a1628";
 function AttractionCard({
   attraction,
   bookingLoc,
+  onClick,
 }: {
   attraction: AttractionConfig;
   bookingLoc: string | null;
+  /** If provided, renders as a button and calls this instead of navigating. */
+  onClick?: () => void;
 }) {
   const naplesMode = bookingLoc === "naples";
 
@@ -47,11 +54,11 @@ function AttractionCard({
 
   const locationLabel = naplesMode ? "HeadPinz Naples" : "HeadPinz Fort Myers";
 
-  return (
-    <Link
-      href={href}
-      className="group relative flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden hover:border-white/20 hover:bg-white/[0.06] transition-all duration-300"
-    >
+  const cardClass =
+    "group relative flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden hover:border-white/20 hover:bg-white/[0.06] transition-all duration-300 text-left";
+
+  const CardBody = (
+    <>
       {/* Image */}
       <div className="relative aspect-[16/10] overflow-hidden">
         <Image
@@ -108,14 +115,50 @@ function AttractionCard({
       </div>
 
       <div className="h-0.5 w-full" style={{ backgroundColor: attraction.color }} />
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${cardClass} cursor-pointer`}>
+        {CardBody}
+      </button>
+    );
+  }
+  return (
+    <Link href={href} className={cardClass}>
+      {CardBody}
     </Link>
   );
 }
 
 export default function HeadPinzBookLandingPage() {
+  const router = useRouter();
   const bookingLoc = getBookingLocation();
   const naplesMode = bookingLoc === "naples";
   const eventsHref = naplesMode ? "/naples/group-events" : "/fort-myers/group-events";
+  const bowlingHref = naplesMode ? "/hp/book/bowling?location=naples" : "/hp/book/bowling";
+
+  const [showClearCartConfirm, setShowClearCartConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  // Bowling runs on a separate QAMF session from the attractions BMI
+  // cart. If the guest has a live attractions cart, warn + clear before
+  // handing them off to bowling — otherwise their old hold lingers as a
+  // ghost BMI order and the next flow is confusing.
+  function handleBowlingClick() {
+    if (hasActiveCart()) {
+      setShowClearCartConfirm(true);
+    } else {
+      router.push(bowlingHref);
+    }
+  }
+
+  async function confirmClearAndGoBowling() {
+    setClearing(true);
+    await clearAllCarts();
+    router.push(bowlingHref);
+  }
 
   // Explicit HP attraction order: bowling first (not in ATTRACTION_LIST —
   // it has its own QAMF flow), then the multi-location attractions.
@@ -153,14 +196,14 @@ export default function HeadPinzBookLandingPage() {
               marginBottom: "16px",
             }}
           >
-            What are you in the mood for?
+            Pick your experience
           </h1>
           <p
             className="font-body text-white/60 mx-auto"
             style={{ fontSize: "clamp(14px, 1.8vw, 18px)", lineHeight: 1.6, maxWidth: "48ch" }}
           >
-            Bowling lanes, NEXUS laser tag, gel blasters, shuffleboard — pick your vibe and lock in
-            a time. Small groups self-serve online; larger parties get a dedicated planner.
+            Bowling lanes, NEXUS laser tag, gel blasters, shuffleboard — choose your experience and
+            lock in a time. Small groups self-serve online; larger parties get a dedicated planner.
           </p>
         </div>
       </section>
@@ -170,7 +213,12 @@ export default function HeadPinzBookLandingPage() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {filtered.map((a) => (
-              <AttractionCard key={a.slug} attraction={a} bookingLoc={bookingLoc} />
+              <AttractionCard
+                key={a.slug}
+                attraction={a}
+                bookingLoc={bookingLoc}
+                onClick={a.slug === "bowling" ? handleBowlingClick : undefined}
+              />
             ))}
           </div>
         </div>
@@ -218,6 +266,67 @@ export default function HeadPinzBookLandingPage() {
           </div>
         </div>
       </section>
+
+      {/* Cart-clear confirmation (bowling uses a separate QAMF session). */}
+      {showClearCartConfirm && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          {...modalBackdropProps(() => {
+            if (!clearing) setShowClearCartConfirm(false);
+          })}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl p-6 sm:p-7"
+            style={{ backgroundColor: "#0f1d36", border: `1.78px solid ${CORAL}40` }}
+          >
+            <div
+              className="uppercase font-bold mb-2"
+              style={{ color: CORAL, fontSize: "11px", letterSpacing: "2.5px" }}
+            >
+              Heads up
+            </div>
+            <h3
+              className="font-heading font-black uppercase italic text-white mb-3"
+              style={{ fontSize: "22px", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+            >
+              Start a bowling booking?
+            </h3>
+            <p
+              className="font-body text-white/75 mb-2"
+              style={{ fontSize: "14px", lineHeight: 1.6 }}
+            >
+              Bowling runs on its own reservation flow, so we&apos;ll need to clear
+              what&apos;s in your current cart to continue.
+            </p>
+            <p
+              className="font-body text-white/60 mb-5"
+              style={{ fontSize: "13px", lineHeight: 1.55 }}
+            >
+              Don&apos;t worry — inside the bowling booking you&apos;ll be able to add on
+              laser tag, gel blasters, pizza and drinks.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => setShowClearCartConfirm(false)}
+                disabled={clearing}
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors disabled:opacity-50"
+              >
+                Keep my cart
+              </button>
+              <button
+                type="button"
+                onClick={confirmClearAndGoBowling}
+                disabled={clearing}
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-transform hover:scale-[1.02] disabled:opacity-60 disabled:scale-100"
+                style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+              >
+                {clearing ? "Clearing…" : "Clear & book bowling"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

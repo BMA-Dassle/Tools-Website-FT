@@ -50,7 +50,7 @@ export default function MobileBookBar() {
       <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#000418]/95 backdrop-blur border-t border-white/10 p-3 safe-area-inset-bottom">
         <div className="flex gap-2">
           <Link
-            href="/book/race"
+            href="/book"
             onClick={trackBookingClick}
             className="flex-1 block bg-[#E53935] hover:bg-[#c62828] text-white font-body font-bold text-sm py-3.5 rounded-full text-center uppercase tracking-widest transition-colors"
           >
