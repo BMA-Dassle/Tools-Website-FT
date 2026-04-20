@@ -15,6 +15,9 @@ export default function HeadPinzMobileBookBar() {
 
   // Hide on booking pages and home location selector
   if (pathname?.includes("/book/")) return null;
+  // Also hide on the booking hub itself (/book or /hp/book) — no point
+  // showing a Book Now bar that would just re-load the page you're on.
+  if (pathname === "/book" || pathname === "/hp/book") return null;
   if (pathname === "/hp" || pathname === "/hp/") return null;
 
   // Determine location from URL
