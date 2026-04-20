@@ -198,12 +198,19 @@ export function middleware(request: NextRequest) {
 
   // HeadPinz domain: rewrite to /hp prefix (unless already there, shared
   // route, or root-level metadata that must be served as-is).
+  //
+  // Shared routes that exist at the top level and should serve on BOTH
+  // domains without /hp rewriting — e.g. /accessibility (host-aware
+  // metadata renders the right brand per request).
+  const isSharedTopLevelRoute =
+    pathname === "/accessibility" || pathname.startsWith("/accessibility/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
     !pathname.startsWith("/book") &&
     !pathname.startsWith("/api") &&
-    !isRootMetadataPath
+    !isRootMetadataPath &&
+    !isSharedTopLevelRoute
   ) {
     const url = request.nextUrl.clone();
     url.pathname = `/hp${pathname}`;
