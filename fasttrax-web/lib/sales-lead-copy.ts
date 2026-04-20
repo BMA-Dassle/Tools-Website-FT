@@ -137,8 +137,8 @@ export function buildSalesLeadSms(ctx: SalesLeadCopyContext): string {
   if (ctx.isIndividualPlanner) {
     const hype =
       b.brand === "ft"
-        ? `pumped to help you build something epic on the track`
-        : `pumped to help you put together a night your crew won't stop talking about`;
+        ? `excited to help you build something epic on the track`
+        : `excited to help you put together a night your crew won't stop talking about`;
     return (
       `Hey ${ctx.firstName}! This is ${ctx.plannerName} at ${ctx.centerName} — ` +
       `thanks for your event inquiry #${ctx.projectNumber}. I'll be your event ` +
