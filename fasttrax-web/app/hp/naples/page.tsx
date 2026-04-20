@@ -248,7 +248,7 @@ export default function NaplesPage() {
           <div className="mb-8" />
 
           <Link
-            href="/hp/book/bowling?location=naples"
+            href="/hp/book?location=naples"
             className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105"
             style={{ boxShadow: "0 0 24px rgba(253,91,86,0.4)" }}
           >

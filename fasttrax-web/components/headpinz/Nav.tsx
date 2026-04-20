@@ -8,8 +8,8 @@ import type { LocationKey } from "@/lib/attractions-data";
 import Image from "next/image";
 
 const locations = [
-  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "/hp/book/bowling", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
-  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "/hp/book/bowling?location=naples", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
+  { key: "fort-myers", label: "Fort Myers", shortLabel: "FM", href: "/fort-myers", waiver: "https://kiosk.bmileisure.com/headpinzftmyers", booking: "/hp/book", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934" },
+  { key: "naples", label: "Naples", shortLabel: "NAP", href: "/naples", waiver: "https://kiosk.bmileisure.com/headpinznaples", booking: "/hp/book?location=naples", leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318" },
 ];
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {

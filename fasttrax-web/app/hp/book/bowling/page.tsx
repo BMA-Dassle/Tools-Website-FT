@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { trackBowlingStep } from "@/lib/analytics";
 import { bookAttractionSlot } from "@/lib/attractions-data";
@@ -1716,12 +1715,8 @@ export default function BowlingBookingPage() {
       <section ref={contentRef} className="max-w-5xl mx-auto px-4 py-8 pb-24 scroll-mt-[180px] sm:scroll-mt-[160px]">
 
         {/* ── LOCATION CONFIRM ── */}
-        {step === "location" && !loading && centerId && (() => {
-          const eventsHref = centerId === "9172"
-            ? "/fort-myers/group-events"
-            : "/naples/group-events";
-          return (
-          <div className="text-center max-w-lg mx-auto">
+        {step === "location" && !loading && centerId && (
+          <div className="text-center">
             <div className="rounded-lg p-6 mb-6" style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}30` }}>
               <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">You&apos;re booking at</p>
               <h3 className="font-heading uppercase text-white text-xl tracking-wider" style={{ textShadow: `0 0 20px ${gold}25` }}>
@@ -1731,44 +1726,24 @@ export default function BowlingBookingPage() {
                 {LOCATIONS.find(l => l.id === centerId)?.address}
               </p>
             </div>
-
-            {/* Two-path landing: self-serve lane booking vs. planner-led group event */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-              <button
-                onClick={() => setShowLocationConfirm(true)}
-                className="py-4 px-4 rounded-2xl font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02] text-center flex flex-col items-center gap-1"
-                style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
-              >
-                <span className="text-base leading-tight">Book a lane</span>
-                <span className="font-normal text-[11px] tracking-wide opacity-80 normal-case">Book online in minutes</span>
-              </button>
-              <Link
-                href={eventsHref}
-                className="py-4 px-4 rounded-2xl font-body font-bold text-sm uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02] text-center flex flex-col items-center gap-1 no-underline"
-                style={{ backgroundColor: "rgba(255,215,0,0.12)", border: `1.78px solid ${gold}50`, color: gold }}
-              >
-                <span className="text-base leading-tight">Plan a group event</span>
-                <span className="font-normal text-[11px] tracking-wide opacity-90 normal-case" style={{ color: "rgba(255,215,0,0.8)" }}>Groups of 20+ · planner handles everything</span>
-              </Link>
-            </div>
-
-            {/* Group-event promo copy — one line, kept short */}
-            <p className="font-body text-white/55 text-sm leading-relaxed mb-5 max-w-md mx-auto">
-              Looking for the ultimate VIP experience? Our event planners handle the whole thing — bowling, food, drinks, arcade, laser tag — so you can focus on the fun. Perfect for parties of 20 or more.
-            </p>
-
+            <button
+              onClick={() => setShowLocationConfirm(true)}
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+              style={{ backgroundColor: coral, boxShadow: `0 0 16px ${coral}30` }}
+            >
+              Continue
+            </button>
             <button
               onClick={() => {
                 const other = LOCATIONS.find(l => l.id !== centerId)!;
                 setCenterId(other.id); setCenterName(other.name); setHasOldTime(other.hasOldTime);
               }}
-              className="font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+              className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
             >
               Switch to {LOCATIONS.find(l => l.id !== centerId)?.name}
             </button>
           </div>
-          );
-        })()}
+        )}
 
         {/* ── DATE + TIME ── */}
         {step === "date" && !loading && (() => {

@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { modalBackdropProps } from "@/lib/a11y";
 
 const locations: Record<string, { phone: string; phoneTel: string; booking: string }> = {
-  "fort-myers": { phone: "(239) 302-2155", phoneTel: "+12393022155", booking: "/hp/book/bowling" },
-  naples: { phone: "(239) 455-3755", phoneTel: "+12394553755", booking: "/hp/book/bowling?location=naples" },
+  "fort-myers": { phone: "(239) 302-2155", phoneTel: "+12393022155", booking: "/hp/book" },
+  naples: { phone: "(239) 455-3755", phoneTel: "+12394553755", booking: "/hp/book?location=naples" },
 };
 
 export default function HeadPinzMobileBookBar() {

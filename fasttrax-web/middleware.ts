@@ -219,7 +219,18 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
-  // HeadPinz domain on shared routes (/book, /api) — set brand header without rewriting
+  // HeadPinz domain on shared routes (/book, /api):
+  //   - /book (exactly) → rewrite to /hp/book (HP-branded booking hub)
+  //   - /book/* sub-paths → pass through to the shared app/book/* flows
+  //     (checkout, confirmation, race, etc.) with brand header set
+  //   - /api/* → pass through, brand header set
+  if (isHeadPinz && (pathname === "/book" || pathname === "/book/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/hp/book";
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+  }
   if (isHeadPinz && (pathname.startsWith("/book") || pathname.startsWith("/api"))) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
