@@ -171,6 +171,37 @@ export async function sendAdaptiveCardToChannel(
  * after a state write that has already succeeded, and we don't want a
  * transient Bot Framework hiccup to roll that back.
  */
+/**
+ * DELETE an activity — removes the Teams message entirely. Used for cleaning
+ * up test posts. Like `updateAdaptiveCard`, does not throw on failure.
+ */
+export async function deleteActivity(
+  conversationId: string,
+  activityId: string,
+  opts?: { serviceUrl?: string },
+): Promise<{ ok: boolean; status: number | null; error?: string }> {
+  const token = await getBotAccessToken();
+  const svcUrl = (opts?.serviceUrl || DEFAULT_SERVICE_URL).replace(/\/$/, "");
+  const url = `${svcUrl}/v3/conversations/${conversationId}/activities/${activityId}`;
+  try {
+    const resp = await fetchWithTimeout(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      return { ok: false, status: resp.status, error: errText.slice(0, 500) };
+    }
+    return { ok: true, status: resp.status };
+  } catch (err) {
+    return {
+      ok: false,
+      status: null,
+      error: err instanceof Error ? err.message : "network error",
+    };
+  }
+}
+
 export async function updateAdaptiveCard(
   conversationId: string,
   activityId: string,
