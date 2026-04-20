@@ -805,7 +805,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                   <button
                     type="button"
                     onClick={switchToHpFtMyers}
-                    className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02]"
+                    className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] text-center leading-tight"
                     style={{ backgroundColor: "#00E2E5", color: "#000418" }}
                   >
                     Switch to HeadPinz FM
@@ -814,7 +814,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                   <button
                     type="button"
                     onClick={removeKarting}
-                    className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02]"
+                    className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] text-center leading-tight"
                     style={{ backgroundColor: "#00E2E5", color: "#000418" }}
                   >
                     Remove karting
@@ -822,7 +822,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 )}
                 <a
                   href={hpKidsPartyHref}
-                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"
                   style={{ backgroundColor: "#fd5b56", color: "#ffffff" }}
                 >
                   HeadPinz kids party
@@ -830,7 +830,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 <button
                   type="button"
                   onClick={() => { setKidsKartingAck(true); setShowKidsKartingWarning(false); }}
-                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
                 >
                   Keep my choices
                 </button>

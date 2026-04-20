@@ -902,14 +902,14 @@ export default function GroupEventsPage() {
               <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
                 <a
                   href="/book"
-                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"
                   style={{ backgroundColor: "#00E2E5", color: "#000418" }}
                 >
                   Book on your own
                 </a>
                 <a
                   href="https://headpinz.com/fort-myers/birthdays"
-                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"
                   style={{ backgroundColor: "#fd5b56", color: "#ffffff" }}
                 >
                   HeadPinz kids party
@@ -917,7 +917,7 @@ export default function GroupEventsPage() {
                 <button
                   type="button"
                   onClick={() => setShowKidsBirthdayWarning(false)}
-                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors leading-tight"
                 >
                   Close
                 </button>
