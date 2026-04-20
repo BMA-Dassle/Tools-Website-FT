@@ -209,6 +209,16 @@ const faqs = [
 export default function GroupEventsPage() {
   const [showForm, setShowForm] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  /** Pre-selected dropdown value when the user clicked a party-type card. */
+  const [initialEventType, setInitialEventType] = useState<string | undefined>(undefined);
+  /** Kids-birthday warning modal — FastTrax can't host kids parties. */
+  const [showKidsBirthdayWarning, setShowKidsBirthdayWarning] = useState(false);
+
+  function openFormWith(type?: string) {
+    setInitialEventType(type);
+    trackGroupRequestClick();
+    setShowForm(true);
+  }
 
   return (
     <>
@@ -240,7 +250,7 @@ export default function GroupEventsPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
+                onClick={() => openFormWith()}
                 className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
                 style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
@@ -266,6 +276,75 @@ export default function GroupEventsPage() {
               sizes="(max-width: 1024px) 100vw, 50vw"
               unoptimized
             />
+          </div>
+        </div>
+      </section>
+
+      {/* Party type selector — many guests land on /group-events
+          specifically looking to plan a birthday. Surface adult +
+          kids + corporate paths up front. */}
+      <section style={{ backgroundColor: "rgba(7,16,39,0.6)", padding: "clamp(48px, 8vw, 96px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-10">
+            <div className="uppercase font-bold mb-2" style={{ color: "#00E2E5", fontSize: "12px", letterSpacing: "3px" }}>
+              What kind of event?
+            </div>
+            <h2 className="font-heading font-black uppercase italic text-white" style={{ fontSize: "clamp(24px, 5vw, 40px)", lineHeight: 1.1, letterSpacing: "-0.4px" }}>
+              Pick your party type
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <button
+              type="button"
+              onClick={() => openFormWith("birthday-adult")}
+              className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
+              style={{ backgroundColor: "#071027", border: "1.78px solid rgba(228,28,29,0.35)" }}
+            >
+              <div className="uppercase font-bold mb-2" style={{ color: "#E41C1D", fontSize: "10px", letterSpacing: "2.5px" }}>
+                Adult Birthday
+              </div>
+              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+                Adult Birthday Party
+              </h3>
+              <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
+                13+ and 59&quot; height on the karts, full bar at Nemo&apos;s, private
+                rooms, bowling and arcade.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowKidsBirthdayWarning(true)}
+              className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
+              style={{ backgroundColor: "#071027", border: "1.78px solid rgba(255,193,7,0.35)" }}
+            >
+              <div className="uppercase font-bold mb-2" style={{ color: "#FFC107", fontSize: "10px", letterSpacing: "2.5px" }}>
+                Kids Birthday
+              </div>
+              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+                Kids Birthday Party
+              </h3>
+              <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
+                Organized kids parties are hosted at our sister location,
+                HeadPinz Fort Myers. Click for details.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => openFormWith("corporate")}
+              className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
+              style={{ backgroundColor: "#071027", border: "1.78px solid rgba(0,74,173,0.5)" }}
+            >
+              <div className="uppercase font-bold mb-2" style={{ color: "#1976D2", fontSize: "10px", letterSpacing: "2.5px" }}>
+                Corporate / Group
+              </div>
+              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+                Corporate &amp; Team Events
+              </h3>
+              <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
+                Team building, company outings, fundraisers, and school
+                groups. Private rooms, catering, full facility buyouts.
+              </p>
+            </button>
           </div>
         </div>
       </section>
@@ -429,7 +508,7 @@ export default function GroupEventsPage() {
 
           <div className="text-center mt-10">
             <button
-              onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
+              onClick={() => openFormWith()}
               className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
@@ -630,7 +709,7 @@ export default function GroupEventsPage() {
               Still have questions?
             </p>
             <button
-              onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
+              onClick={() => openFormWith()}
               className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
               style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
             >
@@ -681,7 +760,7 @@ export default function GroupEventsPage() {
             Tell us about your event and our team will craft a custom package.
           </p>
           <button
-            onClick={() => { trackGroupRequestClick(); setShowForm(true); }}
+            onClick={() => openFormWith()}
             className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
             style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
           >
@@ -699,7 +778,7 @@ export default function GroupEventsPage() {
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(0,4,24,0.85)" }}
-          {...modalBackdropProps(() => setShowForm(false))}
+          {...modalBackdropProps(() => { setShowForm(false); setInitialEventType(undefined); })}
         >
           <div
             className="relative w-full max-w-5xl rounded-xl overflow-hidden"
@@ -707,7 +786,7 @@ export default function GroupEventsPage() {
           >
             <button
               type="button"
-              onClick={() => setShowForm(false)}
+              onClick={() => { setShowForm(false); setInitialEventType(undefined); }}
               aria-label="Close dialog"
               className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
               style={{ fontSize: "20px", lineHeight: 1 }}
@@ -717,9 +796,133 @@ export default function GroupEventsPage() {
             <SalesLeadForm
               centerKey="fasttrax-ft-myers"
               brand="ft"
-              kind="group"
-              onClose={() => setShowForm(false)}
+              kind="all"
+              initialEventType={initialEventType}
+              onClose={() => { setShowForm(false); setInitialEventType(undefined); }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* FastTrax kids-birthday warning modal.
+          FastTrax can't host organized kids parties because of the 13+/59"
+          racing requirement. Redirect to /book for self-serve karting or
+          to HeadPinz Fort Myers for an organized birthday party. */}
+      {showKidsBirthdayWarning && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto"
+          style={{ backgroundColor: "rgba(0,4,24,0.88)" }}
+          {...modalBackdropProps(() => setShowKidsBirthdayWarning(false))}
+        >
+          <div
+            className="relative w-full max-w-xl rounded-xl my-8"
+            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,193,7,0.5)" }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowKidsBirthdayWarning(false)}
+              aria-label="Close dialog"
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              style={{ fontSize: "20px", lineHeight: 1 }}
+            >
+              &times;
+            </button>
+            <div className="p-6 sm:p-8">
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: "#FFC107", fontSize: "11px", letterSpacing: "3px" }}
+              >
+                Important Notice
+              </div>
+              <h3
+                className="font-heading font-black uppercase italic text-white mb-4"
+                style={{ fontSize: "clamp(22px, 4vw, 30px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+              >
+                Kids Birthday Parties
+              </h3>
+              <div className="space-y-3 font-body text-white/80" style={{ fontSize: "14px", lineHeight: 1.6 }}>
+                <p>
+                  At this time, FastTrax does not offer organized kids birthday
+                  party packages. This is due to the complex driver requirements
+                  that must be met for racing eligibility.
+                </p>
+                <p>
+                  Driver placement is based on factors such as age (13+) and
+                  height (minimum 59&quot;). In group or party settings, this
+                  can create situations where participants do not qualify for
+                  the same kart class, resulting in groups being split across
+                  different race types (Junior vs. Adult). This can significantly
+                  impact the experience and scheduling.
+                </p>
+                <p>
+                  Before planning your visit, please carefully review our race
+                  requirements at{" "}
+                  <a
+                    href="/racing"
+                    className="underline hover:text-white"
+                    style={{ color: "#00E2E5" }}
+                  >
+                    fasttraxent.com/racing
+                  </a>.
+                </p>
+                <p>
+                  If you choose to book on your own, you may do so at{" "}
+                  <a
+                    href="/book"
+                    className="underline hover:text-white"
+                    style={{ color: "#00E2E5" }}
+                  >
+                    fasttraxent.com/book
+                  </a>. When booking, use caution when selecting who will race
+                  in Junior karts versus Adult karts, as incorrect selections
+                  may lead to delays, rebooking, or separation of your group.
+                </p>
+                <div
+                  className="mt-4 p-4 rounded-lg"
+                  style={{ backgroundColor: "rgba(253,91,86,0.08)", border: "1px solid rgba(253,91,86,0.3)" }}
+                >
+                  <div
+                    className="uppercase font-bold mb-1"
+                    style={{ color: "#fd5b56", fontSize: "10px", letterSpacing: "2.5px" }}
+                  >
+                    Looking for an organized kids party?
+                  </div>
+                  <p className="text-white/85" style={{ fontSize: "14px", lineHeight: 1.55 }}>
+                    We offer organized birthday parties at our sister location,
+                    HeadPinz Fort Myers. Party requests can be submitted through
+                    the form linked below.
+                  </p>
+                </div>
+                <p className="text-white/60" style={{ fontSize: "13px" }}>
+                  We appreciate your understanding as we work to deliver a safe
+                  and consistent racing experience for all drivers.
+                </p>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
+                <a
+                  href="/book"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
+                  style={{ backgroundColor: "#00E2E5", color: "#000418" }}
+                >
+                  Book on your own
+                </a>
+                <a
+                  href="https://headpinz.com/fort-myers/birthdays"
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
+                  style={{ backgroundColor: "#fd5b56", color: "#ffffff" }}
+                >
+                  HeadPinz kids party
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowKidsBirthdayWarning(false)}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /**
  * SalesLeadForm — replaces the Cognito iframe on group-events and birthday pages.
@@ -19,7 +20,15 @@ import { useState } from "react";
 export interface SalesLeadFormProps {
   centerKey: "fasttrax-ft-myers" | "headpinz-ft-myers" | "headpinz-naples";
   brand: "ft" | "hp";
-  kind: "group" | "birthday";
+  /**
+   * Which event-type dropdown to show:
+   *   "group"    → corporate / team-building / fundraiser / ...
+   *   "birthday" → kids / adult / other
+   *   "all"      → combined list (both birthday variants + group types),
+   *                used on /group-events pages since many guests land
+   *                there looking to plan a birthday party.
+   */
+  kind: "group" | "birthday" | "all";
   onClose: () => void;
   /**
    * Pre-filled "package the customer clicked Book on" label, e.g.
@@ -29,6 +38,13 @@ export interface SalesLeadFormProps {
    * specialRequests blob so planners see it without opening Pandora.
    */
   packagePrefill?: string;
+  /**
+   * Pre-select the event type (matches one of the option values for the
+   * chosen `kind`). When the caller knows what the guest clicked — e.g.
+   * "Adult Birthday" card on /group-events — pass the value here so the
+   * dropdown lands on the right row.
+   */
+  initialEventType?: string;
 }
 
 const EVENT_TYPES_GROUP = [
@@ -42,6 +58,16 @@ const EVENT_TYPES_GROUP = [
 const EVENT_TYPES_BIRTHDAY = [
   { value: "birthday-kid", label: "Kids birthday" },
   { value: "birthday-adult", label: "Adult birthday" },
+  { value: "other", label: "Other" },
+];
+
+const EVENT_TYPES_ALL = [
+  { value: "birthday-adult", label: "Adult birthday" },
+  { value: "birthday-kid", label: "Kids birthday" },
+  { value: "corporate", label: "Corporate event" },
+  { value: "team-building", label: "Team building" },
+  { value: "fundraiser", label: "Fundraiser" },
+  { value: "school-group", label: "School / youth group" },
   { value: "other", label: "Other" },
 ];
 
@@ -89,19 +115,27 @@ const TIME_SLOTS: Array<{ value: string; label: string }> = (() => {
   return out;
 })();
 
-export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill }: SalesLeadFormProps) {
+export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill, initialEventType }: SalesLeadFormProps) {
   // Brand palette — coral for HeadPinz, cyan for FastTrax (matches site).
   const accent = brand === "hp" ? "#fd5b56" : "#00E2E5";
   const accentText = brand === "hp" ? "#ffffff" : "#000418";
   const bg = brand === "hp" ? "#0a1628" : "#000418";
 
-  const eventTypes = kind === "birthday" ? EVENT_TYPES_BIRTHDAY : EVENT_TYPES_GROUP;
+  const eventTypes =
+    kind === "birthday" ? EVENT_TYPES_BIRTHDAY
+    : kind === "all" ? EVENT_TYPES_ALL
+    : EVENT_TYPES_GROUP;
+  // If caller hinted at a pre-selected type, honor it when present in the list.
+  const defaultEventType =
+    initialEventType && eventTypes.some((e) => e.value === initialEventType)
+      ? initialEventType
+      : eventTypes[0].value;
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [eventType, setEventType] = useState(eventTypes[0].value);
+  const [eventType, setEventType] = useState(defaultEventType);
   const [preferredDate, setPreferredDate] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
   const [guestCount, setGuestCount] = useState<string>("15");
@@ -118,10 +152,44 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill 
     isIndividual: boolean;
   } | null>(null);
 
+  /**
+   * Kids-birthday + karting is not a bookable combo — karting requires
+   * 13+ and 59". When both are picked, pop the same warning the FT
+   * /group-events page uses on its Kids Birthday card click.
+   *
+   * `ack` flips true once the guest clicks "Keep my choices"; we don't
+   * re-nag them on every toggle after that.
+   */
+  const [showKidsKartingWarning, setShowKidsKartingWarning] = useState(false);
+  const [kidsKartingAck, setKidsKartingAck] = useState(false);
+
+  const kidsKartingConflict =
+    eventType === "birthday-kid" && activityInterest.includes("racing");
+
+  useEffect(() => {
+    if (kidsKartingConflict && !kidsKartingAck) {
+      setShowKidsKartingWarning(true);
+    }
+  }, [kidsKartingConflict, kidsKartingAck]);
+
+  // Resolve the "submit a HeadPinz kids party request" link from the
+  // form's centerKey — stay in-domain on HP, go external from FT.
+  const hpKidsPartyHref =
+    centerKey === "headpinz-naples"
+      ? "/naples/birthdays"
+      : centerKey === "headpinz-ft-myers"
+        ? "/fort-myers/birthdays"
+        : "https://headpinz.com/fort-myers/birthdays";
+
   const toggleActivity = (value: string) => {
     setActivityInterest((prev) =>
       prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
     );
+  };
+
+  const removeKarting = () => {
+    setActivityInterest((prev) => prev.filter((v) => v !== "racing"));
+    setShowKidsKartingWarning(false);
   };
 
   const canSubmit =
@@ -250,7 +318,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill 
           style={{ color: accent, fontSize: "11px", letterSpacing: "3px" }}
           className="uppercase font-bold mb-2"
         >
-          {kind === "birthday" ? "Birthday Party" : "Group Event"} Inquiry
+          {kind === "birthday" ? "Birthday Party" : kind === "all" ? "Event" : "Group Event"} Inquiry
         </div>
         <h2
           className="font-heading font-black uppercase italic text-white"
@@ -503,6 +571,125 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill 
           </p>
         </form>
       </div>
+
+      {/* Kids-birthday + karting warning.
+          Karting requires 13+ and 59" tall, so organized kids parties
+          don't combine with it. Offer: remove karting, submit an HP
+          kids-party request, or self-book on /book. */}
+      {showKidsKartingWarning && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-4 overflow-y-auto"
+          style={{ backgroundColor: "rgba(0,4,24,0.88)" }}
+          {...modalBackdropProps(() => {
+            setKidsKartingAck(true);
+            setShowKidsKartingWarning(false);
+          })}
+        >
+          <div
+            className="relative w-full max-w-xl rounded-xl my-8"
+            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,193,7,0.5)" }}
+          >
+            <button
+              type="button"
+              onClick={() => { setKidsKartingAck(true); setShowKidsKartingWarning(false); }}
+              aria-label="Close dialog"
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              style={{ fontSize: "20px", lineHeight: 1 }}
+            >
+              &times;
+            </button>
+            <div className="p-6 sm:p-8">
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: "#FFC107", fontSize: "11px", letterSpacing: "3px" }}
+              >
+                Important Notice
+              </div>
+              <h3
+                className="font-heading font-black uppercase italic text-white mb-4"
+                style={{ fontSize: "clamp(22px, 4vw, 30px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+              >
+                Kids Birthday + Karting
+              </h3>
+              <div className="space-y-3 font-body text-white/80" style={{ fontSize: "14px", lineHeight: 1.6 }}>
+                <p>
+                  FastTrax does not offer organized kids birthday party
+                  packages that include karting. This is because of the
+                  driver requirements for racing eligibility &mdash; age 13+
+                  and minimum 59&quot; tall.
+                </p>
+                <p>
+                  In group settings this can create situations where
+                  participants do not qualify for the same kart class,
+                  resulting in groups being split across Junior vs. Adult
+                  race types.
+                </p>
+                <p>
+                  Please review our race requirements at{" "}
+                  <a
+                    href="https://fasttraxent.com/racing"
+                    className="underline hover:text-white"
+                    style={{ color: "#00E2E5" }}
+                  >
+                    fasttraxent.com/racing
+                  </a>
+                  . If you&apos;d like to handle karting on your own, you can
+                  self-book anytime at{" "}
+                  <a
+                    href="https://fasttraxent.com/book"
+                    className="underline hover:text-white"
+                    style={{ color: "#00E2E5" }}
+                  >
+                    fasttraxent.com/book
+                  </a>
+                  .
+                </p>
+                <div
+                  className="mt-4 p-4 rounded-lg"
+                  style={{ backgroundColor: "rgba(253,91,86,0.08)", border: "1px solid rgba(253,91,86,0.3)" }}
+                >
+                  <div
+                    className="uppercase font-bold mb-1"
+                    style={{ color: "#fd5b56", fontSize: "10px", letterSpacing: "2.5px" }}
+                  >
+                    Looking for an organized kids party?
+                  </div>
+                  <p className="text-white/85" style={{ fontSize: "14px", lineHeight: 1.55 }}>
+                    HeadPinz Fort Myers runs organized kids birthday packages
+                    (bowling, laser tag, arcade). Use the button below to
+                    submit a party request there.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={removeKarting}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02]"
+                  style={{ backgroundColor: "#00E2E5", color: "#000418" }}
+                >
+                  Remove karting
+                </button>
+                <a
+                  href={hpKidsPartyHref}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
+                  style={{ backgroundColor: "#fd5b56", color: "#ffffff" }}
+                >
+                  HeadPinz kids party
+                </a>
+                <button
+                  type="button"
+                  onClick={() => { setKidsKartingAck(true); setShowKidsKartingWarning(false); }}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                >
+                  Keep my choices
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

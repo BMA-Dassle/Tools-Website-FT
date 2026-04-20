@@ -357,6 +357,18 @@ export default function HeadPinzGroupEventsPage() {
   const [showForm, setShowForm] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [extrasOpen, setExtrasOpen] = useState(false);
+  /** Pre-selected dropdown value when the user clicked a party-type card. */
+  const [initialEventType, setInitialEventType] = useState<string | undefined>(undefined);
+
+  function openFormWith(type?: string) {
+    setInitialEventType(type);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setInitialEventType(undefined);
+  }
 
   return (
     <>
@@ -403,7 +415,7 @@ export default function HeadPinzGroupEventsPage() {
             From team building to birthday bashes &mdash; make it unforgettable
           </p>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => openFormWith()}
             className="inline-flex items-center bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-body font-bold text-base uppercase tracking-wider px-10 py-4 rounded-full transition-all hover:scale-105 shadow-[0_0_20px_rgba(253,91,86,0.3)] hover:shadow-[0_0_30px_rgba(253,91,86,0.5)] cursor-pointer"
           >
             Request a Quote
@@ -436,7 +448,7 @@ export default function HeadPinzGroupEventsPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => setShowForm(true)}
+                onClick={() => openFormWith()}
                 className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
                 style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
               >
@@ -463,6 +475,78 @@ export default function HeadPinzGroupEventsPage() {
             >
               <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4" type="video/mp4" />
             </video>
+          </div>
+        </div>
+      </section>
+
+      {/* Party type selector — many guests land on /group-events
+          specifically to plan a birthday. Surface adult + kids + corporate
+          paths up front so they pick the right path on the same form. */}
+      <section style={{ backgroundColor: "rgba(7,16,39,0.6)", padding: "clamp(48px, 8vw, 96px) clamp(16px, 4vw, 32px)" }}>
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-10">
+            <div className="uppercase font-bold mb-2" style={{ color: coral, fontSize: "12px", letterSpacing: "3px" }}>
+              What kind of event?
+            </div>
+            <h2
+              className="font-heading font-black uppercase italic text-white"
+              style={{ fontSize: "clamp(24px, 5vw, 40px)", lineHeight: 1.1, letterSpacing: "-0.4px" }}
+            >
+              Pick your party type
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <button
+              type="button"
+              onClick={() => openFormWith("birthday-adult")}
+              className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
+              style={{ backgroundColor: "#0f1d36", border: `1.78px solid ${coral}40` }}
+            >
+              <div className="uppercase font-bold mb-2" style={{ color: coral, fontSize: "10px", letterSpacing: "2.5px" }}>
+                Adult Birthday
+              </div>
+              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+                Adult Birthday Party
+              </h3>
+              <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
+                VIP lanes, full bar, private rooms, arcade and laser tag.
+                Built for 21+ friends and milestone celebrations.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => openFormWith("birthday-kid")}
+              className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
+              style={{ backgroundColor: "#0f1d36", border: `1.78px solid #FFD70060` }}
+            >
+              <div className="uppercase font-bold mb-2" style={{ color: "#FFD700", fontSize: "10px", letterSpacing: "2.5px" }}>
+                Kids Birthday
+              </div>
+              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+                Kids Birthday Party
+              </h3>
+              <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
+                Bronze, Silver &amp; VIP packages with lanes, arcade cards,
+                laser tag and food. For 10&ndash;60 guests.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => openFormWith("corporate")}
+              className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
+              style={{ backgroundColor: "#0f1d36", border: `1.78px solid ${royalBlue}80` }}
+            >
+              <div className="uppercase font-bold mb-2" style={{ color: blue, fontSize: "10px", letterSpacing: "2.5px" }}>
+                Corporate / Group
+              </div>
+              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+                Corporate &amp; Team Events
+              </h3>
+              <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
+                Team building, company outings, fundraisers, schools and
+                full facility buyouts with private rooms and catering.
+              </p>
+            </button>
           </div>
         </div>
       </section>
@@ -1012,7 +1096,7 @@ export default function HeadPinzGroupEventsPage() {
             Tell us about your event and our team will craft a custom package tailored to your group.
           </p>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => openFormWith()}
             className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
             style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
           >
@@ -1032,14 +1116,15 @@ export default function HeadPinzGroupEventsPage() {
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
           style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
-          {...modalBackdropProps(() => setShowForm(false))}
+          {...modalBackdropProps(closeForm)}
         >
           <div
             className="relative w-full max-w-5xl rounded-2xl overflow-hidden"
             style={{ backgroundColor: bg, border: `2px solid rgba(253,91,86,0.4)`, height: "90vh" }}
           >
             <button
-              onClick={() => setShowForm(false)}
+              onClick={closeForm}
+              aria-label="Close dialog"
               className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
               style={{ fontSize: "20px", lineHeight: 1 }}
             >
@@ -1048,8 +1133,9 @@ export default function HeadPinzGroupEventsPage() {
             <SalesLeadForm
               centerKey="headpinz-ft-myers"
               brand="hp"
-              kind="group"
-              onClose={() => setShowForm(false)}
+              kind="all"
+              initialEventType={initialEventType}
+              onClose={closeForm}
             />
           </div>
         </div>
