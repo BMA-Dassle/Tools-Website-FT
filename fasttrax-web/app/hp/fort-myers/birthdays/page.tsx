@@ -209,6 +209,7 @@ const faqs = [
 
 export default function HeadPinzBirthdaysPage() {
   const [showForm, setShowForm] = useState(false);
+  const [selectedPkg, setSelectedPkg] = useState<string | undefined>(undefined);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   return (
@@ -410,7 +411,7 @@ export default function HeadPinzBirthdaysPage() {
                   <p className="font-body text-white/40 text-xs text-center mb-5">{pkg.guestsNote}</p>
 
                   <button
-                    onClick={() => setShowForm(true)}
+                    onClick={() => { setSelectedPkg(pkg.name); setShowForm(true); }}
                     className="w-full inline-flex items-center justify-center font-body font-bold uppercase tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full text-sm py-3.5"
                     style={{
                       backgroundColor: pkg.accent,
@@ -700,7 +701,8 @@ export default function HeadPinzBirthdaysPage() {
               centerKey="headpinz-ft-myers"
               brand="hp"
               kind="birthday"
-              onClose={() => setShowForm(false)}
+              packagePrefill={selectedPkg}
+              onClose={() => { setShowForm(false); setSelectedPkg(undefined); }}
             />
           </div>
         </div>

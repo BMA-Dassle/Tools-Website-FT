@@ -21,6 +21,14 @@ export interface SalesLeadFormProps {
   brand: "ft" | "hp";
   kind: "group" | "birthday";
   onClose: () => void;
+  /**
+   * Pre-filled "package the customer clicked Book on" label, e.g.
+   * "VIP Birthday", "Fajita Bar". Shown as a pill at the top of the
+   * form and sent as Pandora's `packageType` field — which is exactly
+   * what that column is for. Submit endpoint also prepends it to the
+   * specialRequests blob so planners see it without opening Pandora.
+   */
+  packagePrefill?: string;
 }
 
 const EVENT_TYPES_GROUP = [
@@ -81,7 +89,7 @@ const TIME_SLOTS: Array<{ value: string; label: string }> = (() => {
   return out;
 })();
 
-export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadFormProps) {
+export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill }: SalesLeadFormProps) {
   // Brand palette — coral for HeadPinz, cyan for FastTrax (matches site).
   const accent = brand === "hp" ? "#fd5b56" : "#00E2E5";
   const accentText = brand === "hp" ? "#ffffff" : "#000418";
@@ -149,6 +157,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
           activityInterest,
           preferredContactMethod,
           bestTimeToCall,
+          packagePrefill,
         }),
       });
       const data = await res.json();
@@ -249,11 +258,28 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
             fontSize: "clamp(24px, 5vw, 36px)",
             lineHeight: 1.05,
             letterSpacing: "-0.3px",
-            marginBottom: "24px",
+            marginBottom: packagePrefill ? "12px" : "24px",
           }}
         >
           Tell us about your event
         </h2>
+
+        {/* Pre-selected package pill — set by the "Book This Package" button
+            on birthday / group-events pages. Submitted as Pandora packageType. */}
+        {packagePrefill && (
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-6"
+            style={{
+              backgroundColor: `${accent}18`,
+              border: `1px solid ${accent}60`,
+            }}
+          >
+            <span style={{ color: accent, fontSize: "10px", letterSpacing: "2px" }} className="uppercase font-bold">
+              Package
+            </span>
+            <span className="text-white text-sm font-medium">{packagePrefill}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5 lg:space-y-6">
           {/* Contact row — 4-col on desktop, 2-col on tablet, 1-col on mobile */}

@@ -67,6 +67,8 @@ interface SubmitBody {
   preferredContactMethod?: "phone" | "text" | "email";
   /** Best time to call: "Morning" | "Afternoon" | "Evening". */
   bestTimeToCall?: "Morning" | "Afternoon" | "Evening";
+  /** Pre-selected package from a "Book This Package" click. */
+  packagePrefill?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -151,17 +153,43 @@ export async function POST(req: NextRequest) {
     isIndividualPlanner: planner.isIndividual,
   };
 
+  // Respect the customer's preferred contact channel:
+  //   "text"  → SMS only (phone line stays clear for planner follow-up)
+  //   "email" → email only
+  //   "phone" → email only (written record with planner's direct #, planner
+  //            will call separately — automated SMS would be noisy)
+  //   (unset) → both SMS + email (default behavior preserved)
+  // Teams card ALWAYS fires — it's internal, not customer-facing.
+  const pref = body.preferredContactMethod;
+  const shouldSendSms = pref === "text" || pref === undefined;
+  const shouldSendEmail = pref === "email" || pref === "phone" || pref === undefined;
+
   const [smsResult, emailResult, teamsResult] = await Promise.allSettled([
-    sendCustomerSms(lead.phone, copyCtx, planner),
-    sendCustomerEmail(lead, copyCtx, planner),
+    shouldSendSms
+      ? sendCustomerSms(lead.phone, copyCtx, planner)
+      : Promise.resolve({ ok: true, status: null, skipped: true as const, reason: `skipped — customer prefers ${pref}` }),
+    shouldSendEmail
+      ? sendCustomerEmail(lead, copyCtx, planner)
+      : Promise.resolve({ ok: true, status: null, skipped: true as const, reason: `skipped — customer prefers ${pref}` }),
     postToTeams(state),
   ]);
 
   // ── 6. Audit lines ───────────────────────────────────────────────────────
+  // Skipped channels also get an audit line so planners can see "we didn't
+  // text because they asked for email only" without digging through logs.
   await Promise.allSettled([
-    writeAuditLine(projectID, "sms", smsResult, { actor: planner.displayName, to: lead.phone }),
-    writeAuditLine(projectID, "email", emailResult, { actor: planner.displayName, to: lead.email }),
-    writeAuditLine(projectID, "teams", teamsResult, { actor: planner.displayName, to: `${planner.displayName}'s chat` }),
+    writeAuditLine(projectID, "sms", smsResult, {
+      actor: planner.displayName,
+      to: lead.phone,
+    }),
+    writeAuditLine(projectID, "email", emailResult, {
+      actor: planner.displayName,
+      to: lead.email,
+    }),
+    writeAuditLine(projectID, "teams", teamsResult, {
+      actor: planner.displayName,
+      to: `${planner.displayName}'s chat`,
+    }),
   ]);
 
   // ── 7. Persist cardActivityId if Teams post succeeded ────────────────────
@@ -197,14 +225,19 @@ function validateBody(body: SubmitBody): string[] {
 }
 
 /**
- * Build the specialRequests body — the richer "subtype" the customer picked
- * (e.g. "Fundraiser", "Team building"), activity interests, and their free-text
- * notes, all in one blob. The canonical `eventType` sent separately collapses
- * to one of 4 Pandora values, so we surface the nicer label here so planners
- * don't lose that context.
+ * Build the specialRequests body — pre-selected package (if they clicked
+ * Book This Package on a specific card), the richer eventType subtype,
+ * activity interests, and the customer's free-text notes, all in one blob.
+ * The canonical `eventType` sent separately collapses to one of 4 Pandora
+ * values, and `packageType` (if present) rides in its own Pandora column
+ * too — but we surface everything here as well so planners reading the
+ * notes don't miss context.
  */
 function buildPandoraNotes(body: SubmitBody): string {
   const parts: string[] = [];
+  if (body.packagePrefill?.trim()) {
+    parts.push(`Package interested in: ${body.packagePrefill.trim()}`);
+  }
   const friendly = friendlyEventLabel(body.eventType);
   if (friendly && friendly !== "Event") {
     parts.push(`Event subtype: ${friendly}`);
@@ -250,9 +283,13 @@ async function submitToPandora(
     estimatedGuests: String(body.guestCount ?? ""),
     preferredContact: body.preferredContactMethod,
     preferredTime: body.bestTimeToCall,
-    // All rich context (friendly event subtype, activity interests,
-    // customer free-text) goes into specialRequests so planners see one
-    // cohesive blob instead of scattered across extra fields.
+    // Pre-selected package ("VIP Birthday", "Fajita Bar") → Pandora's
+    // native `packageType` column. Keeps the package info visible in its
+    // own Pandora field as well as in specialRequests below.
+    packageType: body.packagePrefill,
+    // All rich context (package, subtype, activity interests, customer
+    // free-text) goes into specialRequests so planners reading the notes
+    // field see one cohesive blob.
     specialRequests: buildPandoraNotes(body),
   });
 
@@ -321,14 +358,33 @@ async function postToTeams(
 async function writeAuditLine(
   projectId: string,
   channel: "sms" | "email" | "teams",
-  settled: PromiseSettledResult<{ ok: boolean; status?: number | null; error?: string; activityId?: string }>,
+  settled: PromiseSettledResult<{
+    ok: boolean;
+    status?: number | null;
+    error?: string;
+    activityId?: string;
+    skipped?: boolean;
+    reason?: string;
+  }>,
   meta: { actor?: string; to?: string },
 ): Promise<void> {
-  const outcome = settled.status === "fulfilled" ? settled.value : { ok: false, error: settled.reason?.message || "rejected" };
+  const outcome = settled.status === "fulfilled"
+    ? settled.value
+    : { ok: false, error: settled.reason?.message || "rejected" };
   const toPart = meta.to ? ` to ${meta.to}` : "";
-  const message = outcome.ok
-    ? `sent ok${toPart}`
-    : `FAILED${toPart}${outcome && "status" in outcome && outcome.status ? ` (${outcome.status})` : ""}: ${(outcome as { error?: string }).error || "unknown"}`;
+
+  let message: string;
+  if ("skipped" in outcome && outcome.skipped) {
+    message = outcome.reason || `skipped${toPart}`;
+  } else if (outcome.ok) {
+    message = `sent ok${toPart}`;
+  } else {
+    const statusPart =
+      "status" in outcome && outcome.status ? ` (${outcome.status})` : "";
+    message = `FAILED${toPart}${statusPart}: ${
+      (outcome as { error?: string }).error || "unknown"
+    }`;
+  }
   await appendPrivateNote({
     projectId,
     channel,

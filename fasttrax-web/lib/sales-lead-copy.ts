@@ -120,10 +120,10 @@ function detectBrand(centerName: string): {
     logoWidth: 180,
     heroUrl: FASTTRAX_HERO_URL,
     wordmark: "FastTrax",
-    tagline: "HIGH-POWERED KARTING · EVENTS · ARCADE",
+    tagline: "FLORIDA'S LARGEST INDOOR KARTING TRACK",
     eventGuideUrl: FASTTRAX_EVENT_GUIDE_URL,
     hypeVerb: "build",
-    hypeList: "electric karting on Blue & Red tracks, arcade games, and event catering",
+    hypeList: "Florida's largest indoor karting track, arcade games, and event catering",
   };
 }
 
