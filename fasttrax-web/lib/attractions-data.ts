@@ -79,7 +79,7 @@ export interface AttractionConfig {
 export const ATTRACTIONS: Record<string, AttractionConfig> = {
   "gel-blaster": {
     slug: "gel-blaster",
-    name: "Nexus Gel Blaster Arena",
+    name: "Nexus Gel Blaster",
     shortName: "Gel Blasters",
     location: "both",
     pageIds: { headpinz: "24909729", naples: "7583597" },
@@ -99,7 +99,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
   },
   "laser-tag": {
     slug: "laser-tag",
-    name: "Nexus Tactical Laser Tag",
+    name: "Nexus Laser Tag",
     shortName: "Laser Tag",
     location: "both",
     pageIds: { headpinz: "24909729", naples: "7583597" },

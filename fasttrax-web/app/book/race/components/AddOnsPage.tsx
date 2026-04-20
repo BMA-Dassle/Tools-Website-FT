@@ -72,7 +72,7 @@ const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabe
   },
   {
     id: "27488200",
-    name: "Nexus Gel Blaster Arena",
+    name: "Nexus Gel Blaster",
     shortName: "Gel Blaster",
     description: "Step into a live-action video game! High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets. Located at HeadPinz next door.",
     price: 10,

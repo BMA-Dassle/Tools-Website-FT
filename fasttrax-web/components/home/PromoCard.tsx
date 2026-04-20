@@ -35,7 +35,7 @@ export default function PromoCard() {
                     }}
                   >
                     <h3 className="font-heading uppercase text-[#8652FF] text-lg tracking-wide mb-1">
-                      Nexus Gel Blaster Arena
+                      Nexus Gel Blaster
                     </h3>
                     <p className="font-body text-white/60 text-sm">
                       $10 per person &mdash; at HeadPinz

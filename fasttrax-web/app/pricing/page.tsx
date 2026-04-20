@@ -104,7 +104,7 @@ export default function PricingPage() {
                   Add more fun when you book a race — just $10 more!
                 </p>
                 <ul className="font-body list-disc list-inside mb-4 flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.8" }}>
-                  <li><strong style={{ color: "rgb(134,82,255)" }}>Nexus Gel Blaster Arena</strong> — $10 per person (at HeadPinz)</li>
+                  <li><strong style={{ color: "rgb(134,82,255)" }}>Nexus Gel Blaster</strong> — $10 per person (at HeadPinz)</li>
                   <li><strong style={{ color: "rgb(0,74,173)" }}>Shuffly</strong> — $10 per group (at FastTrax)</li>
                 </ul>
                 <BookingLink
@@ -428,7 +428,7 @@ export default function PricingPage() {
                   Race + Gel Blaster
                 </h3>
                 <p className="font-body mb-4" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.6" }}>
-                  Add HeadPinz Nexus Gel Blaster Arena to any race for just <strong className="text-white">$10 more per person</strong>. Select it as an add-on during checkout.
+                  Add HeadPinz Nexus Gel Blaster to any race for just <strong className="text-white">$10 more per person</strong>. Select it as an add-on during checkout.
                 </p>
                 <ul className="font-heading uppercase mb-6 flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "2", letterSpacing: "0.8px" }}>
                   <li>Any Racing Heat</li>

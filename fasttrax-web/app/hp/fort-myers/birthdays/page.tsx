@@ -287,7 +287,7 @@ export default function HeadPinzBirthdaysPage() {
           {[
             { label: "24 Bowling Lanes", color: coral },
             { label: "Laser Tag Arena", color: "#E41C1D" },
-            { label: "Gel Blaster Arena", color: "#9b51e0" },
+            { label: "Gel Blasters", color: "#9b51e0" },
             { label: "40+ Arcade Games", color: cyan },
             { label: "Full Kitchen", color: gold },
           ].map((stat, i) => (

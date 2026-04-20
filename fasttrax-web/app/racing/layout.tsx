@@ -98,7 +98,7 @@ const racingFaqs = [
   {
     question: "Is FastTrax part of HeadPinz?",
     answer:
-      "FastTrax and HeadPinz are connected buildings on the same campus at 14501 Global Parkway in Fort Myers. FastTrax is the 63,000 sq ft racing and entertainment hub (go-karts, arcade, duckpin bowling, shuffleboard, and Nemo's Trackside). HeadPinz is the 53,000 sq ft social entertainment flagship (traditional bowling, laser tag, gel blaster arena, and more). Together they form a 116,000 sq ft entertainment destination — the largest in Southwest Florida.",
+      "FastTrax and HeadPinz are connected buildings on the same campus at 14501 Global Parkway in Fort Myers. FastTrax is the 63,000 sq ft racing and entertainment hub (go-karts, arcade, duckpin bowling, shuffleboard, and Nemo's Trackside). HeadPinz is the 53,000 sq ft social entertainment flagship (traditional bowling, laser tag, gel blasters, and more). Together they form a 116,000 sq ft entertainment destination — the largest in Southwest Florida.",
   },
   {
     question: "Where is FastTrax located in Fort Myers?",
@@ -143,7 +143,7 @@ const racingFaqs = [
   {
     question: "Can you spend a whole day at FastTrax and HeadPinz?",
     answer:
-      "Absolutely — FastTrax and HeadPinz together are a full-day destination. With 116,000 sq ft across two connected buildings, you can race go-karts, hit the arcade, bowl duckpin or traditional, play laser tag, battle in the gel blaster arena, try shuffleboard, eat brick oven pizza at Nemo's Trackside. Most families and groups easily spend 3-5+ hours. It's the ultimate day out in Fort Myers.",
+      "Absolutely — FastTrax and HeadPinz together are a full-day destination. With 116,000 sq ft across two connected buildings, you can race go-karts, hit the arcade, bowl duckpin or traditional, play laser tag, battle it out with gel blasters, try shuffleboard, eat brick oven pizza at Nemo's Trackside. Most families and groups easily spend 3-5+ hours. It's the ultimate day out in Fort Myers.",
   },
   {
     question: "Are electric go-karts better than gas go-karts?",

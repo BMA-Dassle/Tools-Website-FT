@@ -8,7 +8,7 @@ import { HeadPinzFortMyersJsonLd } from "@/components/seo/JsonLd";
 export const metadata: Metadata = {
   title: "HeadPinz Fort Myers | Bowling, Arcade, Laser Tag & Events",
   description:
-    "Visit HeadPinz Fort Myers for 24 bowling lanes, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro. Book online!",
+    "Visit HeadPinz Fort Myers for 24 bowling lanes, NEXUS laser tag, gel blasters, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro. Book online!",
   keywords: [
     "HeadPinz Fort Myers",
     "bowling Fort Myers",
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "HeadPinz Fort Myers | Bowling, Arcade, Laser Tag & Events",
     description:
-      "24 bowling lanes, NEXUS laser tag, gel blaster arena, 40+ arcade games & Nemo's dining at HeadPinz Fort Myers.",
+      "24 bowling lanes, NEXUS laser tag, gel blasters, 40+ arcade games & Nemo's dining at HeadPinz Fort Myers.",
     type: "website",
     url: "https://headpinz.com/fort-myers",
   },

@@ -311,7 +311,7 @@ const hpAlternatives: AlternativeData[] = [
     tagline: "Full entertainment center, not just bowling",
     searchTerm: "810 bowling alternative Fort Myers Naples",
     intro:
-      "810 Billiards & Bowling does bowling + pool well, but HeadPinz is a full entertainment center — bowling lanes, NEXUS laser tag, gel blaster arena, HyperBowling, NeoVerse, 40+ arcade games, and Nemo's Sports Bistro. Your whole group does more than bowl. Two SWFL locations (Fort Myers + Naples) so you're never far.",
+      "810 Billiards & Bowling does bowling + pool well, but HeadPinz is a full entertainment center — bowling lanes, NEXUS laser tag, gel blasters, HyperBowling, NeoVerse, 40+ arcade games, and Nemo's Sports Bistro. Your whole group does more than bowl. Two SWFL locations (Fort Myers + Naples) so you're never far.",
     comparison: [
       { feature: "Bowling lanes", us: "24 lanes (FM) / 32 lanes (Naples)", them: "Standard lane count" },
       { feature: "Laser tag", us: "NEXUS laser tag arena — multi-level", them: "None", usWins: true },
@@ -381,7 +381,7 @@ const hpAlternatives: AlternativeData[] = [
     tagline: "More attractions, both locations, better packages",
     searchTerm: "Gator Lanes alternative Fort Myers",
     intro:
-      "Gator Lanes is a long-standing Fort Myers bowling alley — traditional, no-frills. HeadPinz is the modern SWFL alternative: HyperBowling, NeoVerse projection-mapped lanes, NEXUS laser tag, gel blaster arena, plus the full arcade and Nemo's Sports Bistro. Same \"let's go bowling\" plan, but way more to do once you're there — and we're in Naples too.",
+      "Gator Lanes is a long-standing Fort Myers bowling alley — traditional, no-frills. HeadPinz is the modern SWFL alternative: HyperBowling, NeoVerse projection-mapped lanes, NEXUS laser tag, gel blasters, plus the full arcade and Nemo's Sports Bistro. Same \"let's go bowling\" plan, but way more to do once you're there — and we're in Naples too.",
     comparison: [
       { feature: "Bowling lanes", us: "24 lanes (FM) / 32 lanes (Naples), VIP sections", them: "Traditional lanes" },
       { feature: "HyperBowling / NeoVerse", us: "Projection-mapped interactive lanes", them: "None", usWins: true },
@@ -436,7 +436,7 @@ const hpAlternatives: AlternativeData[] = [
     faqs: [
       { q: "Is HeadPinz like Hi-5?", a: "Similar family-friendly entertainment format, but HeadPinz's core is 24-32 bowling lanes with modern HyperBowling/NeoVerse tech that Hi-5 doesn't have. Same arcade + laser tag." },
       { q: "Which is cheaper for a kid's birthday?", a: "Depends on group size and what's included. Hi-5 is often cheaper for small parties (6-10 kids). HeadPinz wins on bundled packages (lanes + arcade + laser tag + food) for groups of 15+." },
-      { q: "Does HeadPinz have bumper cars?", a: "No bumper cars. Our equivalent group attractions are NEXUS laser tag and the gel blaster arena." },
+      { q: "Does HeadPinz have bumper cars?", a: "No bumper cars. Our equivalent group attractions are NEXUS laser tag and the gel blasters." },
       { q: "Can we do a mixed party (kids + adults) at HeadPinz?", a: "Yes — very common. Kids bowl/laser tag/arcade while adults hang at Nemo's with cocktails. Everyone happy." },
       { q: "Is Nemo's Sports Bistro full-service?", a: "Yes — sit-down service, full menu (burgers, wings, salads, wraps, pizza), full bar with craft cocktails. Not a counter / snack bar." },
     ],

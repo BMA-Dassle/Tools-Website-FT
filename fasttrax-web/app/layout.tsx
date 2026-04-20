@@ -104,7 +104,7 @@ export async function generateMetadata(): Promise<Metadata> {
         template: "%s | HeadPinz",
       },
       description:
-        "Premier bowling, laser tag, gel blaster arena, arcade games & dining at HeadPinz. Two Southwest Florida locations — Fort Myers and Naples. Birthday parties, corporate events, leagues & more. Where Fun Comes Together.",
+        "Premier bowling, laser tag, gel blasters, arcade games & dining at HeadPinz. Two Southwest Florida locations — Fort Myers and Naples. Birthday parties, corporate events, leagues & more. Where Fun Comes Together.",
       keywords: [
         "HeadPinz",
         "bowling Fort Myers",

@@ -385,7 +385,7 @@ export default function NaplesAttractionsPage() {
             className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto"
             style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
           >
-            Naples&apos; only indoor gel blaster arena — the same glow-in-the-dark space
+            Naples&apos; only indoor gel blasters — the same glow-in-the-dark space
             themed NEXUS environment as our laser tag, swapped for eco-friendly gel blasters
             with haptic-feedback vests. Gellets evaporate on impact, so there&apos;s zero
             cleanup and no mess on you or your clothes. Great for ages 8+, groups, and
@@ -411,7 +411,7 @@ export default function NaplesAttractionsPage() {
           },
           {
             q: "Where can I play gel blasters in Naples, FL?",
-            a: "HeadPinz Naples has the only indoor gel blaster arena in Naples. Gel blasters fire biodegradable water-bead Gellets that evaporate on contact — no mess and no marks on clothes. Sessions are $12 per person and include safety gear.",
+            a: "HeadPinz Naples has the only indoor gel blasters in Naples. Gel blasters fire biodegradable water-bead Gellets that evaporate on contact — no mess and no marks on clothes. Sessions are $12 per person and include safety gear.",
           },
           {
             q: "Is gel blaster safe for kids?",

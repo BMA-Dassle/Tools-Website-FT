@@ -119,7 +119,7 @@ const BMI_ADDONS_BY_CENTER: Record<string, { page: string; addons: typeof BMI_AD
 const BMI_ADDONS_FM = [
   {
     productId: "43370936",
-    name: "Nexus Gel Blaster Arena",
+    name: "Nexus Gel Blaster",
     shortName: "Gel Blasters",
     desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
     price: 12,
@@ -158,7 +158,7 @@ const BMI_ADDONS_FM = [
 const BMI_ADDONS_NAP = [
   {
     productId: "7565025",
-    name: "Nexus Gel Blaster Arena",
+    name: "Nexus Gel Blaster",
     shortName: "Gel Blasters",
     desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
     price: 12,

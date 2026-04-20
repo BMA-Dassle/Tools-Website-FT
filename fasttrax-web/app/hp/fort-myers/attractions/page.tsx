@@ -11,13 +11,12 @@ export const metadata: Metadata = {
   title:
     "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Fort Myers",
   description:
-    "Explore everything at HeadPinz Fort Myers: 24-lane premier bowling, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, and 40+ arcade games. Six attractions under one roof.",
+    "Explore everything at HeadPinz Fort Myers: 24-lane premier bowling, NEXUS laser tag, gel blasters, NeoVerse, HyperBowling, and 40+ arcade games. Six attractions under one roof.",
   keywords: [
     "HeadPinz Fort Myers attractions",
     "bowling Fort Myers",
     "laser tag Fort Myers",
     "gel blasters Fort Myers",
-    "gel blaster arena Fort Myers",
     "NeoVerse Fort Myers",
     "HyperBowling Fort Myers",
     "arcade Fort Myers",

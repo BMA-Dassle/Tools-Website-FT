@@ -7,7 +7,7 @@ import BookingLink from "@/components/BookingLink";
 export const metadata: Metadata = {
   title: "All Attractions – Go-Karts, Arcade, Bowling, Laser Tag & More | FastTrax & HeadPinz Fort Myers",
   description:
-    "116,000 sq ft across two buildings: indoor go-kart racing, 50+ arcade games, duckpin bowling, laser tag, gel blaster arena, shuffleboard & trackside dining. Fort Myers' biggest entertainment campus — more to do than Dave & Buster's, GameTime, or 810 Bowling combined.",
+    "116,000 sq ft across two buildings: indoor go-kart racing, 50+ arcade games, duckpin bowling, laser tag, gel blasters, shuffleboard & trackside dining. Fort Myers' biggest entertainment campus — more to do than Dave & Buster's, GameTime, or 810 Bowling combined.",
   keywords: [
     "Fort Myers attractions",
     "things to do Fort Myers",
@@ -108,7 +108,7 @@ const fasttraxCards = [
 /* ── HeadPinz attraction cards ── */
 const headpinzCards = [
   {
-    title: "HeadPinz Tactical Laser Tag",
+    title: "HeadPinz Laser Tag",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
@@ -121,7 +121,7 @@ const headpinzCards = [
     cta: { label: "JOIN THE MISSION", href: "/book/laser-tag", color: "rgb(228,28,29)" },
   },
   {
-    title: "HeadPinz Gel Blaster Arena",
+    title: "HeadPinz Gel Blaster",
     color: "rgb(134,82,255)",
     borderColor: "rgba(134,82,255,0.59)",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",

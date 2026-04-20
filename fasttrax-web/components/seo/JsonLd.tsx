@@ -187,7 +187,7 @@ export function HeadPinzFortMyersJsonLd() {
     name: "HeadPinz Fort Myers",
     alternateName: "HeadPinz Entertainment Center Fort Myers",
     description:
-      "Fort Myers' premier entertainment destination — bowling lanes, hyperbowling, laser tag arena, gel blaster arena, arcade games, and full-service dining at Nemo's. Birthday parties, corporate events, and leagues.",
+      "Fort Myers' premier entertainment destination — bowling lanes, hyperbowling, laser tag, gel blasters, arcade games, and full-service dining at Nemo's. Birthday parties, corporate events, and leagues.",
     url: "https://headpinz.com/fort-myers",
     telephone: "+1-239-302-2155",
     address: {
@@ -216,7 +216,7 @@ export function HeadPinzFortMyersJsonLd() {
       { "@type": "LocationFeatureSpecification", name: "Bowling Lanes", value: true },
       { "@type": "LocationFeatureSpecification", name: "Hyperbowling", value: true },
       { "@type": "LocationFeatureSpecification", name: "Laser Tag Arena", value: true },
-      { "@type": "LocationFeatureSpecification", name: "Gel Blaster Arena", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Gel Blasters", value: true },
       { "@type": "LocationFeatureSpecification", name: "Arcade Games", value: true },
       { "@type": "LocationFeatureSpecification", name: "Full Bar", value: true },
       { "@type": "LocationFeatureSpecification", name: "Restaurant (Nemo's)", value: true },
@@ -273,7 +273,7 @@ export function HeadPinzNaplesJsonLd() {
     amenityFeature: [
       { "@type": "LocationFeatureSpecification", name: "Bowling Lanes", value: true },
       { "@type": "LocationFeatureSpecification", name: "Laser Tag Arena", value: true },
-      { "@type": "LocationFeatureSpecification", name: "Gel Blaster Arena", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Gel Blasters", value: true },
       { "@type": "LocationFeatureSpecification", name: "Arcade Games", value: true },
       { "@type": "LocationFeatureSpecification", name: "Full Bar", value: true },
       { "@type": "LocationFeatureSpecification", name: "Restaurant (Nemo's)", value: true },

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     template: "%s | HeadPinz",
   },
   description:
-    "Premier bowling, laser tag, gel blaster arena, arcade games & dining at HeadPinz. Two locations in Fort Myers and Naples, FL. Where Fun Comes Together.",
+    "Premier bowling, laser tag, gel blasters, arcade games & dining at HeadPinz. Two locations in Fort Myers and Naples, FL. Where Fun Comes Together.",
   openGraph: {
     title: "HeadPinz - Where Fun Comes Together",
     description:
