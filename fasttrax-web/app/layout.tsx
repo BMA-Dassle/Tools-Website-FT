@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import MobileBookBar from "@/components/MobileBookBar";
 import ChatWidgetManager from "@/components/ChatWidgetManager";
 import { LocalBusinessJsonLd, HeadPinzOrganizationJsonLd } from "@/components/seo/JsonLd";
+import AxeInit from "@/components/seo/AxeInit";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 import MiniCart from "@/components/booking/MiniCart";
@@ -225,6 +226,7 @@ export default async function RootLayout({
         {!isHeadPinz && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />
+        <AxeInit />
         {!isHeadPinz && (
           <>
             <div
