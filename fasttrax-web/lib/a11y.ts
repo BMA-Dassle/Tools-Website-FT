@@ -84,7 +84,18 @@ export function modalBackdropProps(onClose: () => void) {
       if (e.target === e.currentTarget) onClose();
     },
     onKeyDown: (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
+      // Escape always dismisses, no matter where focus is in the modal.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      // Enter / Space are the keyboard-click equivalents for the backdrop
+      // itself (it has role="button"), so ONLY act when the event fires
+      // on the backdrop element and not when bubbled up from an inner
+      // input. Without this guard, typing a space in any field inside
+      // the modal closes it.
+      if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
         e.preventDefault();
         onClose();
       }
