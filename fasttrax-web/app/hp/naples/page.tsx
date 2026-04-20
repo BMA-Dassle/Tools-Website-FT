@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
+import { HeadPinzNaplesJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
   title: "HeadPinz Naples | Bowling, Arcade & Events | Naples FL",
@@ -34,49 +35,9 @@ export const metadata: Metadata = {
   },
 };
 
-const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "EntertainmentBusiness",
-  name: "HeadPinz Naples",
-  description:
-    "Premier bowling, NEXUS laser tag, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro dining.",
-  url: "https://headpinz.com/naples",
-  telephone: "+1-239-455-3755",
-  address: {
-    "@type": "PostalAddress",
-    streetAddress: "8525 Radio Lane",
-    addressLocality: "Naples",
-    addressRegion: "FL",
-    postalCode: "34104",
-    addressCountry: "US",
-  },
-  geo: {
-    "@type": "GeoCoordinates",
-    latitude: 26.2368,
-    longitude: -81.7494,
-  },
-  openingHoursSpecification: [
-    {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
-      opens: "11:00",
-      closes: "00:00",
-    },
-    {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: ["Friday", "Saturday"],
-      opens: "11:00",
-      closes: "02:00",
-    },
-  ],
-  image:
-    "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
-  priceRange: "$$",
-  sameAs: [
-    "https://www.facebook.com/headpinz",
-    "https://www.instagram.com/headpinz",
-  ],
-};
+// Note: LocalBusiness schema now lives in components/seo/JsonLd.tsx
+// (HeadPinzNaplesJsonLd) so it can ref the parent HeadPinz Organization
+// via @id. This file only keeps the breadcrumb + nav ItemList schemas.
 
 const breadcrumbJsonLd = {
   "@context": "https://schema.org",
@@ -228,7 +189,8 @@ const weeklyEvents = [
 export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
-      {[jsonLd, breadcrumbJsonLd, navJsonLd].map((schema, i) => (
+      <HeadPinzNaplesJsonLd />
+      {[breadcrumbJsonLd, navJsonLd].map((schema, i) => (
         <script
           key={i}
           type="application/ld+json"

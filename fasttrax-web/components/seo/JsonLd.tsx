@@ -148,6 +148,150 @@ export function RestaurantJsonLd() {
   );
 }
 
+// ── HeadPinz Organization (parent of both locations) ─────────────────────────
+
+export function HeadPinzOrganizationJsonLd() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": "https://headpinz.com/#organization",
+    name: "HeadPinz",
+    url: "https://headpinz.com",
+    logo: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png",
+    description:
+      "Premier bowling, laser tag, gel blasters, arcade games and dining in Southwest Florida. Two locations — Fort Myers and Naples.",
+    sameAs: [
+      "https://www.facebook.com/headpinz",
+      "https://www.instagram.com/headpinz",
+    ],
+    department: [
+      { "@id": "https://headpinz.com/fort-myers/#localbusiness" },
+      { "@id": "https://headpinz.com/naples/#localbusiness" },
+    ],
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
+// ── HeadPinz Fort Myers LocalBusiness ────────────────────────────────────────
+
+export function HeadPinzFortMyersJsonLd() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": ["BowlingAlley", "AmusementPark", "EntertainmentBusiness"],
+    "@id": "https://headpinz.com/fort-myers/#localbusiness",
+    name: "HeadPinz Fort Myers",
+    alternateName: "HeadPinz Entertainment Center Fort Myers",
+    description:
+      "Fort Myers' premier entertainment destination — bowling lanes, hyperbowling, laser tag arena, gel blaster arena, arcade games, and full-service dining at Nemo's. Birthday parties, corporate events, and leagues.",
+    url: "https://headpinz.com/fort-myers",
+    telephone: "+1-239-302-2155",
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "14513 Global Parkway",
+      addressLocality: "Fort Myers",
+      addressRegion: "FL",
+      postalCode: "33913",
+      addressCountry: "US",
+    },
+    geo: {
+      "@type": "GeoCoordinates",
+      latitude: 26.5449,
+      longitude: -81.7951,
+    },
+    openingHoursSpecification: [
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"], opens: "11:00", closes: "00:00" },
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Friday", "Saturday"], opens: "11:00", closes: "02:00" },
+    ],
+    priceRange: "$$",
+    currenciesAccepted: "USD",
+    paymentAccepted: "Cash, Credit Card, Debit Card",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    parentOrganization: { "@id": "https://headpinz.com/#organization" },
+    amenityFeature: [
+      { "@type": "LocationFeatureSpecification", name: "Bowling Lanes", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Hyperbowling", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Laser Tag Arena", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Gel Blaster Arena", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Arcade Games", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Full Bar", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Restaurant (Nemo's)", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Birthday Parties", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Corporate Events", value: true },
+      { "@type": "LocationFeatureSpecification", name: "VIP Lanes", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Free Parking", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Wheelchair Accessible", value: true },
+    ],
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
+// ── HeadPinz Naples LocalBusiness ────────────────────────────────────────────
+
+export function HeadPinzNaplesJsonLd() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": ["BowlingAlley", "AmusementPark", "EntertainmentBusiness"],
+    "@id": "https://headpinz.com/naples/#localbusiness",
+    name: "HeadPinz Naples",
+    alternateName: "HeadPinz Entertainment Center Naples",
+    description:
+      "Naples' premier entertainment destination — bowling lanes, laser tag, gel blasters, arcade games, and full-service dining at Nemo's. Birthday parties, corporate events, and leagues.",
+    url: "https://headpinz.com/naples",
+    telephone: "+1-239-455-3755",
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: "8525 Radio Lane",
+      addressLocality: "Naples",
+      addressRegion: "FL",
+      postalCode: "34104",
+      addressCountry: "US",
+    },
+    geo: {
+      "@type": "GeoCoordinates",
+      latitude: 26.1786,
+      longitude: -81.7536,
+    },
+    openingHoursSpecification: [
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"], opens: "11:00", closes: "00:00" },
+      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Friday", "Saturday"], opens: "11:00", closes: "02:00" },
+    ],
+    priceRange: "$$",
+    currenciesAccepted: "USD",
+    paymentAccepted: "Cash, Credit Card, Debit Card",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    parentOrganization: { "@id": "https://headpinz.com/#organization" },
+    amenityFeature: [
+      { "@type": "LocationFeatureSpecification", name: "Bowling Lanes", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Laser Tag Arena", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Gel Blaster Arena", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Arcade Games", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Full Bar", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Restaurant (Nemo's)", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Birthday Parties", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Corporate Events", value: true },
+      { "@type": "LocationFeatureSpecification", name: "VIP Lanes", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Free Parking", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Wheelchair Accessible", value: true },
+    ],
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
 export function FAQJsonLd({ faqs }: { faqs: { question: string; answer: string }[] }) {
   const schema = {
     "@context": "https://schema.org",

@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
+import { HeadPinzFortMyersJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
   title: "HeadPinz Fort Myers | Bowling, Arcade, Laser Tag & Events",
@@ -35,49 +36,9 @@ export const metadata: Metadata = {
   },
 };
 
-const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "EntertainmentBusiness",
-  name: "HeadPinz Fort Myers",
-  description:
-    "Premier bowling, NEXUS laser tag, gel blaster arena, NeoVerse, HyperBowling, 40+ arcade games & Nemo's Sports Bistro dining.",
-  url: "https://headpinz.com/fort-myers",
-  telephone: "+1-239-288-8385",
-  address: {
-    "@type": "PostalAddress",
-    streetAddress: "14513 Global Parkway",
-    addressLocality: "Fort Myers",
-    addressRegion: "FL",
-    postalCode: "33913",
-    addressCountry: "US",
-  },
-  geo: {
-    "@type": "GeoCoordinates",
-    latitude: 26.5247,
-    longitude: -81.7552,
-  },
-  openingHoursSpecification: [
-    {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
-      opens: "11:00",
-      closes: "00:00",
-    },
-    {
-      "@type": "OpeningHoursSpecification",
-      dayOfWeek: ["Friday", "Saturday"],
-      opens: "11:00",
-      closes: "02:00",
-    },
-  ],
-  image:
-    "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
-  priceRange: "$$",
-  sameAs: [
-    "https://www.facebook.com/headpinz",
-    "https://www.instagram.com/headpinz",
-  ],
-};
+// Note: LocalBusiness schema now lives in components/seo/JsonLd.tsx
+// (HeadPinzFortMyersJsonLd) so it can ref the parent HeadPinz Organization
+// via @id. This file only keeps the breadcrumb + nav ItemList schemas.
 
 const breadcrumbJsonLd = {
   "@context": "https://schema.org",
@@ -242,7 +203,8 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
-      {[jsonLd, breadcrumbJsonLd, navJsonLd].map((schema, i) => (
+      <HeadPinzFortMyersJsonLd />
+      {[breadcrumbJsonLd, navJsonLd].map((schema, i) => (
         <script
           key={i}
           type="application/ld+json"
