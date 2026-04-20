@@ -42,8 +42,8 @@ const ACTIVITIES = [
   { value: "laser-tag", label: "Laser tag" },
   { value: "gel-blasters", label: "Gel blasters" },
   { value: "arcade", label: "Arcade" },
-  { value: "racing", label: "Go-kart racing" },
-  { value: "food-beverage", label: "Food & drinks" },
+  { value: "racing", label: "Karting" },
+  { value: "food-beverage", label: "Food" },
 ];
 
 const CONTACT_METHODS = [
@@ -255,7 +255,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
           Tell us about your event
         </h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5 lg:space-y-6">
           {/* Contact row — 4-col on desktop, 2-col on tablet, 1-col on mobile */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Field label="First name" required>
@@ -353,8 +353,9 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
             </Field>
           </div>
 
-          {/* Activity interest — 6-col on lg (single row), 3-col on sm, 2-col on mobile */}
-          <Field label="Interested in (pick all that apply)">
+          {/* Activities — 6-col on lg (single row), 3-col on sm, 2-col on mobile.
+              Fixed 44px height so they all line up even when labels differ. */}
+          <Field label="Interested in">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-1">
               {ACTIVITIES.map((a) => {
                 const selected = activityInterest.includes(a.value);
@@ -363,7 +364,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                     type="button"
                     key={a.value}
                     onClick={() => toggleActivity(a.value)}
-                    className="px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
+                    className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center whitespace-nowrap overflow-hidden"
                     style={{
                       border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
                       backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
@@ -378,10 +379,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
             </div>
           </Field>
 
-          {/* Preferences row — on lg, put all three (contact / time / notes) side-by-side
-              so the notes field doesn't eat a whole row to itself on desktop. */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <Field label="Preferred contact method">
+          {/* Preferences row — 3-col on lg (contact / time / notes side-by-side).
+              Buttons use h-11 matching the inputs above so rows all align. */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+            <Field label="Contact by">
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {CONTACT_METHODS.map((m) => {
                   const selected = preferredContactMethod === m.value;
@@ -390,7 +391,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                       type="button"
                       key={m.value}
                       onClick={() => setPreferredContactMethod(m.value)}
-                      className="px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
+                      className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
                       style={{
                         border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
                         backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
@@ -403,7 +404,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                 })}
               </div>
             </Field>
-            <Field label="Best time to reach you">
+            <Field label="Best time">
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {BEST_TIMES.map((t) => {
                   const selected = bestTimeToCall === t.value;
@@ -412,7 +413,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                       type="button"
                       key={t.value}
                       onClick={() => setBestTimeToCall(t.value)}
-                      className="px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
+                      className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
                       style={{
                         border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
                         backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
@@ -425,14 +426,14 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose }: SalesLeadForm
                 })}
               </div>
             </Field>
-            <Field label="Anything else we should know?">
+            <Field label="Notes">
               <textarea
-                rows={3}
+                rows={1}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Dietary needs, age range, special occasions..."
-                className={inputCls(accent) + " resize-y"}
-                style={{ minHeight: "44px" }}
+                placeholder="Anything else we should know?"
+                className={inputCls(accent) + " resize-none"}
+                style={{ height: "44px", paddingTop: "10px" }}
               />
             </Field>
           </div>
@@ -502,7 +503,8 @@ function Field({
 
 function inputCls(accent: string): string {
   // Matches `/hp/book/bowling/page.tsx` contact inputs for visual consistency.
-  return `w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white font-body text-sm placeholder:text-white/30 focus:outline-none transition-colors`;
+  // Fixed h-11 (44px) so inputs align with our button groups on the same row.
+  return `w-full h-11 bg-[#0a1628] border border-white/20 rounded-lg px-4 text-white font-body text-sm placeholder:text-white/30 focus:outline-none transition-colors`;
   // note: `accent` used elsewhere (select options bg); the focus-border is
   // handled inline for simplicity because per-component dynamic Tailwind
   // JIT strings don't work well with runtime values.

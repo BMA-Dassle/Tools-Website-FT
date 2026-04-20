@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   // Planner pick — keep in sync with PLANNER_REGISTRY in lib/sales-lead-config.ts (once that lands).
   const plannerKey = (searchParams.get("planner") || "stephanie").toLowerCase();
   const plannerMock: Record<string, Pick<SalesLeadCopyContext, "plannerName" | "plannerPhone" | "plannerEmail" | "isIndividualPlanner">> = {
-    stephanie:     { plannerName: "Stephanie",      plannerPhone: "+12392148353", plannerEmail: "staphnie@headpinz.com",    isIndividualPlanner: true },
+    stephanie:     { plannerName: "Stephanie",      plannerPhone: "+12392148353", plannerEmail: "stephanie@headpinz.com",   isIndividualPlanner: true },
     lori:          { plannerName: "Lori",           plannerPhone: "+12392042328", plannerEmail: "lori@headpinz.com",        isIndividualPlanner: true },
     kelsea:        { plannerName: "Kelsea",         plannerPhone: "+12392058142", plannerEmail: "kelsea@headpinz.com",      isIndividualPlanner: true },
     guestservices: { plannerName: "Guest Services", plannerPhone: "+12394553755", plannerEmail: "guestservices@headpinz.com", isIndividualPlanner: false },

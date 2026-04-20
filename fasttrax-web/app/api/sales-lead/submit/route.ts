@@ -29,6 +29,7 @@ import {
   type SalesLeadCopyContext,
 } from "@/lib/sales-lead-copy";
 import { appendPrivateNote } from "@/lib/bmi-office-notes";
+import { submitPartyLead } from "@/lib/pandora-party-lead";
 
 /**
  * POST /api/sales-lead/submit
@@ -215,6 +216,12 @@ function buildPandoraNotes(body: SubmitBody): string {
   return parts.join("\n");
 }
 
+/**
+ * Submit to Pandora via the shared helper (no internal HTTP hop). This
+ * used to POST to our own `/api/pandora/party-lead` route — that required
+ * NEXT_PUBLIC_SITE_URL to be set correctly in every environment, which it
+ * wasn't in prod. Direct lib call is simpler + faster.
+ */
 async function submitToPandora(
   body: SubmitBody,
   center: CenterConfig,
@@ -228,49 +235,35 @@ async function submitToPandora(
     }
   | { ok: false; error: string }
 > {
-  try {
-    const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const res = await fetch(`${base}/api/pandora/party-lead`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: center.pandoraKey,
-        firstName: body.firstName,
-        lastName: body.lastName,
-        email: body.email,
-        phone: body.phone, // party-lead proxy strips to digits
-        // Map friendly form value → one of 4 canonical values Pandora accepts.
-        eventType: toPandoraEventType(body.eventType),
-        eventDate: body.preferredDate,                   // Pandora wants eventDate
-        eventTime: body.preferredTime || "12:00",        // Pandora requires eventTime
-        estimatedGuests: String(body.guestCount ?? ""),  // Pandora expects a string
-        preferredContact: body.preferredContactMethod,
-        preferredTime: body.bestTimeToCall,              // "Morning" | "Afternoon" | "Evening"
-        // All rich context (friendly event subtype, activity interests,
-        // customer free-text) goes into specialRequests so planners see one
-        // cohesive blob instead of scattered across extra fields.
-        specialRequests: buildPandoraNotes(body),
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data) {
-      return { ok: false, error: data?.error || `Pandora returned ${res.status}` };
-    }
-    if (!data.projectID || !data.projectNumber) {
-      return { ok: false, error: "Pandora response missing projectID / projectNumber" };
-    }
-    return {
-      ok: true,
-      // Pandora returns these as strings in the swagger spec; coerce
-      // defensively in case any caller passes numeric JSON.
-      projectID: String(data.projectID),
-      projectNumber: String(data.projectNumber),
-      personID: data.personID !== undefined ? String(data.personID) : undefined,
-      assignedAgent: data.assignedAgent || null,
-    };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "fetch error" };
+  const result = await submitPartyLead({
+    location: center.pandoraKey,
+    firstName: body.firstName,
+    lastName: body.lastName,
+    email: body.email,
+    phone: body.phone, // helper strips to digits
+    // Map friendly form value → one of 4 canonical values Pandora accepts.
+    eventType: toPandoraEventType(body.eventType),
+    eventDate: body.preferredDate,
+    eventTime: body.preferredTime || "12:00",
+    estimatedGuests: String(body.guestCount ?? ""),
+    preferredContact: body.preferredContactMethod,
+    preferredTime: body.bestTimeToCall,
+    // All rich context (friendly event subtype, activity interests,
+    // customer free-text) goes into specialRequests so planners see one
+    // cohesive blob instead of scattered across extra fields.
+    specialRequests: buildPandoraNotes(body),
+  });
+
+  if (!result.ok) {
+    return { ok: false, error: result.error };
   }
+  return {
+    ok: true,
+    projectID: result.projectID,
+    projectNumber: result.projectNumber,
+    personID: result.personID,
+    assignedAgent: result.assignedAgent,
+  };
 }
 
 async function sendCustomerSms(

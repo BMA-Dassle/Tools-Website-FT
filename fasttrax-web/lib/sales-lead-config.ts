@@ -32,15 +32,13 @@ export interface Planner {
  * (lowercased, `.includes(key)`). Guest Services is the fallback when none
  * of the individual planners matches.
  *
- * NOTE on `stephanie.email`: the address is `staphnie@headpinz.com` (typo
- * in the real mailbox, not a bug here).
  */
 export const PLANNERS: Record<string, Planner> = {
   stephanie: {
     key: "stephanie",
     displayName: "Stephanie",
     phone: "+12392148353",
-    email: "staphnie@headpinz.com",
+    email: "stephanie@headpinz.com",
     teamsChatId: "19:85691711056541ff9f273d8f787eb532@thread.v2",
     isIndividual: true,
   },
