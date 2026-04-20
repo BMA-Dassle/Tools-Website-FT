@@ -173,22 +173,36 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
   } | null>(null);
 
   /**
-   * Kids-birthday + karting is not a bookable combo — karting requires
-   * 13+ and 59". When both are picked, pop the same warning the FT
-   * /group-events page uses on its Kids Birthday card click.
+   * Kids-birthday conflict warning.
    *
-   * `ack` flips true once the guest clicks "Keep my choices"; we don't
-   * re-nag them on every toggle after that.
+   * Fires as early as possible so the guest isn't blindsided at submit:
+   *   - Kids birthday + FastTrax center  →  warn (FT can't host organized
+   *     kids parties at all; karting restrictions drive the whole center
+   *     away from kid parties)
+   *   - Kids birthday + karting activity  →  warn (same karting rules
+   *     apply at HP if they try to combine it)
+   *
+   * `ack` flips true once the guest clicks "Keep my choices" so we don't
+   * re-nag them after each toggle. The ack resets when the combo is no
+   * longer true (center changed, karting removed, event type changed),
+   * so if they later re-trigger the combo we re-show the warning.
    */
   const [showKidsKartingWarning, setShowKidsKartingWarning] = useState(false);
   const [kidsKartingAck, setKidsKartingAck] = useState(false);
 
+  const isKidsBirthday = eventType === "birthday-kid";
+  const kartingPicked = activityInterest.includes("racing");
+  const fastTraxCenter = selectedCenter === "fasttrax-ft-myers";
   const kidsKartingConflict =
-    eventType === "birthday-kid" && activityInterest.includes("racing");
+    isKidsBirthday && (fastTraxCenter || kartingPicked);
 
   useEffect(() => {
     if (kidsKartingConflict && !kidsKartingAck) {
       setShowKidsKartingWarning(true);
+    }
+    // Reset ack once the combo clears — so a later re-trigger warns again.
+    if (!kidsKartingConflict && kidsKartingAck) {
+      setKidsKartingAck(false);
     }
   }, [kidsKartingConflict, kidsKartingAck]);
 
@@ -208,6 +222,13 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
   };
 
   const removeKarting = () => {
+    setActivityInterest((prev) => prev.filter((v) => v !== "racing"));
+    setShowKidsKartingWarning(false);
+  };
+
+  /** Switch to HeadPinz Fort Myers (the kids-party-capable center) */
+  const switchToHpFtMyers = () => {
+    setSelectedCenter("headpinz-ft-myers");
     setActivityInterest((prev) => prev.filter((v) => v !== "racing"));
     setShowKidsKartingWarning(false);
   };
@@ -726,14 +747,13 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 className="font-heading font-black uppercase italic text-white mb-4"
                 style={{ fontSize: "clamp(22px, 4vw, 30px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
               >
-                Kids Birthday + Karting
+                {fastTraxCenter ? "Kids Birthday at FastTrax" : "Kids Birthday + Karting"}
               </h3>
               <div className="space-y-3 font-body text-white/80" style={{ fontSize: "14px", lineHeight: 1.6 }}>
                 <p>
-                  FastTrax does not offer organized kids birthday party
-                  packages that include karting. This is because of the
-                  driver requirements for racing eligibility &mdash; age 13+
-                  and minimum 59&quot; tall.
+                  {fastTraxCenter
+                    ? "FastTrax does not offer organized kids birthday party packages. Our karting-centered experience has strict driver requirements — age 13+ and minimum 59\" tall — which doesn't fit the mixed-age groups that typically come with a kids party."
+                    : "Karting has strict driver requirements — age 13+ and minimum 59\" tall — that don't fit the mixed-age groups that typically come with a kids party. Adding karting to an organized kids birthday usually means splitting the group across Junior vs. Adult race types."}
                 </p>
                 <p>
                   In group settings this can create situations where
@@ -774,20 +794,32 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                   <p className="text-white/85" style={{ fontSize: "14px", lineHeight: 1.55 }}>
                     HeadPinz Fort Myers runs organized kids birthday packages
                     (bowling, laser tag, arcade). Use the button below to
-                    submit a party request there.
+                    switch this request to HeadPinz, or open the HeadPinz
+                    birthday packages page.
                   </p>
                 </div>
               </div>
 
               <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={removeKarting}
-                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02]"
-                  style={{ backgroundColor: "#00E2E5", color: "#000418" }}
-                >
-                  Remove karting
-                </button>
+                {fastTraxCenter ? (
+                  <button
+                    type="button"
+                    onClick={switchToHpFtMyers}
+                    className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02]"
+                    style={{ backgroundColor: "#00E2E5", color: "#000418" }}
+                  >
+                    Switch to HeadPinz FM
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={removeKarting}
+                    className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02]"
+                    style={{ backgroundColor: "#00E2E5", color: "#000418" }}
+                  >
+                    Remove karting
+                  </button>
+                )}
                 <a
                   href={hpKidsPartyHref}
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline"
