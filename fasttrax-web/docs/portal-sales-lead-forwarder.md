@@ -48,7 +48,7 @@ The portal does **not** need to know anything about sales-lead state, render any
 const SALES_LEAD_VERBS = new Set(['sales_lead_ack', 'sales_lead_contacted']);
 
 const FASTTRAX_BOT_ACTION_URL =
-  process.env.FASTTRAX_BOT_ACTION_URL || 'https://book.headpinz.com/api/teams/bot-action';
+  process.env.FASTTRAX_BOT_ACTION_URL || 'https://headpinz.com/api/teams/bot-action';
 const PORTAL_FORWARD_SECRET = process.env.PORTAL_FORWARD_SECRET || '';
 
 async function forwardSalesLeadAction(activity: any): Promise<any> {
@@ -155,7 +155,7 @@ The forwarder block goes **between** the `if (!actionType)` early-return and the
 Add in Vercel (production + preview) AND in local `.env.local`:
 
 ```
-FASTTRAX_BOT_ACTION_URL=https://book.headpinz.com/api/teams/bot-action
+FASTTRAX_BOT_ACTION_URL=https://headpinz.com/api/teams/bot-action
 PORTAL_FORWARD_SECRET=<same value as in fasttrax-web/.env.local>
 ```
 
@@ -215,7 +215,7 @@ Portal's `forwardSalesLeadAction` caught a network error reaching fasttrax. Root
      # set in Portal's Vercel env:
      FASTTRAX_BOT_ACTION_URL=https://abc123.ngrok-free.app/api/teams/bot-action
      ```
-   - Long-term: deploy fasttrax-web to `book.headpinz.com` (or wherever) so the URL resolves in prod.
+   - Long-term: deploy fasttrax-web to `headpinz.com` (or wherever) so the URL resolves in prod.
 2. **DNS / network** — verify from a serverless context (not your laptop) that the URL is reachable: `curl -I $FASTTRAX_BOT_ACTION_URL` from a Vercel function.
 3. **fasttrax returning non-200 at the HTTP layer** — check fasttrax logs. Route-level errors should come back as proper invoke-response JSON, but a 500 before that layer would trigger this error branch.
 

@@ -2,29 +2,61 @@
  * SMS + email copy for the sales-lead flow.
  *
  * All copy lives here so the preview route (`/api/sales-lead/preview`) and
- * the submit endpoint render the same text/HTML. Tweak template strings here
- * to iterate without touching route handlers.
+ * the submit endpoint render the same text/HTML. Tweak template strings
+ * here to iterate without touching route handlers.
+ *
+ * Brand strategy:
+ *   - Centers that include "HeadPinz" in the name → HP palette (coral +
+ *     navy) + "bowling, laser tag, arcade, Nemo's wings" hype.
+ *   - Centers that include "FastTrax" → FT palette (cyan + navy) +
+ *     "fastest karting in Southwest Florida" hype + Event Guide PDF link.
+ *
+ * Event-guide PDF exists only for FastTrax at the moment (HP doesn't
+ * have one yet), so the `fasttrax` branch is the only one that surfaces
+ * an Event Guide CTA in SMS or email.
  */
+
+// ── Brand assets (verified working URLs) ────────────────────────────────────
+
+const HEADPINZ_LOGO_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png";
+const FASTTRAX_LOGO_URL =
+  "https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png";
+
+/**
+ * Hero banner images. Same assets the site uses on its group-events pages.
+ * webp is supported in Gmail / Apple Mail / Outlook.com but NOT in classic
+ * Outlook for Windows (Word rendering engine) — those users see the alt
+ * text instead. Acceptable tradeoff vs. maintaining JPG duplicates.
+ */
+const HEADPINZ_HERO_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp";
+const FASTTRAX_HERO_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-hero.webp";
+
+const FASTTRAX_EVENT_GUIDE_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/FastTrax-Event-Guide.pdf";
+
+// ── Types ───────────────────────────────────────────────────────────────────
 
 export interface SalesLeadCopyContext {
   firstName: string;
   /** H#### project number from Pandora. */
   projectNumber: string;
-  /** Planner display name — "Stephanie", "Lori", "Kelsea", or "Guest Services". */
   plannerName: string;
-  /** Planner direct phone in E.164 (e.g. "+12392148353"). */
+  /** E.164 — "+12392148353". */
   plannerPhone: string;
-  /** Planner email. */
   plannerEmail: string;
-  /** ISO date string ("2026-05-04") or "soon" when not provided. */
+  /** ISO date "YYYY-MM-DD". */
   preferredDate: string;
-  /** HeadPinz Fort Myers, HeadPinz Naples, FastTrax Fort Myers. */
+  /** e.g. "HeadPinz Naples", "FastTrax Fort Myers" (drives brand palette). */
   centerName: string;
-  /** Whether the planner is a single individual (Stephanie/Lori/Kelsea) or the guest-services bucket. */
+  /** Individual planner (Stephanie/Lori/Kelsea) vs Guest Services fallback. */
   isIndividualPlanner: boolean;
 }
 
-/** Pretty-format a phone for display: "+12392148353" → "(239) 214-8353". */
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
 export function formatPhoneDisplay(e164: string): string {
   const digits = e164.replace(/\D/g, "");
   const ten = digits.startsWith("1") && digits.length === 11 ? digits.slice(1) : digits;
@@ -32,136 +64,220 @@ export function formatPhoneDisplay(e164: string): string {
   return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
 }
 
-/** Pretty-format ISO date ("2026-05-04") → "Monday, May 4, 2026". */
 function formatDate(iso: string): string {
   if (!iso || iso === "soon") return "your preferred date";
   try {
     const d = new Date(iso + "T12:00:00");
-    return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
   } catch {
     return iso;
   }
+}
+
+/**
+ * Detect which brand based on center name. Single source of truth for
+ * every per-brand switch below (palette, logo, hero, event-guide link).
+ */
+function detectBrand(centerName: string): {
+  brand: "hp" | "ft";
+  primary: string;
+  secondary: string;
+  logoUrl: string;
+  logoWidth: number;
+  heroUrl: string;
+  wordmark: string;
+  tagline: string;
+  eventGuideUrl: string | null;
+  hypeVerb: string; // verb for fun intro line
+  hypeList: string; // "bowling, laser tag, arcade & Nemo's wings"
+} {
+  const hp = centerName.toLowerCase().includes("headpinz");
+  if (hp) {
+    return {
+      brand: "hp",
+      primary: "#fd5b56", // coral
+      secondary: "#123075", // navy
+      logoUrl: HEADPINZ_LOGO_URL,
+      logoWidth: 160,
+      heroUrl: HEADPINZ_HERO_URL,
+      wordmark: "HeadPinz",
+      tagline: "BOWLING · LASER TAG · GEL BLASTERS · ARCADE · NEMO'S",
+      eventGuideUrl: null,
+      hypeVerb: "plan",
+      hypeList: "bowling, laser tag, gel blasters, arcade games, and Nemo's famous wings",
+    };
+  }
+  return {
+    brand: "ft",
+    primary: "#00E2E5", // cyan
+    secondary: "#123075", // navy
+    logoUrl: FASTTRAX_LOGO_URL,
+    logoWidth: 180,
+    heroUrl: FASTTRAX_HERO_URL,
+    wordmark: "FastTrax",
+    tagline: "HIGH-POWERED KARTING · EVENTS · ARCADE",
+    eventGuideUrl: FASTTRAX_EVENT_GUIDE_URL,
+    hypeVerb: "build",
+    hypeList: "electric karting on Blue & Red tracks, arcade games, and event catering",
+  };
 }
 
 // ── SMS ─────────────────────────────────────────────────────────────────────
 
 export function buildSalesLeadSms(ctx: SalesLeadCopyContext): string {
   const phone = formatPhoneDisplay(ctx.plannerPhone);
+  const b = detectBrand(ctx.centerName);
+  const guideLine = b.eventGuideUrl ? `\n\nPeek at the Event Guide: ${b.eventGuideUrl}` : "";
+
   if (ctx.isIndividualPlanner) {
+    const hype =
+      b.brand === "ft"
+        ? `pumped to help you build something epic on the track`
+        : `pumped to help you put together a night your crew won't stop talking about`;
     return (
-      `Hi ${ctx.firstName}! This is ${ctx.plannerName} at ${ctx.centerName} — thanks for your event ` +
-      `inquiry (#${ctx.projectNumber}). I'll be your event planner and can help with package ` +
-      `options, pricing, and availability. Reach me direct at ${phone} or reply here. ` +
-      `I'll follow up shortly!`
+      `Hey ${ctx.firstName}! This is ${ctx.plannerName} at ${ctx.centerName} — ` +
+      `thanks for your event inquiry #${ctx.projectNumber}. I'll be your event ` +
+      `planner and I'm ${hype}. Reach me direct at ${phone} or reply here — ` +
+      `I'll follow up shortly with package options!${guideLine}`
     );
   }
   return (
-    `Hi ${ctx.firstName}! Thanks for your event inquiry (#${ctx.projectNumber}) at ${ctx.centerName}. ` +
-    `Our Guest Services team will reach out shortly with package options and availability. ` +
-    `Questions? Call us at ${phone}.`
+    `Hey ${ctx.firstName}! Thanks for your event inquiry #${ctx.projectNumber} at ` +
+    `${ctx.centerName}. Our Guest Services team will reach out shortly with ` +
+    `package options. Questions? Call ${phone}.${guideLine}`
   );
 }
 
-// ── Email ───────────────────────────────────────────────────────────────────
+// ── Email subject + plain text ──────────────────────────────────────────────
 
 export function buildSalesLeadEmailSubject(ctx: SalesLeadCopyContext): string {
-  return `${ctx.centerName} event inquiry #${ctx.projectNumber} — next steps`;
+  return `Let's ${detectBrand(ctx.centerName).hypeVerb} your ${ctx.centerName} event! (#${ctx.projectNumber})`;
 }
 
 export function buildSalesLeadEmailText(ctx: SalesLeadCopyContext): string {
   const phone = formatPhoneDisplay(ctx.plannerPhone);
   const dateLine = formatDate(ctx.preferredDate);
+  const b = detectBrand(ctx.centerName);
+  const guideLine = b.eventGuideUrl ? `\n\nWhile you wait, grab our Event Guide:\n${b.eventGuideUrl}` : "";
+
   if (ctx.isIndividualPlanner) {
     return [
-      `Hi ${ctx.firstName},`,
+      `Hey ${ctx.firstName}!`,
       ``,
-      `Thanks for reaching out about an event at ${ctx.centerName}! My name is ${ctx.plannerName} and I'll be your dedicated event planner for inquiry #${ctx.projectNumber}.`,
+      `Thanks for reaching out about an event at ${ctx.centerName} — we're ready to ${b.hypeVerb} you something unforgettable! I'm ${ctx.plannerName}, your dedicated event planner for inquiry #${ctx.projectNumber}.`,
       ``,
-      `I'll be in touch shortly with package options and availability for ${dateLine}. In the meantime, feel free to reach me directly:`,
+      `${ctx.centerName} is Southwest Florida's premier spot for ${b.hypeList}. I'll follow up shortly with package options and availability for ${dateLine}. In the meantime, you can reach me directly any time:`,
       ``,
       `  ${ctx.plannerName}`,
-      `  Direct: ${phone}`,
+      `  Phone: ${phone}`,
       `  Email: ${ctx.plannerEmail}`,
+      guideLine,
       ``,
       `Talk soon!`,
       `${ctx.plannerName}`,
       `${ctx.centerName}`,
-    ].join("\n");
+    ]
+      .filter((line) => line !== undefined)
+      .join("\n");
   }
   return [
-    `Hi ${ctx.firstName},`,
+    `Hey ${ctx.firstName}!`,
     ``,
-    `Thanks for your event inquiry (#${ctx.projectNumber}) at ${ctx.centerName}!`,
+    `Thanks for your event inquiry #${ctx.projectNumber} at ${ctx.centerName} — Southwest Florida's premier spot for ${b.hypeList}.`,
     ``,
     `Our Guest Services team will follow up shortly with package options and availability for ${dateLine}. Reach us anytime:`,
     ``,
     `  Guest Services`,
     `  Phone: ${phone}`,
     `  Email: ${ctx.plannerEmail}`,
+    guideLine,
     ``,
     `Talk soon!`,
     `${ctx.centerName}`,
   ].join("\n");
 }
 
-// ── Brand palette — mirrors the actual live site's CSS usage ─────────────────
+// ── Email HTML ──────────────────────────────────────────────────────────────
 //
-// HeadPinz (from app/hp/*): deep navy #0a1628 background, coral #fd5b56
-// primary accent, navy #123075 secondary, gold #FFD700 highlights. Signature
-// gradient stripe: from-[#fd5b56] via-white/60 to-[#123075].
-//
-// FastTrax (from app/group-events, etc.): deeper navy #000418 background,
-// cyan #00E2E5 primary accent.
-//
-// Logos are hosted on Vercel Blob — the same URLs the live site uses.
-
-// Verified working URLs (checked via curl — webp not widely supported in email
-// clients so we use PNG variants). The HP logo here is the same asset referenced
-// in `app/book/race/components/AddOnsPage.tsx:6`; the FT logo is the one used in
-// the existing SMS-Timing booking-confirmation template at
-// `fasttrax-web/emails/booking-confirmation-waiver.html:75`.
-const HEADPINZ_LOGO_URL =
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png";
-const FASTTRAX_LOGO_URL =
-  "https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png";
+// Light/white background, hero banner image at the top, brand gradient
+// stripes, big fun headline, and a CTA section (Event Guide) for FastTrax
+// only. Readable in both light-mode and dark-mode clients because we use
+// a neutral white card on a soft grey page — no hard-coded dark bg that
+// fights a light-theme inbox.
 
 export function buildSalesLeadEmailHtml(ctx: SalesLeadCopyContext): string {
   const phone = formatPhoneDisplay(ctx.plannerPhone);
   const dateLine = formatDate(ctx.preferredDate);
-  const hpBrand = ctx.centerName.toLowerCase().includes("headpinz");
+  const b = detectBrand(ctx.centerName);
 
-  // Real brand tokens — exact hex values the live site uses on hp/* pages.
-  const bgDeep    = hpBrand ? "#0a1628" : "#000418";
-  const bgCard    = hpBrand ? "#0f1d36" : "#071027";
-  const primary   = hpBrand ? "#fd5b56" : "#00E2E5"; // coral for HP, cyan for FT
-  const secondary = hpBrand ? "#123075" : "#123075"; // navy blue secondary
-  const logoUrl   = hpBrand ? HEADPINZ_LOGO_URL : FASTTRAX_LOGO_URL;
-  const logoWidth = hpBrand ? 160 : 180;
-  const brandName = hpBrand ? "HeadPinz" : "FastTrax";
+  // Gradient stripe mirroring the site: brand → white(60%) → navy.
+  const stripeGradient =
+    b.brand === "hp"
+      ? `linear-gradient(90deg, ${b.primary} 0%, rgba(255,255,255,0.7) 50%, ${b.secondary} 100%)`
+      : `linear-gradient(90deg, ${b.primary} 0%, rgba(255,255,255,0.5) 50%, ${b.secondary} 100%)`;
 
-  // Signature gradient stripe — exact copy of `bg-gradient-to-r from-[#fd5b56] via-white/60 to-[#123075]`
-  // pattern used across the hp/* pages (menu, kids-bowl-free, etc.). Cyan for FT.
-  const stripeGradient = hpBrand
-    ? `linear-gradient(90deg, ${primary} 0%, rgba(255,255,255,0.6) 50%, ${secondary} 100%)`
-    : `linear-gradient(90deg, ${primary} 0%, rgba(255,255,255,0.4) 50%, ${secondary} 100%)`;
+  const hype =
+    b.brand === "ft"
+      ? `We're ready to build something epic on the track`
+      : `We're ready to plan a night your crew won't stop talking about`;
+  const srOnlyPreview = `${hype} — full of fun and Southwest Florida's premier entertainment. Quick note from ${ctx.plannerName} about your ${ctx.centerName} event inquiry #${ctx.projectNumber}.`;
 
   const plannerIntro = ctx.isIndividualPlanner
     ? `
-        <p style="margin: 0 0 16px 0; font-size: 16px; line-height: 1.65; color: #ffffffe0;">
-          My name is <strong style="color: ${primary};">${ctx.plannerName}</strong> and I'll be your dedicated event planner for inquiry <strong style="color:#ffffff;">#${ctx.projectNumber}</strong>.
+        <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.6; color: #1a1a2e;">
+          Thanks for reaching out about an event at <strong>${ctx.centerName}</strong> — <em>we're ready to ${b.hypeVerb} you something unforgettable!</em>
         </p>
-        <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.65; color: #ffffffe0;">
-          I'll reach out shortly with package options and availability for <strong style="color:#ffffff;">${dateLine}</strong>. In the meantime, you can reach me directly any time:
+        <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.6; color: #1a1a2e;">
+          I'm <strong style="color: ${b.primary};">${ctx.plannerName}</strong>, your dedicated event planner for inquiry <strong>#${ctx.projectNumber}</strong>. ${ctx.centerName} is Southwest Florida's premier spot for <strong>${b.hypeList}</strong>, and I'll make sure your ${dateLine} event is dialed in.
+        </p>
+        <p style="margin: 0 0 28px 0; font-size: 17px; line-height: 1.6; color: #1a1a2e;">
+          I'll follow up shortly with package options and availability. In the meantime, you can reach me direct any time:
         </p>
       `
     : `
-        <p style="margin: 0 0 16px 0; font-size: 16px; line-height: 1.65; color: #ffffffe0;">
-          Our <strong style="color: ${primary};">Guest Services</strong> team received your inquiry <strong style="color:#ffffff;">#${ctx.projectNumber}</strong>.
+        <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.6; color: #1a1a2e;">
+          Thanks for your event inquiry <strong>#${ctx.projectNumber}</strong> — we're excited to help you ${b.hypeVerb} it!
         </p>
-        <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.65; color: #ffffffe0;">
-          We'll follow up shortly with package options and availability for <strong style="color:#ffffff;">${dateLine}</strong>. Need to reach us first?
+        <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.6; color: #1a1a2e;">
+          <strong>${ctx.centerName}</strong> is Southwest Florida's premier spot for <strong>${b.hypeList}</strong>. Our Guest Services team will follow up shortly with package options and availability for <strong>${dateLine}</strong>.
+        </p>
+        <p style="margin: 0 0 28px 0; font-size: 17px; line-height: 1.6; color: #1a1a2e;">
+          Need to reach us first?
         </p>
       `;
+
+  const eventGuideBlock = b.eventGuideUrl
+    ? `
+          <!-- Event Guide CTA (FastTrax only) -->
+          <tr>
+            <td style="padding: 8px 32px 28px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f7fb; border-radius: 12px; border: 1px solid #e1e7ef;">
+                <tr>
+                  <td style="padding: 22px 24px; text-align: center;">
+                    <div style="font-size: 11px; letter-spacing: 3px; color: ${b.primary}; text-transform: uppercase; font-weight: 800; margin-bottom: 8px;">
+                      While you wait
+                    </div>
+                    <div style="font-size: 18px; font-weight: 800; color: #1a1a2e; margin-bottom: 16px;">
+                      Peek at the full Event Guide
+                    </div>
+                    <div style="font-size: 14px; color: #4a5568; line-height: 1.5; margin-bottom: 18px;">
+                      Packages, floor plans, catering menus, and pricing — everything you need to start dreaming up the day.
+                    </div>
+                    <a href="${b.eventGuideUrl}" style="display:inline-block; background: ${b.primary}; color: #000418; text-decoration: none; padding: 13px 28px; border-radius: 999px; font-weight: 800; font-size: 14px; letter-spacing: 1px; text-transform: uppercase;">
+                      Download Event Guide
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+      `
+    : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -170,77 +286,88 @@ export function buildSalesLeadEmailHtml(ctx: SalesLeadCopyContext): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Event Inquiry #${ctx.projectNumber}</title>
 </head>
-<body style="margin:0; padding:0; background-color:${bgDeep}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color:#ffffff; -webkit-font-smoothing: antialiased;">
-  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">
-    Thanks for your event inquiry${ctx.isIndividualPlanner ? `, ${ctx.plannerName} here!` : "!"} We'll follow up with package options for ${dateLine}.
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color:#1a1a2e; -webkit-font-smoothing: antialiased;">
+  <!-- Preheader (hidden preview text in inbox list) -->
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; color:#f4f5f7; font-size:1px; line-height:1px;">
+    ${srOnlyPreview}
   </div>
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:${bgDeep};">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f5f7;">
     <tr>
       <td align="center" style="padding: 32px 12px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px; width:100%; background-color:${bgCard}; border-radius:16px; overflow:hidden; border: 1px solid rgba(255,255,255,0.06); box-shadow: 0 12px 40px rgba(0,0,0,0.4);">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow: 0 8px 28px rgba(0,4,24,0.12);">
 
-          <!-- Logo header — dark with real brand logo -->
+          <!-- Hero banner image with gradient overlay + brand wordmark -->
           <tr>
-            <td style="padding: 28px 32px 20px 32px; text-align: center; background: ${bgCard};">
-              <img src="${logoUrl}" alt="${brandName}" width="${logoWidth}" style="display:inline-block; max-width: ${logoWidth}px; height: auto; border: 0;" />
+            <td style="position: relative; padding: 0; font-size: 0; line-height: 0;">
+              <img src="${b.heroUrl}" alt="${b.wordmark} event" width="600" style="display:block; width:100%; max-width:600px; height:auto; border:0;" />
             </td>
           </tr>
 
-          <!-- Signature gradient stripe — coral → white → navy (matches site headers) -->
+          <!-- Brand stripe below hero -->
           <tr>
-            <td style="background: ${stripeGradient}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td>
+            <td style="background: ${stripeGradient}; height: 4px; font-size: 0; line-height: 0;">&nbsp;</td>
           </tr>
 
-          <!-- Hero -->
+          <!-- Logo + tagline -->
           <tr>
-            <td style="padding: 36px 32px 8px 32px;">
-              <div style="font-size: 11px; letter-spacing: 3px; color: ${primary}; text-transform: uppercase; font-weight: 700; margin-bottom: 12px;">
+            <td style="padding: 26px 32px 18px 32px; text-align: center;">
+              <img src="${b.logoUrl}" alt="${b.wordmark}" width="${b.logoWidth}" style="display:inline-block; max-width: ${b.logoWidth}px; height: auto; border: 0;" />
+              <div style="font-size: 10px; letter-spacing: 2.5px; color: #6b7280; text-transform: uppercase; font-weight: 700; margin-top: 10px;">
+                ${b.tagline}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Eyebrow + big headline -->
+          <tr>
+            <td style="padding: 0 32px 4px 32px;">
+              <div style="font-size: 11px; letter-spacing: 3px; color: ${b.primary}; text-transform: uppercase; font-weight: 800; margin-bottom: 10px;">
                 Event Inquiry &middot; #${ctx.projectNumber}
               </div>
-              <div style="font-size: 32px; line-height: 1.1; font-weight: 900; color: #ffffff; letter-spacing: -0.8px; font-style: italic; text-transform: uppercase;">
-                Thanks, ${ctx.firstName}!
+              <div style="font-size: 32px; line-height: 1.05; font-weight: 900; color: #1a1a2e; letter-spacing: -0.8px; font-style: italic; text-transform: uppercase;">
+                Let's do this, ${ctx.firstName}!
               </div>
             </td>
           </tr>
 
           <!-- Body -->
           <tr>
-            <td style="padding: 20px 32px 8px 32px;">
+            <td style="padding: 22px 32px 8px 32px;">
               ${plannerIntro}
             </td>
           </tr>
 
-          <!-- Contact card — coral-tinted border, deeper inner bg, matches site cards -->
+          <!-- Contact card — brand-tinted left stripe -->
           <tr>
-            <td style="padding: 8px 32px 20px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: ${bgDeep}; border: 1px solid ${primary}40; border-radius: 12px; overflow: hidden;">
+            <td style="padding: 0 32px 20px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f9fafc; border: 1px solid #e1e7ef; border-radius: 12px; overflow: hidden;">
                 <tr>
-                  <td style="background: ${stripeGradient}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td>
+                  <td style="background: ${stripeGradient}; height: 4px; font-size: 0; line-height: 0;">&nbsp;</td>
                 </tr>
                 <tr>
                   <td style="padding: 22px 24px;">
-                    <div style="font-size: 10px; letter-spacing: 3px; color: ${primary}; text-transform: uppercase; font-weight: 700; margin-bottom: 10px;">
+                    <div style="font-size: 10px; letter-spacing: 3px; color: ${b.primary}; text-transform: uppercase; font-weight: 800; margin-bottom: 10px;">
                       ${ctx.isIndividualPlanner ? "Your Event Planner" : "Guest Services"}
                     </div>
-                    <div style="font-size: 22px; font-weight: 800; color: #ffffff; margin-bottom: 18px; letter-spacing: -0.3px;">
+                    <div style="font-size: 22px; font-weight: 800; color: #1a1a2e; margin-bottom: 16px; letter-spacing: -0.3px;">
                       ${ctx.plannerName}
                     </div>
                     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
                       <tr>
                         <td style="padding: 6px 0;">
-                          <a href="tel:${ctx.plannerPhone}" style="color: #ffffff; text-decoration: none; font-size: 15px;">
-                            <span style="color: ${primary}; font-weight: 800; letter-spacing: 1px;">CALL</span>
-                            <span style="color: #ffffff50; padding: 0 8px;">|</span>
-                            <strong style="color:#ffffff;">${phone}</strong>
+                          <a href="tel:${ctx.plannerPhone}" style="color: #1a1a2e; text-decoration: none; font-size: 15px;">
+                            <span style="color: ${b.primary}; font-weight: 800; letter-spacing: 1px;">CALL</span>
+                            <span style="color: #cbd5e0; padding: 0 8px;">|</span>
+                            <strong>${phone}</strong>
                           </a>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding: 6px 0;">
-                          <a href="mailto:${ctx.plannerEmail}" style="color: #ffffff; text-decoration: none; font-size: 15px;">
-                            <span style="color: ${primary}; font-weight: 800; letter-spacing: 1px;">EMAIL</span>
-                            <span style="color: #ffffff50; padding: 0 8px;">|</span>
-                            <strong style="color:#ffffff;">${ctx.plannerEmail}</strong>
+                          <a href="mailto:${ctx.plannerEmail}" style="color: #1a1a2e; text-decoration: none; font-size: 15px;">
+                            <span style="color: ${b.primary}; font-weight: 800; letter-spacing: 1px;">EMAIL</span>
+                            <span style="color: #cbd5e0; padding: 0 8px;">|</span>
+                            <strong>${ctx.plannerEmail}</strong>
                           </a>
                         </td>
                       </tr>
@@ -251,26 +378,28 @@ export function buildSalesLeadEmailHtml(ctx: SalesLeadCopyContext): string {
             </td>
           </tr>
 
+          ${eventGuideBlock}
+
           <!-- Signoff -->
           <tr>
-            <td style="padding: 12px 32px 28px 32px;">
-              <p style="margin: 0 0 6px 0; font-size: 16px; color: #ffffffe0;">Talk soon,</p>
-              <p style="margin: 0; font-size: 16px; color: #ffffff;">
-                <strong style="color:#ffffff;">${ctx.plannerName}</strong>
-                <span style="color: #ffffff60; font-weight: 400;"> &middot; ${ctx.centerName}</span>
+            <td style="padding: 4px 32px 28px 32px;">
+              <p style="margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e;">Can't wait,</p>
+              <p style="margin: 0; font-size: 16px; color: #1a1a2e;">
+                <strong>${ctx.plannerName}</strong>
+                <span style="color: #6b7280; font-weight: 400;"> &middot; ${ctx.centerName}</span>
               </p>
             </td>
           </tr>
 
           <!-- Bottom brand stripe -->
           <tr>
-            <td style="background: ${stripeGradient}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td>
+            <td style="background: ${stripeGradient}; height: 4px; font-size: 0; line-height: 0;">&nbsp;</td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="padding: 20px 32px 24px 32px; background: ${bgCard};">
-              <p style="margin: 0; font-size: 10px; color: #ffffff50; text-align: center; letter-spacing: 2px; text-transform: uppercase;">
+            <td style="padding: 18px 32px 22px 32px; background: #f9fafc;">
+              <p style="margin: 0; font-size: 10px; color: #8895a6; text-align: center; letter-spacing: 2px; text-transform: uppercase;">
                 Inquiry #${ctx.projectNumber} &middot; ${ctx.centerName}
               </p>
             </td>
