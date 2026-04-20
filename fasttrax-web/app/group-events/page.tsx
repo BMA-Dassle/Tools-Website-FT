@@ -782,7 +782,7 @@ export default function GroupEventsPage() {
         >
           <div
             className="relative w-full max-w-5xl rounded-xl overflow-hidden"
-            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(228,28,29,0.4)", height: "90vh" }}
+            style={{ backgroundColor: "#000418", border: "1.78px solid rgba(228,28,29,0.4)", height: "90vh" }}
           >
             <button
               type="button"
