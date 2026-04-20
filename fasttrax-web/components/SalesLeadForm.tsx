@@ -71,6 +71,15 @@ const EVENT_TYPES_ALL = [
   { value: "other", label: "Other" },
 ];
 
+type CenterKey = SalesLeadFormProps["centerKey"];
+
+/** User-facing location picker options. Order matters — shown as cards. */
+const CENTERS: Array<{ key: CenterKey; label: string; subtitle: string }> = [
+  { key: "headpinz-ft-myers", label: "HeadPinz Fort Myers", subtitle: "Bowling · Laser tag · Gel blasters · Arcade" },
+  { key: "headpinz-naples", label: "HeadPinz Naples", subtitle: "Bowling · Laser tag · Gel blasters · Arcade" },
+  { key: "fasttrax-ft-myers", label: "FastTrax Fort Myers", subtitle: "Electric karting · Duckpin · Shuffly" },
+];
+
 const ACTIVITIES = [
   { value: "bowling", label: "Bowling" },
   { value: "laser-tag", label: "Laser tag" },
@@ -131,6 +140,17 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
       ? initialEventType
       : eventTypes[0].value;
 
+  /**
+   * Selected center — initialized from the prop (the page the user came
+   * from) and editable via the step-1 picker. All submissions use this,
+   * not the incoming prop, so a guest who switches in the form actually
+   * gets routed to the right planner + Pandora location.
+   */
+  const [selectedCenter, setSelectedCenter] = useState<CenterKey>(centerKey);
+
+  /** 3-step wizard: 1=Basics, 2=When & Activities, 3=Contact. */
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -173,11 +193,11 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
   }, [kidsKartingConflict, kidsKartingAck]);
 
   // Resolve the "submit a HeadPinz kids party request" link from the
-  // form's centerKey — stay in-domain on HP, go external from FT.
+  // currently-selected center — stay in-domain on HP, go external from FT.
   const hpKidsPartyHref =
-    centerKey === "headpinz-naples"
+    selectedCenter === "headpinz-naples"
       ? "/naples/birthdays"
-      : centerKey === "headpinz-ft-myers"
+      : selectedCenter === "headpinz-ft-myers"
         ? "/fort-myers/birthdays"
         : "https://headpinz.com/fort-myers/birthdays";
 
@@ -192,6 +212,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
     setShowKidsKartingWarning(false);
   };
 
+  // Per-step validation — drives the Next button on steps 1 & 2 and
+  // the Submit button on step 3.
+  const canAdvanceFromStep1 = Boolean(selectedCenter && eventType && Number(guestCount) >= 1);
+  const canAdvanceFromStep2 = true; // date/time/activities/notes are all optional
   const canSubmit =
     firstName.trim() &&
     lastName.trim() &&
@@ -211,7 +235,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          centerKey,
+          centerKey: selectedCenter,
           kind,
           firstName: firstName.trim(),
           lastName: lastName.trim(),
@@ -326,11 +350,40 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
             fontSize: "clamp(24px, 5vw, 36px)",
             lineHeight: 1.05,
             letterSpacing: "-0.3px",
-            marginBottom: packagePrefill ? "12px" : "24px",
+            marginBottom: "12px",
           }}
         >
-          Tell us about your event
+          {step === 1 ? "Let's start with the basics" : step === 2 ? "When & what" : "How do we reach you?"}
         </h2>
+
+        {/* Step progress bar — three pips labelled Basics / When / Contact. */}
+        <div className="flex items-center gap-2 mb-5">
+          {[1, 2, 3].map((n) => {
+            const active = step === n;
+            const done = step > n;
+            return (
+              <div
+                key={n}
+                className="flex-1 flex items-center gap-2"
+                style={{ opacity: done || active ? 1 : 0.4 }}
+              >
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
+                  style={{
+                    backgroundColor: active || done ? accent : "rgba(255,255,255,0.1)",
+                    color: active || done ? accentText : "rgba(255,255,255,0.6)",
+                  }}
+                >
+                  {done ? "✓" : n}
+                </div>
+                <span className="uppercase font-bold text-white/70" style={{ fontSize: "10px", letterSpacing: "2px" }}>
+                  {n === 1 ? "Basics" : n === 2 ? "When" : "Contact"}
+                </span>
+                {n < 3 && <div className="flex-1 h-px bg-white/10" />}
+              </div>
+            );
+          })}
+        </div>
 
         {/* Pre-selected package pill — set by the "Book This Package" button
             on birthday / group-events pages. Submitted as Pandora packageType. */}
@@ -350,189 +403,229 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5 lg:space-y-6">
-          {/* Contact row — 4-col on desktop, 2-col on tablet, 1-col on mobile */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Field label="First name" required>
-              <input
-                type="text"
-                autoComplete="given-name"
-                required
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className={inputCls(accent)}
-              />
-            </Field>
-            <Field label="Last name" required>
-              <input
-                type="text"
-                autoComplete="family-name"
-                required
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className={inputCls(accent)}
-              />
-            </Field>
-            <Field label="Email" required>
-              <input
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={inputCls(accent)}
-              />
-            </Field>
-            <Field label="Phone" required>
-              <input
-                type="tel"
-                autoComplete="tel"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(239) 555-0123"
-                className={inputCls(accent)}
-              />
-            </Field>
-          </div>
+          {/* ── Step 1: Basics ─────────────────────────────────────────── */}
+          {step === 1 && (
+            <>
+              <Field label="Location">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
+                  {CENTERS.map((c) => {
+                    const active = selectedCenter === c.key;
+                    return (
+                      <button
+                        type="button"
+                        key={c.key}
+                        onClick={() => setSelectedCenter(c.key)}
+                        className="text-left p-3 rounded-lg transition-colors cursor-pointer"
+                        style={{
+                          border: active ? `1.78px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                          backgroundColor: active ? `${accent}18` : "rgba(255,255,255,0.03)",
+                        }}
+                      >
+                        <div
+                          className="font-bold"
+                          style={{ color: active ? accent : "#ffffff", fontSize: "13px", lineHeight: 1.25 }}
+                        >
+                          {active ? "✓ " : ""}{c.label}
+                        </div>
+                        <div className="text-white/55" style={{ fontSize: "11px", marginTop: "2px", lineHeight: 1.35 }}>
+                          {c.subtitle}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
 
-          {/* Event details row — same grid cadence */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Field label="Event type">
-              <select
-                value={eventType}
-                onChange={(e) => setEventType(e.target.value)}
-                className={inputCls(accent)}
-              >
-                {eventTypes.map((t) => (
-                  <option key={t.value} value={t.value} style={{ backgroundColor: "#0a1628" }}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Number of guests" required>
-              <input
-                type="number"
-                min={1}
-                max={500}
-                required
-                value={guestCount}
-                onChange={(e) => setGuestCount(e.target.value)}
-                className={inputCls(accent)}
-              />
-            </Field>
-            <Field label="Preferred date">
-              <input
-                type="date"
-                value={preferredDate}
-                onChange={(e) => setPreferredDate(e.target.value)}
-                className={inputCls(accent)}
-              />
-            </Field>
-            <Field label="Preferred time">
-              <select
-                value={preferredTime}
-                onChange={(e) => setPreferredTime(e.target.value)}
-                className={inputCls(accent)}
-              >
-                <option value="" style={{ backgroundColor: "#0a1628" }}>
-                  Select a time...
-                </option>
-                {TIME_SLOTS.map((t) => (
-                  <option key={t.value} value={t.value} style={{ backgroundColor: "#0a1628" }}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-
-          {/* Activities — 6-col on lg (single row), 3-col on sm, 2-col on mobile.
-              Fixed 44px height so they all line up even when labels differ. */}
-          <Field label="Interested in">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-1">
-              {ACTIVITIES.map((a) => {
-                const selected = activityInterest.includes(a.value);
-                return (
-                  <button
-                    type="button"
-                    key={a.value}
-                    onClick={() => toggleActivity(a.value)}
-                    className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center whitespace-nowrap overflow-hidden"
-                    style={{
-                      border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
-                      backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
-                      color: selected ? accent : "#ffffffc0",
-                    }}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Event type">
+                  <select
+                    value={eventType}
+                    onChange={(e) => setEventType(e.target.value)}
+                    className={inputCls(accent)}
                   >
-                    {selected ? "✓ " : ""}
-                    {a.label}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-
-          {/* Contact preferences row — 2-col on desktop so each button group
-              has enough width for "Afternoon" to breathe. Notes gets its own
-              full-width row below. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
-            <Field label="Contact by">
-              <div className="grid grid-cols-3 gap-2 mt-1">
-                {CONTACT_METHODS.map((m) => {
-                  const selected = preferredContactMethod === m.value;
-                  return (
-                    <button
-                      type="button"
-                      key={m.value}
-                      onClick={() => setPreferredContactMethod(m.value)}
-                      className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
-                      style={{
-                        border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
-                        backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
-                        color: selected ? accent : "#ffffffc0",
-                      }}
-                    >
-                      {m.label}
-                    </button>
-                  );
-                })}
+                    {eventTypes.map((t) => (
+                      <option key={t.value} value={t.value} style={{ backgroundColor: "#0a1628" }}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Number of guests" required>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    required
+                    value={guestCount}
+                    onChange={(e) => setGuestCount(e.target.value)}
+                    className={inputCls(accent)}
+                  />
+                </Field>
               </div>
-            </Field>
-            <Field label="Best time to reach you">
-              <div className="grid grid-cols-3 gap-2 mt-1">
-                {BEST_TIMES.map((t) => {
-                  const selected = bestTimeToCall === t.value;
-                  return (
-                    <button
-                      type="button"
-                      key={t.value}
-                      onClick={() => setBestTimeToCall(t.value)}
-                      className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
-                      style={{
-                        border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
-                        backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
-                        color: selected ? accent : "#ffffffc0",
-                      }}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-          </div>
+            </>
+          )}
 
-          {/* Notes — own full-width row, resizable textarea */}
-          <Field label="Anything else we should know?">
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Dietary needs, age range, special occasions, timing flexibility…"
-              className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white font-body text-sm placeholder:text-white/30 focus:outline-none transition-colors resize-y"
-            />
-          </Field>
+          {/* ── Step 2: When & Activities ──────────────────────────────── */}
+          {step === 2 && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Preferred date">
+                  <input
+                    type="date"
+                    value={preferredDate}
+                    onChange={(e) => setPreferredDate(e.target.value)}
+                    className={inputCls(accent)}
+                  />
+                </Field>
+                <Field label="Preferred time">
+                  <select
+                    value={preferredTime}
+                    onChange={(e) => setPreferredTime(e.target.value)}
+                    className={inputCls(accent)}
+                  >
+                    <option value="" style={{ backgroundColor: "#0a1628" }}>
+                      Select a time...
+                    </option>
+                    {TIME_SLOTS.map((t) => (
+                      <option key={t.value} value={t.value} style={{ backgroundColor: "#0a1628" }}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="Interested in">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-1">
+                  {ACTIVITIES.map((a) => {
+                    const selected = activityInterest.includes(a.value);
+                    return (
+                      <button
+                        type="button"
+                        key={a.value}
+                        onClick={() => toggleActivity(a.value)}
+                        className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center whitespace-nowrap overflow-hidden"
+                        style={{
+                          border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                          backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
+                          color: selected ? accent : "#ffffffc0",
+                        }}
+                      >
+                        {selected ? "✓ " : ""}
+                        {a.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+
+              <Field label="Anything else we should know?">
+                <textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Dietary needs, age range, special occasions, timing flexibility…"
+                  className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3 text-white font-body text-sm placeholder:text-white/30 focus:outline-none transition-colors resize-y"
+                />
+              </Field>
+            </>
+          )}
+
+          {/* ── Step 3: Contact ────────────────────────────────────────── */}
+          {step === 3 && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="First name" required>
+                  <input
+                    type="text"
+                    autoComplete="given-name"
+                    required
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className={inputCls(accent)}
+                  />
+                </Field>
+                <Field label="Last name" required>
+                  <input
+                    type="text"
+                    autoComplete="family-name"
+                    required
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className={inputCls(accent)}
+                  />
+                </Field>
+                <Field label="Email" required>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className={inputCls(accent)}
+                  />
+                </Field>
+                <Field label="Phone" required>
+                  <input
+                    type="tel"
+                    autoComplete="tel"
+                    required
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(239) 555-0123"
+                    className={inputCls(accent)}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
+                <Field label="Contact by">
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {CONTACT_METHODS.map((m) => {
+                      const selected = preferredContactMethod === m.value;
+                      return (
+                        <button
+                          type="button"
+                          key={m.value}
+                          onClick={() => setPreferredContactMethod(m.value)}
+                          className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
+                          style={{
+                            border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                            backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
+                            color: selected ? accent : "#ffffffc0",
+                          }}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+                <Field label="Best time to reach you">
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {BEST_TIMES.map((t) => {
+                      const selected = bestTimeToCall === t.value;
+                      return (
+                        <button
+                          type="button"
+                          key={t.value}
+                          onClick={() => setBestTimeToCall(t.value)}
+                          className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
+                          style={{
+                            border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                            backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
+                            color: selected ? accent : "#ffffffc0",
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+              </div>
+            </>
+          )}
 
           {error && (
             <div
@@ -547,23 +640,47 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
             </div>
           )}
 
+          {/* Step nav */}
           <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-              style={{ border: "1px solid rgba(255,255,255,0.15)" }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="flex-[2] px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              style={{ backgroundColor: accent, color: accentText }}
-            >
-              {submitting ? "Sending..." : "Submit inquiry"}
-            </button>
+            {step > 1 ? (
+              <button
+                type="button"
+                onClick={() => setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))}
+                className="flex-1 px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                style={{ border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Back
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                style={{ border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                Cancel
+              </button>
+            )}
+            {step < 3 ? (
+              <button
+                type="button"
+                onClick={() => setStep((s) => ((s + 1) as 1 | 2 | 3))}
+                disabled={step === 1 ? !canAdvanceFromStep1 : !canAdvanceFromStep2}
+                className="flex-[2] px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                style={{ backgroundColor: accent, color: accentText }}
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="flex-[2] px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                style={{ backgroundColor: accent, color: accentText }}
+              >
+                {submitting ? "Sending..." : "Submit inquiry"}
+              </button>
+            )}
           </div>
 
           <p className="text-xs text-white/40 text-center pt-2">
