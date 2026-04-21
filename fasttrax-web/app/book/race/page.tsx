@@ -494,7 +494,8 @@ export default function BookRacePage() {
     setSelectedProduct(null);
     setSelectedProposal(null);
     setSelectedBlock(null);
-    // Don't clear bookings — "Add Another Race" loops back to date
+    // Don't clear bookings — prior bookings persist so "Add Another Race"
+    // (and manual back-nav) can stack onto the same bill.
     setBookingCategory(adults > 0 ? "adult" : "junior");
     fetchCatalog(date);
 
@@ -738,7 +739,11 @@ export default function BookRacePage() {
       setSelectedProduct(null);
       setSelectedProposal(null);
       setSelectedBlock(null);
-      changeStep("date");
+      // Return to the product (race) step rather than the date step —
+      // the new racer keeps the same date and just picks another race.
+      // Going back to "date" forced them to re-pick the day, which was
+      // unnecessary friction.
+      changeStep("product");
     } catch (err) {
       console.error("[handleAddAnother] booking failed:", err);
       alert("Failed to reserve heat. Please try again.");
