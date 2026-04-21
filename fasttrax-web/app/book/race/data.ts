@@ -245,15 +245,41 @@ const RACE_PRODUCTS: StaticRaceProduct[] = [
   { schedule: "mega", racerType: "existing", productId: "43732675", pageId: "43734751", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
 
   // ════════════════════════════════════════════════════════════════════════
-  // COMBO PRODUCTS — book all N races on one bill via booking/book repeatedly.
-  // Does NOT use race-pack credits, so sidesteps the broken credit-assignment
-  // pipeline at BMI. Requires a private "combo" page configured in BMI.
+  // COMBO / BUNDLE PACKS — race-pack credit workaround (April 2026).
+  //
+  // BMI broke race-pack credit assignment on the "Online Deposits" page
+  // 42960253 sometime between April 6–10, 2026 (see
+  // tasks/bmi-race-pack-credits-bug.md). Credits don't post to the
+  // person's account even though the sell + payment succeed.
+  //
+  // Workaround: instead of selling a "credit pack" and redeeming later,
+  // force the customer to pick their N heats UP FRONT. All N heats book
+  // on one bill via sequential booking/book calls with a shared orderId
+  // — no credits involved. ComboPackPicker handles the multi-heat UX.
+  //
+  // Page 44286218 is the private "Mega" pack page in BMI, configured so
+  // each heat costs `pack_price / raceCount` — three booking/book calls
+  // sum to the pack price. The `price` field here is the customer-
+  // facing PACK TOTAL (what we show in the picker + cart).
+  //
+  // Delete-all semantics: packs render as a single atomic cart block
+  // (OrderSummary.tsx isPack path) with no per-heat remove button, so
+  // abandoning the pack drops all 3 heats together — matches the ask
+  // "if they delete one it has to delete all three".
   // ════════════════════════════════════════════════════════════════════════
   {
     schedule: "mega", racerType: "existing",
-    productId: "44276020", pageId: "44286218",
-    name: "Pro Mega 3-Race Combo",
+    productId: "45094787", pageId: "44286218",
+    name: "Pro Mega 3-Pack",
     tier: "pro", category: "adult", track: "Mega",
+    price: 49.98,
+    packType: "combo", raceCount: 3,
+  },
+  {
+    schedule: "mega", racerType: "existing",
+    productId: "45094734", pageId: "44286218",
+    name: "Intermediate Mega 3-Pack",
+    tier: "intermediate", category: "adult", track: "Mega",
     price: 49.98,
     packType: "combo", raceCount: 3,
   },
