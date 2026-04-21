@@ -64,8 +64,18 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-/** Minimum gap between racer's heats on the same track (matches single-race HeatPicker). */
+/** Minimum gaps between one racer's heats — matches the single-race
+ *  HeatPicker (app/book/race/components/HeatPicker.tsx:184-198).
+ *
+ *  - Same track: 20 min covers the every-other-heat cadence (Blue runs
+ *    every 15 min, Red every 12 min; 20 min skips exactly one heat).
+ *  - Different track: 30 min to give the racer time to finish one heat,
+ *    walk between tracks, and check in on the other side.
+ *
+ *  For the same racer on one pack bill, both rules apply regardless of
+ *  which track each heat is on. */
 const SAME_TRACK_MIN_GAP_MIN = 20;
+const DIFFERENT_TRACK_MIN_GAP_MIN = 30;
 
 /** Track label color tokens — lines up with RaceTier colors elsewhere. */
 const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
@@ -97,13 +107,11 @@ function HeatGrid({
   showTrackBadge: boolean;
 }) {
   const selectedSet = new Set(selectedIdxs);
-  const bookedByTrack = new Map<string, number[]>();
-  for (const p of bookedPicks) {
-    const t = new Date(p.start.replace(/Z$/, "")).getTime();
-    const arr = bookedByTrack.get(p.track) ?? [];
-    arr.push(t);
-    bookedByTrack.set(p.track, arr);
-  }
+  // Pre-compute each pick's epoch time + track for the conflict check.
+  const bookedTimed = bookedPicks.map(p => ({
+    t: new Date(p.start.replace(/Z$/, "")).getTime(),
+    track: p.track,
+  }));
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -113,13 +121,16 @@ function HeatGrid({
 
         const isSelected = selectedSet.has(idx);
         const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-        // Same-track gap only: different tracks (e.g. Red vs Blue) don't
-        // need the switch-karts buffer since the racer moves between
-        // physical tracks anyway.
-        const sameTrackBookedTimes = bookedByTrack.get(proposal._track) ?? [];
-        const isBackToBack = !isSelected && sameTrackBookedTimes.some(
-          t => Math.abs(blockStart - t) < SAME_TRACK_MIN_GAP_MIN * 60_000,
-        );
+        // Per-racer gap rule, mirroring single-race HeatPicker:
+        //   Same track      → 20 min (kart-swap buffer on same track)
+        //   Different track → 30 min (finish heat, walk across, check in)
+        // The same racer can't physically race two heats without the
+        // appropriate buffer, regardless of which products they're on.
+        const isBackToBack = !isSelected && bookedTimed.some(pick => {
+          const sameTrack = pick.track === proposal._track;
+          const minGap = sameTrack ? SAME_TRACK_MIN_GAP_MIN : DIFFERENT_TRACK_MIN_GAP_MIN;
+          return Math.abs(blockStart - pick.t) < minGap * 60_000;
+        });
         const isLowCap = block.freeSpots < quantity;
         const isCapped = atCap && !isSelected;
         const isDisabled = isLowCap || isBackToBack || isCapped;
@@ -135,7 +146,7 @@ function HeatGrid({
             key={idx}
             onClick={() => !isDisabled && onToggle(idx)}
             disabled={isDisabled}
-            title={isBackToBack ? "Need at least 20 min between your heats on the same track to switch karts." : undefined}
+            title={isBackToBack ? "Need a longer gap between your heats — 20 min on the same track or 30 min across tracks." : undefined}
             className={`
               rounded-xl border p-3 text-left transition-all duration-150
               ${isSelected

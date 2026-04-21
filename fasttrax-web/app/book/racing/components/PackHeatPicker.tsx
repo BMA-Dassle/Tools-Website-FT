@@ -191,6 +191,12 @@ export default function PackHeatPicker({ race, date, quantity, onComplete, onBac
 
 type TrackedSmsProposal = SmsProposal & { _track: string };
 
+/** Minimum gaps between one racer's heats — mirrors the single-race
+ *  HeatPicker rule in the race flow. Same track = 20 min (kart swap);
+ *  different track = 30 min (finish heat, walk across, check in). */
+const PACK_SAME_TRACK_MIN_GAP_MIN = 20;
+const PACK_DIFFERENT_TRACK_MIN_GAP_MIN = 30;
+
 function MixedComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatPickerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -343,42 +349,72 @@ function MixedComboPackPicker({ race, date, quantity, onComplete, onBack }: Pack
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {proposals.map((proposal, idx) => {
-              const block = proposal.blocks?.[0]?.block;
-              if (!block) return null;
-              const isSelected = selectedIdxs.includes(idx);
-              const isCapped = selectedIdxs.length >= totalRaces && !isSelected;
-              const isLowCap = block.freeSpots < quantity;
-              const isDisabled = isLowCap || isCapped;
-              const badgeClass =
-                proposal._track === "Red" ? "bg-red-500/20 text-red-300"
-                : proposal._track === "Blue" ? "bg-blue-500/20 text-blue-300"
-                : "bg-white/10 text-white/70";
-              return (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => !isDisabled && toggleSelect(idx)}
-                  disabled={isDisabled}
-                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${isSelected
-                    ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-                    : isDisabled
-                      ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                      : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"}`}
-                >
-                  <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badgeClass}`}>
-                    {proposal._track}
-                  </div>
-                  <div className="text-white font-bold text-base mb-0.5">
-                    {new Date(block.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
-                  </div>
-                  <div className="text-xs font-medium text-white/60">{block.name}</div>
-                  <div className={`text-[13px] font-medium mt-1 ${isLowCap ? "text-red-400" : block.freeSpots / block.capacity <= 0.3 ? "text-amber-400" : "text-emerald-400"}`}>
-                    {isLowCap ? `Need ${quantity}, only ${block.freeSpots} left` : `${block.freeSpots} of ${block.capacity} open`}
-                  </div>
-                </button>
-              );
-            })}
+            {(() => {
+              // Pre-compute the selected picks' timing so conflict
+              // check is cheap per-card.
+              const pickedTimed = selectedIdxs
+                .map(i => {
+                  const p = proposals[i];
+                  const s = p?.blocks?.[0]?.block?.start;
+                  return s ? { t: new Date(s.replace(/Z$/, "")).getTime(), track: p._track } : null;
+                })
+                .filter((x): x is { t: number; track: string } => !!x);
+              return proposals.map((proposal, idx) => {
+                const block = proposal.blocks?.[0]?.block;
+                if (!block) return null;
+                const isSelected = selectedIdxs.includes(idx);
+                const isCapped = selectedIdxs.length >= totalRaces && !isSelected;
+                const isLowCap = block.freeSpots < quantity;
+                const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
+                // Per-racer gap rule: 20 min same-track, 30 min cross-
+                // track — one racer can't physically run two heats
+                // without the appropriate buffer to swap karts or walk
+                // between tracks.
+                const isBackToBack = !isSelected && pickedTimed.some(pick => {
+                  const sameTrack = pick.track === proposal._track;
+                  const minGap = sameTrack ? PACK_SAME_TRACK_MIN_GAP_MIN : PACK_DIFFERENT_TRACK_MIN_GAP_MIN;
+                  return Math.abs(blockStart - pick.t) < minGap * 60_000;
+                });
+                const isDisabled = isLowCap || isCapped || isBackToBack;
+                const badgeClass =
+                  proposal._track === "Red" ? "bg-red-500/20 text-red-300"
+                  : proposal._track === "Blue" ? "bg-blue-500/20 text-blue-300"
+                  : "bg-white/10 text-white/70";
+                const spotsLabel = isBackToBack
+                  ? "Too close to picked heat"
+                  : isLowCap
+                    ? `Need ${quantity}, only ${block.freeSpots} left`
+                    : `${block.freeSpots} of ${block.capacity} open`;
+                const spotsClass = isBackToBack
+                  ? "text-amber-400"
+                  : isLowCap
+                    ? "text-red-400"
+                    : block.freeSpots / block.capacity <= 0.3 ? "text-amber-400" : "text-emerald-400";
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => !isDisabled && toggleSelect(idx)}
+                    disabled={isDisabled}
+                    title={isBackToBack ? "Need a longer gap between your heats — 20 min on the same track or 30 min across tracks." : undefined}
+                    className={`rounded-xl border p-3 text-left transition-all duration-150 ${isSelected
+                      ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+                      : isDisabled
+                        ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
+                        : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"}`}
+                  >
+                    <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badgeClass}`}>
+                      {proposal._track}
+                    </div>
+                    <div className="text-white font-bold text-base mb-0.5">
+                      {new Date(block.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                    </div>
+                    <div className="text-xs font-medium text-white/60">{block.name}</div>
+                    <div className={`text-[13px] font-medium mt-1 ${spotsClass}`}>{spotsLabel}</div>
+                  </button>
+                );
+              });
+            })()}
           </div>
 
           <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdxs.length === totalRaces ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
