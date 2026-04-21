@@ -11,9 +11,10 @@
  *   Blue  every 15 min  →  threshold 16 min blocks only the adjacent
  *                          heat. E.g. pick 3:30 → blocks 3:15 + 3:45;
  *                          next pickable is 4:00 (+30 min away).
- *   Mega  every 24 min  →  threshold 25 min. Mega Tuesdays run a
- *                          single long configuration; cadence is
- *                          roughly double that of Red/Blue.
+ *   Mega  every 12 min  →  same cadence as Red (threshold 13 min). On
+ *                          Mega Tuesdays both tracks combine into a
+ *                          single long configuration but the heat
+ *                          clock still ticks every 12 min.
  *
  * Using an adjacent-only rule (instead of a wall-clock gap) means the
  * blocking scales naturally with whatever cadence BMI is running
@@ -29,7 +30,7 @@
 export const TRACK_ADJACENT_GAP_MIN: Record<string, number> = {
   red: 13,
   blue: 16,
-  mega: 25,
+  mega: 13, // Mega runs the same 12-min cadence as Red
 };
 
 /** Fallback for unknown track names — matches the old Red/Blue rule. */
