@@ -506,6 +506,11 @@ export default function RacePacksPage() {
             <p className="text-white/60 text-sm mt-1">
               Race pack purchases are temporarily unavailable online due to a technical issue. Please see an on-site team member for assistance.
             </p>
+            <p className="text-amber-400 text-sm font-semibold mt-2">
+              3-packs are now available through{" "}
+              <a href="/book/race" className="underline hover:text-amber-300">normal race booking</a>
+              {" "}— pick your 3 heats up front at checkout.
+            </p>
           </div>
         </div>
       </div>
