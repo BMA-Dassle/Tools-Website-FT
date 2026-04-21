@@ -241,7 +241,7 @@ export default function RacingPage() {
               border: "1px solid rgba(255,193,7,0.25)",
             }}
           >
-            FastTrax has strict age guidelines for your safety. Misrepresenting age may result in removal from the facility.
+            FastTrax has strict age and height requirements, some enforceable by state regulations. Misrepresenting age may result in removal from the facility.
           </p>
         </div>
       </section>

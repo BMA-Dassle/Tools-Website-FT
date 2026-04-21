@@ -1348,7 +1348,7 @@ export default function BookRacePage() {
             ...(adults > 0 ? [`I have ${adults} adult racer${adults !== 1 ? "s" : ""} who ${adults !== 1 ? "are each" : "is"} at least 13 years old and at least 59" tall (4'11")`] : []),
             ...(juniors > 0 ? [`I have ${juniors} junior racer${juniors !== 1 ? "s" : ""} who ${juniors !== 1 ? "are each" : "is"} between ages 7–13 and between 49" and 70" tall`] : []),
             "I understand that racers who do not meet height or age requirements will not be permitted to race",
-            "FastTrax has strict age guidelines for your safety. Misrepresenting age may result in removal from the facility.",
+            "FastTrax has strict age and height requirements, some enforceable by state regulations. Misrepresenting age may result in removal from the facility.",
           ];
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
