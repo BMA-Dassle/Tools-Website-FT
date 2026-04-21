@@ -245,27 +245,30 @@ const RACE_PRODUCTS: StaticRaceProduct[] = [
   { schedule: "mega", racerType: "existing", productId: "43732675", pageId: "43734751", name: "Junior Pro Race Mega", tier: "pro", category: "junior", track: "Mega", price: 20.99 },
 
   // ════════════════════════════════════════════════════════════════════════
-  // COMBO / BUNDLE PACKS — race-pack credit workaround (April 2026).
+  // PACK WORKAROUND — sell single-race product 3 times (April 2026).
   //
-  // BMI broke race-pack credit assignment on the "Online Deposits" page
-  // 42960253 sometime between April 6–10, 2026 (see
-  // tasks/bmi-race-pack-credits-bug.md). Credits don't post to the
-  // person's account even though the sell + payment succeed.
+  // BMI broke race-pack credit assignment on page 42960253 sometime
+  // between April 6–10, 2026 (see tasks/bmi-race-pack-credits-bug.md).
+  // Credits don't post even though sell + payment succeed.
   //
-  // Workaround: instead of selling a "credit pack" and redeeming later,
-  // force the customer to pick their N heats UP FRONT. All N heats book
-  // on one bill via sequential booking/book calls with a shared orderId
-  // — no credits involved. ComboPackPicker handles the multi-heat UX.
+  // Workaround: each entry below is a SINGLE-RACE product in BMI,
+  // priced at pack_price / 3. We gate it behind a pack-style picker
+  // (force 3 heat selections) and fire booking/book three times against
+  // one orderId — 3 separate bill lines at $pack/3 each, summing to the
+  // pack total. No credits involved. No BMI combo mechanic.
   //
-  // Page 44286218 is the private "Mega" pack page in BMI, configured so
-  // each heat costs `pack_price / raceCount` — three booking/book calls
-  // sum to the pack price. The `price` field here is the customer-
-  // facing PACK TOTAL (what we show in the picker + cart).
+  // `packType: "combo"` is a misnomer inherited from the earlier code,
+  // but the ComboPackPicker plumbing (3× bookRaceHeat chained on one
+  // orderId) is exactly what we want here. Renaming would ripple
+  // through the existing single-flow combo code, so we leave it.
   //
-  // Delete-all semantics: packs render as a single atomic cart block
-  // (OrderSummary.tsx isPack path) with no per-heat remove button, so
-  // abandoning the pack drops all 3 heats together — matches the ask
-  // "if they delete one it has to delete all three".
+  // `price` below is the customer-facing pack TOTAL — shown in the
+  // picker + cart. BMI-side per-heat price in the response drives the
+  // actual bill-line amounts.
+  //
+  // Delete-all semantics: the pack renders as a single atomic cart
+  // block (OrderSummary.tsx isPack branch) with no per-heat remove —
+  // abandoning the pack drops all 3 heats together.
   // ════════════════════════════════════════════════════════════════════════
   {
     schedule: "mega", racerType: "existing",

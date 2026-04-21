@@ -178,15 +178,53 @@ export interface ClassifiedProduct {
  * Classify raw API products into our tier/category/track model.
  * Only returns Karting products.
  */
+/**
+ * Race-pack credit workaround (April 2026).
+ *
+ * BMI broke the race-pack credit pipeline on page 42960253. Customers
+ * pay but no credits post (see tasks/bmi-race-pack-credits-bug.md).
+ *
+ * Workaround: each "3-pack" product below is a SINGLE-RACE product in
+ * BMI, priced at pack_price / 3 per heat. In the UI we gate it behind
+ * a pack-style picker (force 3 heat selections), then call booking/book
+ * three times against the same orderId — that's 3 separate bill lines,
+ * one per heat, summing to the pack total. No BMI combo mechanic and
+ * no credit pipeline involved.
+ *
+ * "packType: combo" here is a misnomer inherited from the earlier code
+ * — the mechanic is actually "single product sold 3 times", not BMI's
+ * native combo. The UI plumbing (ComboPackPicker → 3× bookRaceHeat
+ * chained on one orderId) is identical either way.
+ *
+ * Override `packType` + `raceCount: 3` here regardless of BMI's isCombo
+ * flag (the BMI products are plain single-race, not combo-flagged).
+ * `packPrice` is what the customer sees in the picker / cart total.
+ */
+const WORKAROUND_PACK_PRODUCTS: Record<string, { name: string; packPrice: number }> = {
+  "45094787": { name: "Pro Mega 3-Pack", packPrice: 49.98 },
+  "45094734": { name: "Intermediate Mega 3-Pack", packPrice: 49.98 },
+};
+
+/**
+ * Old combo product that's misconfigured in BMI (fires a single $24.99
+ * weekday-race line instead of the $49.98 3-pack total). Hidden from
+ * the picker so guests get routed to the working workaround products.
+ */
+const HIDDEN_PRODUCT_IDS = new Set(["44276020"]);
+
 export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
   const results: ClassifiedProduct[] = [];
 
   for (const page of pages) {
     for (const prod of page.products) {
       if (prod.productGroup !== "Karting") continue;
+      if (HIDDEN_PRODUCT_IDS.has(String(prod.id))) continue;
 
-      const name = prod.name;
-      const nameLower = name.toLowerCase();
+      const nameLower = prod.name.toLowerCase();
+      const workaround = WORKAROUND_PACK_PRODUCTS[String(prod.id)];
+
+      // Workaround products get a friendlier name + known pack price.
+      const name = workaround?.name ?? prod.name;
 
       // Determine tier
       let tier: RaceTier = "starter";
@@ -202,20 +240,28 @@ export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
       else if (nameLower.includes("blue")) track = "Blue";
       else if (nameLower.includes("mega")) track = "Mega";
 
-      // Cash price
-      const price = prod.prices.find(p => p.depositKind === 0)?.amount ?? 0;
+      // Cash price — workaround products display the pack total; everything
+      // else uses BMI's returned depositKind=0 price.
+      const price =
+        workaround?.packPrice ??
+        (prod.prices.find(p => p.depositKind === 0)?.amount ?? 0);
 
-      // Determine pack type
+      // Determine pack type — workaround product IDs force combo even if
+      // BMI hasn't flagged them isCombo.
       let packType: PackType = "none";
-      if (prod.isCombo) {
+      if (workaround || prod.isCombo) {
         packType = "combo"; // Mega track combo packs — sequential booking/book flow
       } else if (nameLower.includes("pack") && prod.durationSec === 0 && !prod.resourceKind) {
         packType = "sell"; // Weekday sell packs — booking/sell flow with modifier pages
       }
 
-      // Parse race count from name (e.g. "3-Race Pack", "3 Race Pack")
+      // Parse race count from name (e.g. "3-Race Pack", "3 Race Pack"),
+      // workaround products default to 3.
       const raceCountMatch = name.match(/(\d+)[- ]?race/i);
-      const raceCount = packType !== "none" ? (raceCountMatch ? parseInt(raceCountMatch[1], 10) : 3) : 1;
+      const raceCount =
+        workaround ? 3
+        : packType !== "none" ? (raceCountMatch ? parseInt(raceCountMatch[1], 10) : 3)
+        : 1;
 
       results.push({
         productId: prod.id,
@@ -225,7 +271,7 @@ export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
         category,
         track,
         price,
-        isCombo: prod.isCombo,
+        isCombo: !!workaround || prod.isCombo,
         packType,
         raceCount,
         sessionGroup: prod.sessionGroup,
