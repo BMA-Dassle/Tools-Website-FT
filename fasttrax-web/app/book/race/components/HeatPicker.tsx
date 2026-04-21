@@ -198,11 +198,24 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                 return Math.abs(blockStart - bhStart) < 30 * 60_000;
               });
 
-              const isFull = block.freeSpots < quantity || isConflict;
+              // Distinguish "not enough spots" from "too close to picked
+              // heat" — both disable the card but the label needs to
+              // tell the guest why. Previously both collapsed into the
+              // spots message, so conflict heats silently showed
+              // "Need 1, only N left" even when N > 0.
+              const isLowCap = block.freeSpots < quantity;
+              const isFull = isLowCap || isConflict;
               const isSelected = selectedIdx === idx;
-              const spots = isConflict
-                ? { text: "text-amber-400", label: "Already in cart" }
-                : spotsLabel(block.freeSpots, block.capacity);
+              const statusLabel = isConflict
+                ? "Too close to picked heat"
+                : isLowCap
+                  ? `Need ${quantity}, only ${block.freeSpots} left`
+                  : spotsLabel(block.freeSpots, block.capacity).label;
+              const statusClass = isConflict
+                ? "text-amber-400"
+                : isLowCap
+                  ? "text-red-400"
+                  : spotsLabel(block.freeSpots, block.capacity).text;
 
               return (
                 <button
@@ -216,6 +229,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                     }
                   }}
                   disabled={isFull}
+                  title={isConflict ? "Need a longer gap between your heats — 20 min on the same track or 30 min across tracks." : undefined}
                   className={`
                     rounded-xl border p-3 text-left transition-all duration-150
                     ${isSelected
@@ -229,13 +243,13 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
                   <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
                   <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-                  <div className={`text-[13px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
-                    {isFull ? `Need ${quantity}, only ${block.freeSpots} left` : spots.label}
+                  <div className={`text-[13px] font-medium ${statusClass}`}>
+                    {statusLabel}
                   </div>
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${isFull ? "bg-red-500" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
-                      style={{ width: `${(block.freeSpots / block.capacity) * 100}%` }}
+                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : isConflict ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                      style={{ width: isConflict ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
                     />
                   </div>
                 </button>
