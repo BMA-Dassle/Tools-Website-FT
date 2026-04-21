@@ -1,8 +1,20 @@
 "use client";
 
 import Image from "next/image";
-import type { ClassifiedProduct, RacerType } from "../data";
+import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, TIER_DESCRIPTIONS, groupByTrack } from "../data";
+
+/** Ordering for tier groups so Starter → Intermediate → Pro, with each
+ *  tier's single race sitting directly above its matching 3-pack. */
+const TIER_ORDER: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
+function sortGroups(groups: [string, ClassifiedProduct[]][]) {
+  return [...groups].sort((a, b) => {
+    const ta = TIER_ORDER[a[1][0].tier];
+    const tb = TIER_ORDER[b[1][0].tier];
+    if (ta !== tb) return ta - tb;
+    return a[1][0].raceCount - b[1][0].raceCount;
+  });
+}
 
 interface ProductPickerProps {
   products: ClassifiedProduct[];
@@ -16,13 +28,16 @@ interface ProductPickerProps {
 export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect }: ProductPickerProps) {
   const grouped = groupByTrack(products);
 
-  // Separate adult and junior product groups
-  const adultGroups: [string, ClassifiedProduct[]][] = [];
-  const juniorGroups: [string, ClassifiedProduct[]][] = [];
+  // Separate adult and junior product groups, then sort each so each
+  // tier's single race sits directly above its matching 3-pack.
+  const adultGroupsRaw: [string, ClassifiedProduct[]][] = [];
+  const juniorGroupsRaw: [string, ClassifiedProduct[]][] = [];
   for (const [key, items] of grouped) {
-    if (items[0].category === "junior") juniorGroups.push([key, items]);
-    else adultGroups.push([key, items]);
+    if (items[0].category === "junior") juniorGroupsRaw.push([key, items]);
+    else adultGroupsRaw.push([key, items]);
   }
+  const adultGroups = sortGroups(adultGroupsRaw);
+  const juniorGroups = sortGroups(juniorGroupsRaw);
 
   const hasAdultSection = adults > 0 && adultGroups.length > 0;
   const hasJuniorSection = juniors > 0 && juniorGroups.length > 0;
