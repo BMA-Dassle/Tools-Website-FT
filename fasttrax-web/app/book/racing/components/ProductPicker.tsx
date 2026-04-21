@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, groupByTrack } from "../data";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -206,6 +206,14 @@ function TrackPickerModal({ items, onSelect, onClose }: {
   const tierLabel = TIER_LABELS[rep.tier];
   const baseName = rep.name.replace(/\s+(Red|Blue)$/i, "").trim();
 
+  // Lock the body scroll while the modal is open so mobile devices
+  // don't forward scroll events to the page behind. Restore on unmount.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Order the two options so Blue always renders first — matches the
   // existing marketing copy on /racing.
   const ordered = [...items].sort((a, b) => {
@@ -216,12 +224,21 @@ function TrackPickerModal({ items, onSelect, onClose }: {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto"
+      // Fixed, non-scrolling backdrop — the inner card owns its scroll.
+      // dvh (dynamic viewport height) respects mobile safe areas.
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm"
+      style={{ height: "100dvh" }}
       {...modalBackdropProps(onClose)}
     >
       <div
-        className="relative w-full max-w-2xl rounded-2xl my-8"
-        style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,255,255,0.1)" }}
+        // Cap at viewport height minus the backdrop padding, and let
+        // the card scroll internally if content is taller.
+        className="relative w-full max-w-2xl rounded-2xl overflow-y-auto overscroll-contain flex flex-col"
+        style={{
+          backgroundColor: "#0a1128",
+          border: "1.78px solid rgba(255,255,255,0.1)",
+          maxHeight: "calc(100dvh - 1.5rem)",
+        }}
       >
         <button
           type="button"
@@ -232,10 +249,10 @@ function TrackPickerModal({ items, onSelect, onClose }: {
         >
           &times;
         </button>
-        <div className="p-5 sm:p-7">
-          <div className="mb-5">
+        <div className="p-4 sm:p-7">
+          <div className="mb-4 sm:mb-5 pr-10">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <h3 className="font-display text-white text-xl uppercase tracking-wider">{baseName}</h3>
+              <h3 className="font-display text-white text-lg sm:text-xl uppercase tracking-wider">{baseName}</h3>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierColor.badge}`}>
                 {tierLabel}
               </span>
@@ -259,7 +276,9 @@ function TrackPickerModal({ items, onSelect, onClose }: {
                   onClick={() => onSelect(item)}
                   className={`group relative overflow-hidden rounded-xl text-left border transition-all duration-200 hover:scale-[1.02] hover:ring-2 cursor-pointer ${ringClass}`}
                 >
-                  <div className="relative aspect-[4/3]">
+                  {/* Shorter aspect on mobile so both cards fit in one
+                      viewport height without internal scroll on phones. */}
+                  <div className="relative aspect-[21/9] sm:aspect-[4/3]">
                     <Image
                       src={info.image}
                       alt={info.title}
