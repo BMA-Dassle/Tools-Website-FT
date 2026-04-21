@@ -17,14 +17,14 @@ const TRACK_INFO: Record<string, {
   Red: {
     title: "Red Track",
     stat: "1,013 ft",
-    tagline: "High-speed & clockwise — long straights, quick finishes.",
+    tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
     accent: "red",
   },
   Blue: {
     title: "Blue Track",
     stat: "1,095 ft",
-    tagline: "Technical & counter-clockwise — more turns, more strategy.",
+    tagline: "Technical & clockwise — more turns, more strategy.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
     accent: "blue",
   },

@@ -533,7 +533,7 @@ export default function RacingPage() {
                       fontSize: "18px",
                     }}
                   >
-                    Technical &amp; Counter-clockwise.
+                    Technical &amp; Clockwise.
                   </p>
                 </div>
                 {/* Red Track */}
@@ -556,7 +556,7 @@ export default function RacingPage() {
                       fontSize: "18px",
                     }}
                   >
-                    High-speed &amp; Clockwise.
+                    High-speed &amp; Counter-clockwise.
                   </p>
                 </div>
               </div>
