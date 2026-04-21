@@ -1,7 +1,36 @@
 "use client";
 
+import Image from "next/image";
+import { useState } from "react";
 import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, groupByTrack } from "../data";
+import { modalBackdropProps } from "@/lib/a11y";
+
+// ── Track info shown in the "Pick your track" modal ─────────────────────────
+// Pulled from the live /racing page copy so the picker stays consistent with
+// the marketing description of each track.
+const TRACK_INFO: Record<string, {
+  title: string;
+  stat: string;
+  tagline: string;
+  image: string;
+  accent: string; // Tailwind color class stem (e.g. "red" / "blue")
+}> = {
+  Red: {
+    title: "Red Track",
+    stat: "1,013 ft",
+    tagline: "High-speed & clockwise — long straights, quick finishes.",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
+    accent: "red",
+  },
+  Blue: {
+    title: "Blue Track",
+    stat: "1,095 ft",
+    tagline: "Technical & counter-clockwise — more turns, more strategy.",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+    accent: "blue",
+  },
+};
 
 /** Ordering for tier groups in the picker. */
 const TIER_ORDER: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
@@ -50,6 +79,14 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
   const hasAdultSection = adults > 0 && adultGroups.length > 0;
   const hasJuniorSection = juniors > 0 && juniorGroups.length > 0;
 
+  /**
+   * When a multi-track product card is clicked, we stash its items here
+   * and render the TrackPickerModal. This keeps single-track + pack cards
+   * looking consistent in the grid (no inline Red/Blue buttons) and
+   * promotes track choice to a first-class step with stats + imagery.
+   */
+  const [trackModalItems, setTrackModalItems] = useState<ClassifiedProduct[] | null>(null);
+
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
@@ -73,7 +110,13 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
       {hasAdultSection && (
         <Section title={juniors > 0 ? "Adult Races" : undefined}>
           {adultGroups.map(([key, items]) => (
-            <ProductGroup key={key} items={items} selected={selected} onSelect={onSelect} />
+            <ProductGroup
+              key={key}
+              items={items}
+              selected={selected}
+              onSelect={onSelect}
+              onOpenTrackModal={setTrackModalItems}
+            />
           ))}
         </Section>
       )}
@@ -82,9 +125,23 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
       {hasJuniorSection && (
         <Section title={adults > 0 ? "Junior Races" : undefined}>
           {juniorGroups.map(([key, items]) => (
-            <ProductGroup key={key} items={items} selected={selected} onSelect={onSelect} />
+            <ProductGroup
+              key={key}
+              items={items}
+              selected={selected}
+              onSelect={onSelect}
+              onOpenTrackModal={setTrackModalItems}
+            />
           ))}
         </Section>
+      )}
+
+      {trackModalItems && (
+        <TrackPickerModal
+          items={trackModalItems}
+          onSelect={(p) => { onSelect(p); setTrackModalItems(null); }}
+          onClose={() => setTrackModalItems(null)}
+        />
       )}
     </div>
   );
@@ -103,79 +160,134 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
   );
 }
 
-function ProductGroup({ items, selected, onSelect }: {
+function ProductGroup({ items, selected, onSelect, onOpenTrackModal }: {
   items: ClassifiedProduct[];
   selected: ClassifiedProduct | null;
   onSelect: (p: ClassifiedProduct) => void;
+  onOpenTrackModal: (items: ClassifiedProduct[]) => void;
 }) {
   const hasMultipleTracks = items.length > 1 && items.some(i => i.track === "Red") && items.some(i => i.track === "Blue");
-  const representative = items[0];
-  const c = TIER_COLOR[representative.tier];
-  const tierLabel = TIER_LABELS[representative.tier];
 
-  // Single product or Mega — just show one card
+  // Single product (Mega / single-track / 3-pack) → one ProductCard.
   if (!hasMultipleTracks) {
     const product = items[0];
     const isSelected = selected?.productId === product.productId;
-    return (
-      <ProductCard product={product} isSelected={isSelected} onSelect={onSelect} />
-    );
+    return <ProductCard product={product} isSelected={isSelected} onSelect={onSelect} />;
   }
 
-  // Multiple tracks — show a grouped card with track toggle
-  const isAnySelected = items.some(i => selected?.productId === i.productId);
+  // Multi-track → render ONE merged card (same visual as the other
+  // products) and hand track selection off to the modal. Picks up a
+  // "Track: X" hint on the card when a track is already selected in
+  // this group, so returning to the picker stays legible.
   const selectedTrackProduct = items.find(i => selected?.productId === i.productId);
+  const merged: ClassifiedProduct = {
+    ...items[0],
+    name: items[0].name.replace(/\s+(Red|Blue)$/i, "").trim(),
+    track: selectedTrackProduct?.track ?? null,
+  };
+  const isSelected = !!selectedTrackProduct;
+  return (
+    <ProductCard
+      product={merged}
+      isSelected={isSelected}
+      onSelect={() => onOpenTrackModal(items)}
+    />
+  );
+}
+
+// ── Track picker modal — shown after the guest clicks a multi-track product ──
+function TrackPickerModal({ items, onSelect, onClose }: {
+  items: ClassifiedProduct[];
+  onSelect: (p: ClassifiedProduct) => void;
+  onClose: () => void;
+}) {
+  const rep = items[0];
+  const tierColor = TIER_COLOR[rep.tier];
+  const tierLabel = TIER_LABELS[rep.tier];
+  const baseName = rep.name.replace(/\s+(Red|Blue)$/i, "").trim();
+
+  // Order the two options so Blue always renders first — matches the
+  // existing marketing copy on /racing.
+  const ordered = [...items].sort((a, b) => {
+    if (a.track === "Blue") return -1;
+    if (b.track === "Blue") return 1;
+    return 0;
+  });
 
   return (
-    <div className={`rounded-xl border p-4 transition-all duration-200 ${
-      isAnySelected
-        ? `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`
-        : "border-white/10 bg-white/5"
-    }`}>
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div>
-          <span className="font-bold text-white text-sm">
-            {representative.name.replace(/\s+(Red|Blue)$/i, "").trim()}
-          </span>
-          <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-full ${c.badge}`}>
-            {tierLabel}
-          </span>
-          {representative.packType !== "none" && (
-            <span className="ml-1 text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-              {representative.raceCount}-Race Pack
-            </span>
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto"
+      {...modalBackdropProps(onClose)}
+    >
+      <div
+        className="relative w-full max-w-2xl rounded-2xl my-8"
+        style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,255,255,0.1)" }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close dialog"
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+          style={{ fontSize: "20px", lineHeight: 1 }}
+        >
+          &times;
+        </button>
+        <div className="p-5 sm:p-7">
+          <div className="mb-5">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <h3 className="font-display text-white text-xl uppercase tracking-wider">{baseName}</h3>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierColor.badge}`}>
+                {tierLabel}
+              </span>
+            </div>
+            <p className={`${tierColor.text} font-bold text-sm`}>${rep.price.toFixed(2)}</p>
+          </div>
+
+          <p className="text-white/60 text-sm mb-3 uppercase tracking-wider font-semibold text-[11px]">Pick your track</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {ordered.map(item => {
+              const info = item.track ? TRACK_INFO[item.track] : null;
+              if (!info) return null;
+              const ringClass = info.accent === "red"
+                ? "border-red-500/50 hover:border-red-500 hover:ring-red-500/30"
+                : "border-blue-500/50 hover:border-blue-500 hover:ring-blue-500/30";
+              const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
+              return (
+                <button
+                  key={item.productId}
+                  type="button"
+                  onClick={() => onSelect(item)}
+                  className={`group relative overflow-hidden rounded-xl text-left border transition-all duration-200 hover:scale-[1.02] hover:ring-2 cursor-pointer ${ringClass}`}
+                >
+                  <div className="relative aspect-[4/3]">
+                    <Image
+                      src={info.image}
+                      alt={info.title}
+                      fill
+                      className="object-cover group-hover:scale-105 transition-transform duration-500"
+                      sizes="(max-width: 640px) 100vw, 50vw"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+                  </div>
+                  <div className="p-3">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <h4 className={`font-display text-base uppercase tracking-wide ${titleClass}`}>
+                        {info.title}
+                      </h4>
+                      <span className="text-white/50 text-xs font-mono">{info.stat}</span>
+                    </div>
+                    <p className="text-white/70 text-xs leading-snug">{info.tagline}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {rep.raw.message && (
+            <p className="text-amber-400/80 text-xs mt-4 text-center">{rep.raw.message}</p>
           )}
         </div>
-        <span className={`${c.text} font-bold text-sm`}>${representative.price.toFixed(2)}</span>
       </div>
-
-      {/* Track selection */}
-      <p className="text-white/40 text-xs mb-2">Which track?</p>
-      <div className="flex gap-2">
-        {items.map(item => {
-          const isThis = selected?.productId === item.productId;
-          return (
-            <button
-              key={item.productId}
-              onClick={() => onSelect(item)}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 ${
-                isThis
-                  ? item.track === "Red"
-                    ? "bg-red-500/20 text-red-400 border border-red-500/50"
-                    : "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-                  : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10 hover:text-white/60"
-              }`}
-            >
-              {item.track} Track
-            </button>
-          );
-        })}
-      </div>
-
-      {representative.raw.message && (
-        <p className="text-amber-400/60 text-xs mt-2">{representative.raw.message}</p>
-      )}
     </div>
   );
 }
