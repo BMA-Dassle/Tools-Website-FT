@@ -497,6 +497,18 @@ export default function BookRacePage() {
     // Don't clear bookings — "Add Another Race" loops back to date
     setBookingCategory(adults > 0 ? "adult" : "junior");
     fetchCatalog(date);
+
+    // Mega Tuesday + first-time Junior racers = no qualifying product.
+    // Hold the step on `date` so the warning banner below renders and
+    // the guest can pick a different date or adjust their party before
+    // progressing.
+    const [y, m, d] = date.split("T")[0].split("-").map(Number);
+    const isTuesday = new Date(y, m - 1, d).getDay() === 2;
+    const hasNewJuniors = racerType === "new" && juniors > 0;
+    if (isTuesday && hasNewJuniors) {
+      return; // stay on "date" step — warning is rendered inline
+    }
+
     changeStep("product");
   }
 
@@ -1138,14 +1150,67 @@ export default function BookRacePage() {
         )}
 
         {/* STEP 3: Date */}
-        {step === "date" && (
-          <div className="space-y-8">
-            <DatePicker selected={selectedDate} onSelect={handleDateSelect} />
-            <button onClick={() => changeStep("party")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
-              ← Change party size
-            </button>
-          </div>
-        )}
+        {step === "date" && (() => {
+          // Mega Tuesdays don't run Junior Starter races — first-time
+          // junior racers can't race that day. Catch it the moment
+          // Tuesday is picked (via selectedDate), before the guest
+          // burns time on product + heat selection only to find no
+          // junior options. Returning juniors have already cleared
+          // Starter so they're fine.
+          const isMegaTuesday = (() => {
+            if (!selectedDate) return false;
+            const [y, m, d] = selectedDate.split("T")[0].split("-").map(Number);
+            return new Date(y, m - 1, d).getDay() === 2; // 2 = Tuesday
+          })();
+          const hasNewJuniors = racerType === "new" && juniors > 0;
+          const blockedForJuniors = isMegaTuesday && hasNewJuniors;
+          return (
+            <div className="space-y-6">
+              <DatePicker selected={selectedDate} onSelect={handleDateSelect} />
+
+              {blockedForJuniors && (
+                <div className="rounded-xl border-2 border-amber-400/50 bg-amber-400/10 p-5">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-amber-400 font-bold text-sm uppercase tracking-wider mb-1">
+                        Heads up — Mega Tuesday
+                      </p>
+                      <p className="text-white/80 text-sm leading-relaxed mb-3">
+                        Tuesdays run on the Mega Track only, and first-time Junior
+                        races aren&apos;t offered on Mega. Your{" "}
+                        {juniors === 1 ? "junior racer" : `${juniors} junior racers`}{" "}
+                        won&apos;t have a race to book on this date.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedDate(null); }}
+                          className="flex-1 px-4 py-2.5 rounded-lg font-body font-bold text-sm uppercase tracking-wider bg-amber-400 text-[#010A20] hover:bg-amber-300 transition-colors cursor-pointer"
+                        >
+                          Pick a different date
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => changeStep("party")}
+                          className="flex-1 px-4 py-2.5 rounded-lg font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/20 hover:border-white/40 transition-colors cursor-pointer"
+                        >
+                          Change party
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <button onClick={() => changeStep("party")} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+                ← Change party size
+              </button>
+            </div>
+          );
+        })()}
 
         {/* STEP 4: Product selection */}
         {step === "product" && racerType && (
