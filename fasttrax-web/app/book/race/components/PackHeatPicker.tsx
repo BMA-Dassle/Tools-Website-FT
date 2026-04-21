@@ -9,6 +9,38 @@ import type {
 import { bookRaceHeat } from "../data";
 import type { PackBookingResult } from "./OrderSummary";
 
+/**
+ * Attach a policy memo to the pack bill so ops staff see it in BMI
+ * Office and on printed receipts / reservation screens.
+ *
+ * Fires right after all 3 heats are booked (inside handleCommit below)
+ * so the memo is on the bill from creation — survives even if the
+ * customer abandons checkout. For single-racer packs (the common case)
+ * nothing else overwrites this memo; multi-racer group bookings in
+ * OrderSummary only add a group memo when `bills.length > 1`.
+ *
+ * Best-effort — a memo failure must not break the booking.
+ */
+async function attachPackMemo(billId: string, race: ClassifiedProduct) {
+  try {
+    const memo =
+      `** 3-RACE PACK PURCHASE (${race.name}) ** ` +
+      `All 3 heats are tied to ONE racer — DO NOT split between different racers. ` +
+      `No cash refunds — credits only if rescheduling is required.`;
+    const qs = new URLSearchParams({ endpoint: "booking/memo" });
+    // Raw JSON to preserve BMI orderId precision (matches bookRaceHeat pattern).
+    const body = `{"orderId":${billId},"memo":"${memo.replace(/"/g, '\\"')}"}`;
+    const res = await fetch(`/api/bmi?${qs.toString()}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    console.log("[pack memo]", billId, "status:", res.status);
+  } catch (err) {
+    console.warn("[pack memo] failed (non-fatal):", err);
+  }
+}
+
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface PackHeatPickerProps {
@@ -269,6 +301,10 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         schedules.push({ start: block.start, stop: block.stop, name: block.name });
       }
       if (!rawOrderId) throw new Error("No bill created");
+      // Attach the no-split / no-refund policy memo to the bill. Awaited
+      // so ops staff see it immediately on the reservation, but wrapped
+      // so a memo failure doesn't block the booking handoff.
+      await attachPackMemo(rawOrderId, race);
       onComplete({ billId: rawOrderId, schedules });
     } catch (err) {
       // Partial failure — cancel whatever was created so we don't leave orphaned bills.

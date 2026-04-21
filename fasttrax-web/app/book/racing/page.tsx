@@ -365,6 +365,23 @@ export default function BookRacingPage() {
             onBack={() => setStep("contact")}
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
+            onRemovePack={async () => {
+              // All 3 heats of a pack live on one orderId, so a single
+              // bill cancel clears them all. Reset pack state + return
+              // to the picker so the guest can pick something else
+              // without going all the way back via "Start over".
+              if (packResult?.billId) {
+                try {
+                  await fetch(
+                    `/api/bmi?endpoint=${encodeURIComponent(`bill/${packResult.billId}/cancel`)}`,
+                    { method: "DELETE" },
+                  );
+                } catch { /* best-effort */ }
+              }
+              setPackResult(null);
+              setSelectedProduct(null);
+              setStep("product");
+            }}
           />
         )}
         {/* Dev tag */}

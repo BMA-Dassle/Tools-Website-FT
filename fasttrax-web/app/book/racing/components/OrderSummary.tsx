@@ -23,6 +23,12 @@ interface OrderSummaryProps {
   packResult?: PackBookingResult;
   /** The pack product that was selected */
   packProduct?: ClassifiedProduct;
+  /**
+   * Callback to remove the entire pack (all 3 heats + cancel the bill).
+   * Parent cancels the active bill, clears packResult, and returns to
+   * the product picker.
+   */
+  onRemovePack?: () => void | Promise<void>;
 }
 
 type BookingState =
@@ -45,8 +51,9 @@ function cashTotal(bill: SmsBill): number {
   return t?.amount ?? 0;
 }
 
-export default function OrderSummary({ bookings, date, contact, onBack, packResult, packProduct }: OrderSummaryProps) {
+export default function OrderSummary({ bookings, date, contact, onBack, packResult, packProduct, onRemovePack }: OrderSummaryProps) {
   const [state, setState] = useState<BookingState>({ status: "idle" });
+  const [removingPack, setRemovingPack] = useState(false);
   const bookingStarted = useRef(false);
 
   // Auto-start booking process when component mounts
@@ -350,13 +357,34 @@ export default function OrderSummary({ bookings, date, contact, onBack, packResu
       {isPack && packResult && packProduct ? (
         // Pack booking — show all scheduled races
         <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/8">
-          <div className="p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-                {packResult.schedules.length}-Race Pack
-              </span>
+          <div className="p-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+                  {packResult.schedules.length}-Race Pack
+                </span>
+              </div>
+              <p className="text-white font-bold">{packProduct.name}</p>
             </div>
-            <p className="text-white font-bold">{packProduct.name}</p>
+            {onRemovePack && (
+              <button
+                type="button"
+                disabled={removingPack}
+                onClick={async () => {
+                  if (removingPack) return;
+                  if (!window.confirm(
+                    `Remove the ${packResult.schedules.length}-race pack? ` +
+                    `All ${packResult.schedules.length} reserved heats will be cancelled.`,
+                  )) return;
+                  setRemovingPack(true);
+                  try { await onRemovePack(); } finally { setRemovingPack(false); }
+                }}
+                className="shrink-0 text-xs font-semibold text-red-400/80 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 rounded-full px-3 py-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                aria-label="Remove this 3-race pack"
+              >
+                {removingPack ? "Removing..." : "Remove pack"}
+              </button>
+            )}
           </div>
           {packResult.schedules.map((s, i) => (
             <div key={i} className="p-4 flex justify-between items-center">

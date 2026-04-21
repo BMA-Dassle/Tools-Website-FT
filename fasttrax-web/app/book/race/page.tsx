@@ -1521,6 +1521,15 @@ export default function BookRacePage() {
             confirmationPath="/book/confirmation"
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
+            onRemovePack={async () => {
+              // Cancel the whole pack bill in BMI (all 3 heats live on one
+              // orderId for a pack, so one cancel clears all of them) and
+              // reset local state so the picker is a clean slate again.
+              cancelActiveOrder();
+              setPackResult(null);
+              setSelectedProduct(null);
+              changeStep("product");
+            }}
             personId={verifiedPerson?.personId}
             verifiedRacers={verifiedRacers.filter(r => r.personId).map(r => ({ personId: r.personId, fullName: r.fullName }))}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}

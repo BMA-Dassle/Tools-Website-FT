@@ -12,6 +12,34 @@ import type {
   PackSchedule,
 } from "../data";
 
+/**
+ * Attach a policy memo to the pack bill so ops staff see it in BMI
+ * Office and on reservation screens. Best-effort; a memo failure must
+ * not break the booking handoff.
+ *
+ * For single-racer packs (the common case) nothing overwrites this
+ * memo later — the group memo in OrderSummary only fires when
+ * `bills.length > 1`.
+ */
+async function attachPackMemo(billId: string, race: ClassifiedProduct) {
+  try {
+    const memo =
+      `** 3-RACE PACK PURCHASE (${race.name}) ** ` +
+      `All 3 heats are tied to ONE racer — DO NOT split between different racers. ` +
+      `No cash refunds — credits only if rescheduling is required.`;
+    const qs = new URLSearchParams({ endpoint: "booking/memo" });
+    const body = `{"orderId":${billId},"memo":"${memo.replace(/"/g, '\\"')}"}`;
+    const res = await fetch(`/api/bmi?${qs.toString()}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    console.log("[pack memo]", billId, "status:", res.status);
+  } catch (err) {
+    console.warn("[pack memo] failed (non-fatal):", err);
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** Result passed to parent when all races are booked */
@@ -252,6 +280,9 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         const finalSchedules = result.schedules?.length
           ? result.schedules.map(s => ({ start: s.start, stop: s.stop, name: s.name }))
           : updatedSchedules;
+        // Attach the no-split / no-refund policy memo to the bill
+        // before the handoff, so it's on the reservation immediately.
+        if (newBillId) await attachPackMemo(newBillId, race);
         onComplete({ billId: newBillId!, schedules: finalSchedules });
       }
     } catch (err) {
