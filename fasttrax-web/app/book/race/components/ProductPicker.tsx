@@ -74,24 +74,9 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
   return (
     <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-display uppercase tracking-widest text-white">
-          {racerType === "new" ? "Pick Your Starter Race" : "Choose Your Race"}
-        </h2>
-        <p className="text-white/40 text-sm max-w-md mx-auto">
-          {racerType === "new"
-            ? "All first-time racers start here. Pick the race that fits your group."
-            : "Select from races you've qualified for."}
-        </p>
-      </div>
-
-      {/* Track info moved into the TrackPickerModal (opens when a
-          multi-track product is clicked). The previous visual-only
-          Red/Blue panel above the product list was redundant. */}
-
-      {/* New racer license notice — full-width like the race cards
-          below so it takes less vertical space and reads as a single
-          row on desktop. */}
+      {/* New racer license notice — placed ABOVE the "Pick Your
+          Starter Race" heading so it clearly reads as a preamble
+          notice and not one of the selectable race options. */}
       {racerType === "new" && products.length > 0 && (
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
           <div className="flex items-center gap-3">
@@ -110,6 +95,17 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
           </div>
         </div>
       )}
+
+      <div className="text-center space-y-2">
+        <h2 className="text-2xl font-display uppercase tracking-widest text-white">
+          {racerType === "new" ? "Pick Your Starter Race" : "Choose Your Race"}
+        </h2>
+        <p className="text-white/40 text-sm max-w-md mx-auto">
+          {racerType === "new"
+            ? "All first-time racers start here. Pick the race that fits your group."
+            : "Select from races you've qualified for."}
+        </p>
+      </div>
 
       {products.length === 0 && (
         <div className="text-center py-8">
