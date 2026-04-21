@@ -176,6 +176,20 @@ interface StaticRaceProduct {
   packType?: PackType;
   /** Number of races included in a pack (only meaningful when packType !== "none") */
   raceCount?: number;
+  /**
+   * For MIXED-track packs (e.g., weekday Intermediate 3-Pack where
+   * heats can be any combo of Red + Blue): map each track to the BMI
+   * product that books heats on that track.
+   *
+   * When this is set, ComboPackPicker fetches dayplanner for each
+   * entry (union of time slots across tracks) and books each selected
+   * heat using the product that matches its track.
+   *
+   * `track` should be null on the parent entry (since it spans tracks),
+   * and `productId`/`pageId` on the parent should point to the primary
+   * entry used for the UI card — typically the first track.
+   */
+  trackProducts?: Record<string, { productId: string; pageId: string }>;
 }
 
 const RACE_PRODUCTS: StaticRaceProduct[] = [
@@ -286,6 +300,51 @@ const RACE_PRODUCTS: StaticRaceProduct[] = [
     price: 49.98,
     packType: "combo", raceCount: 3,
   },
+
+  // Weekday mixed-track 3-packs (Mon/Wed/Thu) — heats can mix Red + Blue.
+  // ComboPackPicker fetches dayplanner from each entry in trackProducts
+  // and books each selected heat against the product matching its track.
+  // `productId`/`pageId` on the parent entry point at the Red product
+  // for UI purposes; the actual booking uses trackProducts[heat.track].
+  {
+    schedule: "weekday", racerType: "existing",
+    productId: "45094857", pageId: "25850629",
+    name: "Intermediate Weekday 3-Pack",
+    tier: "intermediate", category: "adult", track: null,
+    price: 49.98,
+    packType: "combo", raceCount: 3,
+    trackProducts: {
+      Red:  { productId: "45094857", pageId: "25850629" },
+      Blue: { productId: "45094906", pageId: "25850629" },
+    },
+  },
+  {
+    schedule: "weekday", racerType: "existing",
+    productId: "45094954", pageId: "25850669",
+    name: "Pro Weekday 3-Pack",
+    tier: "pro", category: "adult", track: null,
+    price: 49.98,
+    packType: "combo", raceCount: 3,
+    trackProducts: {
+      Red:  { productId: "45094954", pageId: "25850669" },
+      Blue: { productId: "45095003", pageId: "25850669" },
+    },
+  },
+
+  // Weekend mixed-track Intermediate 3-Pack (Fri/Sat/Sun). No Pro on
+  // weekends. Same mixed-track mechanic as the weekday packs.
+  {
+    schedule: "weekend", racerType: "existing",
+    productId: "45095096", pageId: "25850598",
+    name: "Intermediate Weekend 3-Pack",
+    tier: "intermediate", category: "adult", track: null,
+    price: 59.98,
+    packType: "combo", raceCount: 3,
+    trackProducts: {
+      Red:  { productId: "45095096", pageId: "25850598" },
+      Blue: { productId: "45095051", pageId: "25850598" },
+    },
+  },
 ];
 
 /** Minimal BmiProduct stub for static products (HeatPicker uses raw.message) */
@@ -336,6 +395,7 @@ export function getStaticProducts(date: string, racerType: RacerType = "new"): C
       raceCount: p.raceCount ?? 1,
       sessionGroup: "Unknown",
       raw: stubRaw(p),
+      trackProducts: p.trackProducts,
     }));
 }
 
@@ -356,6 +416,14 @@ export interface ClassifiedProduct {
   raceCount: number;
   sessionGroup: string;
   raw: BmiProduct;
+  /**
+   * Mixed-track pack: map each track label (e.g. "Red", "Blue") to the
+   * BMI product that books heats on that track. Set on weekday 3-pack
+   * entries that span Red + Blue. ComboPackPicker uses this to fetch
+   * dayplanner from every entry and book each heat against the
+   * track-matched product. Absent on single-track packs.
+   */
+  trackProducts?: Record<string, { productId: string; pageId: string }>;
 }
 
 /**

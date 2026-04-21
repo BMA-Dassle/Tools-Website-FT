@@ -165,13 +165,21 @@ export interface ClassifiedProduct {
   name: string;
   tier: RaceTier;
   category: RaceCategory;
-  track: string | null; // "Red", "Blue", or null (Mega/unknown)
+  track: string | null; // "Red", "Blue", or null (Mega/mixed-track)
   price: number;       // cash price (depositKind 0)
   isCombo: boolean;    // multi-pack
   packType: PackType;  // "sell" = weekday pack (booking/sell flow), "combo" = mega pack (sequential booking/book)
   raceCount: number;   // 1 for single races, 3 for packs
   sessionGroup: string;
   raw: SmsProduct;
+  /**
+   * Mixed-track packs (weekday / weekend Intermediate + Pro 3-packs):
+   * map each track label to the BMI product that books heats on that
+   * track. When set, track is null on this entry and ComboPackPicker
+   * fetches dayplanner from every entry, tags each proposal with its
+   * track, and books each selected heat against the matching product.
+   */
+  trackProducts?: Record<string, { productId: string; pageId: string }>;
 }
 
 /**
@@ -200,10 +208,65 @@ export interface ClassifiedProduct {
  * flag (the BMI products are plain single-race, not combo-flagged).
  * `packPrice` is what the customer sees in the picker / cart total.
  */
+/**
+ * Single-track workaround packs — one BMI product per entry.
+ * The classifier keeps each as its own ClassifiedProduct (same flow as
+ * regular single-track combos).
+ */
 const WORKAROUND_PACK_PRODUCTS: Record<string, { name: string; packPrice: number }> = {
   "45094787": { name: "Pro Mega 3-Pack", packPrice: 49.98 },
   "45094734": { name: "Intermediate Mega 3-Pack", packPrice: 49.98 },
 };
+
+/**
+ * Mixed-track workaround packs — multiple BMI products (one per track)
+ * merged into a SINGLE synthetic ClassifiedProduct. Heats from all
+ * track-products get pooled in the picker so the guest can pick any
+ * combo (e.g. two Red + one Blue). Each selected heat books against
+ * the product matching its track.
+ *
+ * The classifier skips the underlying per-track products and instead
+ * emits one synthetic entry per group (primary product = the first
+ * trackProducts entry). If BMI doesn't return *any* of a group's
+ * products on a given page, the group is silently dropped.
+ */
+const WORKAROUND_MIXED_PACKS: Array<{
+  tier: RaceTier;
+  category: RaceCategory;
+  name: string;
+  packPrice: number;
+  /** Track → product ID. Page ID resolved from the product's BMI page. */
+  trackProductIds: Record<string, string>;
+}> = [
+  {
+    tier: "intermediate",
+    category: "adult",
+    name: "Intermediate Weekday 3-Pack",
+    packPrice: 49.98,
+    trackProductIds: { Red: "45094857", Blue: "45094906" },
+  },
+  {
+    tier: "pro",
+    category: "adult",
+    name: "Pro Weekday 3-Pack",
+    packPrice: 49.98,
+    trackProductIds: { Red: "45094954", Blue: "45095003" },
+  },
+  {
+    tier: "intermediate",
+    category: "adult",
+    name: "Intermediate Weekend 3-Pack",
+    packPrice: 59.98,
+    trackProductIds: { Red: "45095096", Blue: "45095051" },
+  },
+];
+
+/** Flat set of every underlying product ID that's part of a mixed pack —
+ *  the classifier skips these so they don't double up alongside the
+ *  synthetic merged entry. */
+const MIXED_PACK_UNDERLYING_IDS = new Set(
+  WORKAROUND_MIXED_PACKS.flatMap(g => Object.values(g.trackProductIds)),
+);
 
 /**
  * Old combo product that's misconfigured in BMI (fires a single $24.99
@@ -214,11 +277,21 @@ const HIDDEN_PRODUCT_IDS = new Set(["44276020"]);
 
 export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
   const results: ClassifiedProduct[] = [];
+  /** Track which mixed-pack underlying products we saw + which page
+   *  they live on, so we can emit the merged synthetic entries after. */
+  const mixedPackMembersSeen = new Map<string, { pageId: string; prod: SmsProduct }>();
 
   for (const page of pages) {
     for (const prod of page.products) {
       if (prod.productGroup !== "Karting") continue;
       if (HIDDEN_PRODUCT_IDS.has(String(prod.id))) continue;
+
+      // Mixed-pack underlying products — remember them and skip; we'll
+      // emit one merged entry per group at the end.
+      if (MIXED_PACK_UNDERLYING_IDS.has(String(prod.id))) {
+        mixedPackMembersSeen.set(String(prod.id), { pageId: page.id, prod });
+        continue;
+      }
 
       const nameLower = prod.name.toLowerCase();
       const workaround = WORKAROUND_PACK_PRODUCTS[String(prod.id)];
@@ -278,6 +351,44 @@ export function classifyProducts(pages: SmsPage[]): ClassifiedProduct[] {
         raw: prod,
       });
     }
+  }
+
+  // Emit one synthetic merged entry per mixed-pack group whose products
+  // were actually returned by BMI for the current schedule. Primary
+  // productId/pageId point at the first track-product for UI card
+  // display; the ComboPackPicker uses `trackProducts` for per-heat
+  // fetch + booking.
+  for (const group of WORKAROUND_MIXED_PACKS) {
+    const tracks = Object.entries(group.trackProductIds);
+    const resolved = tracks
+      .map(([track, productId]) => {
+        const hit = mixedPackMembersSeen.get(productId);
+        return hit ? { track, productId, pageId: hit.pageId, prod: hit.prod } : null;
+      })
+      .filter((x): x is { track: string; productId: string; pageId: string; prod: SmsProduct } => !!x);
+
+    if (resolved.length === 0) continue; // none of this group's products are on this schedule
+
+    const trackProducts: Record<string, { productId: string; pageId: string }> = {};
+    for (const r of resolved) {
+      trackProducts[r.track] = { productId: r.productId, pageId: r.pageId };
+    }
+    const primary = resolved[0];
+    results.push({
+      productId: primary.productId,
+      pageId: primary.pageId,
+      name: group.name,
+      tier: group.tier,
+      category: group.category,
+      track: null, // null = spans tracks
+      price: group.packPrice,
+      isCombo: true,
+      packType: "combo",
+      raceCount: 3,
+      sessionGroup: primary.prod.sessionGroup,
+      raw: primary.prod,
+      trackProducts,
+    });
   }
 
   return results;

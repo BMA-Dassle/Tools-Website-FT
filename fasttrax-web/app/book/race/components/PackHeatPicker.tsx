@@ -67,25 +67,43 @@ function spotsLabel(free: number, capacity: number) {
 /** Minimum gap between racer's heats on the same track (matches single-race HeatPicker). */
 const SAME_TRACK_MIN_GAP_MIN = 20;
 
+/** Track label color tokens — lines up with RaceTier colors elsewhere. */
+const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
+  Red:  { bg: "bg-red-500/20",     text: "text-red-300" },
+  Blue: { bg: "bg-blue-500/20",    text: "text-blue-300" },
+  Mega: { bg: "bg-purple-500/20",  text: "text-purple-300" },
+};
+
 function HeatGrid({
   proposals,
   selectedIdxs,
   onToggle,
   quantity,
-  bookedStarts,
+  bookedPicks,
   atCap,
+  showTrackBadge,
 }: {
-  proposals: BmiProposal[];
+  proposals: TrackedProposal[];
   selectedIdxs: number[];
   onToggle: (idx: number) => void;
   quantity: number;
-  /** Starts (ISO) of heats currently picked — used to grey out back-to-back slots. */
-  bookedStarts: string[];
+  /** Picks currently selected — need (start + track) so same-track gap is
+   *  enforced per-track on mixed-track packs but cross-track heats at
+   *  the same time remain pickable. */
+  bookedPicks: { start: string; track: string }[];
   /** When the user has already picked the maximum number of heats. */
   atCap: boolean;
+  /** Show Red/Blue badge on each heat card (mixed-track packs). */
+  showTrackBadge: boolean;
 }) {
-  const bookedTimes = bookedStarts.map(s => new Date(s.replace(/Z$/, "")).getTime());
   const selectedSet = new Set(selectedIdxs);
+  const bookedByTrack = new Map<string, number[]>();
+  for (const p of bookedPicks) {
+    const t = new Date(p.start.replace(/Z$/, "")).getTime();
+    const arr = bookedByTrack.get(p.track) ?? [];
+    arr.push(t);
+    bookedByTrack.set(p.track, arr);
+  }
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -95,9 +113,13 @@ function HeatGrid({
 
         const isSelected = selectedSet.has(idx);
         const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-        // Back-to-back block: too close to any already-picked heat (same-track rule = 20 min).
-        // Combo product is always same track (Mega), so we don't need to track-check.
-        const isBackToBack = !isSelected && bookedTimes.some(t => Math.abs(blockStart - t) < SAME_TRACK_MIN_GAP_MIN * 60_000);
+        // Same-track gap only: different tracks (e.g. Red vs Blue) don't
+        // need the switch-karts buffer since the racer moves between
+        // physical tracks anyway.
+        const sameTrackBookedTimes = bookedByTrack.get(proposal._track) ?? [];
+        const isBackToBack = !isSelected && sameTrackBookedTimes.some(
+          t => Math.abs(blockStart - t) < SAME_TRACK_MIN_GAP_MIN * 60_000,
+        );
         const isLowCap = block.freeSpots < quantity;
         const isCapped = atCap && !isSelected;
         const isDisabled = isLowCap || isBackToBack || isCapped;
@@ -106,13 +128,14 @@ function HeatGrid({
           : isCapped
             ? { text: "text-white/40", label: "Unselect a picked heat to change" }
             : spotsLabel(block.freeSpots, block.capacity);
+        const badge = TRACK_BADGE[proposal._track] ?? { bg: "bg-white/10", text: "text-white/70" };
 
         return (
           <button
             key={idx}
             onClick={() => !isDisabled && onToggle(idx)}
             disabled={isDisabled}
-            title={isBackToBack ? "Need at least 20 min between your heats to switch karts." : undefined}
+            title={isBackToBack ? "Need at least 20 min between your heats on the same track to switch karts." : undefined}
             className={`
               rounded-xl border p-3 text-left transition-all duration-150
               ${isSelected
@@ -123,6 +146,11 @@ function HeatGrid({
               }
             `}
           >
+            {showTrackBadge && (
+              <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badge.bg} ${badge.text}`}>
+                {proposal._track}
+              </div>
+            )}
             <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
             <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
             <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
@@ -207,17 +235,29 @@ function SellPackNotSupported({ race, onBack }: { race: ClassifiedProduct; onBac
   );
 }
 
-// ── Combo Pack Picker (Mega track) ──────────────────────────────────────────
+// ── Combo Pack Picker — single-track (Mega) + mixed-track (weekday / weekend) ──
+
+/**
+ * Extend BmiProposal with the track it came from. We need this on
+ * mixed-track packs (e.g. weekday Intermediate 3-Pack spanning Red +
+ * Blue) so that when booking each heat we can pick the correct BMI
+ * product ID for that track. For single-track packs (Mega) _track is
+ * simply the pack's own track.
+ */
+type TrackedProposal = BmiProposal & { _track: string };
 
 function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatPickerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [proposals, setProposals] = useState<BmiProposal[]>([]);
+  const [proposals, setProposals] = useState<TrackedProposal[]>([]);
   /** Set of selected proposal indexes. Ordered visually by proposal order (time). */
   const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
   const [committing, setCommitting] = useState(false);
   const totalRaces = race.raceCount;
   const ctaRef = useRef<HTMLDivElement>(null);
+  /** When set, we fetch dayplanner for each track-product and merge. */
+  const trackProducts = race.trackProducts;
+  const isMixedTrack = !!trackProducts && Object.keys(trackProducts).length > 1;
 
   // Scroll CTA into view when we reach the required selection count
   useEffect(() => {
@@ -226,8 +266,9 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     }
   }, [selectedIdxs.length, totalRaces]);
 
-  // Fetch heats via SMS-Timing dayplanner (BMI availability on this product
-  // only returns day-level open/closed, not time slots).
+  // Fetch heats via SMS-Timing dayplanner. For single-track packs we
+  // fetch one product; for mixed-track packs we fetch each entry in
+  // `trackProducts` and merge, tagging each proposal with its track.
   const fetchHeats = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -238,30 +279,44 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
         ? [11, 13, 15, 17, 19, 20, 21, 22, 23]
         : [15, 17, 18, 19, 20, 21, 22, 23];
-      const all: BmiProposal[] = [];
+
+      // Build the fetch plan: one entry per track we need to probe.
+      const fetchPlan: Array<{ track: string; productId: string; pageId: string }> =
+        trackProducts
+          ? Object.entries(trackProducts).map(([track, p]) => ({ track, productId: p.productId, pageId: p.pageId }))
+          : [{ track: race.track ?? "Mega", productId: race.productId, pageId: race.pageId }];
+
+      const all: TrackedProposal[] = [];
+      // De-dup by (track, start) — same-track same-start is a dupe from overlapping
+      // hour sweeps, but Red and Blue at the same time are DIFFERENT heats to keep.
       const seen = new Set<string>();
-      for (const hour of startHours) {
-        const h = String(hour).padStart(2, "0");
-        const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            productId: race.productId,
-            pageId: race.pageId,
-            quantity: 1,
-            dynamicLines: null,
-            date: `${dateOnly}T${h}:00:00.000Z`,
-          }),
-        });
-        const data = await res.json();
-        for (const p of (data.proposals || [])) {
-          const key = p.blocks?.[0]?.block?.start;
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            all.push(p);
+
+      for (const { track, productId, pageId } of fetchPlan) {
+        for (const hour of startHours) {
+          const h = String(hour).padStart(2, "0");
+          const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              productId,
+              pageId,
+              quantity: 1,
+              dynamicLines: null,
+              date: `${dateOnly}T${h}:00:00.000Z`,
+            }),
+          });
+          const data = await res.json();
+          for (const p of (data.proposals || [])) {
+            const start = p.blocks?.[0]?.block?.start;
+            const key = start ? `${track}|${start}` : "";
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              all.push({ ...p, _track: track });
+            }
           }
         }
       }
+      // Sort by time; ties (same time, different tracks) keep fetch-plan order.
       all.sort((a, b) =>
         (a.blocks?.[0]?.block?.start || "").localeCompare(b.blocks?.[0]?.block?.start || "")
       );
@@ -271,7 +326,8 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     } finally {
       setLoading(false);
     }
-  }, [race.productId, race.pageId, date]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [race.productId, race.pageId, date, JSON.stringify(trackProducts ?? null)]);
 
   useEffect(() => { fetchHeats(); }, [fetchHeats]);
 
@@ -283,7 +339,9 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     });
   }
 
-  /** Book all selected heats sequentially against one bill, then hand off. */
+  /** Book all selected heats sequentially against one bill, then hand off.
+   *  For mixed-track packs, each heat books against the product matching
+   *  its own track (Red → Red productId, Blue → Blue productId). */
   async function handleCommit() {
     if (selectedIdxs.length !== totalRaces) return;
     setCommitting(true);
@@ -296,9 +354,15 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         const proposal = proposals[idx];
         const block = proposal.blocks?.[0]?.block;
         if (!block) throw new Error("Invalid heat selected");
-        const result = await bookRaceHeat(race, quantity, proposal, rawOrderId);
+        // For mixed-track packs, swap productId/pageId on a per-heat
+        // basis so BMI books each heat against the right track product.
+        const trackCfg = trackProducts?.[proposal._track];
+        const bookableProduct: ClassifiedProduct = trackCfg
+          ? { ...race, productId: trackCfg.productId, pageId: trackCfg.pageId, track: proposal._track }
+          : race;
+        const result = await bookRaceHeat(bookableProduct, quantity, proposal, rawOrderId);
         if (result.rawOrderId) rawOrderId = result.rawOrderId;
-        schedules.push({ start: block.start, stop: block.stop, name: block.name });
+        schedules.push({ start: block.start, stop: block.stop, name: block.name, trackName: proposal._track });
       }
       if (!rawOrderId) throw new Error("No bill created");
       // Attach the no-split / no-refund policy memo to the bill. Awaited
@@ -319,16 +383,22 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     }
   }
 
-  /** Starts that are "picked" in the UI — used to grey out back-to-back slots. */
-  const pickedStarts = selectedIdxs
-    .map(i => proposals[i]?.blocks?.[0]?.block?.start)
-    .filter((s): s is string => !!s);
+  /** Picks that are "selected" in the UI — per-track so the same-track
+   *  20-min-gap rule only fires when both heats are on the same track. */
+  const pickedPicks = selectedIdxs
+    .map(i => {
+      const p = proposals[i];
+      const start = p?.blocks?.[0]?.block?.start;
+      return start ? { start, track: p._track } : null;
+    })
+    .filter((x): x is { start: string; track: string } => !!x);
 
   /** Preview of what the user has picked so far (in time order). */
   const previewSchedules: PackSchedule[] = selectedIdxs.map(i => {
-    const block = proposals[i]?.blocks?.[0]?.block;
+    const p = proposals[i];
+    const block = p?.blocks?.[0]?.block;
     return block
-      ? { start: block.start, stop: block.stop, name: block.name }
+      ? { start: block.start, stop: block.stop, name: block.name, trackName: p._track }
       : { start: "", stop: "", name: "" };
   }).filter(s => s.start);
 
@@ -371,8 +441,9 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
             selectedIdxs={selectedIdxs}
             onToggle={toggleSelect}
             quantity={quantity}
-            bookedStarts={pickedStarts}
+            bookedPicks={pickedPicks}
             atCap={selectedIdxs.length >= totalRaces}
+            showTrackBadge={isMixedTrack}
           />
 
           <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdxs.length === totalRaces ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>

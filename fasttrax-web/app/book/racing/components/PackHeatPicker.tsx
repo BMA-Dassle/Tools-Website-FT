@@ -170,10 +170,249 @@ async function sms(endpoint: string, body: unknown, sessionId?: string) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function PackHeatPicker({ race, date, quantity, onComplete, onBack }: PackHeatPickerProps) {
+  // Mixed-track packs (weekday/weekend Intermediate + Pro 3-packs) need
+  // to fetch heats from multiple underlying BMI products and let the
+  // user pick any mix. Single-track Mega combos use the step-through
+  // picker below.
+  if (race.packType === "combo" && race.trackProducts && Object.keys(race.trackProducts).length > 1) {
+    return <MixedComboPackPicker race={race} date={date} quantity={quantity} onComplete={onComplete} onBack={onBack} />;
+  }
   if (race.packType === "combo") {
     return <ComboPackPicker race={race} date={date} quantity={quantity} onComplete={onComplete} onBack={onBack} />;
   }
   return <SellPackPicker race={race} date={date} quantity={quantity} onComplete={onComplete} onBack={onBack} />;
+}
+
+// ── Mixed-track Combo Pack Picker (weekday/weekend — Red + Blue) ───────────
+// Fetches dayplanner from each track's product, merges, lets the guest
+// pick N heats from the combined pool. Each pick books against the
+// product matching its track (Red heat → Red productId, etc.). Heats
+// book sequentially against one orderId so all N land on one bill.
+
+type TrackedSmsProposal = SmsProposal & { _track: string };
+
+function MixedComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatPickerProps) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<TrackedSmsProposal[]>([]);
+  const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
+  const [committing, setCommitting] = useState(false);
+  const totalRaces = race.raceCount;
+  const sessionRef = useRef<string>(crypto.randomUUID());
+  const ctaRef = useRef<HTMLDivElement>(null);
+  const trackProducts = race.trackProducts!;
+
+  useEffect(() => {
+    if (selectedIdxs.length === totalRaces) {
+      setTimeout(() => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    }
+  }, [selectedIdxs.length, totalRaces]);
+
+  const fetchHeats = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const all: TrackedSmsProposal[] = [];
+      // De-dup per-(track, start) so we don't double-count the same
+      // Red slot but we DO keep Red+Blue at the same time as distinct
+      // heats.
+      const seen = new Set<string>();
+      for (const [track, cfg] of Object.entries(trackProducts)) {
+        const res = await sms("dayplanner/dayplanner", {
+          productId: cfg.productId,
+          pageId: cfg.pageId,
+          quantity,
+          dynamicLines: null,
+          date: date.includes("T") ? date : `${date}T00:00:00`,
+        }, sessionRef.current);
+        for (const p of (res.proposals || [])) {
+          const start = p.blocks?.[0]?.block?.start;
+          const key = start ? `${track}|${start}` : "";
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            all.push({ ...p, _track: track });
+          }
+        }
+      }
+      all.sort((a, b) =>
+        (a.blocks?.[0]?.block?.start || "").localeCompare(b.blocks?.[0]?.block?.start || ""),
+      );
+      setProposals(all);
+    } catch {
+      setError("Couldn't load time slots. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [date, quantity, trackProducts]);
+
+  useEffect(() => { fetchHeats(); }, [fetchHeats]);
+
+  function toggleSelect(idx: number) {
+    setSelectedIdxs(prev => {
+      if (prev.includes(idx)) return prev.filter(i => i !== idx);
+      if (prev.length >= totalRaces) return prev;
+      return [...prev, idx].sort((a, b) => a - b);
+    });
+  }
+
+  async function handleCommit() {
+    if (selectedIdxs.length !== totalRaces) return;
+    setCommitting(true);
+    setError(null);
+
+    let currentBillId: string | null = null;
+    const schedules: PackSchedule[] = [];
+    try {
+      for (let i = 0; i < selectedIdxs.length; i++) {
+        const proposal = proposals[selectedIdxs[i]];
+        const block = proposal.blocks?.[0]?.block;
+        if (!block) throw new Error("Invalid heat selected");
+        const trackCfg = trackProducts[proposal._track];
+        const isFirst = i === 0;
+        const payload: Record<string, unknown> = {
+          productId: trackCfg.productId,
+          pageId: trackCfg.pageId,
+          quantity,
+          dynamicLines: null,
+          sellKind: 0,
+          resourceId: block.resourceId || "-1",
+          proposal: {
+            blocks: proposal.blocks.map(pb => ({
+              productId: null,
+              productLineIds: pb.productLineIds || [],
+              block: pb.block,
+            })),
+            productLineId: proposal.productLineId ?? null,
+            selected: true,
+          },
+        };
+        if (!isFirst && currentBillId) payload.billId = currentBillId;
+
+        const result: SmsBookResponse = await sms("booking/book", payload, sessionRef.current);
+        const newBillId: string | null = result.id || result.billId || currentBillId;
+        if (newBillId) currentBillId = newBillId;
+        schedules.push({ start: block.start, stop: block.stop, name: block.name, trackName: proposal._track });
+      }
+      if (!currentBillId) throw new Error("No bill created");
+      await attachPackMemo(currentBillId, race);
+      onComplete({ billId: currentBillId, schedules });
+    } catch (err) {
+      // Partial failure — cancel whatever was created so we don't leave
+      // orphaned bills.
+      if (currentBillId) {
+        try {
+          await fetch(`/api/bmi?endpoint=${encodeURIComponent(`bill/${currentBillId}/cancel`)}`, { method: "DELETE" });
+        } catch { /* best-effort */ }
+      }
+      setError(err instanceof Error ? err.message : "Failed to book heats");
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  const displayDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Pick Your Heats</h2>
+        <p className="text-white/50 text-sm">
+          <span className="text-white/80">{race.name}</span> · {displayDate}
+        </p>
+        <p className="text-[#00E2E5] text-sm font-semibold mt-1">
+          Pick {totalRaces} heats — ${race.price.toFixed(2)} total · mix Red + Blue any way you like
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="h-48 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+        </div>
+      ) : error ? (
+        <div className="h-48 flex flex-col items-center justify-center gap-3">
+          <p className="text-red-400 text-sm">{error}</p>
+          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">Retry</button>
+        </div>
+      ) : proposals.length === 0 ? (
+        <div className="h-48 flex flex-col items-center justify-center gap-3">
+          <p className="text-white/40 text-sm">No heats available.</p>
+          <button onClick={onBack} className="text-xs text-white/50 hover:text-white underline">Pick a different race</button>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {proposals.map((proposal, idx) => {
+              const block = proposal.blocks?.[0]?.block;
+              if (!block) return null;
+              const isSelected = selectedIdxs.includes(idx);
+              const isCapped = selectedIdxs.length >= totalRaces && !isSelected;
+              const isLowCap = block.freeSpots < quantity;
+              const isDisabled = isLowCap || isCapped;
+              const badgeClass =
+                proposal._track === "Red" ? "bg-red-500/20 text-red-300"
+                : proposal._track === "Blue" ? "bg-blue-500/20 text-blue-300"
+                : "bg-white/10 text-white/70";
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => !isDisabled && toggleSelect(idx)}
+                  disabled={isDisabled}
+                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${isSelected
+                    ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+                    : isDisabled
+                      ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
+                      : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"}`}
+                >
+                  <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badgeClass}`}>
+                    {proposal._track}
+                  </div>
+                  <div className="text-white font-bold text-base mb-0.5">
+                    {new Date(block.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                  </div>
+                  <div className="text-xs font-medium text-white/60">{block.name}</div>
+                  <div className={`text-[13px] font-medium mt-1 ${isLowCap ? "text-red-400" : block.freeSpots / block.capacity <= 0.3 ? "text-amber-400" : "text-emerald-400"}`}>
+                    {isLowCap ? `Need ${quantity}, only ${block.freeSpots} left` : `${block.freeSpots} of ${block.capacity} open`}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdxs.length === totalRaces ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
+            {selectedIdxs.length === totalRaces ? (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-white/50 text-xs mb-1">All {totalRaces} heats selected</p>
+                  <p className="text-[#00E2E5] text-sm font-semibold">
+                    ${race.price.toFixed(2)} for {totalRaces} races
+                  </p>
+                </div>
+                <button
+                  onClick={handleCommit}
+                  disabled={committing}
+                  className="shrink-0 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50"
+                >
+                  {committing ? "Booking…" : "Confirm & Continue"}
+                </button>
+              </div>
+            ) : (
+              <p className="text-white/50 text-sm text-center">
+                Pick {totalRaces - selectedIdxs.length} more {totalRaces - selectedIdxs.length === 1 ? "heat" : "heats"}
+                — mix Red + Blue any way you like.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors block mx-auto">
+        &larr; Choose a different race
+      </button>
+    </div>
+  );
 }
 
 // ── Combo Pack Picker (Mega track) ────────────────────────────────────────────
