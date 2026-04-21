@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "../data";
 import { bmiPost } from "../data";
+import { heatsConflict, HEAT_CONFLICT_TOOLTIP } from "@/lib/heat-conflict";
 
 interface HeatPickerProps {
   race: ClassifiedProduct;
@@ -179,23 +180,15 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
               const block = proposal.blocks?.[0]?.block;
               if (!block) return null;
 
-              // Check conflicts with already-booked heats
-              // Same track: must skip at least one heat (every other OK)
-              // Different track: 30 min buffer required
+              // Check conflicts with already-booked heats.
+              // Rules live in lib/heat-conflict.ts: same-track blocks
+              // only the immediately adjacent heat (per-track cadence —
+              // Red 12 min, Blue 15 min, Mega 24 min); different-track
+              // needs 30 min to finish + walk + check in.
               const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-              // Use the product's track (reliable) — block.name may be "Heat 29" now
-              const blockTrack = (race.track || "unknown").toLowerCase();
               const isConflict = bookedHeats.some(bh => {
                 const bhStart = new Date(bh.start.replace(/Z$/, "")).getTime();
-                const bhTrack = bh.track?.toLowerCase() || "unknown";
-                const sameTrack = blockTrack === bhTrack;
-                if (sameTrack) {
-                  // Same track: need at least ~20 min gap (skips one heat)
-                  // Blue runs every 15 min, Red every 12 min — 20 min covers both
-                  return Math.abs(blockStart - bhStart) < 20 * 60_000;
-                }
-                // Different track: 30 min buffer
-                return Math.abs(blockStart - bhStart) < 30 * 60_000;
+                return heatsConflict(bhStart, bh.track, blockStart, race.track);
               });
 
               // Distinguish "not enough spots" from "too close to picked
@@ -229,7 +222,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                     }
                   }}
                   disabled={isFull}
-                  title={isConflict ? "Need a longer gap between your heats — 20 min on the same track or 30 min across tracks." : undefined}
+                  title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
                   className={`
                     rounded-xl border p-3 text-left transition-all duration-150
                     ${isSelected

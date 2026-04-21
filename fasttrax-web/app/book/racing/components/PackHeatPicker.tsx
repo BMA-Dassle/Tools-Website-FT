@@ -11,6 +11,7 @@ import type {
   SmsProduct,
   PackSchedule,
 } from "../data";
+import { heatsConflict, HEAT_CONFLICT_TOOLTIP } from "@/lib/heat-conflict";
 
 /**
  * Attach a policy memo to the pack bill so ops staff see it in BMI
@@ -191,11 +192,8 @@ export default function PackHeatPicker({ race, date, quantity, onComplete, onBac
 
 type TrackedSmsProposal = SmsProposal & { _track: string };
 
-/** Minimum gaps between one racer's heats — mirrors the single-race
- *  HeatPicker rule in the race flow. Same track = 20 min (kart swap);
- *  different track = 30 min (finish heat, walk across, check in). */
-const PACK_SAME_TRACK_MIN_GAP_MIN = 20;
-const PACK_DIFFERENT_TRACK_MIN_GAP_MIN = 30;
+/** Heat-conflict rule lives in lib/heat-conflict.ts so single-race +
+ *  both pack pickers share one source of truth. */
 
 function MixedComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatPickerProps) {
   const [loading, setLoading] = useState(true);
@@ -366,15 +364,12 @@ function MixedComboPackPicker({ race, date, quantity, onComplete, onBack }: Pack
                 const isCapped = selectedIdxs.length >= totalRaces && !isSelected;
                 const isLowCap = block.freeSpots < quantity;
                 const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-                // Per-racer gap rule: 20 min same-track, 30 min cross-
-                // track — one racer can't physically run two heats
-                // without the appropriate buffer to swap karts or walk
-                // between tracks.
-                const isBackToBack = !isSelected && pickedTimed.some(pick => {
-                  const sameTrack = pick.track === proposal._track;
-                  const minGap = sameTrack ? PACK_SAME_TRACK_MIN_GAP_MIN : PACK_DIFFERENT_TRACK_MIN_GAP_MIN;
-                  return Math.abs(blockStart - pick.t) < minGap * 60_000;
-                });
+                // Shared rule — adjacent same-track heat blocked per
+                // track cadence (Red 12, Blue 15, Mega 24); cross-
+                // track needs 30 min.
+                const isBackToBack = !isSelected && pickedTimed.some(pick =>
+                  heatsConflict(pick.t, pick.track, blockStart, proposal._track),
+                );
                 const isDisabled = isLowCap || isCapped || isBackToBack;
                 const badgeClass =
                   proposal._track === "Red" ? "bg-red-500/20 text-red-300"
@@ -396,7 +391,7 @@ function MixedComboPackPicker({ race, date, quantity, onComplete, onBack }: Pack
                     type="button"
                     onClick={() => !isDisabled && toggleSelect(idx)}
                     disabled={isDisabled}
-                    title={isBackToBack ? "Need a longer gap between your heats — 20 min on the same track or 30 min across tracks." : undefined}
+                    title={isBackToBack ? HEAT_CONFLICT_TOOLTIP : undefined}
                     className={`rounded-xl border p-3 text-left transition-all duration-150 ${isSelected
                       ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
                       : isDisabled
