@@ -21,7 +21,7 @@ import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 /**
  * Flow A — Pre-race e-ticket cron.
  *
- * Every 10 min, looks at all sessions starting in the next ~2 hours on the
+ * Every 1 min (see vercel.json), looks at all sessions starting in the next ~2 hours on the
  * operating tracks for today (Blue + Red on normal days, Mega only on Tuesdays),
  * and sends each participant an e-ticket.
  *
@@ -273,11 +273,31 @@ function dedupKey(c: Candidate): string {
   return `alert:pre-race:${c.session.sessionId}:${c.participant.personId}`;
 }
 
+// Concurrency lock key + TTL. With an every-minute schedule, a run that
+// takes >60s would let the next run fire on top of it — wasteful Pandora
+// fetches, and could create log-spam race conditions on the no-consent
+// dedup path. The lock holds for up to 90s (enough for any healthy run);
+// subsequent fires during that window return early with { locked: true }.
+const CRON_LOCK_KEY = "cron-lock:pre-race";
+const CRON_LOCK_TTL = 90;
+
 export async function GET(req: NextRequest) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();
   const windowStart = Date.now() - WINDOW_SKEW_BEHIND_MS;
   const windowEnd = Date.now() + WINDOW_AHEAD_MS;
+
+  // Concurrency guard — skip if a previous run hasn't finished.
+  if (!dryRun) {
+    // SET NX EX — only sets if key is absent, atomically.
+    const acquired = await redis.set(CRON_LOCK_KEY, "1", "EX", CRON_LOCK_TTL, "NX");
+    if (!acquired) {
+      return NextResponse.json(
+        { ok: true, locked: true, note: "previous run still in flight" },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
 
   let sent = 0;
   let skipped = 0;
@@ -626,5 +646,11 @@ export async function GET(req: NextRequest) {
       { ok: false, error: err instanceof Error ? err.message : "cron error", sent, skipped, errors },
       { status: 500 },
     );
+  } finally {
+    // Release the concurrency lock so the next 1-min fire can start
+    // immediately instead of waiting for the 90s TTL.
+    if (!dryRun) {
+      try { await redis.del(CRON_LOCK_KEY); } catch { /* best-effort */ }
+    }
   }
 }
