@@ -211,23 +211,28 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const hdrs = await headers();
   const isHeadPinz = hdrs.get("x-brand") === "headpinz";
+  // Admin routes (/admin/*, /api/admin/*) are a bare staff tool — no nav,
+  // no footer, no chat widget, no cart. Flag set by middleware.ts after
+  // the auth gate passes.
+  const isAdmin = hdrs.get("x-admin-route") === "1";
+  const showChrome = !isHeadPinz && !isAdmin;
 
   return (
     <html lang="en" className={`${exo2.variable} ${barlow.variable} ${outfit.variable} ${dmSans.variable}`}>
       <head>
-        {isHeadPinz ? <HeadPinzOrganizationJsonLd /> : <LocalBusinessJsonLd />}
+        {!isAdmin && (isHeadPinz ? <HeadPinzOrganizationJsonLd /> : <LocalBusinessJsonLd />)}
       </head>
       <body className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}>
-        {!isHeadPinz && <Nav />}
-        <MiniCart />
+        {showChrome && <Nav />}
+        {!isAdmin && <MiniCart />}
         <main>{children}</main>
-        {!isHeadPinz && <Footer />}
-        {!isHeadPinz && <MobileBookBar />}
-        {!isHeadPinz && <ChatWidgetManager />}
+        {showChrome && <Footer />}
+        {showChrome && <MobileBookBar />}
+        {showChrome && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />
         <AxeInit />
-        {!isHeadPinz && (
+        {showChrome && (
           <>
             <div
               dangerouslySetInnerHTML={{

@@ -57,7 +57,11 @@ export function middleware(request: NextRequest) {
       }
       return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
     }
-    return NextResponse.next();
+    // Flag admin routes so the root layout can strip the nav/footer/chat
+    // chrome — staff-only tool, no public branding.
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-admin-route", "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Dev: ?brand=headpinz sets a cookie to simulate headpinz.com on localhost
