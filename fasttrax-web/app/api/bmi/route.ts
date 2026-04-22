@@ -71,6 +71,12 @@ const ALLOWED_POST = [
   "payment/confirm",
   "person/registerContactPerson",
   "person/registerProjectPerson",
+  // Voucher / discount code endpoints (BMI Public API §21/§22).
+  // Flagged "not yet released" in BMI docs as of 2026-04-21 — include
+  // in the allowlist so we can probe availability without another
+  // deploy the moment BMI flips them on.
+  "order/applyCode",
+  "order/removeCode",
 ];
 
 const ALLOWED_DELETE = [
