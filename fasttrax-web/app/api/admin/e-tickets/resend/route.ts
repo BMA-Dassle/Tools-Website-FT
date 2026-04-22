@@ -3,6 +3,26 @@ import { getRaceTicket, getGroupTicket } from "@/lib/race-tickets";
 import { voxSend } from "@/lib/sms-retry";
 import { logSms } from "@/lib/sms-log";
 import { canonicalizePhone } from "@/lib/participant-contact";
+import redis from "@/lib/redis";
+
+/**
+ * Deref an SMS-log shortCode (the 6-char `/s/{code}` redirect key) back to
+ * the underlying ticket-id so we can load the RaceTicket / GroupTicket. The
+ * shortCode ≠ ticketId — see lib/race-tickets.ts for the full story.
+ */
+async function resolveShortCode(
+  shortCode: string,
+): Promise<{ kind: "ticket" | "group"; id: string } | null> {
+  try {
+    const full = await redis.get(`short:${shortCode}`);
+    if (!full) return null;
+    const m = /\/(t|g)\/([A-Za-z0-9_-]+)\b/.exec(full);
+    if (!m) return null;
+    return { kind: m[1] === "g" ? "group" : "ticket", id: m[2] };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/admin/e-tickets/resend
@@ -45,12 +65,22 @@ export async function POST(req: NextRequest) {
   if (!shortCode) return NextResponse.json({ error: "shortCode is required" }, { status: 400 });
   if (!smsBody) return NextResponse.json({ error: "body is required" }, { status: 400 });
 
-  // Resolve the ticket to harvest default phone + audit fields. Try single
-  // first (most common), then group.
-  const single = await getRaceTicket(shortCode);
-  const group = single ? null : await getGroupTicket(shortCode);
+  // Resolve the ticket to harvest default phone + audit fields. The
+  // SMS-log shortCode is a /s/{code} redirect key, not a ticket id —
+  // deref through redis first, then fetch the actual ticket record.
+  const ref = await resolveShortCode(shortCode);
+  const single = ref?.kind === "ticket" ? await getRaceTicket(ref.id) : null;
+  const group = ref?.kind === "group" ? await getGroupTicket(ref.id) : null;
   if (!single && !group) {
-    return NextResponse.json({ error: "Ticket not found for that shortCode" }, { status: 404 });
+    // Ticket/short-url may have expired (12h TTL). That's usually fine for
+    // resends — caller supplied overridePhone explicitly. Only fail if we
+    // have nothing to fall back on.
+    if (!overridePhone) {
+      return NextResponse.json(
+        { error: "Ticket not found for that shortCode (expired?) and no overridePhone supplied" },
+        { status: 404 },
+      );
+    }
   }
 
   const defaultPhone = single?.phone || group?.phone || "";

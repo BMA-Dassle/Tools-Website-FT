@@ -38,7 +38,7 @@ function formatEt(iso: string): string {
 }
 
 function sourceLabel(s: string): string {
-  if (s === "pre-race-cron") return "pre-race";
+  if (s === "pre-race-cron") return "eTicket";
   if (s === "checkin-cron") return "check-in";
   if (s === "admin-resend") return "resend";
   return s;
@@ -108,7 +108,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
             >
               <option value="" style={{ backgroundColor: "#0a1128" }}>All</option>
-              <option value="pre-race-cron" style={{ backgroundColor: "#0a1128" }}>pre-race (2hr ahead)</option>
+              <option value="pre-race-cron" style={{ backgroundColor: "#0a1128" }}>eTicket (2hr ahead)</option>
               <option value="checkin-cron" style={{ backgroundColor: "#0a1128" }}>check-in (live)</option>
               <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>admin resends</option>
             </select>

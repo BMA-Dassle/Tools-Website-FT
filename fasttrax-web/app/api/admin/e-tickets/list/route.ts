@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSmsLog, type SmsLogEntry } from "@/lib/sms-log";
 import { getRaceTicket, getGroupTicket, type RaceTicket, type GroupTicket } from "@/lib/race-tickets";
+import redis from "@/lib/redis";
 
 /**
  * GET /api/admin/e-tickets/list
@@ -52,23 +53,59 @@ export type EnrichedLogEntry = SmsLogEntry & {
   scheduledStart?: string;
 };
 
+/**
+ * Resolve an SMS log's `shortCode` back to the underlying ticket id.
+ *
+ * The SMS log stores the 6-char short URL code (redis key `short:{code}` →
+ * full URL like `${BASE}/t/{ticketId}` or `${BASE}/g/{groupId}`). The
+ * actual ticket record lives at `ticket:{id}` / `group:{id}`. So we have
+ * to deref the short-url first, then pull the last path segment.
+ *
+ * Returns `{ kind, id }` or null if the short-url has already expired or
+ * never existed.
+ */
+async function resolveShortCode(
+  shortCode: string,
+): Promise<{ kind: "ticket" | "group"; id: string } | null> {
+  try {
+    const full = await redis.get(`short:${shortCode}`);
+    if (!full) return null;
+    // Expected shape: https://fasttraxent.com/t/{id} or /g/{id}
+    const m = /\/(t|g)\/([A-Za-z0-9_-]+)\b/.exec(full);
+    if (!m) return null;
+    return { kind: m[1] === "g" ? "group" : "ticket", id: m[2] };
+  } catch {
+    return null;
+  }
+}
+
 async function enrichEntry(entry: SmsLogEntry): Promise<EnrichedLogEntry> {
   const out: EnrichedLogEntry = { ...entry, racerNames: [] };
   if (!entry.shortCode) return out;
 
-  // Try single-racer ticket first, then group ticket.
-  const tix: RaceTicket | null = await getRaceTicket(entry.shortCode);
-  if (tix) {
-    const name = `${tix.firstName ?? ""} ${tix.lastName ?? ""}`.trim();
-    if (name) out.racerNames.push(name);
-    out.track = tix.track;
-    out.heatNumber = tix.heatNumber;
-    out.raceType = tix.raceType;
-    out.scheduledStart = tix.scheduledStart;
+  // 1. Deref short-code → ticket id.
+  const ref = await resolveShortCode(entry.shortCode);
+  if (!ref) {
+    // Short URL expired (TTL lapsed) or never existed — row renders with
+    // "(no ticket)" in the UI. That's fine, still resendable by shortCode.
     return out;
   }
 
-  const grp: GroupTicket | null = await getGroupTicket(entry.shortCode);
+  // 2. Pull the actual record.
+  if (ref.kind === "ticket") {
+    const tix: RaceTicket | null = await getRaceTicket(ref.id);
+    if (tix) {
+      const name = `${tix.firstName ?? ""} ${tix.lastName ?? ""}`.trim();
+      if (name) out.racerNames.push(name);
+      out.track = tix.track;
+      out.heatNumber = tix.heatNumber;
+      out.raceType = tix.raceType;
+      out.scheduledStart = tix.scheduledStart;
+    }
+    return out;
+  }
+
+  const grp: GroupTicket | null = await getGroupTicket(ref.id);
   if (grp) {
     for (const m of grp.members || []) {
       const name = `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim();
