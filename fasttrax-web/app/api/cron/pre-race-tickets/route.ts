@@ -21,7 +21,7 @@ import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 /**
  * Flow A — Pre-race e-ticket cron.
  *
- * Every 1 min (see vercel.json), looks at all sessions starting in the next ~2 hours on the
+ * Every 2 min (see vercel.json), looks at all sessions starting in the next ~2 hours on the
  * operating tracks for today (Blue + Red on normal days, Mega only on Tuesdays),
  * and sends each participant an e-ticket.
  *
