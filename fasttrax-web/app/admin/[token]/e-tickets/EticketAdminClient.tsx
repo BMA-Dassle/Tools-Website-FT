@@ -119,7 +119,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="e.g. Spaight  or  2399863727"
+              placeholder="e.g. racer name  or  2399863727"
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white placeholder:text-white/30"
             />
           </label>
