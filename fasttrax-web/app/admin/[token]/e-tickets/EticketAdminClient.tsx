@@ -243,7 +243,9 @@ function ResendModal({
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }) {
-  const [phone, setPhone] = useState(entry.phone || "");
+  // Blank by default — staff types a phone only if they want to override.
+  // Empty = resend to the original phone (whatever was on the log entry).
+  const [phone, setPhone] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -253,13 +255,16 @@ function ResendModal({
     setSending(true);
     setErr(null);
     try {
+      const trimmed = phone.trim();
       const res = await fetch("/api/admin/e-tickets/resend", {
         method: "POST",
         headers: { "content-type": "application/json", "x-admin-token": token },
         body: JSON.stringify({
           shortCode: entry.shortCode,
           body: entry.body,
-          overridePhone: phone !== entry.phone ? phone : undefined,
+          // Only pass override if operator actually typed something different
+          // from the original — keeps the server-side default-phone path hot.
+          overridePhone: trimmed && trimmed !== entry.phone ? trimmed : undefined,
         }),
       });
       const data = await res.json();
@@ -304,7 +309,7 @@ function ResendModal({
           </div>
 
           <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-            Phone (edit to override)
+            Send to (leave blank to reuse {entry.phone || "original"})
             <input
               type="tel"
               value={phone}
