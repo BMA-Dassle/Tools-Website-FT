@@ -67,7 +67,10 @@ function activeResourcesForToday(): string[] {
     timeZone: "America/New_York",
     weekday: "short",
   }).format(new Date());
-  if (weekday === "Tue") return ["Mega"];
+  // Pandora's /bmi/sessions expects "Mega Track" (with suffix) — the
+  // shorter "Mega" silently 404s, which is why this cron has been
+  // sending 0 pre-race e-tickets on Tuesdays.
+  if (weekday === "Tue") return ["Mega Track"];
   return ["Blue Track", "Red Track"];
 }
 

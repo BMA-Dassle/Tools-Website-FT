@@ -92,7 +92,10 @@ async function attachSessionIds<T extends { track?: string | null; heatStart?: s
     const t = track.toLowerCase();
     if (t === "blue") return "Blue Track";
     if (t === "red") return "Red Track";
-    if (t === "mega") return "Mega";
+    // Pandora's /bmi/sessions expects "Mega Track" — the shorter "Mega"
+    // silently 404s, which is why attachSessionIds never populated
+    // sessionId on Tuesday bookings.
+    if (t === "mega") return "Mega Track";
     return null;
   };
 
