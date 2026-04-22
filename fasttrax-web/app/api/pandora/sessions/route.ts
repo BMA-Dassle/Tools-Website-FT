@@ -23,7 +23,11 @@ const ALLOWED_LOCATIONS = new Set([
   "PPTR5G2N0QXF7", // HeadPinz Naples
 ]);
 
-const ALLOWED_RESOURCES = new Set(["Blue Track", "Red Track", "Mega"]);
+// "Mega Track" is the canonical Pandora resource name for Tuesdays (the
+// shorter "Mega" was a stale alias that returns 404 from /bmi/sessions).
+// Keep "Mega" allowlisted for any old callers but Pandora only matches
+// "Mega Track".
+const ALLOWED_RESOURCES = new Set(["Blue Track", "Red Track", "Mega", "Mega Track"]);
 
 export interface PandoraSession {
   sessionId: string;         // string per Pandora schema
