@@ -353,6 +353,83 @@ export async function GET(req: NextRequest) {
       // opted-out one on the same line.
       const householdConsented = all.some((c) => hasSmsConsent(c.participant));
       if (!householdConsented) {
+        // No-consent path: we still BUILD the ticket + body so the admin
+        // UI can show it and staff can manually resend after the racer
+        // says "yes, you can text me." We just don't fire voxSend.
+        //
+        // Dedup the LOG entry per phone per 30 min — otherwise the cron
+        // (runs every 5 min) would flood the SMS log with 12 identical
+        // "not opted in" rows an hour for the same racer. If they opt
+        // in within the window, the next cron run finds
+        // householdConsented=true and sends normally (the consent-skip
+        // dedup below is ignored by the consent-ok path).
+        const consentSkipKey = `consent-skip:pre-race:${phone}`;
+        const already = !dryRun && (await redis.get(consentSkipKey));
+        if (already) {
+          skipped += fresh.length;
+          continue;
+        }
+
+        if (dryRun) {
+          skipped += fresh.length;
+          continue;
+        }
+
+        try {
+          let body: string;
+          let shortCode: string;
+          const sessionIds = Array.from(new Set(all.map((c) => c.session.sessionId)));
+          const personIds = all.map((c) => c.participant.personId);
+
+          if (all.length === 1) {
+            const c = all[0];
+            const ticket: RaceTicket = {
+              sessionId: c.session.sessionId,
+              locationId: FASTTRAX_LOCATION_ID,
+              personId: c.participant.personId,
+              firstName: c.participant.firstName || "Racer",
+              lastName: c.participant.lastName || "",
+              email: c.participant.email || undefined,
+              phone: pickPhone(c.participant) || undefined,
+              scheduledStart: c.session.scheduledStart,
+              track: c.trackDisplay,
+              raceType: c.session.type,
+              heatNumber: c.session.heatNumber,
+            };
+            const ticketId = await upsertRaceTicket(ticket);
+            const shortened = await shortenUrl(`${BASE}/t/${ticketId}`);
+            shortCode = shortened.code;
+            body = buildSingleSmsBody(c.session.name, memberFromCandidate(c), shortened.url);
+          } else {
+            const members: GroupTicketMember[] = all.map(memberFromCandidate);
+            const groupId = await upsertGroupTicket({
+              phone,
+              locationId: FASTTRAX_LOCATION_ID,
+              members,
+            });
+            const shortened = await shortenUrl(`${BASE}/g/${groupId}`);
+            shortCode = shortened.code;
+            body = buildGroupSmsBody(members, shortened.url);
+          }
+
+          await logSms({
+            ts: new Date().toISOString(),
+            phone,
+            source: "pre-race-cron",
+            status: null,
+            ok: false,
+            error: "SMS not opted in",
+            body,
+            sessionIds,
+            personIds,
+            memberCount: all.length,
+            shortCode,
+          });
+          await redis.set(consentSkipKey, "1", "EX", 30 * 60);
+        } catch (err) {
+          console.error(`[pre-race] consent-skip log error for phone=${phone}:`, err);
+        }
+
         skipped += fresh.length;
         continue;
       }

@@ -561,6 +561,77 @@ export async function GET(req: NextRequest) {
       // racers on the same line.
       const householdConsented = all.some((c) => hasSmsConsent(c.participant));
       if (!householdConsented) {
+        // No-consent path: build ticket + body so the admin UI shows it
+        // and staff can manually resend after getting verbal consent.
+        // See pre-race-tickets/route.ts for the full rationale — same
+        // 30-min dedup + ticket-as-resend-surface pattern.
+        const consentSkipKey = `consent-skip:checkin:${phone}`;
+        const already = !dryRun && (await redis.get(consentSkipKey));
+        if (already) {
+          skipped += fresh.length;
+          continue;
+        }
+
+        if (dryRun) {
+          skipped += fresh.length;
+          continue;
+        }
+
+        try {
+          let body: string;
+          let shortCode: string;
+          const sessionIds = Array.from(new Set(all.map((c) => c.race.sessionId)));
+          const personIds = all.map((c) => c.participant.personId);
+
+          if (all.length === 1) {
+            const c = all[0];
+            const ticket: RaceTicket = {
+              sessionId: c.race.sessionId,
+              locationId: FASTTRAX_LOCATION_ID,
+              personId: c.participant.personId,
+              firstName: c.participant.firstName || "Racer",
+              lastName: c.participant.lastName || "",
+              email: c.participant.email || undefined,
+              phone: pickPhone(c.participant) || undefined,
+              scheduledStart: c.race.scheduledStart,
+              track: c.trackDisplay,
+              raceType: c.race.raceType,
+              heatNumber: c.race.heatNumber,
+            };
+            const ticketId = await upsertRaceTicket(ticket);
+            const shortened = await shortenUrl(`${BASE}/t/${ticketId}`);
+            shortCode = shortened.code;
+            body = buildSingleSmsBody(c.race, memberFromCandidate(c), shortened.url);
+          } else {
+            const members: GroupTicketMember[] = all.map(memberFromCandidate);
+            const groupId = await upsertGroupTicket({
+              phone,
+              locationId: FASTTRAX_LOCATION_ID,
+              members,
+            });
+            const shortened = await shortenUrl(`${BASE}/g/${groupId}`);
+            shortCode = shortened.code;
+            body = buildGroupSmsBody(members, shortened.url);
+          }
+
+          await logSms({
+            ts: new Date().toISOString(),
+            phone,
+            source: "checkin-cron",
+            status: null,
+            ok: false,
+            error: "SMS not opted in",
+            body,
+            sessionIds,
+            personIds,
+            memberCount: all.length,
+            shortCode,
+          });
+          await redis.set(consentSkipKey, "1", "EX", 30 * 60);
+        } catch (err) {
+          console.error(`[checkin-alerts] consent-skip log error for phone=${phone}:`, err);
+        }
+
         skipped += fresh.length;
         continue;
       }

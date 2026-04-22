@@ -44,6 +44,16 @@ function sourceLabel(s: string): string {
   return s;
 }
 
+/**
+ * SMS log entries with `error === "SMS not opted in"` are racers whose
+ * household had no SMS consent on file, so the cron logged a skip
+ * instead of firing. The ticket + body still exist (short URL is
+ * real) so the admin can manually resend after getting verbal consent.
+ */
+function isConsentSkip(e: EnrichedLogEntry): boolean {
+  return !e.ok && e.error === "SMS not opted in";
+}
+
 export default function EticketAdminClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayYmd());
   const [source, setSource] = useState<"" | "pre-race-cron" | "checkin-cron" | "admin-resend">("");
@@ -78,6 +88,16 @@ export default function EticketAdminClient({ token }: { token: string }) {
     const t = setTimeout(load, 250); // small debounce for typing
     return () => clearTimeout(t);
   }, [load]);
+
+  // Auto-refresh every 2 minutes so staff see new cron-logged entries
+  // (including fresh no-consent skips) without manually hitting refresh.
+  // We don't refresh while the resend modal is open — that would clobber
+  // the target entry out from under the operator mid-action.
+  useEffect(() => {
+    if (resendTarget) return;
+    const id = setInterval(load, 120_000);
+    return () => clearInterval(id);
+  }, [load, resendTarget]);
 
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
@@ -161,20 +181,22 @@ export default function EticketAdminClient({ token }: { token: string }) {
                 )}
                 {entries.map((e) => {
                   const flashHere = flash?.shortCode === e.shortCode;
+                  const noConsent = isConsentSkip(e);
                   return (
                     <tr
                       key={`${e.ts}-${e.phone}-${e.shortCode ?? ""}`}
-                      className={`border-t border-white/5 ${flashHere ? "bg-emerald-500/10" : ""}`}
+                      className={`border-t border-white/5 ${flashHere ? "bg-emerald-500/10" : noConsent ? "bg-red-500/5" : ""}`}
                     >
                       <td className="px-3 py-2 whitespace-nowrap text-white/70">{formatEt(e.ts)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className={`text-xs uppercase px-1.5 py-0.5 rounded ${
-                          e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
+                          noConsent ? "bg-red-500/25 text-red-200"
+                          : e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
                           : e.source === "checkin-cron" ? "bg-emerald-500/20 text-emerald-300"
                           : e.source === "admin-resend" ? "bg-amber-500/20 text-amber-300"
                           : "bg-white/10 text-white/60"
                         }`}>
-                          {sourceLabel(e.source)}
+                          {noConsent ? "no consent" : sourceLabel(e.source)}
                         </span>
                       </td>
                       <td className="px-3 py-2">
@@ -190,7 +212,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       <td className="px-3 py-2 whitespace-nowrap">
                         {e.ok
                           ? <span className="text-emerald-400 text-xs">sent</span>
-                          : <span className="text-red-400 text-xs">failed ({e.status ?? "?"})</span>}
+                          : noConsent
+                            ? <span className="text-red-300 text-xs font-semibold">needs verbal OK</span>
+                            : <span className="text-red-400 text-xs">failed ({e.status ?? "?"})</span>}
                         {flashHere && <span className="text-emerald-400 text-xs ml-2">· {flash!.msg}</span>}
                       </td>
                       <td className="px-3 py-2">
@@ -243,9 +267,13 @@ function ResendModal({
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }) {
-  // Blank by default — staff types a phone only if they want to override.
-  // Empty = resend to the original phone (whatever was on the log entry).
-  const [phone, setPhone] = useState("");
+  const noConsent = isConsentSkip(entry);
+  // For no-consent entries we pre-fill the phone so staff can click Send
+  // without retyping — they already had to dial/look up the racer to get
+  // verbal OK, don't make them type it again. For normal resends we stay
+  // blank so "re-send to same phone" is explicit (leave empty) vs
+  // "change phone" (type new number).
+  const [phone, setPhone] = useState(noConsent ? (entry.phone || "") : "");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -299,17 +327,56 @@ function ResendModal({
           &times;
         </button>
         <div className="p-5 sm:p-6">
-          <h3 className="text-lg font-bold uppercase tracking-wide mb-3 pr-10">Resend e-ticket</h3>
+          <h3 className="text-lg font-bold uppercase tracking-wide mb-3 pr-10">
+            {noConsent ? "Resend — NO SMS CONSENT ON FILE" : "Resend e-ticket"}
+          </h3>
+
+          {/*
+            No-consent path: cron logged this racer's e-ticket but didn't
+            send because Pandora has acceptSmsCommercial=false (or unset).
+            Staff MUST read the verbal consent script below before clicking
+            Send, and update BMI permissions afterward.
+          */}
+          {noConsent && (
+            <div
+              className="mb-4 rounded-lg border-2 border-red-500 bg-red-500/10 p-4"
+              role="alert"
+            >
+              <div className="text-red-200 font-bold text-base leading-snug mb-2">
+                Guest Services — ask the racer verbally, word-for-word:
+              </div>
+              <div className="text-red-100 font-bold text-xl leading-tight mb-3 italic">
+                &ldquo;Do I have permission to send eTickets to you? These contain no marketing.&rdquo;
+              </div>
+              <div className="text-red-100 text-sm leading-snug space-y-1">
+                <div>✅ If YES: click <b>Send</b> below, then update BMI:</div>
+                <ol className="list-decimal list-inside pl-2 text-red-100/90 text-sm">
+                  <li>Open the member in BMI</li>
+                  <li>Go to the <b>Permissions</b> tab</li>
+                  <li>Check <b>BOTH</b> SMS fields (commercial + scores)</li>
+                  <li>Save</li>
+                </ol>
+                <div className="pt-1">
+                  You can send the text first — the BMI update keeps future cron
+                  e-tickets flowing automatically, no more manual resend needed.
+                </div>
+                <div className="pt-1">❌ If NO: close this dialog. Do not send.</div>
+              </div>
+            </div>
+          )}
+
           <div className="text-xs text-white/50 mb-3 space-y-0.5">
             <div>Racer: <span className="text-white/80">{entry.racerNames.join(", ") || "(no ticket)"}</span></div>
             {entry.track && entry.heatNumber && (
               <div>Race: <span className="text-white/80">{entry.track} · Heat {entry.heatNumber}{entry.raceType ? ` · ${entry.raceType}` : ""}</span></div>
             )}
-            <div>Originally sent: <span className="text-white/80">{formatEt(entry.ts)} · {entry.phone}</span></div>
+            <div>{noConsent ? "eTicket for:" : "Originally sent:"} <span className="text-white/80">{formatEt(entry.ts)} · {entry.phone}</span></div>
           </div>
 
           <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-            Send to (leave blank to reuse {entry.phone || "original"})
+            {noConsent
+              ? "Send to (edit if wrong number)"
+              : `Send to (leave blank to reuse ${entry.phone || "original"})`}
             <input
               type="tel"
               value={phone}
