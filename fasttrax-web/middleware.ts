@@ -19,6 +19,47 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // ── Admin gate ────────────────────────────────────────────────────────────
+  // Path shape: /admin/{token}/...  AND  /api/admin/...
+  // Both gates applied: token in path (for the page) or header/query (for
+  // the API), plus origin IP in ADMIN_ALLOWED_IPS. Fail → 404 so the URL
+  // is indistinguishable from a missing page.
+  if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
+    const expected = process.env.ADMIN_ETICKETS_TOKEN || "";
+    const allowedIps = new Set(
+      (process.env.ADMIN_ALLOWED_IPS || "")
+        .split(",").map((s) => s.trim()).filter(Boolean),
+    );
+    // IP check first — we fail closed with no leakage
+    const xff = request.headers.get("x-forwarded-for") || "";
+    const ip = xff.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+    const ipOk = allowedIps.size > 0 && !!ip && allowedIps.has(ip);
+
+    // Token extraction: for /admin/{token}/..., token is the 2nd path
+    // segment. For /api/admin/..., we accept header `x-admin-token` OR
+    // query `?token=...`.
+    let token = "";
+    if (pathname.startsWith("/admin/")) {
+      token = pathname.split("/")[2] || "";
+    } else {
+      token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
+    }
+    const tokenOk = !!expected && token.length === expected.length && token === expected;
+
+    if (!ipOk || !tokenOk) {
+      // 404 so the path is indistinguishable from a missing page. For API
+      // routes we return JSON so fetch()'s don't choke on empty bodies.
+      if (pathname.startsWith("/api/")) {
+        return new NextResponse(
+          JSON.stringify({ error: "Not found" }),
+          { status: 404, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+    }
+    return NextResponse.next();
+  }
+
   // Dev: ?brand=headpinz sets a cookie to simulate headpinz.com on localhost
   const brandParam = request.nextUrl.searchParams.get("brand");
   if (brandParam === "headpinz") {

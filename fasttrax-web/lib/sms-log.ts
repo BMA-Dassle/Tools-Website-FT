@@ -15,8 +15,10 @@ export interface SmsLogEntry {
   ts: string;
   /** Canonical E.164 phone (e.g. +12395551234) */
   phone: string;
-  /** Which cron / code path fired this */
-  source: "pre-race-cron" | "checkin-cron" | "booking-confirm" | "level-up" | "other";
+  /** Which cron / code path fired this.
+   *  `admin-resend` is a manual resend from the /admin/* tool — distinguish
+   *  these in reports so they don't double-count real cron deliveries. */
+  source: "pre-race-cron" | "checkin-cron" | "booking-confirm" | "level-up" | "admin-resend" | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;
   /** true iff Voxtelesys accepted the send (res.ok) */
