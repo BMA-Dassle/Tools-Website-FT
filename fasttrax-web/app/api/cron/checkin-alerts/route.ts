@@ -141,6 +141,130 @@ async function fetchExpressParticipants(sessionId: number): Promise<Participant[
   }
 }
 
+/**
+ * Normalize any ISO-ish datetime to ET wall-clock minute ("YYYY-MM-DDTHH:MM").
+ * Mirrors the logic in `attachSessionIds` on the confirmation page so
+ * lookups line up across the two call sites.
+ *
+ *   "2026-04-21T21:48:00"       → "2026-04-21T21:48"  (naive, assumed ET)
+ *   "2026-04-22T01:48:00Z"      → "2026-04-21T21:48"  (UTC → ET)
+ *   "2026-04-21T22:00:00-04:00" → "2026-04-21T22:00"  (TZ offset → ET)
+ */
+function etMinuteKey(iso: string): string {
+  if (!/Z$|[+-]\d{2}:\d{2}$/.test(iso)) return iso.slice(0, 16);
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(0, 16);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+/** Today's ET date as YYYY-MM-DD — keys `bookingrecord:date:{ymd}`. */
+function todayETYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
+/**
+ * Self-healing backfill for the express-session reverse index.
+ *
+ * Background: when a guest books via the express lane, the confirmation
+ * page calls `attachSessionIds` which tries to map each racer to a
+ * Pandora sessionId via `/api/pandora/sessions` — that upstream endpoint
+ * currently returns 404 (Pandora regression). The result: every
+ * express booking saves with no sessionId on its racers, and the
+ * `bookingrecord:express:session:{sessionId}` reverse index that this
+ * cron reads from never gets populated. Express holders silently miss
+ * their check-in SMS.
+ *
+ * This function sidesteps the broken upstream. When the cron detects
+ * an active session (via `/races-current`, which works), we scan
+ * today's booking records and match any fastLane booking whose racer's
+ * (track, heatStart-minute-in-ET) matches this active session's
+ * (trackName, scheduledStart-minute-in-ET). Matches get added to the
+ * reverse index on the fly, and the racer's sessionId is patched on
+ * the record itself so downstream (email, race-day, etc.) works too.
+ *
+ * Returns `{ added, scanned }` for logging.
+ */
+async function backfillExpressSessionIndex(race: CurrentRace): Promise<{ added: number; scanned: number }> {
+  try {
+    const todayYmd = todayETYmd();
+    const billIds = await redis.smembers(`bookingrecord:date:${todayYmd}`);
+    if (!billIds?.length) return { added: 0, scanned: 0 };
+
+    const sessTrackLower = (race.trackName || "").toLowerCase(); // "mega" | "blue" | "red" (or "blue track" / "red track")
+    const sessMinute = etMinuteKey(race.scheduledStart);
+    const indexKey = `bookingrecord:express:session:${race.sessionId}`;
+
+    let added = 0;
+    for (const billId of billIds) {
+      const raw = await redis.get(`bookingrecord:${billId}`);
+      if (!raw) continue;
+      let rec: {
+        fastLane?: boolean;
+        racers?: Array<{ track?: string | null; heatStart?: string; sessionId?: string | number | null }>;
+      };
+      try { rec = JSON.parse(raw); } catch { continue; }
+      if (rec.fastLane !== true || !Array.isArray(rec.racers)) continue;
+
+      // Does ANY racer on this booking belong to the active session?
+      // Normalize both sides: "Mega" === "mega", "Blue" === "blue track", etc.
+      let patched = false;
+      const hit = rec.racers.some((r) => {
+        const rt = (r.track || "").toLowerCase();
+        // Accept "mega" ≈ "mega", "blue" ≈ "blue track", "red" ≈ "red track"
+        const tracksMatch =
+          rt === sessTrackLower ||
+          sessTrackLower.startsWith(rt) ||
+          rt.startsWith(sessTrackLower);
+        if (!tracksMatch) return false;
+        if (!r.heatStart) return false;
+        return etMinuteKey(r.heatStart) === sessMinute;
+      });
+      if (!hit) continue;
+
+      const wasMember = await redis.sismember(indexKey, billId);
+      if (!wasMember) {
+        await redis.sadd(indexKey, billId);
+        await redis.expire(indexKey, SHORT_TTL);
+        added++;
+      }
+
+      // Patch the record's racers with the discovered sessionId so
+      // email / race-day / confirmation-reload paths also see it.
+      for (const r of rec.racers) {
+        if (r.sessionId) continue;
+        const rt = (r.track || "").toLowerCase();
+        const tracksMatch =
+          rt === sessTrackLower ||
+          sessTrackLower.startsWith(rt) ||
+          rt.startsWith(sessTrackLower);
+        if (!tracksMatch) continue;
+        if (!r.heatStart || etMinuteKey(r.heatStart) !== sessMinute) continue;
+        r.sessionId = race.sessionId;
+        patched = true;
+      }
+      if (patched) {
+        await redis.set(`bookingrecord:${billId}`, JSON.stringify(rec), "EX", SHORT_TTL);
+      }
+    }
+    if (added > 0) {
+      console.log(`[checkin-alerts] backfill session=${race.sessionId} scanned=${billIds.length} added=${added}`);
+    }
+    return { added, scanned: billIds.length };
+  } catch (err) {
+    console.error(`[checkin-alerts] backfillExpressSessionIndex error for session=${race.sessionId}:`, err);
+    return { added: 0, scanned: 0 };
+  }
+}
+
 async function shortenUrl(fullUrl: string): Promise<{ code: string; url: string }> {
   const code = randomBytes(4).toString("base64url").slice(0, 6);
   await redis.set(`short:${code}`, fullUrl, "EX", SHORT_TTL);
@@ -358,6 +482,18 @@ export async function GET(req: NextRequest) {
       if (!dryRun && (await redis.get(sessionKey))) {
         sessionResults.push({ track: trackKey, sessionId, reason: "session-already-alerted" });
         continue;
+      }
+
+      // Self-heal the express-session reverse index first — if Pandora's
+      // sessions-list endpoint was down when today's express bookings got
+      // saved, the index will be empty and fetchExpressParticipants will
+      // return []. The backfill scans today's fastLane bookings and matches
+      // on (track, heatStart-minute-in-ET) to this active session, so
+      // express holders get picked up even if sessionId never landed on
+      // their racer record.
+      const backfill = await backfillExpressSessionIndex(race);
+      if (backfill.added > 0) {
+        sessionResults.push({ track: trackKey, sessionId, note: `express-backfill: +${backfill.added}` } as typeof sessionResults[number] & { note: string });
       }
 
       const [participants, expressHolders] = await Promise.all([
