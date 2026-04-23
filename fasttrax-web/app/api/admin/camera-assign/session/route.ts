@@ -4,16 +4,14 @@ import { listAssignmentsForSession } from "@/lib/camera-assign";
 /**
  * GET /api/admin/camera-assign/session
  *
- *   (no params)              → next upcoming session (across all tracks)
- *                              with its participants + any prior camera
- *                              assignments.
- *   ?sessionId={id}&track=Red Track
- *                            → specific session (test mode). Need both
- *                              sessionId AND the resource name because the
- *                              Pandora sessions endpoint is resource-
- *                              scoped.
- *   ?mode=past               → today's past sessions (ascending by time)
- *                              for the test picker.
+ *   (no params)              → next upcoming session across all tracks.
+ *   ?track=blue              → only Blue Track (or red/mega) — used when
+ *                              a kiosk is dedicated to one track.
+ *   ?sessionId={id}          → specific session (test mode). Scans all 3
+ *                              track resources for today to resolve.
+ *   ?mode=past&days=7        → past sessions across the last N days
+ *                              (default 7), descending by time, for the
+ *                              test picker.
  *
  * Auth: middleware.ts gates /api/admin/camera-assign/* on ADMIN_CAMERA_TOKEN.
  */
@@ -21,6 +19,15 @@ import { listAssignmentsForSession } from "@/lib/camera-assign";
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const TRACK_RESOURCES = ["Blue Track", "Red Track", "Mega Track"] as const;
+
+function trackSlugToResource(slug: string | null): (typeof TRACK_RESOURCES)[number] | null {
+  if (!slug) return null;
+  const s = slug.toLowerCase();
+  if (s === "blue" || s === "blue-track") return "Blue Track";
+  if (s === "red" || s === "red-track") return "Red Track";
+  if (s === "mega" || s === "mega-track") return "Mega Track";
+  return null;
+}
 
 interface PandoraSession {
   sessionId: string;
@@ -36,24 +43,33 @@ interface Participant {
   lastName: string;
 }
 
-function todayETRange(): { startDate: string; endDate: string } {
-  // Mirror the cron pattern: today 00:00 → tomorrow 00:00 ET as ISO UTC
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat("en-CA", {
+function etYmd(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric", month: "2-digit", day: "2-digit",
-  });
-  const ymd = fmt.format(now);
-  const startLocal = new Date(`${ymd}T00:00:00-04:00`); // ET (DST-naive but close enough for a daily window)
-  const endLocal = new Date(startLocal.getTime() + 24 * 60 * 60 * 1000);
-  return {
-    startDate: startLocal.toISOString(),
-    endDate: endLocal.toISOString(),
-  };
+  }).format(d);
 }
 
-async function fetchSessionsForResource(resourceName: string): Promise<(PandoraSession & { resourceName: string })[]> {
-  const { startDate, endDate } = todayETRange();
+function rangeETForDays(backDays: number, forwardDays: number): { startDate: string; endDate: string } {
+  // Use a simple UTC day-boundary math — Pandora accepts ISO UTC timestamps
+  // and we want to include the full day across the ET window; going
+  // UTC ± the whole day captures DST transitions safely without having to
+  // resolve the right offset per day.
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const start = new Date(now - backDays * dayMs);
+  const end = new Date(now + forwardDays * dayMs);
+  // Floor/ceil to UTC day boundaries to keep the windows round.
+  start.setUTCHours(0, 0, 0, 0);
+  end.setUTCHours(0, 0, 0, 0);
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+async function fetchSessionsForResource(
+  resourceName: string,
+  startDate: string,
+  endDate: string,
+): Promise<(PandoraSession & { resourceName: string })[]> {
   const qs = new URLSearchParams({
     locationId: FASTTRAX_LOCATION_ID,
     resourceName,
@@ -67,8 +83,12 @@ async function fetchSessionsForResource(resourceName: string): Promise<(PandoraS
   return list.map((s) => ({ ...s, resourceName }));
 }
 
-async function fetchAllTodaySessions() {
-  const per = await Promise.all(TRACK_RESOURCES.map(fetchSessionsForResource));
+async function fetchSessionsInWindow(
+  resources: readonly string[],
+  startDate: string,
+  endDate: string,
+) {
+  const per = await Promise.all(resources.map((r) => fetchSessionsForResource(r, startDate, endDate)));
   return per.flat();
 }
 
@@ -87,28 +107,45 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const mode = searchParams.get("mode");
     const sessionIdParam = searchParams.get("sessionId");
+    const trackParam = searchParams.get("track");
+    const daysParam = parseInt(searchParams.get("days") || "7", 10) || 7;
 
-    const allSessions = await fetchAllTodaySessions();
-    // Past list — just sessions whose scheduledStart has passed
+    // Resolve which track resources to query. No track = all three.
+    const requestedResource = trackSlugToResource(trackParam);
+    const resources = requestedResource ? [requestedResource] : (TRACK_RESOURCES as readonly string[]);
+
     const now = Date.now();
-    const pastSessions = allSessions
-      .filter((s) => new Date(s.scheduledStart).getTime() <= now)
-      .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime());
 
+    // Past mode: broad window (last N days) so staff can demo on a day
+    // the track isn't open. We still only want sessions whose start is
+    // in the past.
     if (mode === "past") {
+      const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 0);
+      const all = await fetchSessionsInWindow(resources, startDate, endDate);
+      const past = all
+        .filter((s) => new Date(s.scheduledStart).getTime() <= now)
+        .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime());
       return NextResponse.json(
-        { sessions: pastSessions.map((s) => ({
+        {
+          sessions: past.map((s) => ({
             sessionId: s.sessionId,
             name: s.name,
             scheduledStart: s.scheduledStart,
             track: s.resourceName,
             heatNumber: s.heatNumber,
             type: s.type,
+            dateYmd: etYmd(new Date(s.scheduledStart)),
           })),
         },
         { headers: { "Cache-Control": "no-store" } },
       );
     }
+
+    // Live mode: look ~8 days forward so we catch whatever's next, even
+    // if today is a closed day. Also look back 1 day so an in-progress
+    // session (started <1h ago) still shows up.
+    const { startDate, endDate } = rangeETForDays(1, 8);
+    const allSessions = await fetchSessionsInWindow(resources, startDate, endDate);
 
     // Pick the session to surface — either explicitly requested, or the
     // next upcoming one.
@@ -116,8 +153,20 @@ export async function GET(req: NextRequest) {
     if (sessionIdParam) {
       picked = allSessions.find((s) => String(s.sessionId) === sessionIdParam);
       if (!picked) {
+        // Fall back to a broader search (last 30 days) — past sessions
+        // selected from the test picker may be older than the live
+        // window.
+        const wide = rangeETForDays(30, 0);
+        const widerSessions = await fetchSessionsInWindow(
+          TRACK_RESOURCES as readonly string[],
+          wide.startDate,
+          wide.endDate,
+        );
+        picked = widerSessions.find((s) => String(s.sessionId) === sessionIdParam);
+      }
+      if (!picked) {
         return NextResponse.json(
-          { error: `sessionId ${sessionIdParam} not found in today's schedule` },
+          { error: `sessionId ${sessionIdParam} not found` },
           { status: 404 },
         );
       }
@@ -129,8 +178,14 @@ export async function GET(req: NextRequest) {
     }
 
     if (!picked) {
+      const trackLabel = requestedResource ?? "any track";
       return NextResponse.json(
-        { session: null, participants: [], assignments: [], note: "No upcoming sessions today." },
+        {
+          session: null,
+          participants: [],
+          assignments: [],
+          note: `No upcoming sessions for ${trackLabel} in the next 8 days.`,
+        },
         { headers: { "Cache-Control": "no-store" } },
       );
     }

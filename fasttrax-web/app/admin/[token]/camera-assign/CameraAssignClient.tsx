@@ -67,7 +67,21 @@ function formatEt(iso: string): string {
   } catch { return iso; }
 }
 
-export default function CameraAssignClient({ token }: { token: string }) {
+type TrackSlug = "" | "blue" | "red" | "mega";
+
+const TRACK_BUTTONS: { slug: TrackSlug; label: string; tint: string; activeTint: string }[] = [
+  { slug: "",     label: "All tracks", tint: "border-white/15 bg-white/5 hover:bg-white/10 text-white/80",
+    activeTint: "border-white/40 bg-white/15 text-white ring-2 ring-white/30" },
+  { slug: "blue", label: "Blue Track", tint: "border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-200",
+    activeTint: "border-blue-400 bg-blue-500/25 text-white ring-2 ring-blue-400/50" },
+  { slug: "red",  label: "Red Track",  tint: "border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-200",
+    activeTint: "border-red-400 bg-red-500/25 text-white ring-2 ring-red-400/50" },
+  { slug: "mega", label: "Mega Track", tint: "border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200",
+    activeTint: "border-amber-400 bg-amber-500/25 text-white ring-2 ring-amber-400/50" },
+];
+
+export default function CameraAssignClient({ token, track: initialTrack }: { token: string; track?: string }) {
+  const [track, setTrack] = useState<TrackSlug>((initialTrack as TrackSlug) || "");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [note, setNote] = useState<string | null>(null);
@@ -89,6 +103,7 @@ export default function CameraAssignClient({ token }: { token: string }) {
     try {
       const qs = new URLSearchParams({ token });
       if (sessionIdOverride) qs.set("sessionId", sessionIdOverride);
+      if (track) qs.set("track", track);
       const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`load failed: ${res.status}`);
       const json = (await res.json()) as SessionResponse;
@@ -103,24 +118,35 @@ export default function CameraAssignClient({ token }: { token: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, track]);
 
   /** Load list of today's past sessions for the test-data dropdown. */
   const loadPast = useCallback(async () => {
     try {
-      const qs = new URLSearchParams({ token, mode: "past" });
+      const qs = new URLSearchParams({ token, mode: "past", days: "7" });
+      if (track) qs.set("track", track);
       const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
       setPastSessions(json.sessions || []);
       setPastLoaded(true);
     } catch { /* non-fatal */ }
-  }, [token]);
+  }, [token, track]);
 
-  // Initial load
-  useEffect(() => { loadSession(); }, [loadSession]);
+  // Initial load — and re-runs whenever `track` changes so the three
+  // track buttons can switch the roster. `loadSession` itself captures
+  // `track` via its useCallback deps, so its identity flips when track
+  // flips, and this effect re-fires.
+  useEffect(() => {
+    setOverrideSessionId("");   // clear any test-session override on track switch
+    setPastLoaded(false);       // force past-sessions to reload for the new track
+    setPastSessions([]);
+    void loadSession();
+  }, [loadSession]);
 
-  // Keep the input focused — NFC reader pumps characters here
+  // Keep the input focused — NFC reader pumps characters here. On small
+  // Android kiosks users may tap a participant card; don't let that
+  // strand the input.
   useEffect(() => {
     const refocus = () => {
       if (document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "SELECT") {
@@ -225,107 +251,118 @@ export default function CameraAssignClient({ token }: { token: string }) {
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
-        <header className="mb-3 sm:mb-5">
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 hidden sm:block">
-            Scan each kart&apos;s NFC tag to bind it to a racer. Assignments are saved; a Viewpoint-watcher can match incoming videos back to this roster.
-          </p>
+        <header className="mb-3">
+          <h1 className="text-lg sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
         </header>
 
-        {/* Control bar — refresh + test-data picker */}
-        <div className="flex flex-wrap items-end gap-3 mb-4">
+        {/* Track buttons — 2×2 grid on mobile, 1×4 on desktop. Each has
+            a min-height of ~56px so gloved/oily finger taps don't miss. */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+          {TRACK_BUTTONS.map((b) => {
+            const active = track === b.slug;
+            return (
+              <button
+                key={b.slug || "all"}
+                type="button"
+                onClick={() => setTrack(b.slug)}
+                className={`min-h-[56px] px-3 py-3 rounded-lg border-2 font-semibold uppercase tracking-wide text-sm sm:text-base transition-colors ${
+                  active ? b.activeTint : b.tint
+                }`}
+              >
+                {b.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Reload + test-data picker — stacked on mobile, inline on desktop */}
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2 mb-3">
           <button
             type="button"
             onClick={() => { setOverrideSessionId(""); void loadSession(); }}
-            className="text-xs px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-white border border-white/15"
+            className="min-h-[44px] text-sm px-4 py-2 rounded-lg bg-white/10 active:bg-white/20 text-white border border-white/15"
           >
-            ⟳ Load next upcoming
+            ⟳ Reload
           </button>
-          <div className="flex items-end gap-2">
-            <label className="flex flex-col gap-1 text-xs text-white/60">
-              Test with past session (today)
-              <select
-                value={overrideSessionId}
-                onFocus={() => { if (!pastLoaded) void loadPast(); }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setOverrideSessionId(v);
-                  if (v) void loadSession(v);
-                }}
-                className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white min-w-[220px]"
-              >
-                <option value="" style={{ backgroundColor: "#0a1128" }}>
-                  {pastLoaded ? "— pick a past session —" : "— click to load past sessions —"}
+          <label className="flex-1 flex flex-col gap-1 text-xs text-white/60">
+            Test with past session (last 7 days)
+            <select
+              value={overrideSessionId}
+              onFocus={() => { if (!pastLoaded) void loadPast(); }}
+              onChange={(e) => {
+                const v = e.target.value;
+                setOverrideSessionId(v);
+                if (v) void loadSession(v);
+              }}
+              className="min-h-[44px] bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="" style={{ backgroundColor: "#0a1128" }}>
+                {pastLoaded
+                  ? pastSessions.length === 0 ? "— no past sessions found —" : "— pick a past session —"
+                  : "— tap to load past sessions —"}
+              </option>
+              {pastSessions.map((s) => (
+                <option key={s.sessionId} value={s.sessionId} style={{ backgroundColor: "#0a1128" }}>
+                  {formatEt(s.scheduledStart)} · {s.track.replace(" Track", "")} · H{s.heatNumber} · {s.type}
                 </option>
-                {pastSessions.map((s) => (
-                  <option key={s.sessionId} value={s.sessionId} style={{ backgroundColor: "#0a1128" }}>
-                    {formatEt(s.scheduledStart)} · {s.track} · Heat {s.heatNumber} · {s.type}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+              ))}
+            </select>
+          </label>
         </div>
 
-        {/* Session header */}
-        {loading && <div className="text-white/50 text-sm py-4">Loading…</div>}
-        {err && <div className="text-red-400 text-sm mb-3">Error: {err}</div>}
-        {note && <div className="text-white/60 text-sm mb-3">{note}</div>}
+        {/* Session header — compact on mobile, big counter always visible */}
+        {loading && <div className="text-white/50 text-sm py-2">Loading…</div>}
+        {err && <div className="text-red-400 text-sm mb-2">Error: {err}</div>}
+        {note && !session && <div className="text-white/60 text-sm mb-2">{note}</div>}
 
         {session && (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 mb-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <div className="text-sm text-white/50">Session · Heat {session.heatNumber} · {session.type}</div>
-                <div className="text-lg font-semibold">{session.track} · {formatEt(session.scheduledStart)}</div>
-                <div className="text-xs text-white/40 mt-0.5">{session.name}</div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 sm:p-4 mb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] sm:text-xs uppercase tracking-wide text-white/50">Heat {session.heatNumber} · {session.type}</div>
+                <div className="text-base sm:text-lg font-semibold truncate">{session.track.replace(" Track", "")} · {formatEt(session.scheduledStart)}</div>
               </div>
-              <div className="text-right">
-                <div className="text-3xl font-bold tabular-nums">
+              <div className="text-right shrink-0">
+                <div className="text-2xl sm:text-3xl font-bold tabular-nums leading-none">
                   <span className={doneAll ? "text-emerald-400" : "text-[#00E2E5]"}>
                     {assignedCount}
                   </span>
                   <span className="text-white/30"> / {totalCount}</span>
                 </div>
-                <div className="text-xs uppercase tracking-wide text-white/50">
-                  {doneAll ? "all cameras assigned" : "cameras assigned"}
+                <div className="text-[10px] uppercase tracking-wide text-white/50 mt-0.5">
+                  assigned
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Scan input — always focused, NFC writes here. The refocus
-            interval in the top-level effect keeps focus on this input
-            even when the user clicks elsewhere, so we don't need the
-            (a11y-discouraged) autoFocus prop. */}
-        <div className="sticky top-2 z-10 rounded-xl border-2 border-[#00E2E5]/50 bg-[#00E2E5]/5 p-3 sm:p-4 mb-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <label htmlFor="camera-scan-input" className="text-xs text-white/60 block mb-1">
-                Scan NFC tag (or type camera # and press Enter)
-              </label>
-              <input
-                id="camera-scan-input"
-                ref={inputRef}
-                type="text"
-                value={scanBuffer}
-                onChange={(e) => setScanBuffer(e.target.value)}
-                onKeyDown={onInputKey}
-                placeholder="Waiting for scan…"
-                autoComplete="off"
-                className="w-full bg-[#00E2E5]/10 border border-[#00E2E5]/40 rounded px-3 py-3 text-lg text-white font-mono placeholder:text-white/30"
-              />
+        {/* Scan input — always focused, NFC writes here. inputMode="none"
+            tells Android NOT to pop the virtual keyboard when the input
+            is focused — the hardware-emulated NFC reader can still type
+            into it, but tapping the field won't hide the roster behind
+            a keyboard. */}
+        <div className="sticky top-1 z-10 rounded-xl border-2 border-[#00E2E5]/60 bg-[#00E2E5]/10 p-3 mb-3 shadow-lg shadow-[#00E2E5]/10">
+          <label htmlFor="camera-scan-input" className="text-[11px] uppercase tracking-wide text-white/70 block mb-1 font-semibold">
+            Scan NFC tag
+          </label>
+          <input
+            id="camera-scan-input"
+            ref={inputRef}
+            type="text"
+            inputMode="none"
+            value={scanBuffer}
+            onChange={(e) => setScanBuffer(e.target.value)}
+            onKeyDown={onInputKey}
+            placeholder="Waiting for scan…"
+            autoComplete="off"
+            className="w-full bg-[#00E2E5]/10 border-2 border-[#00E2E5]/50 rounded-lg px-3 py-3 text-xl sm:text-2xl text-white font-mono placeholder:text-white/30 tabular-nums tracking-wider"
+          />
+          {lastScan && (
+            <div className="mt-2 text-sm text-emerald-300 font-semibold truncate">
+              ✓ <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
             </div>
-            {lastScan && (
-              <div className="text-right text-xs">
-                <div className="text-emerald-400 font-semibold">
-                  ✓ Camera <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
-                </div>
-                <div className="text-white/40">Last scan {formatEt(new Date(lastScan.at).toISOString())}</div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Participants list */}
@@ -343,49 +380,48 @@ export default function CameraAssignClient({ token }: { token: string }) {
                 key={String(p.personId)}
                 type="button"
                 onClick={() => setActiveIndex(i)}
-                className={`w-full text-left rounded-lg border p-3 sm:p-4 transition-colors ${
+                className={`w-full text-left rounded-lg border-2 p-3 min-h-[72px] transition-colors ${
                   isActive
-                    ? "border-[#00E2E5] bg-[#00E2E5]/10 ring-2 ring-[#00E2E5]/40"
+                    ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-2 ring-[#00E2E5]/40"
                     : hasCam
-                      ? "border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10"
-                      : "border-white/10 bg-white/[0.02] hover:bg-white/5"
+                      ? "border-emerald-500/40 bg-emerald-500/10 active:bg-emerald-500/15"
+                      : "border-white/15 bg-white/[0.03] active:bg-white/10"
                 }`}
               >
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   {/* Order number */}
-                  <div className={`text-2xl font-bold tabular-nums min-w-[2.5rem] ${isActive ? "text-[#00E2E5]" : "text-white/40"}`}>
+                  <div className={`text-xl sm:text-2xl font-bold tabular-nums min-w-[2rem] text-center ${isActive ? "text-[#00E2E5]" : hasCam ? "text-emerald-300" : "text-white/40"}`}>
                     {i + 1}
                   </div>
                   {/* Racer */}
-                  <div className="flex-1">
-                    <div className="text-lg font-semibold">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-base sm:text-lg font-semibold truncate">
                       {p.firstName} {p.lastName}
                     </div>
-                    <div className="text-xs text-white/40">personId {String(p.personId)}</div>
+                    {isActive && !hasCam && (
+                      <div className="text-[#00E2E5] text-xs font-semibold animate-pulse uppercase tracking-wide">
+                        ← scan now
+                      </div>
+                    )}
                   </div>
                   {/* Camera */}
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     {hasCam ? (
                       <>
-                        <div className="text-3xl font-bold font-mono text-emerald-400 tabular-nums">
+                        <div className="text-2xl sm:text-3xl font-bold font-mono text-emerald-400 tabular-nums leading-none">
                           {p.cameraNumber}
                         </div>
-                        <div className="text-[10px] uppercase tracking-wide text-emerald-500/80">camera</div>
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); void unassign(i); }}
-                          className="text-[10px] text-white/40 hover:text-red-400 mt-1"
+                          className="text-xs text-white/50 active:text-red-400 mt-1 px-2 py-1 min-h-[32px]"
                         >
-                          un-assign
+                          ✕ redo
                         </button>
                       </>
-                    ) : isActive ? (
-                      <div className="text-[#00E2E5] uppercase text-xs font-semibold animate-pulse">
-                        ← scan now
-                      </div>
-                    ) : (
-                      <div className="text-white/30 text-xs">no camera yet</div>
-                    )}
+                    ) : !isActive ? (
+                      <div className="text-white/30 text-xs">—</div>
+                    ) : null}
                   </div>
                 </div>
               </button>
