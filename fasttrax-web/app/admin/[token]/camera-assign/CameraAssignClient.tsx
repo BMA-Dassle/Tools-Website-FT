@@ -81,6 +81,41 @@ function formatEt(iso: string): string {
 type TrackSlug = "" | "blue" | "red" | "mega";
 
 /**
+ * Short, scannable label for a session shown on a quick-pick button:
+ *   "Blue Starter 43", "Red Pro 44", "Mega Intermediate 12"
+ * Strips "Track" from the resource name so the button stays narrow.
+ */
+function sessionChipLabel(s: { track?: string; type?: string; heatNumber?: number } | null | undefined): string {
+  if (!s) return "—";
+  const track = (s.track || "").replace(" Track", "").trim();
+  const type = (s.type || "").trim();
+  const heat = s.heatNumber != null ? String(s.heatNumber) : "";
+  return [track, type, heat].filter(Boolean).join(" ");
+}
+
+/**
+ * Map a session's track name to brand colors for the quick-pick pill.
+ * Active state = filled, idle = outlined.
+ */
+function trackChipClasses(trackName: string | undefined, isActive: boolean): string {
+  const t = (trackName || "").toLowerCase();
+  if (t.includes("red")) {
+    return isActive
+      ? "bg-[#E53935] border-[#E53935] text-white"
+      : "border-[#E53935]/45 text-[#ff7171] hover:bg-[#E53935]/10 bg-white/[0.02]";
+  }
+  if (t.includes("mega")) {
+    return isActive
+      ? "bg-[#8652FF] border-[#8652FF] text-white"
+      : "border-[#8652FF]/45 text-[#c4adff] hover:bg-[#8652FF]/10 bg-white/[0.02]";
+  }
+  // default: blue / cyan
+  return isActive
+    ? "bg-[#00E2E5] border-[#00E2E5] text-[#000418]"
+    : "border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10 bg-white/[0.02]";
+}
+
+/**
  * Small branded track chips. Colors pulled from the FastTrax palette
  * (cyan, brand red, violet). Active state fills with the track color;
  * idle keeps the color as a subtle border + text tint. Clicking the
@@ -499,6 +534,62 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             ⌨ Keyboard {showKeyboard ? "on" : "off"}
           </button>
         </div>
+
+        {/* Quick-pick row — current loaded session + last 2 past.
+            Fastest switch between the race being called and the two
+            most-recent sessions. Track-colored pills; label format
+            'Blue Starter 43'. Clicking the active one is a no-op. */}
+        {(session || pastSessions.length > 0) && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mr-1">Quick:</span>
+            {(() => {
+              type Pick = {
+                key: string;
+                sessionId: string | number;
+                label: string;
+                track: string | undefined;
+                isCurrent: boolean;
+              };
+              const picks: Pick[] = [];
+              if (session) {
+                picks.push({
+                  key: `cur-${session.sessionId}`,
+                  sessionId: session.sessionId,
+                  label: sessionChipLabel(session),
+                  track: session.track,
+                  isCurrent: true,
+                });
+              }
+              // Last 2 past (skip any that's already the currently-loaded one)
+              for (const p of pastSessions) {
+                if (picks.length >= 3) break;
+                if (session && String(p.sessionId) === String(session.sessionId)) continue;
+                picks.push({
+                  key: `past-${p.sessionId}`,
+                  sessionId: p.sessionId,
+                  label: sessionChipLabel(p),
+                  track: p.track,
+                  isCurrent: false,
+                });
+              }
+              return picks.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => {
+                    if (p.isCurrent) return; // already loaded
+                    setOverrideSessionId(String(p.sessionId));
+                    void loadSession(String(p.sessionId));
+                  }}
+                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${trackChipClasses(p.track, p.isCurrent)}`}
+                  title={p.isCurrent ? "Currently loaded" : "Jump to this session"}
+                >
+                  {p.label}
+                </button>
+              ));
+            })()}
+          </div>
+        )}
 
         {/* Test-data picker — full-width row under the chips */}
         <div className="mb-4">
