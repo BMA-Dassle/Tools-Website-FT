@@ -24,16 +24,25 @@ import { getJwt, invalidateJwt } from "@/lib/vt3";
 const VT3_HOST = "https://sys.vt3.io";
 
 async function fetchPreview(code: string, jwt: string, endpoint: "sample" | "url") {
+  // Full browser-style header set. VT3 was returning 403 on /sample when
+  // we only sent auth + origin + x-cp-*; adding the sec-fetch-* + UA +
+  // accept-* headers (exactly as the control-panel UI sends them per
+  // the captured HAR) satisfies whatever heuristic was rejecting us.
   return fetch(`${VT3_HOST}/videos/${encodeURIComponent(code)}/${endpoint}`, {
     method: "GET",
     headers: {
       authorization: `Bearer ${jwt}`,
-      "x-cp-ui": "mui",
-      "x-cp-ver": "v2.48.2",
-      // Mirror the browser's CORS preflight context so any
-      // origin-based checks on the VT3 side don't trip.
+      accept: "application/json, text/plain, */*",
+      "accept-language": "en-US,en;q=0.9",
       origin: "https://control-panel.vt3.io",
       referer: "https://control-panel.vt3.io/",
+      "sec-fetch-dest": "empty",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-site",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+      "x-cp-ui": "mui",
+      "x-cp-ver": "v2.48.2",
     },
     cache: "no-store",
   });

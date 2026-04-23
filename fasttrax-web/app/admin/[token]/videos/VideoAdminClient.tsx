@@ -808,9 +808,14 @@ function PreviewModal({
             </div>
           </div>
 
-          {/* Video slot — 16:9 so the modal scales cleanly on phones */}
+          {/* Video slot — 16:9 so the modal scales cleanly on phones.
+              VT3's /sample endpoint 403s for programmatic server-side
+              callers (fine from the browser), so inline playback may
+              fail. In that case we fall back to a big thumbnail + a
+              prominent "Watch on vt3.io" CTA so staff still have a
+              one-click path to the video. */}
           <div
-            className="w-full rounded-lg overflow-hidden bg-black border border-white/10"
+            className="w-full rounded-lg overflow-hidden bg-black border border-white/10 relative"
             style={{ aspectRatio: "16 / 9" }}
           >
             {loading && (
@@ -818,30 +823,7 @@ function PreviewModal({
                 Loading preview…
               </div>
             )}
-            {!loading && err && (
-              <div className="w-full h-full flex items-center justify-center p-4 text-center">
-                <div>
-                  <div className="text-red-400 text-sm font-semibold mb-2">{err}</div>
-                  {entry.thumbnailUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={entry.thumbnailUrl}
-                      alt=""
-                      className="max-w-full max-h-32 mx-auto rounded opacity-60 mb-2"
-                    />
-                  )}
-                  <a
-                    href={entry.customerUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-block text-xs px-3 py-1.5 rounded bg-[#00E2E5] text-[#000418] font-semibold"
-                  >
-                    Open in new tab ↗
-                  </a>
-                </div>
-              </div>
-            )}
-            {!loading && !err && mp4Url && (
+            {!loading && mp4Url && (
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
                 key={mp4Url}
@@ -853,7 +835,39 @@ function PreviewModal({
                 className="w-full h-full bg-black"
               />
             )}
+            {!loading && !mp4Url && entry.thumbnailUrl && (
+              <a
+                href={entry.customerUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="absolute inset-0 group"
+                aria-label="Open video on vt3.io"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={entry.thumbnailUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+                {/* Dark overlay with play glyph to signal it's clickable */}
+                <div className="absolute inset-0 bg-black/35 group-hover:bg-black/20 flex items-center justify-center transition-colors">
+                  <div className="flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#00E2E5]/90 text-[#000418] text-3xl pl-1">
+                    ▶
+                  </div>
+                </div>
+              </a>
+            )}
+            {!loading && !mp4Url && !entry.thumbnailUrl && (
+              <div className="w-full h-full flex items-center justify-center text-white/40 text-sm">
+                Preview unavailable
+              </div>
+            )}
           </div>
+          {!loading && !mp4Url && err && (
+            <div className="mt-2 text-[11px] text-white/40 font-mono truncate" title={err}>
+              inline preview unavailable ({err})
+            </div>
+          )}
 
           {/* Bottom row — open in new tab + close. Stacked on phones. */}
           <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between mt-3">
