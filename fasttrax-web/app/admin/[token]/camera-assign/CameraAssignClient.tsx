@@ -128,7 +128,8 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  /** Load the active session (next upcoming by default, or override if picked). */
+  /** Load the active session (next upcoming by default, or override if picked).
+   *  Full reset — use this for initial load, track switch, and manual reload. */
   const loadSession = useCallback(async (sessionIdOverride?: string) => {
     setLoading(true);
     setErr(null);
@@ -152,10 +153,95 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     }
   }, [token, track]);
 
-  /** Load list of today's past sessions for the test-data dropdown. */
+  /** In-place refresh that preserves local scan state.
+   *
+   *  Pandora's roster for the active session can change while the page
+   *  is open (racer added late, scratch, kart re-shuffled). We refresh
+   *  every ~30s so those changes surface without staff having to hit
+   *  Reload mid-scan.
+   *
+   *  Preserved across refresh:
+   *    - active scan index (unless that racer got removed)
+   *    - existing systemNumber assignments we made locally (server will
+   *      also echo them back since they're persisted, but we trust our
+   *      local state as the most recent)
+   *    - lastScan toast
+   *    - the current session (we never auto-jump to the next upcoming —
+   *      staff must hit Reload for that, so the session header is stable)
+   *
+   *  If the backend returns a *different* session than the one we're on
+   *  (because the server's "next upcoming" moved on), we do NOT swap it
+   *  automatically — we flag a note so staff knows a newer session is
+   *  queued up. They hit Reload when ready.
+   */
+  const refreshSession = useCallback(async () => {
+    // Don't refresh while staff is on a test session (overrideSessionId)
+    // or actively scanning — would clobber in-progress work.
+    if (overrideSessionId) return;
+    if (scanBuffer) return;
+
+    try {
+      const qs = new URLSearchParams({ token });
+      if (track) qs.set("track", track);
+      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as SessionResponse;
+      const newSession = json.session;
+      const newParticipants = json.participants || [];
+
+      // No session selected yet — fall through to loadSession.
+      if (!session) {
+        setSession(newSession);
+        setParticipants(newParticipants);
+        setNote(json.note || null);
+        const firstUnassigned = newParticipants.findIndex((p) => !p.systemNumber);
+        setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
+        return;
+      }
+
+      // The server's "next upcoming" advanced past us. Keep rendering the
+      // session we loaded (so scan progress survives), but surface a note
+      // so staff can hit Reload to move on.
+      if (newSession && String(newSession.sessionId) !== String(session.sessionId)) {
+        setNote(
+          `New upcoming session: ${newSession.track.replace(" Track", "")} · Heat ${newSession.heatNumber} · ${formatEt(newSession.scheduledStart)}. Hit Reload when ready.`,
+        );
+        return;
+      }
+
+      // Same session — merge participant list in-place. Preserve any
+      // systemNumber we have locally (post-scan), since the server may
+      // have slightly stale data if our scan just landed.
+      setParticipants((prev) => {
+        const prevByPid = new Map(prev.map((p) => [String(p.personId), p]));
+        return newParticipants.map((np) => {
+          const existing = prevByPid.get(String(np.personId));
+          if (existing?.systemNumber && !np.systemNumber) {
+            // Keep our local assignment.
+            return { ...np, systemNumber: existing.systemNumber, assignedAt: existing.assignedAt };
+          }
+          return np;
+        });
+      });
+
+      // Fix up activeIndex if the racer at that slot got removed.
+      setActiveIndex((prev) => {
+        if (prev < 0 || prev >= newParticipants.length) {
+          const firstUnassigned = newParticipants.findIndex((p) => !p.systemNumber);
+          return firstUnassigned >= 0 ? firstUnassigned : 0;
+        }
+        return prev;
+      });
+    } catch {
+      // Non-fatal — next tick will try again.
+    }
+  }, [token, track, overrideSessionId, scanBuffer, session]);
+
+  /** Load today's past sessions for the test-data dropdown. Scoped to
+   *  today (days=1) — staff only testing on the day's earlier heats. */
   const loadPast = useCallback(async () => {
     try {
-      const qs = new URLSearchParams({ token, mode: "past", days: "7" });
+      const qs = new URLSearchParams({ token, mode: "past", days: "1" });
       if (track) qs.set("track", track);
       const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
@@ -174,7 +260,23 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setPastLoaded(false);       // force past-sessions to reload for the new track
     setPastSessions([]);
     void loadSession();
-  }, [loadSession]);
+    // Populate the past dropdown on load + on track change so it's
+    // always usable, no need for staff to tap/focus it first.
+    void loadPast();
+  }, [loadSession, loadPast]);
+
+  // In-place refresh every 30s. Preserves scan state; merges new roster
+  // changes; auto-advances to the next session once all cameras are
+  // assigned (see below for the auto-advance effect).
+  useEffect(() => {
+    const id = setInterval(() => { void refreshSession(); }, 30_000);
+    return () => clearInterval(id);
+  }, [refreshSession]);
+
+  // Auto-advance to the next upcoming session once every racer in the
+  // current session has a camera. We wait a few seconds so staff sees
+  // the "all set" banner, and we don't advance if they're on a test
+  // session, mid-scan, or had zero participants to start with.
 
   // Keep the input focused — NFC reader pumps characters here. On small
   // Android kiosks users may tap a participant card; don't let that
@@ -291,6 +393,23 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const totalCount = participants.length;
   const doneAll = totalCount > 0 && assignedCount === totalCount;
 
+  // Auto-advance: once the current session is fully assigned, wait ~5s
+  // (so staff sees the "all set" banner) and then load the next upcoming
+  // session. Skipped on test sessions and while the scan input has
+  // uncommitted text (don't yank state mid-action).
+  useEffect(() => {
+    if (!doneAll) return;
+    if (overrideSessionId) return;
+    if (scanBuffer) return;
+    const timer = setTimeout(() => {
+      void loadSession();
+      // Refresh past-sessions too — the session we just completed may
+      // now be eligible for the test picker.
+      void loadPast();
+    }, 5_000);
+    return () => clearTimeout(timer);
+  }, [doneAll, overrideSessionId, scanBuffer, loadSession, loadPast]);
+
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
@@ -347,21 +466,21 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         {/* Test-data picker — full-width row under the chips */}
         <div className="mb-4">
           <label className="flex flex-col gap-1 text-xs text-white/60">
-            Test with past session (last 7 days)
+            Test with earlier session today
             <select
               value={overrideSessionId}
-              onFocus={() => { if (!pastLoaded) void loadPast(); }}
               onChange={(e) => {
                 const v = e.target.value;
                 setOverrideSessionId(v);
                 if (v) void loadSession(v);
+                else void loadSession();  // back to live next-upcoming
               }}
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
             >
               <option value="" style={{ backgroundColor: "#0a1128" }}>
-                {pastLoaded
-                  ? pastSessions.length === 0 ? "(none found)" : "— pick a past session —"
-                  : "— tap to load —"}
+                {pastLoaded && pastSessions.length === 0
+                  ? "(no earlier sessions today)"
+                  : "— live (next upcoming) —"}
               </option>
               {pastSessions.map((s) => (
                 <option key={s.sessionId} value={s.sessionId} style={{ backgroundColor: "#0a1128" }}>
