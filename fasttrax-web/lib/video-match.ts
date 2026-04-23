@@ -41,11 +41,23 @@ export interface VideoMatch {
   track?: string;
   raceType?: string;
   heatNumber?: number;
+  /** Snapshot of contact info at match time — duplicated from the
+   *  camera-history entry so the admin-resend endpoint doesn't need
+   *  to walk back to the history set. */
+  email?: string;
+  phone?: string;                // canonical or raw — use canonicalizePhone
+  mobilePhone?: string;
+  homePhone?: string;
+  acceptSmsCommercial?: boolean;
   /** Notification status set by the cron after SMS/email attempts. */
   notifySmsOk?: boolean;
   notifySmsError?: string;
+  notifySmsSentTo?: string;
+  notifySmsSentAt?: string;
   notifyEmailOk?: boolean;
   notifyEmailError?: string;
+  notifyEmailSentTo?: string;
+  notifyEmailSentAt?: string;
 }
 
 function matchKey(sessionId: string | number, personId: string | number): string {
@@ -55,6 +67,9 @@ function matchKey(sessionId: string | number, personId: string | number): string
 function seenVideoKey(videoCode: string): string {
   return `video-match:by-code:${videoCode}`;
 }
+
+/** Time-ordered log so the admin UI can pull "today's matches" in O(log n). */
+const MATCH_LOG_KEY = "video-match:log";
 
 const LAST_SEEN_KEY = "vt3:last-seen-id";
 
@@ -71,6 +86,16 @@ export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
   const ok = await redis.set(sentinel, JSON.stringify({ sessionId: m.sessionId, personId: m.personId, matchedAt: m.matchedAt }), "EX", TTL_SECONDS, "NX");
   if (!ok) return false; // someone else matched this video first
   await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
+  // Index into the time-ordered match log for the admin UI.
+  // Score = matchedAt epoch ms; member = `${sessionId}:${personId}` (the
+  // primary key of the match record). Trim aggressively so the log
+  // doesn't grow unbounded — keep the newest 10k entries which covers
+  // well over a year at current volume.
+  const score = new Date(m.matchedAt).getTime();
+  if (Number.isFinite(score)) {
+    await redis.zadd(MATCH_LOG_KEY, score, `${m.sessionId}:${m.personId}`);
+    await redis.zremrangebyrank(MATCH_LOG_KEY, 0, -10001);
+  }
   return true;
 }
 
@@ -108,4 +133,45 @@ export async function getLastSeenVideoId(): Promise<number> {
 
 export async function setLastSeenVideoId(id: number): Promise<void> {
   await redis.set(LAST_SEEN_KEY, String(id));
+}
+
+/**
+ * List matches for a date range, newest first. Used by the admin UI.
+ *   startMs / endMs — epoch millisecond window (inclusive)
+ *   limit          — max records, default 200
+ */
+export async function listMatchesInRange(opts: {
+  startMs: number;
+  endMs: number;
+  limit?: number;
+}): Promise<VideoMatch[]> {
+  const { startMs, endMs, limit = 200 } = opts;
+  const ids = await redis.zrevrangebyscore(
+    MATCH_LOG_KEY,
+    endMs,
+    startMs,
+    "LIMIT",
+    0,
+    Math.max(1, Math.min(1000, limit)),
+  );
+  if (!ids || ids.length === 0) return [];
+  // ids are `${sessionId}:${personId}` — split and bulk-fetch.
+  const keys = ids.map((id: string) => `video-match:${id}`);
+  const raws = await redis.mget(...keys);
+  const out: VideoMatch[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    try { out.push(JSON.parse(raw)); } catch { /* skip */ }
+  }
+  return out;
+}
+
+/** Update an in-place match (after resend, to patch notify status). */
+export async function getMatch(
+  sessionId: string | number,
+  personId: string | number,
+): Promise<VideoMatch | null> {
+  const raw = await redis.get(matchKey(sessionId, personId));
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
 }

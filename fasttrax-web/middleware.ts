@@ -19,20 +19,25 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
-  // ── Camera-assign gate ───────────────────────────────────────────────────
-  // Separate token from the e-tickets admin because staff share this URL
-  // with external camera vendors/developers; it has its own scope.
-  // IP restriction is OFF until ADMIN_CAMERA_REQUIRE_IP=1 is set (flipped
-  // once the URL has been rolled out and we lock it down). Token always
-  // required.
+  // ── Camera + video gate ──────────────────────────────────────────────────
+  // Shared ADMIN_CAMERA_TOKEN covers both the scan-in tool
+  // (/admin/{token}/camera-assign) and the video admin
+  // (/admin/{token}/videos). They're the same workflow — staff binds
+  // a camera to a racer, then manages the resulting video records —
+  // and a shared token keeps the URL set short.
+  //
+  // IP restriction is OFF until ADMIN_CAMERA_REQUIRE_IP=1 is set
+  // (flipped once staff finishes rollout).
   const isCameraAssignPage = /^\/admin\/[^/]+\/camera-assign(\/|$)/.test(pathname);
   const isCameraAssignApi = pathname.startsWith("/api/admin/camera-assign/") || pathname === "/api/admin/camera-assign";
-  if (isCameraAssignPage || isCameraAssignApi) {
+  const isVideosPage = /^\/admin\/[^/]+\/videos(\/|$)/.test(pathname);
+  const isVideosApi = pathname.startsWith("/api/admin/videos/") || pathname === "/api/admin/videos";
+  if (isCameraAssignPage || isCameraAssignApi || isVideosPage || isVideosApi) {
     const expected = process.env.ADMIN_CAMERA_TOKEN || "";
     const requireIp = process.env.ADMIN_CAMERA_REQUIRE_IP === "1";
 
     let token = "";
-    if (isCameraAssignPage) {
+    if (isCameraAssignPage || isVideosPage) {
       token = pathname.split("/")[2] || "";
     } else {
       token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";

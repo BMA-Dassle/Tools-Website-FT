@@ -144,6 +144,13 @@ export async function GET(req: NextRequest) {
           track: assignment.track,
           raceType: assignment.raceType,
           heatNumber: assignment.heatNumber,
+          // Snapshot contact so the admin-resend endpoint doesn't need to
+          // re-walk the camera-history set.
+          email: assignment.email,
+          phone: assignment.phone,
+          mobilePhone: assignment.mobilePhone,
+          homePhone: assignment.homePhone,
+          acceptSmsCommercial: assignment.acceptSmsCommercial,
         };
         const saved = await saveVideoMatch(matchRecord);
         if (saved) {
@@ -159,14 +166,22 @@ export async function GET(req: NextRequest) {
           // record so the admin UI can see what went out.
           try {
             const n = await notifyVideoReady(matchRecord, assignment);
-            matchRecord.notifySmsOk = n.sms.ok;
-            matchRecord.notifySmsError = n.sms.error;
-            matchRecord.notifyEmailOk = n.email.ok;
-            matchRecord.notifyEmailError = n.email.error;
-            // Patch the match record in place with the notify status
-            // so downstream reads (admin UI, e-ticket page) see it.
-            // Uses updateVideoMatch (not saveVideoMatch) so it bypasses
-            // the NX sentinel which has already fired for this video.
+            const nowIso = new Date().toISOString();
+            if (n.sms.attempted) {
+              matchRecord.notifySmsOk = n.sms.ok;
+              matchRecord.notifySmsError = n.sms.error;
+              matchRecord.notifySmsSentTo = n.sms.sentTo;
+              matchRecord.notifySmsSentAt = nowIso;
+            }
+            if (n.email.attempted) {
+              matchRecord.notifyEmailOk = n.email.ok;
+              matchRecord.notifyEmailError = n.email.error;
+              matchRecord.notifyEmailSentTo = n.email.sentTo;
+              matchRecord.notifyEmailSentAt = nowIso;
+            }
+            // Patch the match record in place with the notify status.
+            // updateVideoMatch bypasses the NX sentinel which has
+            // already fired for this video.
             await updateVideoMatch(matchRecord).catch(() => void 0);
           } catch (err) {
             console.error(`[video-match] notify error for code=${v.code}:`, err);
