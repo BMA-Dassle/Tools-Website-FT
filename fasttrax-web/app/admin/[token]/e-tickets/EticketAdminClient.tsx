@@ -104,10 +104,10 @@ export default function EticketAdminClient({ token }: { token: string }) {
 
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
-      <div className="max-w-7xl mx-auto p-4 sm:p-6">
-        <header className="mb-5">
-          <h1 className="text-2xl font-bold uppercase tracking-wider">E-Ticket Admin</h1>
-          <p className="text-white/50 text-sm mt-1">
+      <div className="max-w-7xl mx-auto p-3 sm:p-6">
+        <header className="mb-3 sm:mb-5">
+          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">E-Ticket Admin</h1>
+          <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
             Audit and resend SMS e-tickets. Entries below are ordered newest first.
           </p>
         </header>
@@ -163,8 +163,99 @@ export default function EticketAdminClient({ token }: { token: string }) {
           </button>
         </div>
 
-        {/* Results table */}
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
+        {/* Results — desktop table (md+) / mobile cards (<md) */}
+        {entries.length === 0 && !loading && (
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
+            No SMS log entries match.
+          </div>
+        )}
+
+        {/* Mobile card list (<md). Stacks one card per entry; taps/buttons
+            stay finger-sized. Table header row is purely visual chrome so
+            we drop it here — each card labels its own fields. */}
+        <div className="md:hidden space-y-2">
+          {entries.map((e) => {
+            const flashHere = flash?.shortCode === e.shortCode;
+            const noConsent = isConsentSkip(e);
+            return (
+              <div
+                key={`m-${e.ts}-${e.phone}-${e.shortCode ?? ""}`}
+                className={`rounded-lg border p-3 text-sm ${
+                  flashHere
+                    ? "border-emerald-400/40 bg-emerald-500/10"
+                    : noConsent
+                      ? "border-red-400/40 bg-red-500/10"
+                      : "border-white/10 bg-white/[0.02]"
+                }`}
+              >
+                {/* Top row: time + source chip + click chip */}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-white/50 text-xs">{formatEt(e.ts)}</span>
+                  <div className="flex items-center gap-1 flex-wrap justify-end">
+                    <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
+                      noConsent ? "bg-red-500/25 text-red-200"
+                      : e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
+                      : e.source === "checkin-cron" ? "bg-emerald-500/20 text-emerald-300"
+                      : e.source === "admin-resend" ? "bg-amber-500/20 text-amber-300"
+                      : "bg-white/10 text-white/60"
+                    }`}>
+                      {noConsent ? "no consent" : sourceLabel(e.source)}
+                    </span>
+                    {e.clickCount && e.clickCount > 0 ? (
+                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
+                        👁 opened{e.clickCount > 1 ? ` ${e.clickCount}×` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Racer name — big, the thing staff are scanning for */}
+                <div className="font-semibold text-white mb-1">
+                  {e.racerNames.length > 0
+                    ? e.racerNames.join(", ")
+                    : <span className="text-white/40 italic font-normal">(no ticket)</span>}
+                </div>
+
+                {/* Race line */}
+                {(e.track || e.heatNumber || e.raceType) && (
+                  <div className="text-xs text-white/60 mb-1">
+                    {e.track && e.heatNumber ? `${e.track} · Heat ${e.heatNumber}` : ""}
+                    {e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
+                  </div>
+                )}
+
+                {/* Phone + status on one row */}
+                <div className="flex items-center justify-between gap-2 mt-2">
+                  <span className="font-mono text-xs text-white/70">{e.phone}</span>
+                  <span className="text-xs">
+                    {e.ok
+                      ? <span className="text-emerald-400">sent</span>
+                      : noConsent
+                        ? <span className="text-red-300 font-semibold">needs verbal OK</span>
+                        : <span className="text-red-400">failed ({e.status ?? "?"})</span>}
+                  </span>
+                </div>
+
+                {flashHere && (
+                  <div className="text-emerald-400 text-xs mt-1">· {flash!.msg}</div>
+                )}
+
+                {/* Resend button — full width, big tap target */}
+                <button
+                  type="button"
+                  onClick={() => setResendTarget(e)}
+                  disabled={!e.shortCode || !e.body}
+                  className="w-full mt-3 py-2 rounded bg-[#00E2E5] text-[#000418] font-semibold text-sm hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Resend
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Desktop table (md+) */}
+        <div className="hidden md:block rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-white/5 text-xs uppercase text-white/50">
@@ -179,9 +270,6 @@ export default function EticketAdminClient({ token }: { token: string }) {
                 </tr>
               </thead>
               <tbody>
-                {entries.length === 0 && !loading && (
-                  <tr><td colSpan={7} className="text-center text-white/40 py-8">No SMS log entries match.</td></tr>
-                )}
                 {entries.map((e) => {
                   const flashHere = flash?.shortCode === e.shortCode;
                   const noConsent = isConsentSkip(e);
@@ -423,12 +511,12 @@ function ResendModal({
             <div className="text-xs text-red-400 mb-3">{err}</div>
           )}
 
-          <div className="flex gap-2 justify-end">
+          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
             <button
               type="button"
               onClick={onClose}
               disabled={sending}
-              className="text-xs px-3 py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
+              className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
             >
               Cancel
             </button>
@@ -436,7 +524,7 @@ function ResendModal({
               type="button"
               onClick={submit}
               disabled={sending || !phone || !entry.body}
-              className="text-xs px-4 py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
+              className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
             >
               {sending ? "Sending…" : "Send"}
             </button>
