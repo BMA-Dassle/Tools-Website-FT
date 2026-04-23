@@ -85,7 +85,6 @@ export default function VideoAdminClient({ token }: { token: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resendTarget, setResendTarget] = useState<VideoRow | null>(null);
-  const [previewTarget, setPreviewTarget] = useState<VideoRow | null>(null);
   const [flash, setFlash] = useState<{ key: string; msg: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -113,13 +112,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Auto-refresh every 2 min; paused while any modal is open so we
-  // don't yank state out from under the operator.
+  // Auto-refresh every 2 min; paused while the resend modal is open
+  // so we don't yank state out from under the operator.
   useEffect(() => {
-    if (resendTarget || previewTarget) return;
+    if (resendTarget) return;
     const id = setInterval(load, 120_000);
     return () => clearInterval(id);
-  }, [load, resendTarget, previewTarget]);
+  }, [load, resendTarget]);
 
   const rowKey = (e: VideoRow) => `${e.sessionId}:${e.personId}:${e.videoCode}`;
 
@@ -268,26 +267,17 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{e.videoCode}</a>
                   </span>
                 </div>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTarget(e)}
-                    className="flex-1 py-2 rounded font-semibold text-sm bg-white/10 text-white border border-white/15 hover:bg-white/20"
-                  >
-                    ▶ Preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResendTarget(e)}
-                    className={`flex-1 py-2 rounded font-semibold text-sm ${
-                      isUnmatched
-                        ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                        : "bg-[#00E2E5] text-[#000418] hover:bg-white"
-                    }`}
-                  >
-                    {isUnmatched ? "Send" : "Resend"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setResendTarget(e)}
+                  className={`w-full mt-3 py-2 rounded font-semibold text-sm ${
+                    isUnmatched
+                      ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
+                      : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                  }`}
+                >
+                  {isUnmatched ? "Send" : "Resend"}
+                </button>
               </div>
             );
           })}
@@ -365,29 +355,18 @@ export default function VideoAdminClient({ token }: { token: string }) {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex gap-1 justify-end">
-                          <button
-                            type="button"
-                            onClick={() => setPreviewTarget(e)}
-                            aria-label="Preview video"
-                            className="text-xs px-2 py-1 rounded font-semibold bg-white/10 text-white border border-white/15 hover:bg-white/20"
-                            title="Preview video"
-                          >
-                            ▶ <span className="sr-only">Preview</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setResendTarget(e)}
-                            className={`text-xs px-2 py-1 rounded font-semibold ${
-                              isUnmatched
-                                ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                                : "bg-[#00E2E5] text-[#000418] hover:bg-white"
-                            }`}
-                          >
-                            {isUnmatched ? "Send" : "Resend"}
-                          </button>
-                        </div>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setResendTarget(e)}
+                          className={`text-xs px-2 py-1 rounded font-semibold ${
+                            isUnmatched
+                              ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
+                              : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                          }`}
+                        >
+                          {isUnmatched ? "Send" : "Resend"}
+                        </button>
                       </td>
                     </tr>
                   );
@@ -412,14 +391,6 @@ export default function VideoAdminClient({ token }: { token: string }) {
           />
         )}
 
-        {/* Preview modal */}
-        {previewTarget && (
-          <PreviewModal
-            entry={previewTarget}
-            token={token}
-            onClose={() => setPreviewTarget(null)}
-          />
-        )}
       </div>
     </div>
   );
@@ -703,188 +674,6 @@ Watch + share: ${entry.customerUrl}`}
               className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
             >
               {sending ? "Sending…" : "Send"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Preview modal — plays the vt3.io MP4 inline via a signed R2 URL
- * fetched from /api/admin/videos/preview.
- *
- * Mobile-first layout:
- *   - Full-width with tight padding
- *   - Video uses aspect-ratio:16/9 so it scales cleanly without the
- *     browser trying to match the intrinsic height before it loads
- *   - Thumbnail poster so there's immediate visual feedback while the
- *     MP4 stream establishes
- *   - 'Open in new tab' fallback for the rare case /sample or /url
- *     returns something we can't play inline
- */
-function PreviewModal({
-  entry,
-  token,
-  onClose,
-}: {
-  entry: VideoRow;
-  token: string;
-  onClose: () => void;
-}) {
-  const [mp4Url, setMp4Url] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [kind, setKind] = useState<"url" | "sample" | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setErr(null);
-    setMp4Url(null);
-    (async () => {
-      try {
-        const qs = new URLSearchParams({ code: entry.videoCode, token });
-        const res = await fetch(`/api/admin/videos/preview?${qs.toString()}`, { cache: "no-store" });
-        const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok || !data.url) throw new Error(data.error || `preview failed (${res.status})`);
-        setMp4Url(data.url);
-        setKind(data.kind || null);
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "preview failed");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [entry.videoCode, token]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-3 bg-black/85"
-      style={{ height: "100dvh" }}
-      {...modalBackdropProps(onClose)}
-    >
-      <div
-        className="relative w-full max-w-3xl rounded-xl"
-        style={{
-          backgroundColor: "#0a1128",
-          border: "1.78px solid rgba(255,255,255,0.1)",
-          maxHeight: "calc(100dvh - 1rem)",
-          overflowY: "auto",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close preview"
-          className="absolute top-2 right-2 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 text-white"
-          style={{ fontSize: "22px", lineHeight: 1 }}
-        >
-          &times;
-        </button>
-        <div className="p-3 sm:p-5">
-          {/* Title — compact on mobile */}
-          <div className="mb-3 pr-10">
-            <div className="text-[10px] uppercase tracking-widest text-white/40 font-semibold">
-              {kind === "sample" ? "Sample preview" : kind === "url" ? "Full video" : "Preview"}
-            </div>
-            <div className="text-sm sm:text-base font-semibold truncate">
-              {entry.matched
-                ? <>{entry.firstName} {entry.lastName}</>
-                : <span className="text-white/50 italic font-normal">(unmatched)</span>}
-              {entry.track && entry.heatNumber && (
-                <span className="text-white/40 ml-2 font-normal">
-                  · {entry.track.replace(" Track", "")} H{entry.heatNumber}
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-white/40 mt-0.5 font-mono">
-              sys {entry.systemNumber || "—"}
-              {entry.cameraNumber != null && <> · cam {entry.cameraNumber}</>}
-              {" · "}{entry.videoCode}
-            </div>
-          </div>
-
-          {/* Video slot — 16:9 so the modal scales cleanly on phones.
-              VT3's /sample endpoint 403s for programmatic server-side
-              callers (fine from the browser), so inline playback may
-              fail. In that case we fall back to a big thumbnail + a
-              prominent "Watch on vt3.io" CTA so staff still have a
-              one-click path to the video. */}
-          <div
-            className="w-full rounded-lg overflow-hidden bg-black border border-white/10 relative"
-            style={{ aspectRatio: "16 / 9" }}
-          >
-            {loading && (
-              <div className="w-full h-full flex items-center justify-center text-white/50 text-sm">
-                Loading preview…
-              </div>
-            )}
-            {!loading && mp4Url && (
-              // eslint-disable-next-line jsx-a11y/media-has-caption
-              <video
-                key={mp4Url}
-                src={mp4Url}
-                poster={entry.thumbnailUrl}
-                controls
-                autoPlay
-                playsInline
-                className="w-full h-full bg-black"
-              />
-            )}
-            {!loading && !mp4Url && entry.thumbnailUrl && (
-              <a
-                href={entry.customerUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="absolute inset-0 group"
-                aria-label="Open video on vt3.io"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={entry.thumbnailUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-                {/* Dark overlay with play glyph to signal it's clickable */}
-                <div className="absolute inset-0 bg-black/35 group-hover:bg-black/20 flex items-center justify-center transition-colors">
-                  <div className="flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#00E2E5]/90 text-[#000418] text-3xl pl-1">
-                    ▶
-                  </div>
-                </div>
-              </a>
-            )}
-            {!loading && !mp4Url && !entry.thumbnailUrl && (
-              <div className="w-full h-full flex items-center justify-center text-white/40 text-sm">
-                Preview unavailable
-              </div>
-            )}
-          </div>
-          {!loading && !mp4Url && err && (
-            <div className="mt-2 text-[11px] text-white/40 font-mono truncate" title={err}>
-              inline preview unavailable ({err})
-            </div>
-          )}
-
-          {/* Bottom row — open in new tab + close. Stacked on phones. */}
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between mt-3">
-            <a
-              href={entry.customerUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-xs px-3 py-2 rounded border border-white/20 text-white/70 hover:text-white hover:border-white/40 text-center"
-            >
-              Open on vt3.io ↗
-            </a>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-sm px-5 py-2.5 rounded bg-white/10 text-white border border-white/15 hover:bg-white/20"
-            >
-              Close
             </button>
           </div>
         </div>
