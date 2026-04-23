@@ -1,0 +1,114 @@
+import redis from "@/lib/redis";
+
+/**
+ * Thin client for the Voxtelesys VT3 / Viewpoint control-panel API.
+ *
+ * Used by the video-match cron to detect when a camera comes back from
+ * a race (a new /videos record appears on control-panel.vt3.io) and
+ * pair it to the racer whose NFC tag we bound to that camera via the
+ * camera-assign admin tool.
+ *
+ * Auth is username+password → JWT (no cookies). JWT lives 7 days; we
+ * cache in Redis with a 6-day TTL so we rarely hit /auth/local.
+ *
+ * Customer-facing URLs are `https://vt3.io/?code={video.code}`.
+ */
+
+const VT3_HOST = "https://sys.vt3.io";
+const JWT_REDIS_KEY = "vt3:jwt";
+const JWT_CACHE_TTL = 60 * 60 * 24 * 6; // 6 days (token exp is 7d)
+
+export interface Vt3Video {
+  id: number;
+  code: string;            // 10-char share code → customer URL
+  status: string;          // PENDING_ACTIVATION, READY, …
+  camera: number;
+  locked: boolean;
+  disabled: boolean;
+  size: string;
+  duration: number;        // seconds
+  purchaseType: string | null;
+  created_at: string;      // ISO UTC — when the on-kart capture happened
+  updated_at: string;
+  site: { id: number; name: string; uid: string };
+  system: { id: number; username: string; name: string }; // `name` is the kart/camera number, e.g. "913"
+  customer: { id: number; email?: string } | null;
+  thumbnailUrl?: string;
+  sampleUploadTime: string | null;
+  uploadTime: string | null;
+}
+
+async function login(): Promise<string> {
+  const user = process.env.VT3_USERNAME;
+  const pass = process.env.VT3_PASSWORD;
+  if (!user || !pass) throw new Error("VT3_USERNAME / VT3_PASSWORD not set");
+
+  const res = await fetch(`${VT3_HOST}/auth/local`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-cp-ui": "mui", "x-cp-ver": "v2.48.2" },
+    body: JSON.stringify({ identifier: user, password: pass }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`vt3 login failed: ${res.status} ${await res.text().catch(() => "")}`);
+  const json = await res.json();
+  const jwt = json?.jwt;
+  if (!jwt || typeof jwt !== "string") throw new Error("vt3 login returned no jwt");
+  await redis.set(JWT_REDIS_KEY, jwt, "EX", JWT_CACHE_TTL);
+  return jwt;
+}
+
+/**
+ * Get a valid JWT — cached in Redis, re-fetched if missing.
+ * Does NOT validate expiry since our cache TTL is shorter than the
+ * token's exp, but if a 401 comes back from a downstream call the
+ * caller can invoke `invalidateJwt()` + retry.
+ */
+export async function getJwt(): Promise<string> {
+  const cached = await redis.get(JWT_REDIS_KEY);
+  if (cached) return cached;
+  return login();
+}
+
+export async function invalidateJwt(): Promise<void> {
+  await redis.del(JWT_REDIS_KEY);
+}
+
+/**
+ * Fetch the latest N videos for one site, newest-first.
+ *
+ * Returns the raw VT3 records. Caller is responsible for dedup
+ * (last-seen-id tracking) and for deciding which are worth matching.
+ */
+export async function listRecentVideos(opts: {
+  siteId: number;
+  limit?: number;
+}): Promise<Vt3Video[]> {
+  const { siteId, limit = 50 } = opts;
+
+  const fetchOnce = async (jwt: string) => {
+    return fetch(`${VT3_HOST}/videos`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${jwt}`,
+        "x-cp-ui": "mui",
+        "x-cp-ver": "v2.48.2",
+      },
+      body: JSON.stringify({ _start: 0, _limit: limit, _sort: "id:desc", site_in: [siteId] }),
+      cache: "no-store",
+    });
+  };
+
+  let jwt = await getJwt();
+  let res = await fetchOnce(jwt);
+  if (res.status === 401 || res.status === 403) {
+    // JWT may have been invalidated server-side; try once more with a fresh one.
+    await invalidateJwt();
+    jwt = await login();
+    res = await fetchOnce(jwt);
+  }
+  if (!res.ok) throw new Error(`vt3 listVideos failed: ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data)) throw new Error("vt3 listVideos returned non-array");
+  return data as Vt3Video[];
+}

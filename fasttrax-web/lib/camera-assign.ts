@@ -56,6 +56,19 @@ function sessionIndexKey(sessionId: string | number): string {
 }
 
 /**
+ * Time-indexed history of assignments for a given camera. Sorted set,
+ * score = assignedAt epoch ms, value = JSON of the assignment.
+ * Used by the video-match cron: when a video uploads from camera C
+ * at time T, we find the most recent history entry with score <= T
+ * — that's the racer who had camera C at that moment. Critical for
+ * days when the same kart/camera runs multiple heats with different
+ * racers.
+ */
+function historyKey(cameraNumber: string): string {
+  return `camera-history:${cameraNumber}`;
+}
+
+/**
  * Persist an assignment. Writes three entries atomically via a pipeline:
  *   1. The primary record keyed by (sessionId, personId)
  *   2. A camera-watch reverse lookup keyed by cameraNumber
@@ -70,6 +83,7 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
   const primary = assignKey(a.sessionId, a.personId);
   const watch = watchKey(a.cameraNumber);
   const idx = sessionIndexKey(a.sessionId);
+  const hist = historyKey(a.cameraNumber);
 
   const payload = JSON.stringify(a);
   const watchPayload = JSON.stringify({
@@ -84,13 +98,63 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
     heatNumber: a.heatNumber,
     assignedAt: a.assignedAt,
   });
+  const historyScore = new Date(a.assignedAt).getTime();
 
   const pipeline = redis.pipeline();
   pipeline.set(primary, payload, "EX", TTL_SECONDS);
   pipeline.set(watch, watchPayload, "EX", TTL_SECONDS);
   pipeline.sadd(idx, String(a.personId));
   pipeline.expire(idx, TTL_SECONDS);
+  // Time-indexed history — same camera may have multiple assignments
+  // across the day as karts rotate between heats. The video-match
+  // cron reads this set and picks the entry with the largest score
+  // that is still <= video.created_at.
+  pipeline.zadd(hist, historyScore, watchPayload);
+  pipeline.expire(hist, TTL_SECONDS);
   await pipeline.exec();
+}
+
+/**
+ * Find who had a given camera at a specific moment. Used by the
+ * video-match cron: takes the video's `created_at` (ISO string) and
+ * the kart/camera number (`system.name` on VT3 records), returns the
+ * most recent camera-assign whose assignedAt is earlier than the
+ * video's capture time. Returns null if the camera was never
+ * assigned (or the assignment TTL'd out before the video uploaded).
+ */
+export async function getAssignmentAtTime(
+  cameraNumber: string,
+  atIso: string,
+): Promise<{
+  sessionId: string | number;
+  personId: string | number;
+  firstName: string;
+  lastName: string;
+  cameraNumber: string;
+  sessionName?: string;
+  scheduledStart?: string;
+  track?: string;
+  heatNumber?: number;
+  assignedAt: string;
+} | null> {
+  try {
+    const atMs = new Date(atIso).getTime();
+    if (!Number.isFinite(atMs)) return null;
+    // ZREVRANGEBYSCORE → all entries ≤ atMs, highest first. LIMIT 0 1
+    // gives us just the one we want.
+    const result = await redis.zrevrangebyscore(
+      historyKey(cameraNumber),
+      atMs,
+      "-inf",
+      "LIMIT",
+      0,
+      1,
+    );
+    if (!result || result.length === 0) return null;
+    return JSON.parse(result[0]);
+  } catch {
+    return null;
+  }
 }
 
 /**

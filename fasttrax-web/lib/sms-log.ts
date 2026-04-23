@@ -83,7 +83,7 @@ export async function readSmsLog(
 
 export interface CronRunEntry {
   ts: string;
-  cron: "pre-race" | "checkin";
+  cron: "pre-race" | "checkin" | "video-match";
   dryRun: boolean;
   elapsedMs: number;
   /** Caller IP / source (approximate — useful to distinguish Vercel cron vs manual curl) */
