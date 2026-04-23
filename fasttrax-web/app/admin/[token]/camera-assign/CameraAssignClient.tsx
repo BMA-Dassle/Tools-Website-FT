@@ -160,6 +160,8 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  checkin-cron fired an SMS. Refreshes every 30s except while
    *  scanBuffer has content (never yank buttons mid-scan). */
   const [calledSessions, setCalledSessions] = useState<PastSession[]>([]);
+  const [calledLoading, setCalledLoading] = useState(false);
+  const [pastLoading, setPastLoading] = useState(false);
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
   // Bumps on every successful scan — drives the full-screen flash
@@ -314,15 +316,20 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  operator is mid-scan (scanBuffer present) so the pills don't
    *  rearrange under their thumb. */
   const loadCalled = useCallback(async () => {
-    if (!track) { setCalledSessions([]); return; }
+    if (!track) { setCalledSessions([]); setCalledLoading(false); return; }
     if (scanBuffer) return;
+    setCalledLoading(true);
     try {
       const qs = new URLSearchParams({ token, track, limit: "3" });
       const res = await fetch(`/api/admin/camera-assign/called?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
       setCalledSessions(json.sessions || []);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    } finally {
+      setCalledLoading(false);
+    }
   }, [token, track, scanBuffer]);
 
   /** Load today's past sessions for the test-data dropdown. Scoped to
@@ -331,7 +338,8 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  we guard against any Pandora-side ordering weirdness in case a
    *  response ever comes back unsorted). */
   const loadPast = useCallback(async () => {
-    if (!track) { setPastSessions([]); setPastLoaded(false); return; }
+    if (!track) { setPastSessions([]); setPastLoaded(false); setPastLoading(false); return; }
+    setPastLoading(true);
     try {
       const qs = new URLSearchParams({ token, mode: "past", days: "1", track });
       const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
@@ -350,7 +358,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       });
       setPastSessions(sessions);
       setPastLoaded(true);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    } finally {
+      setPastLoading(false);
+    }
   }, [token, track]);
 
   // Initial load — and re-runs whenever `track` changes so the three
@@ -365,7 +377,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setOverrideSessionId("");
     setPastLoaded(false);
     setPastSessions([]);
+    setPastLoading(!!track);    // show loading immediately if a track is now selected
     setCalledSessions([]);
+    setCalledLoading(!!track);
     setSession(null);
     setParticipants([]);
     setNote(null);
@@ -567,11 +581,21 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             <button
               type="button"
               onClick={() => setPastModalOpen(true)}
-              disabled={!track || pastSessions.length === 0}
+              disabled={!track || pastLoading || pastSessions.length === 0}
               title="Browse earlier sessions from today"
-              className="text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
             >
-              ⏮ Earlier
+              {pastLoading ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
+                  />
+                  Loading…
+                </>
+              ) : (
+                <>⏮ Earlier</>
+              )}
             </button>
             <button
               type="button"
@@ -630,7 +654,16 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   {sessionChipLabel(p)}
                 </button>
               ))}
-            {calledSessions.length === 0 && (
+            {calledLoading && calledSessions.length === 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-[#00E2E5]/80 font-semibold px-3 py-1.5 rounded border border-dashed border-[#00E2E5]/30">
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-3 h-3 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+                />
+                Loading previous heats…
+              </span>
+            )}
+            {!calledLoading && calledSessions.length === 0 && (
               <span className="text-[10px] uppercase tracking-wider text-white/30 ml-1">
                 no races called yet today
               </span>
