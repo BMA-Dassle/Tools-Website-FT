@@ -295,21 +295,24 @@ export default function CameraAssignClient({ token }: { token: string }) {
           </div>
         )}
 
-        {/* Scan input — always focused, NFC writes here */}
+        {/* Scan input — always focused, NFC writes here. The refocus
+            interval in the top-level effect keeps focus on this input
+            even when the user clicks elsewhere, so we don't need the
+            (a11y-discouraged) autoFocus prop. */}
         <div className="sticky top-2 z-10 rounded-xl border-2 border-[#00E2E5]/50 bg-[#00E2E5]/5 p-3 sm:p-4 mb-4">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex-1 min-w-[200px]">
-              <label className="text-xs text-white/60 block mb-1">
+              <label htmlFor="camera-scan-input" className="text-xs text-white/60 block mb-1">
                 Scan NFC tag (or type camera # and press Enter)
               </label>
               <input
+                id="camera-scan-input"
                 ref={inputRef}
                 type="text"
                 value={scanBuffer}
                 onChange={(e) => setScanBuffer(e.target.value)}
                 onKeyDown={onInputKey}
                 placeholder="Waiting for scan…"
-                autoFocus
                 autoComplete="off"
                 className="w-full bg-[#00E2E5]/10 border border-[#00E2E5]/40 rounded px-3 py-3 text-lg text-white font-mono placeholder:text-white/30"
               />
