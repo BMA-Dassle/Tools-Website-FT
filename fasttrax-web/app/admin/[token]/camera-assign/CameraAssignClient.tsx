@@ -82,11 +82,31 @@ function formatEt(iso: string): string {
 type TrackSlug = "" | "blue" | "red" | "mega";
 
 /**
+ * Abbreviated type names so pills fit on narrow screens.
+ *   Starter         → STR
+ *   Intermediate    → INT
+ *   Pro             → PRO
+ *   Junior {X}      → JR X (e.g. "JR INT")
+ */
+function abbreviateType(type: string): string {
+  const t = type.trim().toUpperCase();
+  const junior = /^JUNIOR\s+/.test(t);
+  const base = t.replace(/^JUNIOR\s+/, "");
+  const abbr =
+    base === "STARTER" ? "STR" :
+    base === "INTERMEDIATE" ? "INT" :
+    base === "PRO" ? "PRO" :
+    base; // unknown types pass through unchanged
+  return junior ? `JR ${abbr}` : abbr;
+}
+
+/**
  * Short, scannable label for a session shown on a quick-pick button.
  *   Default:           "Blue Starter 43"
- *   opts.dropTrack:    "Starter 43"     (when track filter is active,
- *                                        the track name would just
- *                                        repeat on every pill — drop it)
+ *   opts.dropTrack:    "STR 43"   (when track filter is active, the
+ *                                  track name would just repeat on
+ *                                  every pill — drop it AND abbreviate
+ *                                  the type so the pill stays narrow)
  * Strips "Track" from the resource name so the button stays narrow.
  */
 function sessionChipLabel(
@@ -96,8 +116,9 @@ function sessionChipLabel(
   if (!s) return "—";
   const track = (s.track || "").replace(" Track", "").trim();
   const type = (s.type || "").trim();
+  const typeShort = opts.dropTrack ? abbreviateType(type) : type;
   const heat = s.heatNumber != null ? String(s.heatNumber) : "";
-  const parts = opts.dropTrack ? [type, heat] : [track, type, heat];
+  const parts = opts.dropTrack ? [typeShort, heat] : [track, typeShort, heat];
   return parts.filter(Boolean).join(" ");
 }
 
@@ -676,7 +697,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           const pillClass = "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
           return (
             <div
-              className="flex items-stretch gap-1.5 mb-3 overflow-x-auto sm:overflow-x-visible sm:flex-wrap scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0"
+              className="flex items-stretch flex-wrap gap-1.5 mb-3"
               role="group"
               aria-label="Heat quick-pick"
             >
