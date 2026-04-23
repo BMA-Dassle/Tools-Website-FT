@@ -702,14 +702,17 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               );
             })}
 
-            {/* Currently-called race (most-recent entry in the SMS log).
-                Subtle NOW badge so staff can tell it from the others. */}
+            {/* Most-recent called race (calledSessions[0]) — same style
+                as the other previous-called pills. The NOW badge +
+                ring highlight have been removed; staff can tell which
+                is which from the row position (left-most of the
+                called group = most recent). */}
             {calledSessions[0] && (() => {
               const p = calledSessions[0];
               const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
               return (
                 <button
-                  key={`now-${p.sessionId}`}
+                  key={`called0-${p.sessionId}`}
                   type="button"
                   onClick={() => {
                     if (isLoaded) return;
@@ -717,12 +720,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                     void loadSession(String(p.sessionId));
                   }}
                   disabled={isLoaded}
-                  className={`relative text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ring-2 ring-emerald-400/40 ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
-                  title={isLoaded ? "Currently loaded (just-called race)" : "Just called — load now"}
+                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
+                  title={isLoaded ? "Currently loaded" : "Jump to this race"}
                 >
-                  <span className="absolute -top-1.5 -right-1.5 bg-emerald-400 text-[#000418] text-[8px] uppercase tracking-wider font-bold px-1 py-0.5 rounded">
-                    now
-                  </span>
                   {sessionChipLabel(p)}
                 </button>
               );
