@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
-import { getMatch, updateVideoMatch } from "@/lib/video-match";
+import { getMatch, updateVideoMatch, saveVideoMatch, type VideoMatch } from "@/lib/video-match";
 import { voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { canonicalizePhone } from "@/lib/participant-contact";
@@ -43,13 +43,14 @@ function buildSmsBody(m: {
   heatNumber?: number;
   shortUrl: string;
 }): string {
-  const who = m.firstName ? `${m.firstName}, your ` : "Your ";
+  const first = (m.firstName || "").trim();
+  const greeting = first ? `${first}, your ` : "Your ";
   const trackLabel = m.track ? `${m.track.replace(" Track", "")} Track` : "race";
   const heatLabel = m.heatNumber ? ` Heat ${m.heatNumber}` : "";
   return [
     "FastTrax — your race video is ready!",
     "",
-    `${who}${trackLabel}${heatLabel} video is live.`,
+    `${greeting}${trackLabel}${heatLabel} video is live.`,
     "",
     `Watch + share: ${m.shortUrl}`,
   ].join("\n");
@@ -102,8 +103,25 @@ function buildEmailHtml(m: {
 }
 
 type Body = {
+  /** Matched resend: provide sessionId + personId, we load the existing
+   *  match record. */
   sessionId?: string | number;
   personId?: string | number;
+  /** Unmatched / manual send: provide videoCode (the 10-char vt3 share
+   *  code) plus the raw vt3 fields the admin client already has.
+   *  A manual match record is created on successful send so the row
+   *  flips to "matched" on next list refresh. */
+  videoCode?: string;
+  cameraNumber?: string;
+  customerUrl?: string;
+  thumbnailUrl?: string;
+  capturedAt?: string;
+  duration?: number;
+  /** Racer identity for the manual match — optional. firstName renders
+   *  in the SMS/email; if blank we fall back to a generic greeting. */
+  firstName?: string;
+  lastName?: string;
+
   channel?: "sms" | "email" | "both";
   overridePhone?: string;
   overrideEmail?: string;
@@ -114,17 +132,59 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
-  const sessionId = body.sessionId;
-  const personId = body.personId;
   const channel = body.channel;
-
-  if (!sessionId || !personId) return NextResponse.json({ error: "sessionId + personId required" }, { status: 400 });
   if (channel !== "sms" && channel !== "email" && channel !== "both") {
     return NextResponse.json({ error: "channel must be sms|email|both" }, { status: 400 });
   }
 
-  const match = await getMatch(sessionId, personId);
-  if (!match) return NextResponse.json({ error: "match not found" }, { status: 404 });
+  // Branch: matched resend (existing flow) vs manual send for an
+  // unmatched vt3 video. Matched path requires the racer's sessionId +
+  // personId; manual path requires videoCode + at least overridePhone
+  // (for SMS) / overrideEmail (for email).
+  let match: VideoMatch | null = null;
+  let isManualSend = false;
+
+  if (body.sessionId && body.personId) {
+    match = await getMatch(body.sessionId, body.personId);
+    if (!match) return NextResponse.json({ error: "match not found" }, { status: 404 });
+  } else if (body.videoCode) {
+    isManualSend = true;
+    // Build a minimal match record from what the client passed. We'll
+    // save it after a successful send so the row transitions to matched.
+    if (!body.customerUrl) body.customerUrl = `https://vt3.io/?code=${body.videoCode}`;
+    if (!body.capturedAt) return NextResponse.json({ error: "capturedAt required for unmatched send" }, { status: 400 });
+    if (channel !== "email" && !body.overridePhone) {
+      return NextResponse.json({ error: "overridePhone required for SMS send on unmatched video" }, { status: 400 });
+    }
+    if (channel !== "sms" && !body.overrideEmail) {
+      return NextResponse.json({ error: "overrideEmail required for email send on unmatched video" }, { status: 400 });
+    }
+    match = {
+      // Synthetic key — sessionId "manual" + personId = videoCode so
+      // the match record URI is unique and recognizable. Staff can see
+      // "manually sent" history by grep-ing for matches with
+      // sessionId='manual'.
+      sessionId: "manual",
+      personId: body.videoCode,
+      firstName: body.firstName || "",
+      lastName: body.lastName || "",
+      cameraNumber: body.cameraNumber || "",
+      videoId: 0,
+      videoCode: body.videoCode,
+      customerUrl: body.customerUrl,
+      thumbnailUrl: body.thumbnailUrl,
+      capturedAt: body.capturedAt,
+      duration: body.duration,
+      matchedAt: new Date().toISOString(),
+      email: body.overrideEmail,
+      phone: body.overridePhone,
+    };
+  } else {
+    return NextResponse.json(
+      { error: "provide either (sessionId+personId) for a matched resend, or videoCode+overrides for a manual send" },
+      { status: 400 },
+    );
+  }
 
   const result: {
     sms?: { ok: boolean; status: number | null; sentTo?: string; error?: string };
@@ -213,7 +273,16 @@ export async function POST(req: NextRequest) {
     match.notifyEmailSentTo = result.email.sentTo;
     match.notifyEmailSentAt = nowIso;
   }
-  await updateVideoMatch(match).catch(() => void 0);
+
+  if (isManualSend) {
+    // Create a real match record so the row stops appearing in the
+    // unmatched list on next refresh. saveVideoMatch uses a
+    // video-match:by-code NX sentinel so even if the cron resolves the
+    // same code a minute later, it won't override the manual send.
+    await saveVideoMatch(match).catch(() => void 0);
+  } else {
+    await updateVideoMatch(match).catch(() => void 0);
+  }
 
   return NextResponse.json({ ok: true, result, match });
 }
