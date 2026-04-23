@@ -121,6 +121,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const [overrideSessionId, setOverrideSessionId] = useState<string>("");
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
+  // Bumps on every successful scan — drives the full-screen flash
+  // overlay. We key a fresh <div> on this counter so the CSS
+  // animation restarts from scratch each time.
+  const [flashCounter, setFlashCounter] = useState(0);
   // Android keyboard is off by default (inputMode="none") so taps on the
   // scan input don't cover the roster. Staff can flip this on if they
   // need to hand-type a camera # and don't have a USB keyboard attached.
@@ -343,6 +347,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         ),
       );
       setLastScan({ camera: sys, racer: `${p.firstName} ${p.lastName}`, at: Date.now() });
+      setFlashCounter((c) => c + 1);
       // Advance to next un-assigned racer; if none, stay put
       setActiveIndex((current) => {
         const next = participants.findIndex((x, i) => i > current && !x.systemNumber);
@@ -367,7 +372,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const unassign = useCallback(async (idx: number) => {
     const p = participants[idx];
     if (!p || !session) return;
-    if (!confirm(`Un-assign system ${p.systemNumber} from ${p.firstName} ${p.lastName}?`)) return;
+    if (!confirm(`Un-assign camera ${p.systemNumber} from ${p.firstName} ${p.lastName}?`)) return;
     try {
       const qs = new URLSearchParams({
         token,
@@ -412,14 +417,22 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
+      {/* Full-screen success flash. Keyed on flashCounter so each
+          successful scan remounts the element and the animation
+          restarts. pointer-events-none so it never blocks input. */}
+      {flashCounter > 0 && (
+        <div
+          key={flashCounter}
+          aria-hidden="true"
+          className="scan-success-flash fixed inset-0 pointer-events-none z-[10000]"
+          style={{ backgroundColor: "#34d399" }}
+        />
+      )}
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
         <header className="mb-3 sm:mb-5">
           <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
           <p className="text-white/50 text-xs sm:text-sm mt-0.5 hidden sm:block">
-            Scan each base-station&apos;s NFC tag to register which system a racer is on.
-          </p>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 hidden sm:block">
-            Scan each kart&apos;s NFC tag to bind it to a racer. Assignments are saved so videos can be matched back to racers.
+            Scan each camera&apos;s NFC tag to bind it to a racer. Assignments are saved so videos can be matched back to racers.
           </p>
         </header>
 
@@ -518,7 +531,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             it's impossible to miss. Kept compact and single-line. */}
         <div className="sticky top-2 z-10 rounded-lg border border-[#00E2E5]/40 bg-[#00E2E5]/5 p-2.5 mb-3">
           <label htmlFor="camera-scan-input" className="text-xs text-white/60 block mb-1">
-            Scan NFC tag (or type system # and press Enter)
+            Scan NFC tag (or type camera # and press Enter)
           </label>
           <input
             id="camera-scan-input"
@@ -538,7 +551,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           />
           {lastScan && (
             <div className="mt-1 text-xs text-emerald-400 truncate">
-              ✓ System <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
+              ✓ Camera <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
             </div>
           )}
         </div>
@@ -581,7 +594,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   {hasCam ? (
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                        sys {p.systemNumber}
+                        cam {p.systemNumber}
                       </span>
                       <button
                         type="button"
