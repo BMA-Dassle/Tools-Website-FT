@@ -56,6 +56,12 @@ function buildSmsBody(m: {
   ].join("\n");
 }
 
+/**
+ * Matches the branded race-day template — dark #000418 header with the
+ * FastTrax logo, blue pill CTA, cyan-accented footer. Identical copy
+ * of the auto-send flow in lib/video-notify.ts so a resend from the
+ * admin is visually indistinguishable from the cron-fired one.
+ */
 function buildEmailHtml(m: {
   firstName?: string;
   track?: string;
@@ -64,42 +70,120 @@ function buildEmailHtml(m: {
   videoUrl: string;
   thumbnailUrl?: string;
 }): string {
-  const firstName = (m.firstName || "Racer").replace(/[<>]/g, "");
-  const trackLabel = m.track ? m.track.replace(" Track", "") : "race";
+  const safe = (s: string) => s.replace(/[<>]/g, "");
+  const firstName = safe(m.firstName || "Racer");
+  const trackLabel = m.track ? safe(m.track.replace(" Track", "")) : "race";
   const heatLabel = m.heatNumber ? ` Heat ${m.heatNumber}` : "";
-  const raceTypeLabel = m.raceType ? ` ${m.raceType}` : "";
+  const raceTypeLabel = m.raceType ? ` ${safe(m.raceType)}` : "";
+
   const thumb = m.thumbnailUrl
-    ? `<p style="text-align:center;margin:0 0 18px 0">
-         <a href="${m.videoUrl}" style="display:inline-block">
-           <img src="${m.thumbnailUrl}" alt="" width="464" style="width:100%;max-width:464px;border-radius:10px;display:block;border:0" />
-         </a>
-       </p>`
+    ? `<tr>
+  <td align="center" style="padding: 0 40px 20px 40px;">
+    <a href="${m.videoUrl}" style="display:inline-block;text-decoration:none;border:0">
+      <img src="${m.thumbnailUrl}" alt="Your race video preview"
+           width="520"
+           style="width:100%; max-width:520px; height:auto; border-radius:6px; display:block; border:0"/>
+    </a>
+  </td>
+</tr>`
     : "";
 
   return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
-    <tr><td align="center">
-      <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden">
-        <tr><td style="background:#E41C1D;padding:22px 28px;color:#fff;text-align:center">
-          <p style="margin:0 0 4px 0;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;opacity:0.9">FastTrax Entertainment</p>
-          <h1 style="margin:0;font-size:26px;letter-spacing:-0.5px">Your Race Video</h1>
-        </td></tr>
-        <tr><td style="padding:26px 28px">
-          <p style="margin:0 0 12px 0;font-size:16px;line-height:1.5">Hey ${firstName} — your <strong>${trackLabel}${heatLabel}${raceTypeLabel}</strong> video is ready to watch and share.</p>
-          ${thumb}
-          <p style="text-align:center;margin:24px 0 6px 0">
-            <a href="${m.videoUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">Watch My Video</a>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+  <title>Your FastTrax race video is ready</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F2F3F5;-webkit-text-size-adjust:100%;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F3F5;">
+  <tr><td align="center" style="padding:20px 10px;">
+
+    <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#FFFFFF;border-radius:8px;overflow:hidden;border:1px solid #E0E0E0;">
+
+      <!-- HEADER -->
+      <tr>
+        <td align="center" style="padding:28px 40px;background-color:#000418;">
+          <img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png"
+               alt="FastTrax Entertainment"
+               style="max-width:180px;height:auto;display:block" />
+        </td>
+      </tr>
+
+      <!-- HEADLINE -->
+      <tr>
+        <td align="center" style="padding:28px 40px 8px 40px;font-family:Arial,sans-serif;">
+          <p style="margin:0 0 10px 0;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#004AAD;font-weight:bold;">
+            Your Race Video
           </p>
-          <p style="margin:16px 0 0 0;font-size:13px;line-height:1.5;color:#555;text-align:center">
+          <h1 style="margin:0 0 6px 0;font-size:24px;color:#1A1A1A;letter-spacing:1px;text-transform:uppercase;">
+            Hey ${firstName}!
+          </h1>
+          <p style="margin:0;font-size:15px;color:#555;line-height:1.6;">
+            Your <strong style="color:#1A1A1A;">${trackLabel}${heatLabel}${raceTypeLabel}</strong> is ready to watch.
+          </p>
+        </td>
+      </tr>
+
+      ${thumb}
+
+      <!-- CTA -->
+      <tr>
+        <td align="center" style="padding:${m.thumbnailUrl ? "4px" : "24px"} 40px 24px 40px;font-family:Arial,sans-serif;">
+          <a href="${m.videoUrl}"
+             style="display:inline-block;padding:14px 28px;background-color:#004AAD;color:#FFFFFF;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase;">
+            Watch My Video
+          </a>
+          <p style="margin:14px 0 0 0;font-size:13px;color:#666;line-height:1.6;">
             Relive your run — share it, save it, race it back.
           </p>
-          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">14501 Global Parkway, Fort Myers FL 33913</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
+        </td>
+      </tr>
+
+      <!-- BOOK ANOTHER -->
+      <tr>
+        <td align="center" style="padding:0 40px 28px 40px;font-family:Arial,sans-serif;">
+          <a href="https://fasttraxent.com/book/race"
+             style="display:inline-block;padding:12px 24px;background-color:#D71C1C;color:#FFFFFF;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px;letter-spacing:1px;text-transform:uppercase;">
+            Book Another Race
+          </a>
+          <p style="margin:14px 0 0 0;font-size:12px;color:#999;">
+            Questions? Call <strong style="color:#333;">(239) 481-9666</strong>
+          </p>
+        </td>
+      </tr>
+
+      <!-- FOOTER -->
+      <tr>
+        <td style="padding:20px 40px;background-color:#000418;font-family:Arial,sans-serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td width="50%" style="font-size:11px;color:#8A8FA0;vertical-align:top;">
+                <strong style="color:#FFFFFF;">FastTrax Entertainment</strong><br/>
+                14501 Global Parkway<br/>
+                Fort Myers, FL 33913
+              </td>
+              <td width="50%" align="right" style="font-size:11px;color:#8A8FA0;vertical-align:top;">
+                <a href="https://fasttraxent.com" style="color:#00E2E5;text-decoration:none;">fasttraxent.com</a><br/>
+                <a href="https://fasttraxent.com/racing" style="color:#00E2E5;text-decoration:none;">Racing Info</a><br/>
+                <a href="https://fasttraxent.com/pricing" style="color:#00E2E5;text-decoration:none;">Pricing</a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:12px 0 0 0;font-size:10px;color:#555;text-align:center;">
+            Thanks for racing with us.
+          </p>
+        </td>
+      </tr>
+
+    </table>
+
+  </td></tr>
+</table>
+</body>
+</html>`;
 }
 
 type Body = {
@@ -263,6 +347,9 @@ export async function POST(req: NextRequest) {
           toName: `${match.firstName || ""} ${match.lastName || ""}`.trim() || undefined,
           subject: "Your FastTrax race video is ready",
           html,
+          // Same vendor archive inbox as the booking-confirmation and
+          // auto-fired video emails.
+          bcc: "vendorcases@dassle.us",
         });
         result.email = { ok: send.ok, status: send.status, sentTo: to, error: send.ok ? undefined : send.error };
       } catch (err) {
