@@ -161,6 +161,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  scanBuffer has content (never yank buttons mid-scan). */
   const [calledSessions, setCalledSessions] = useState<PastSession[]>([]);
   const [calledLoading, setCalledLoading] = useState(false);
+  /** Next 3 Pandora sessions with scheduledStart in the future.
+   *  Renders as the +1/+2/+3 pills so staff can pre-assign before
+   *  the check-in cron calls the race. */
+  const [upcomingSessions, setUpcomingSessions] = useState<PastSession[]>([]);
+  const [upcomingLoading, setUpcomingLoading] = useState(false);
   const [pastLoading, setPastLoading] = useState(false);
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
@@ -320,7 +325,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     if (scanBuffer) return;
     setCalledLoading(true);
     try {
-      const qs = new URLSearchParams({ token, track, limit: "3" });
+      const qs = new URLSearchParams({ token, track, limit: "4" });
       const res = await fetch(`/api/admin/camera-assign/called?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
@@ -329,6 +334,24 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       /* non-fatal */
     } finally {
       setCalledLoading(false);
+    }
+  }, [token, track, scanBuffer]);
+
+  /** Load next 3 upcoming sessions (scheduledStart > now) from Pandora. */
+  const loadUpcoming = useCallback(async () => {
+    if (!track) { setUpcomingSessions([]); setUpcomingLoading(false); return; }
+    if (scanBuffer) return;
+    setUpcomingLoading(true);
+    try {
+      const qs = new URLSearchParams({ token, track, limit: "3" });
+      const res = await fetch(`/api/admin/camera-assign/upcoming?${qs}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      setUpcomingSessions(json.sessions || []);
+    } catch {
+      /* non-fatal */
+    } finally {
+      setUpcomingLoading(false);
     }
   }, [token, track, scanBuffer]);
 
@@ -380,6 +403,8 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setPastLoading(!!track);    // show loading immediately if a track is now selected
     setCalledSessions([]);
     setCalledLoading(!!track);
+    setUpcomingSessions([]);
+    setUpcomingLoading(!!track);
     setSession(null);
     setParticipants([]);
     setNote(null);
@@ -388,8 +413,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     // Populate the live quick-pick feed + past dropdown for the new
     // track so they're always usable without a tap.
     void loadCalled();
+    void loadUpcoming();
     void loadPast();
-  }, [track, loadCalled, loadPast]);
+  }, [track, loadCalled, loadUpcoming, loadPast]);
 
   // In-place refresh every 30s for the current roster + the called-races
   // feed that powers the live quick-pick buttons. Preserves scan state;
@@ -399,9 +425,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     const id = setInterval(() => {
       void refreshSession();
       void loadCalled();
+      void loadUpcoming();
     }, 30_000);
     return () => clearInterval(id);
-  }, [refreshSession, loadCalled]);
+  }, [refreshSession, loadCalled, loadUpcoming]);
 
   // Auto-advance to the next upcoming session once every racer in the
   // current session has a camera. We wait a few seconds so staff sees
@@ -612,60 +639,120 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           </div>
         </div>
 
-        {/* Quick-pick row — Current pill (staff's locked session) +
-            up to 3 live pills fed from the called-races SMS log.
-            Staff taps a live pill to set Current. Current never
-            auto-changes. Live pills refresh every 30s except while
-            scanBuffer has text. See loadCalled() for the data path. */}
+        {/* Working-session pill — staff's locked selection. Never
+            changes automatically; only tapping a context pill below
+            sets this. Empty placeholder until first tap. */}
         {track && (
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            {/* Current pill — always present, even when empty */}
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mr-1">
+              Working on:
+            </span>
             {session ? (
-              <button
-                type="button"
-                disabled
-                title="Currently loaded — tap a live pill below to switch"
-                className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border cursor-default ${trackChipClasses(session.track, true)}`}
+              <span
+                className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border ${trackChipClasses(session.track, true)}`}
               >
-                <span className="opacity-70 mr-1">Now:</span>
                 {sessionChipLabel(session)}
-              </button>
+              </span>
             ) : (
               <span className="text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border border-dashed border-white/25 text-white/40">
-                Now: tap a call →
+                tap a heat below →
               </span>
             )}
-            {/* Live pills — last 3 called races, excluding whatever's
-                already in Current. Auto-update every 30s. */}
-            {calledSessions
-              .filter((c) => !session || String(c.sessionId) !== String(session.sessionId))
-              .slice(0, 3)
-              .map((p) => (
-                <button
-                  key={`call-${p.sessionId}`}
-                  type="button"
-                  onClick={() => {
-                    setOverrideSessionId(String(p.sessionId));
-                    void loadSession(String(p.sessionId));
-                  }}
-                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${trackChipClasses(p.track, false)}`}
-                  title="Jump to this called race"
-                >
-                  {sessionChipLabel(p)}
-                </button>
-              ))}
-            {calledLoading && calledSessions.length === 0 && (
+          </div>
+        )}
+
+        {/* Context row — up to 3 previous called, the current called,
+            and up to 3 upcoming scheduled. Auto-updates every 30s
+            except mid-scan. Tapping any pill loads that session as
+            the working session. The 'currently called' pill is
+            highlighted with a NOW badge so staff knows which one
+            matches the call being made right now. */}
+        {track && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            {(calledLoading || upcomingLoading) && calledSessions.length === 0 && upcomingSessions.length === 0 && (
               <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-[#00E2E5]/80 font-semibold px-3 py-1.5 rounded border border-dashed border-[#00E2E5]/30">
                 <span
                   aria-hidden="true"
                   className="inline-block w-3 h-3 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
                 />
-                Loading previous heats…
+                Loading heats…
               </span>
             )}
-            {!calledLoading && calledSessions.length === 0 && (
+
+            {/* Previous called (skip index 0 — that's the currently-called
+                pill, rendered separately). Render in reverse order so the
+                oldest is left-most: -3 -2 -1. */}
+            {calledSessions.slice(1, 4).reverse().map((p) => {
+              const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
+              return (
+                <button
+                  key={`prev-${p.sessionId}`}
+                  type="button"
+                  onClick={() => {
+                    if (isLoaded) return;
+                    setOverrideSessionId(String(p.sessionId));
+                    void loadSession(String(p.sessionId));
+                  }}
+                  disabled={isLoaded}
+                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
+                  title={isLoaded ? "Currently loaded" : "Jump to this previously-called race"}
+                >
+                  {sessionChipLabel(p)}
+                </button>
+              );
+            })}
+
+            {/* Currently-called race (most-recent entry in the SMS log).
+                Subtle NOW badge so staff can tell it from the others. */}
+            {calledSessions[0] && (() => {
+              const p = calledSessions[0];
+              const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
+              return (
+                <button
+                  key={`now-${p.sessionId}`}
+                  type="button"
+                  onClick={() => {
+                    if (isLoaded) return;
+                    setOverrideSessionId(String(p.sessionId));
+                    void loadSession(String(p.sessionId));
+                  }}
+                  disabled={isLoaded}
+                  className={`relative text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ring-2 ring-emerald-400/40 ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
+                  title={isLoaded ? "Currently loaded (just-called race)" : "Just called — load now"}
+                >
+                  <span className="absolute -top-1.5 -right-1.5 bg-emerald-400 text-[#000418] text-[8px] uppercase tracking-wider font-bold px-1 py-0.5 rounded">
+                    now
+                  </span>
+                  {sessionChipLabel(p)}
+                </button>
+              );
+            })()}
+
+            {/* Upcoming scheduled (scheduledStart > now). Ascending —
+                +1 +2 +3 soonest-first so the reading order mirrors time. */}
+            {upcomingSessions.slice(0, 3).map((p) => {
+              const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
+              return (
+                <button
+                  key={`up-${p.sessionId}`}
+                  type="button"
+                  onClick={() => {
+                    if (isLoaded) return;
+                    setOverrideSessionId(String(p.sessionId));
+                    void loadSession(String(p.sessionId));
+                  }}
+                  disabled={isLoaded}
+                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors opacity-80 ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default opacity-100" : ""}`}
+                  title={isLoaded ? "Currently loaded" : "Pre-assign cameras for this upcoming race"}
+                >
+                  {sessionChipLabel(p)}
+                </button>
+              );
+            })}
+
+            {!calledLoading && !upcomingLoading && calledSessions.length === 0 && upcomingSessions.length === 0 && (
               <span className="text-[10px] uppercase tracking-wider text-white/30 ml-1">
-                no races called yet today
+                no heats found for this track today
               </span>
             )}
           </div>
