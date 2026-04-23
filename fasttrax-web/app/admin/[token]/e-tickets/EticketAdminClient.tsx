@@ -10,6 +10,9 @@ type EnrichedLogEntry = SmsLogEntry & {
   heatNumber?: number;
   raceType?: string;
   scheduledStart?: string;
+  clickCount?: number;
+  clickFirst?: string;
+  clickLast?: string;
 };
 
 type ListResponse = {
@@ -215,6 +218,21 @@ export default function EticketAdminClient({ token }: { token: string }) {
                           : noConsent
                             ? <span className="text-red-300 text-xs font-semibold">needs verbal OK</span>
                             : <span className="text-red-400 text-xs">failed ({e.status ?? "?"})</span>}
+                        {/* Click telemetry — only show if we actually have a shortCode + at least one click */}
+                        {e.clickCount && e.clickCount > 0 ? (
+                          <span
+                            className="ml-2 inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300"
+                            title={
+                              e.clickFirst && e.clickLast
+                                ? `First opened ${formatEt(e.clickFirst)}${e.clickCount > 1 ? ` · last ${formatEt(e.clickLast)}` : ""}`
+                                : "Opened"
+                            }
+                          >
+                            👁 opened{e.clickCount > 1 ? ` ${e.clickCount}×` : ""}
+                          </span>
+                        ) : e.shortCode && e.ok ? (
+                          <span className="ml-2 text-xs text-white/30">not opened</span>
+                        ) : null}
                         {flashHere && <span className="text-emerald-400 text-xs ml-2">· {flash!.msg}</span>}
                       </td>
                       <td className="px-3 py-2">
@@ -371,6 +389,13 @@ function ResendModal({
               <div>Race: <span className="text-white/80">{entry.track} · Heat {entry.heatNumber}{entry.raceType ? ` · ${entry.raceType}` : ""}</span></div>
             )}
             <div>{noConsent ? "eTicket for:" : "Originally sent:"} <span className="text-white/80">{formatEt(entry.ts)} · {entry.phone}</span></div>
+            {entry.clickCount && entry.clickCount > 0 ? (
+              <div className="text-emerald-400">
+                Ticket opened {entry.clickCount > 1 ? `${entry.clickCount}× · last` : "at"} {entry.clickLast ? formatEt(entry.clickLast) : ""}
+              </div>
+            ) : entry.shortCode && entry.ok ? (
+              <div className="text-white/40">Ticket not opened yet</div>
+            ) : null}
           </div>
 
           <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">

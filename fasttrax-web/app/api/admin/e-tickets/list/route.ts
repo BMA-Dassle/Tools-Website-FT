@@ -51,7 +51,31 @@ export type EnrichedLogEntry = SmsLogEntry & {
   heatNumber?: number;
   raceType?: string;
   scheduledStart?: string;
+  /** Click telemetry from /s/{code} redirect. */
+  clickCount?: number;
+  clickFirst?: string;
+  clickLast?: string;
 };
+
+/**
+ * Fetch the click hash for a shortCode. Returns undefined if never clicked
+ * (or if tracking was skipped — see /s/[code]/page.tsx).
+ */
+async function getClickData(shortCode: string): Promise<{
+  count?: number;
+  first?: string;
+  last?: string;
+} | undefined> {
+  try {
+    const h = await redis.hgetall(`click:${shortCode}`);
+    if (!h || Object.keys(h).length === 0) return undefined;
+    const count = parseInt(h.count || "0", 10) || 0;
+    if (count === 0) return undefined;
+    return { count, first: h.first, last: h.last };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Resolve an SMS log's `shortCode` back to the underlying ticket id.
@@ -83,15 +107,26 @@ async function enrichEntry(entry: SmsLogEntry): Promise<EnrichedLogEntry> {
   const out: EnrichedLogEntry = { ...entry, racerNames: [] };
   if (!entry.shortCode) return out;
 
-  // 1. Deref short-code → ticket id.
-  const ref = await resolveShortCode(entry.shortCode);
+  // Pull click telemetry in parallel with the ticket deref — both are
+  // independent Redis lookups keyed off shortCode.
+  const [ref, clicks] = await Promise.all([
+    resolveShortCode(entry.shortCode),
+    getClickData(entry.shortCode),
+  ]);
+
+  if (clicks) {
+    out.clickCount = clicks.count;
+    out.clickFirst = clicks.first;
+    out.clickLast = clicks.last;
+  }
+
   if (!ref) {
     // Short URL expired (TTL lapsed) or never existed — row renders with
     // "(no ticket)" in the UI. That's fine, still resendable by shortCode.
     return out;
   }
 
-  // 2. Pull the actual record.
+  // Pull the actual ticket record.
   if (ref.kind === "ticket") {
     const tix: RaceTicket | null = await getRaceTicket(ref.id);
     if (tix) {
