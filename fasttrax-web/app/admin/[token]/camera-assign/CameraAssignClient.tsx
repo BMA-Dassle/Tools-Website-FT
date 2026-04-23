@@ -252,7 +252,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   }, [token, track, overrideSessionId, scanBuffer, session]);
 
   /** Load today's past sessions for the test-data dropdown. Scoped to
-   *  today (days=1) — staff only testing on the day's earlier heats. */
+   *  today (days=1) — staff only testing on the day's earlier heats.
+   *  Re-sorts client-side newest-first (server already does this, but
+   *  we guard against any Pandora-side ordering weirdness in case a
+   *  response ever comes back unsorted). */
   const loadPast = useCallback(async () => {
     try {
       const qs = new URLSearchParams({ token, mode: "past", days: "1" });
@@ -260,7 +263,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
-      setPastSessions(json.sessions || []);
+      const sessions: PastSession[] = (json.sessions || []).slice();
+      // Defensive sort: most-recent first. If scheduledStart ties
+      // (two tracks starting the same minute), break the tie with
+      // heatNumber desc so the "later" heat floats higher. Invalid
+      // dates sink to the bottom.
+      sessions.sort((a, b) => {
+        const ta = Number(new Date(a.scheduledStart).getTime()) || 0;
+        const tb = Number(new Date(b.scheduledStart).getTime()) || 0;
+        if (tb !== ta) return tb - ta;
+        return (b.heatNumber || 0) - (a.heatNumber || 0);
+      });
+      setPastSessions(sessions);
       setPastLoaded(true);
     } catch { /* non-fatal */ }
   }, [token, track]);
