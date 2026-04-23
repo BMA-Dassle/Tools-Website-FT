@@ -69,11 +69,32 @@ function formatEt(iso: string): string {
 
 type TrackSlug = "" | "blue" | "red" | "mega";
 
-const TRACKS: { slug: TrackSlug; label: string }[] = [
-  { slug: "",     label: "All" },
-  { slug: "blue", label: "Blue" },
-  { slug: "red",  label: "Red" },
-  { slug: "mega", label: "Mega" },
+/**
+ * Small branded track chips. Colors pulled from the FastTrax palette
+ * (cyan, brand red, violet). Active state fills with the track color;
+ * idle keeps the color as a subtle border + text tint. Clicking the
+ * already-active chip clears the filter (so there's no separate
+ * "All" button — tapping again = all).
+ */
+const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string; idle: string }[] = [
+  {
+    slug: "blue",
+    label: "Blue",
+    active: "bg-[#00E2E5] border-[#00E2E5] text-[#000418]",
+    idle:   "border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10",
+  },
+  {
+    slug: "red",
+    label: "Red",
+    active: "bg-[#E53935] border-[#E53935] text-white",
+    idle:   "border-[#E53935]/50 text-[#ff7171] hover:bg-[#E53935]/10",
+  },
+  {
+    slug: "mega",
+    label: "Mega",
+    active: "bg-[#8652FF] border-[#8652FF] text-white",
+    idle:   "border-[#8652FF]/50 text-[#c4adff] hover:bg-[#8652FF]/10",
+  },
 ];
 
 export default function CameraAssignClient({ token, track: initialTrack }: { token: string; track?: string }) {
@@ -89,6 +110,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const [overrideSessionId, setOverrideSessionId] = useState<string>("");
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
+  // Android keyboard is off by default (inputMode="none") so taps on the
+  // scan input don't cover the roster. Staff can flip this on if they
+  // need to hand-type a camera # and don't have a USB keyboard attached.
+  const [showKeyboard, setShowKeyboard] = useState(false);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -254,23 +279,49 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           </p>
         </header>
 
-        {/* Filter bar — track + test-data picker, matching SMS admin style */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        {/* Track chips — three small branded buttons. Tap an idle one
+            to filter; tap the active one again to clear. Right side has
+            the keyboard toggle (off by default so tapping the scan
+            field doesn't pop Android's virtual keyboard on top of the
+            roster). */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          {TRACK_CHIPS.map((t) => {
+            const isActive = track === t.slug;
+            return (
+              <button
+                key={t.slug}
+                type="button"
+                onClick={() => setTrack(isActive ? "" : t.slug)}
+                className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${
+                  isActive ? t.active : `bg-white/[0.02] ${t.idle}`
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+          {track && (
+            <span className="text-[10px] uppercase tracking-wider text-white/40">
+              filtered
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowKeyboard((v) => !v)}
+            title="Toggle the on-screen keyboard when tapping the scan field"
+            className={`ml-auto text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${
+              showKeyboard
+                ? "bg-white/15 border-white/30 text-white"
+                : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+            }`}
+          >
+            ⌨ Keyboard {showKeyboard ? "on" : "off"}
+          </button>
+        </div>
+
+        {/* Test-data picker — full-width row under the chips */}
+        <div className="mb-4">
           <label className="flex flex-col gap-1 text-xs text-white/60">
-            Track
-            <select
-              value={track}
-              onChange={(e) => setTrack(e.target.value as TrackSlug)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-            >
-              {TRACKS.map((t) => (
-                <option key={t.slug || "all"} value={t.slug} style={{ backgroundColor: "#0a1128" }}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60 col-span-2 sm:col-span-3">
             Test with past session (last 7 days)
             <select
               value={overrideSessionId}
@@ -329,7 +380,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             id="camera-scan-input"
             ref={inputRef}
             type="text"
-            inputMode="none"
+            // inputMode='none' suppresses the Android virtual keyboard
+            // when focused; the USB NFC reader (HID keyboard) still
+            // types into the field. Staff can flip the toggle above if
+            // they need to hand-type a number.
+            inputMode={showKeyboard ? "text" : "none"}
             value={scanBuffer}
             onChange={(e) => setScanBuffer(e.target.value)}
             onKeyDown={onInputKey}
