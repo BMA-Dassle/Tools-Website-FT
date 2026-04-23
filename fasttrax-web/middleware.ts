@@ -19,7 +19,52 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
-  // ── Admin gate ────────────────────────────────────────────────────────────
+  // ── Camera-assign gate ───────────────────────────────────────────────────
+  // Separate token from the e-tickets admin because staff share this URL
+  // with external camera vendors/developers; it has its own scope.
+  // IP restriction is OFF until ADMIN_CAMERA_REQUIRE_IP=1 is set (flipped
+  // once the URL has been rolled out and we lock it down). Token always
+  // required.
+  const isCameraAssignPage = /^\/admin\/[^/]+\/camera-assign(\/|$)/.test(pathname);
+  const isCameraAssignApi = pathname.startsWith("/api/admin/camera-assign/") || pathname === "/api/admin/camera-assign";
+  if (isCameraAssignPage || isCameraAssignApi) {
+    const expected = process.env.ADMIN_CAMERA_TOKEN || "";
+    const requireIp = process.env.ADMIN_CAMERA_REQUIRE_IP === "1";
+
+    let token = "";
+    if (isCameraAssignPage) {
+      token = pathname.split("/")[2] || "";
+    } else {
+      token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
+    }
+    const tokenOk = !!expected && token.length === expected.length && token === expected;
+
+    let ipOk = true;
+    if (requireIp) {
+      const allowedIps = new Set(
+        (process.env.ADMIN_ALLOWED_IPS || "")
+          .split(",").map((s) => s.trim()).filter(Boolean),
+      );
+      const xff = request.headers.get("x-forwarded-for") || "";
+      const ip = xff.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+      ipOk = allowedIps.size > 0 && !!ip && allowedIps.has(ip);
+    }
+
+    if (!tokenOk || !ipOk) {
+      if (pathname.startsWith("/api/")) {
+        return new NextResponse(
+          JSON.stringify({ error: "Not found" }),
+          { status: 404, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+    }
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-admin-route", "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // ── Admin gate (e-tickets) ──────────────────────────────────────────────
   // Path shape: /admin/{token}/...  AND  /api/admin/...
   // Both gates applied: token in path (for the page) or header/query (for
   // the API), plus origin IP in ADMIN_ALLOWED_IPS. Fail → 404 so the URL
