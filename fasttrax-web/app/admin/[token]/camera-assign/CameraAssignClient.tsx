@@ -531,29 +531,49 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             it's impossible to miss. Kept compact and single-line. */}
         <div className="sticky top-2 z-10 rounded-lg border border-[#00E2E5]/40 bg-[#00E2E5]/5 p-2.5 mb-3">
           <label htmlFor="camera-scan-input" className="text-xs text-white/60 block mb-1">
-            Scan NFC tag (or type camera # and press Enter)
+            Scan NFC tag (or type camera # and tap Assign)
           </label>
-          <input
-            id="camera-scan-input"
-            ref={inputRef}
-            // type="tel" pulls up the phone-style number pad on iOS and
-            // a plain digits-only keyboard on Android (better than
-            // type="number" which brings spinners + accepts decimals).
-            type="tel"
-            // inputMode='none' suppresses the Android virtual keyboard
-            // entirely when the toggle is off; the USB NFC reader (HID
-            // keyboard) still types into the field. When staff flips
-            // the toggle ON for manual entry we show 'numeric' — a
-            // compact 0-9 pad matching what the camera IDs actually are.
-            inputMode={showKeyboard ? "numeric" : "none"}
-            pattern="[0-9]*"
-            value={scanBuffer}
-            onChange={(e) => setScanBuffer(e.target.value)}
-            onKeyDown={onInputKey}
-            placeholder="Waiting for scan…"
-            autoComplete="off"
-            className="w-full bg-white/5 border border-white/10 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30"
-          />
+          <div className="flex gap-2">
+            <input
+              id="camera-scan-input"
+              ref={inputRef}
+              // type="tel" pulls up the phone-style number pad on iOS
+              // and a plain digits-only keyboard on Android (better than
+              // type="number" which brings spinners + accepts decimals).
+              type="tel"
+              // inputMode='none' suppresses the Android virtual keyboard
+              // entirely when the toggle is off; the USB NFC reader (HID
+              // keyboard) still types into the field. When staff flips
+              // the toggle ON for manual entry we show 'numeric' — a
+              // compact 0-9 pad matching what the camera IDs actually are.
+              inputMode={showKeyboard ? "numeric" : "none"}
+              pattern="[0-9]*"
+              enterKeyHint="enter"
+              value={scanBuffer}
+              onChange={(e) => setScanBuffer(e.target.value)}
+              onKeyDown={onInputKey}
+              placeholder="Waiting for scan…"
+              autoComplete="off"
+              className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30"
+            />
+            {/* Manual-submit button — iOS's numeric pad has no Enter
+                key, so staff needs an explicit Assign control to commit
+                the camera #. The NFC scanner's Enter keystroke still
+                works via onInputKey. Disabled when nothing's typed. */}
+            <button
+              type="button"
+              onClick={() => {
+                const val = scanBuffer.trim();
+                if (!val) return;
+                setScanBuffer("");
+                void assign(val);
+              }}
+              disabled={!scanBuffer.trim()}
+              className="shrink-0 px-4 py-2 rounded bg-[#00E2E5] text-[#000418] font-semibold text-sm hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Assign
+            </button>
+          </div>
           {lastScan && (
             <div className="mt-1 text-xs text-emerald-400 truncate">
               ✓ Camera <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
