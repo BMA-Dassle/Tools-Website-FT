@@ -21,7 +21,10 @@ type VideoRow = {
   personId: string | number;
   firstName: string;
   lastName: string;
+  /** Kart / system number (what the NFC tag reads, e.g. "913") */
   cameraNumber: string;
+  /** vt3 hardware camera number (e.g. 20) */
+  cameraId?: number;
   videoId: number;
   videoCode: string;
   customerUrl: string;
@@ -254,7 +257,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
                 )}
                 <div className="flex items-center justify-between gap-2 mt-2 text-xs">
                   <span className="text-white/70">
-                    Camera <span className="font-mono text-emerald-300">{e.cameraNumber || "—"}</span>
+                    System <span className="font-mono text-emerald-300">{e.cameraNumber || "—"}</span>
+                    {e.cameraId != null && (
+                      <>
+                        <span className="text-white/30 mx-1">·</span>
+                        Camera <span className="font-mono text-amber-300">{e.cameraId}</span>
+                      </>
+                    )}
                     <span className="text-white/30 mx-1">·</span>
                     <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{e.videoCode}</a>
                   </span>
@@ -293,7 +302,8 @@ export default function VideoAdminClient({ token }: { token: string }) {
                   <th className="text-left px-3 py-2">Matched</th>
                   <th className="text-left px-3 py-2">Racer</th>
                   <th className="text-left px-3 py-2">Race</th>
-                  <th className="text-left px-3 py-2">Camera</th>
+                  <th className="text-left px-3 py-2" title="Kart the camera was mounted in (video.system.name)">System</th>
+                  <th className="text-left px-3 py-2" title="Camera hardware id (video.camera)">Camera</th>
                   <th className="text-left px-3 py-2">Video</th>
                   <th className="text-left px-3 py-2">Notified</th>
                   <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
@@ -327,6 +337,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         {!isUnmatched && e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-emerald-300">{e.cameraNumber || "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-amber-300">{e.cameraId ?? "—"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono text-xs">
                           {e.videoCode}
@@ -561,7 +572,13 @@ function ResendModal({
               </>
             )}
             <div>
-              Camera: <span className="text-white/80 font-mono">{entry.cameraNumber || "(none)"}</span>
+              System: <span className="text-white/80 font-mono">{entry.cameraNumber || "(none)"}</span>
+              {entry.cameraId != null && (
+                <>
+                  {" · "}
+                  Camera: <span className="text-white/80 font-mono">{entry.cameraId}</span>
+                </>
+              )}
               {" · "}
               Video: <a href={entry.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{entry.videoCode}</a>
             </div>
@@ -783,7 +800,9 @@ function PreviewModal({
               )}
             </div>
             <div className="text-xs text-white/40 mt-0.5 font-mono">
-              cam {entry.cameraNumber || "—"} · {entry.videoCode}
+              sys {entry.cameraNumber || "—"}
+              {entry.cameraId != null && <> · cam {entry.cameraId}</>}
+              {" · "}{entry.videoCode}
             </div>
           </div>
 

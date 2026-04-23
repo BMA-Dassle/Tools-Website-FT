@@ -58,7 +58,8 @@ type ListEntry = (VideoMatch & { matched: true }) | {
   matched: false;
   videoId: number;
   videoCode: string;
-  cameraNumber: string;
+  cameraNumber: string;      // kart / system.name
+  cameraId?: number;         // vt3 hardware camera
   customerUrl: string;
   thumbnailUrl?: string;
   capturedAt: string;
@@ -115,6 +116,7 @@ export async function GET(req: NextRequest) {
               videoId: v.id,
               videoCode: v.code,
               cameraNumber: v.system?.name || "",
+              cameraId: v.camera,
               customerUrl: `https://vt3.io/?code=${v.code}`,
               thumbnailUrl: v.thumbnailUrl,
               capturedAt: v.created_at,
@@ -147,9 +149,9 @@ export async function GET(req: NextRequest) {
       }
       if (q) {
         const hay = e.matched
-          ? [`${e.firstName} ${e.lastName}`, e.cameraNumber, e.videoCode, String(e.sessionId), String(e.personId)]
+          ? [`${e.firstName} ${e.lastName}`, e.cameraNumber, String(e.cameraId ?? ""), e.videoCode, String(e.sessionId), String(e.personId)]
               .join(" ").toLowerCase()
-          : [e.cameraNumber, e.videoCode].join(" ").toLowerCase();
+          : [e.cameraNumber, String(e.cameraId ?? ""), e.videoCode].join(" ").toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;

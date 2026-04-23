@@ -131,7 +131,8 @@ export async function GET(req: NextRequest) {
           personId: assignment.personId,
           firstName: assignment.firstName,
           lastName: assignment.lastName,
-          cameraNumber,
+          cameraNumber,                 // kart / system.name (e.g. "913")
+          cameraId: v.camera,           // vt3's hardware camera (e.g. 20)
           videoId: v.id,
           videoCode: v.code,
           customerUrl: `https://vt3.io/?code=${v.code}`,

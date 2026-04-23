@@ -27,7 +27,13 @@ export interface VideoMatch {
   personId: string | number;
   firstName: string;
   lastName: string;
+  /** Kart / system ID — the 3-digit number (e.g. "913") that's on
+   *  the kart body and comes through as video.system.name on vt3.io.
+   *  This is what the NFC scan picks up in the camera-assign tool. */
   cameraNumber: string;
+  /** Hardware camera ID — vt3's internal camera serial (e.g. 20),
+   *  different from the kart number. Populated from video.camera. */
+  cameraId?: number;
   videoId: number;
   videoCode: string;
   customerUrl: string;          // https://vt3.io/?code={code}
