@@ -359,6 +359,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 key={String(p.personId)}
                 type="button"
                 onClick={() => setActiveIndex(i)}
+                style={isActive ? { boxShadow: "0 0 18px rgba(0,226,229,0.45)" } : undefined}
                 className={`w-full text-left rounded-lg border p-3 transition-colors ${
                   isActive
                     ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
