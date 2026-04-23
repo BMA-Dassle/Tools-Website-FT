@@ -66,11 +66,12 @@ h1, h2, h3, h4, h5, h6 {
    successful scan remounts this element and the animation re-fires. */
 @keyframes scan-success-flash {
   0%   { opacity: 0; }
-  18%  { opacity: 0.55; }
+  20%  { opacity: 0.55; }
+  55%  { opacity: 0.45; }
   100% { opacity: 0; }
 }
 .scan-success-flash {
-  animation: scan-success-flash 500ms ease-out forwards;
+  animation: scan-success-flash 900ms ease-out forwards;
 }
 
 ::-webkit-scrollbar { width: 4px; }

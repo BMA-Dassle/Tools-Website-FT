@@ -536,12 +536,17 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           <input
             id="camera-scan-input"
             ref={inputRef}
-            type="text"
+            // type="tel" pulls up the phone-style number pad on iOS and
+            // a plain digits-only keyboard on Android (better than
+            // type="number" which brings spinners + accepts decimals).
+            type="tel"
             // inputMode='none' suppresses the Android virtual keyboard
-            // when focused; the USB NFC reader (HID keyboard) still
-            // types into the field. Staff can flip the toggle above if
-            // they need to hand-type a number.
-            inputMode={showKeyboard ? "text" : "none"}
+            // entirely when the toggle is off; the USB NFC reader (HID
+            // keyboard) still types into the field. When staff flips
+            // the toggle ON for manual entry we show 'numeric' — a
+            // compact 0-9 pad matching what the camera IDs actually are.
+            inputMode={showKeyboard ? "numeric" : "none"}
+            pattern="[0-9]*"
             value={scanBuffer}
             onChange={(e) => setScanBuffer(e.target.value)}
             onKeyDown={onInputKey}
