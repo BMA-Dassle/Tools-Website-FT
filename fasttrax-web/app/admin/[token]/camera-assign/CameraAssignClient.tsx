@@ -82,16 +82,23 @@ function formatEt(iso: string): string {
 type TrackSlug = "" | "blue" | "red" | "mega";
 
 /**
- * Short, scannable label for a session shown on a quick-pick button:
- *   "Blue Starter 43", "Red Pro 44", "Mega Intermediate 12"
+ * Short, scannable label for a session shown on a quick-pick button.
+ *   Default:           "Blue Starter 43"
+ *   opts.dropTrack:    "Starter 43"     (when track filter is active,
+ *                                        the track name would just
+ *                                        repeat on every pill — drop it)
  * Strips "Track" from the resource name so the button stays narrow.
  */
-function sessionChipLabel(s: { track?: string; type?: string; heatNumber?: number } | null | undefined): string {
+function sessionChipLabel(
+  s: { track?: string; type?: string; heatNumber?: number } | null | undefined,
+  opts: { dropTrack?: boolean } = {},
+): string {
   if (!s) return "—";
   const track = (s.track || "").replace(" Track", "").trim();
   const type = (s.type || "").trim();
   const heat = s.heatNumber != null ? String(s.heatNumber) : "";
-  return [track, type, heat].filter(Boolean).join(" ");
+  const parts = opts.dropTrack ? [type, heat] : [track, type, heat];
+  return parts.filter(Boolean).join(" ");
 }
 
 /**
@@ -596,19 +603,17 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         />
       )}
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
-        <header className="mb-3 sm:mb-5">
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 hidden sm:block">
-            Scan each camera&apos;s NFC tag to bind it to a racer. Assignments are saved so videos can be matched back to racers.
+        <header className="mb-2 sm:mb-4">
+          <h1 className="text-lg sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
+          <p className="text-white/50 text-xs mt-0.5 hidden sm:block">
+            Scan each camera&apos;s NFC tag to bind it to a racer.
           </p>
         </header>
 
-        {/* Track chips — three small branded buttons. Tap an idle one
-            to filter; tap the active one again to clear. Right side has
-            the keyboard toggle (off by default so tapping the scan
-            field doesn't pop Android's virtual keyboard on top of the
-            roster). */}
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {/* Track chips share a row with the action buttons. On mobile
+            Earlier + Keyboard compress to icon-only so all five controls
+            fit on one line. */}
+        <div className="flex items-center gap-1.5 sm:gap-2 mb-2 flex-wrap">
           {TRACK_CHIPS.map((t) => {
             const isActive = track === t.slug;
             return (
@@ -616,7 +621,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 key={t.slug}
                 type="button"
                 onClick={() => setTrack(isActive ? "" : t.slug)}
-                className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${
+                className={`text-xs uppercase tracking-wider font-semibold px-2.5 sm:px-3 py-1.5 rounded border transition-colors ${
                   isActive ? t.active : `bg-white/[0.02] ${t.idle}`
                 }`}
               >
@@ -624,175 +629,172 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               </button>
             );
           })}
-          {track && (
-            <span className="text-[10px] uppercase tracking-wider text-white/40">
-              filtered
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setPastModalOpen(true)}
               disabled={!track || pastLoading || pastSessions.length === 0}
               title="Browse earlier sessions from today"
-              className="text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+              aria-label="Earlier sessions"
+              className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center gap-1"
             >
               {pastLoading ? (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
-                  />
-                  Loading…
-                </>
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
+                />
               ) : (
-                <>⏮ Earlier</>
+                <span>⏮</span>
               )}
+              <span className="hidden sm:inline">
+                {pastLoading ? "Loading…" : "Earlier"}
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setShowKeyboard((v) => !v)}
               title="Toggle the on-screen keyboard when tapping the scan field"
-              className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${
+              aria-label={`On-screen keyboard ${showKeyboard ? "on" : "off"}`}
+              className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
                 showKeyboard
                   ? "bg-white/15 border-white/30 text-white"
                   : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
               }`}
             >
-              ⌨ Kb {showKeyboard ? "on" : "off"}
+              <span>⌨</span>
+              <span className="hidden sm:inline">Kb {showKeyboard ? "on" : "off"}</span>
             </button>
           </div>
         </div>
 
-        {/* Working-session pill — staff's locked selection. Never
-            changes automatically; only tapping a context pill below
-            sets this. Shows the pending label + spinner immediately
-            on tap so feedback is instant. */}
-        {track && (
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mr-1">
-              Working on:
-            </span>
-            {session ? (
-              <span
-                className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border ${trackChipClasses(session.track, true)}`}
-              >
-                {sessionChipLabel(session)}
-              </span>
-            ) : pendingSessionLabel ? (
-              <span
-                className={`inline-flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border ${trackChipClasses(pendingSessionLabel.track, true)}`}
-              >
+        {/* Context row — Working-on pill sits inline with the ±heats.
+            Horizontal-scrolls on mobile so all pills stay on one line;
+            wraps on sm+ so they're all visible without scrolling.
+            Labels drop the track prefix when a filter is active — the
+            row color + the track chip above already make it obvious. */}
+        {track && (() => {
+          const pillClass = "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
+          return (
+            <div
+              className="flex items-stretch gap-1.5 mb-3 overflow-x-auto sm:overflow-x-visible sm:flex-wrap scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0"
+              role="group"
+              aria-label="Heat quick-pick"
+            >
+              {/* Working-on pill — dashed ring when empty, otherwise
+                  the track color filled. The white leading dot replaces
+                  the prose 'Working on:' label above. */}
+              {session ? (
                 <span
-                  aria-hidden="true"
-                  className="inline-block w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin opacity-80"
-                />
-                {sessionChipLabel(pendingSessionLabel)}
-              </span>
-            ) : (
-              <span className="text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border border-dashed border-white/25 text-white/40">
-                tap a heat below →
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Context row — up to 3 previous called, the current called,
-            and up to 3 upcoming scheduled. Auto-updates every 30s
-            except mid-scan. Tapping any pill loads that session as
-            the working session. The 'currently called' pill is
-            highlighted with a NOW badge so staff knows which one
-            matches the call being made right now. */}
-        {track && (
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            {(calledLoading || upcomingLoading) && calledSessions.length === 0 && upcomingSessions.length === 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-[#00E2E5]/80 font-semibold px-3 py-1.5 rounded border border-dashed border-[#00E2E5]/30">
+                  className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(session.track, true)}`}
+                >
+                  <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
+                  {sessionChipLabel(session, { dropTrack: true })}
+                </span>
+              ) : pendingSessionLabel ? (
                 <span
-                  aria-hidden="true"
-                  className="inline-block w-3 h-3 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
-                />
-                Loading heats…
-              </span>
-            )}
-
-            {/* Previous called (skip index 0 — that's the currently-called
-                pill, rendered separately). Render in reverse order so the
-                oldest is left-most: -3 -2 -1. */}
-            {calledSessions.slice(1, 4).reverse().map((p) => {
-              const isLoaded = activeSessionId === String(p.sessionId);
-              return (
-                <button
-                  key={`prev-${p.sessionId}`}
-                  type="button"
-                  onClick={() => {
-                    if (isLoaded) return;
-                    setOverrideSessionId(String(p.sessionId));
-                    void loadSession(String(p.sessionId));
-                  }}
-                  disabled={isLoaded}
-                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
-                  title={isLoaded ? "Currently loaded" : "Jump to this previously-called race"}
+                  className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(pendingSessionLabel.track, true)}`}
                 >
-                  {sessionChipLabel(p)}
-                </button>
-              );
-            })}
+                  <span
+                    aria-hidden="true"
+                    className="inline-block w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"
+                  />
+                  {sessionChipLabel(pendingSessionLabel, { dropTrack: true })}
+                </span>
+              ) : (
+                <span className={`${pillClass} border-dashed border-white/25 text-white/40 inline-flex items-center gap-1.5`}>
+                  <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-white/30" />
+                  Tap a heat
+                </span>
+              )}
 
-            {/* Most-recent called race (calledSessions[0]) — same style
-                as the other previous-called pills. The NOW badge +
-                ring highlight have been removed; staff can tell which
-                is which from the row position (left-most of the
-                called group = most recent). */}
-            {calledSessions[0] && (() => {
-              const p = calledSessions[0];
-              const isLoaded = activeSessionId === String(p.sessionId);
-              return (
-                <button
-                  key={`called0-${p.sessionId}`}
-                  type="button"
-                  onClick={() => {
-                    if (isLoaded) return;
-                    setOverrideSessionId(String(p.sessionId));
-                    void loadSession(String(p.sessionId));
-                  }}
-                  disabled={isLoaded}
-                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
-                  title={isLoaded ? "Currently loaded" : "Jump to this race"}
-                >
-                  {sessionChipLabel(p)}
-                </button>
-              );
-            })()}
+              {/* separator */}
+              {(calledSessions.length > 0 || upcomingSessions.length > 0 || calledLoading) && (
+                <span aria-hidden="true" className="self-center w-px h-5 bg-white/15 mx-0.5" />
+              )}
 
-            {/* Upcoming scheduled (scheduledStart > now). Ascending —
-                +1 +2 +3 soonest-first so the reading order mirrors time. */}
-            {upcomingSessions.slice(0, 3).map((p) => {
-              const isLoaded = activeSessionId === String(p.sessionId);
-              return (
-                <button
-                  key={`up-${p.sessionId}`}
-                  type="button"
-                  onClick={() => {
-                    if (isLoaded) return;
-                    setOverrideSessionId(String(p.sessionId));
-                    void loadSession(String(p.sessionId));
-                  }}
-                  disabled={isLoaded}
-                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors opacity-80 ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default opacity-100" : ""}`}
-                  title={isLoaded ? "Currently loaded" : "Pre-assign cameras for this upcoming race"}
-                >
-                  {sessionChipLabel(p)}
-                </button>
-              );
-            })}
+              {(calledLoading || upcomingLoading) && calledSessions.length === 0 && upcomingSessions.length === 0 && (
+                <span className={`${pillClass} border-dashed border-[#00E2E5]/30 text-[#00E2E5]/80 inline-flex items-center gap-1.5`}>
+                  <span
+                    aria-hidden="true"
+                    className="inline-block w-3 h-3 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+                  />
+                  Loading…
+                </span>
+              )}
 
-            {!calledLoading && !upcomingLoading && calledSessions.length === 0 && upcomingSessions.length === 0 && (
-              <span className="text-[10px] uppercase tracking-wider text-white/30 ml-1">
-                no heats found for this track today
-              </span>
-            )}
-          </div>
-        )}
+              {/* prev-3, prev-2, prev-1 (oldest left-most) */}
+              {calledSessions.slice(1, 4).reverse().map((p) => {
+                const isLoaded = activeSessionId === String(p.sessionId);
+                return (
+                  <button
+                    key={`prev-${p.sessionId}`}
+                    type="button"
+                    onClick={() => {
+                      if (isLoaded) return;
+                      setOverrideSessionId(String(p.sessionId));
+                      void loadSession(String(p.sessionId));
+                    }}
+                    disabled={isLoaded}
+                    className={`${pillClass} ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
+                    title={isLoaded ? "Currently loaded" : "Jump to this previously-called race"}
+                  >
+                    {sessionChipLabel(p, { dropTrack: true })}
+                  </button>
+                );
+              })}
+
+              {/* most-recent called */}
+              {calledSessions[0] && (() => {
+                const p = calledSessions[0];
+                const isLoaded = activeSessionId === String(p.sessionId);
+                return (
+                  <button
+                    key={`called0-${p.sessionId}`}
+                    type="button"
+                    onClick={() => {
+                      if (isLoaded) return;
+                      setOverrideSessionId(String(p.sessionId));
+                      void loadSession(String(p.sessionId));
+                    }}
+                    disabled={isLoaded}
+                    className={`${pillClass} ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
+                    title={isLoaded ? "Currently loaded" : "Jump to this race"}
+                  >
+                    {sessionChipLabel(p, { dropTrack: true })}
+                  </button>
+                );
+              })()}
+
+              {/* upcoming +1 +2 +3 (soonest first) — slight opacity to
+                  signal 'not yet called' */}
+              {upcomingSessions.slice(0, 3).map((p) => {
+                const isLoaded = activeSessionId === String(p.sessionId);
+                return (
+                  <button
+                    key={`up-${p.sessionId}`}
+                    type="button"
+                    onClick={() => {
+                      if (isLoaded) return;
+                      setOverrideSessionId(String(p.sessionId));
+                      void loadSession(String(p.sessionId));
+                    }}
+                    disabled={isLoaded}
+                    className={`${pillClass} opacity-75 ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default opacity-100" : ""}`}
+                    title={isLoaded ? "Currently loaded" : "Pre-assign cameras for this upcoming race"}
+                  >
+                    {sessionChipLabel(p, { dropTrack: true })}
+                  </button>
+                );
+              })}
+
+              {!calledLoading && !upcomingLoading && calledSessions.length === 0 && upcomingSessions.length === 0 && (
+                <span className="shrink-0 text-[10px] uppercase tracking-wider text-white/30 self-center">
+                  no heats found
+                </span>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Summary line — session info + counter + reload, mirroring
             SMS admin's "N matches · Refresh" strip */}
