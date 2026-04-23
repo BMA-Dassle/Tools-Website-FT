@@ -179,6 +179,13 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const [showKeyboard, setShowKeyboard] = useState(false);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Mirror scanBuffer into a ref so the "skip while mid-scan" gates on
+  // loadCalled / loadUpcoming / refreshSession don't cause those
+  // callbacks' identities to flip on every keystroke — which used to
+  // cascade into the track-change effect re-firing and clobbering the
+  // currently-loaded session.
+  const scanBufferRef = useRef(scanBuffer);
+  useEffect(() => { scanBufferRef.current = scanBuffer; }, [scanBuffer]);
 
   /** Load the active session (next upcoming by default, or override if picked).
    *  Full reset — use this for initial load, track switch, and manual reload.
@@ -257,7 +264,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     // Don't refresh while staff is on a test session (overrideSessionId)
     // or actively scanning — would clobber in-progress work.
     if (overrideSessionId) return;
-    if (scanBuffer) return;
+    if (scanBufferRef.current) return;
 
     try {
       const qs = new URLSearchParams({ token, track });
@@ -313,16 +320,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     } catch {
       // Non-fatal — next tick will try again.
     }
-  }, [token, track, overrideSessionId, scanBuffer, session]);
+  }, [token, track, overrideSessionId, session]);
 
-  /** Load the last 3 "called" races from our SMS log (via the new
-   *  /called endpoint). Used to populate the 3 live quick-pick buttons.
+  /** Load the last N "called" races from our SMS log (via the new
+   *  /called endpoint). Used to populate the live quick-pick pills.
    *  Refreshed every 30s by an interval below; skipped while the
-   *  operator is mid-scan (scanBuffer present) so the pills don't
-   *  rearrange under their thumb. */
+   *  operator is mid-scan (scanBufferRef guard below) so the pills
+   *  don't rearrange under their thumb. scanBuffer intentionally
+   *  NOT in the deps list — reading via ref keeps this callback's
+   *  identity stable across typing. */
   const loadCalled = useCallback(async () => {
     if (!track) { setCalledSessions([]); setCalledLoading(false); return; }
-    if (scanBuffer) return;
+    if (scanBufferRef.current) return;
     setCalledLoading(true);
     try {
       const qs = new URLSearchParams({ token, track, limit: "4" });
@@ -335,12 +344,14 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     } finally {
       setCalledLoading(false);
     }
-  }, [token, track, scanBuffer]);
+  }, [token, track]);
 
-  /** Load next 3 upcoming sessions (scheduledStart > now) from Pandora. */
+  /** Load next 3 upcoming sessions (scheduledStart > now) from Pandora.
+   *  Same scanBufferRef pattern as loadCalled — read via ref so typing
+   *  doesn't flip this callback's identity and retrigger effects. */
   const loadUpcoming = useCallback(async () => {
     if (!track) { setUpcomingSessions([]); setUpcomingLoading(false); return; }
-    if (scanBuffer) return;
+    if (scanBufferRef.current) return;
     setUpcomingLoading(true);
     try {
       const qs = new URLSearchParams({ token, track, limit: "3" });
@@ -353,7 +364,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     } finally {
       setUpcomingLoading(false);
     }
-  }, [token, track, scanBuffer]);
+  }, [token, track]);
 
   /** Load today's past sessions for the test-data dropdown. Scoped to
    *  today (days=1) — staff only testing on the day's earlier heats.
