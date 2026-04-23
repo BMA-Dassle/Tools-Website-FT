@@ -133,10 +133,20 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   /** Load the active session (next upcoming by default, or override if picked).
-   *  Full reset — use this for initial load, track switch, and manual reload. */
+   *  Full reset — use this for initial load, track switch, and manual reload.
+   *
+   *  Clears the existing session + roster immediately so operators don't see
+   *  the previous track's racers while the new data is in flight. The
+   *  participant-list render path already swaps to a loading state when
+   *  participants is empty + loading is true. */
   const loadSession = useCallback(async (sessionIdOverride?: string) => {
     setLoading(true);
     setErr(null);
+    setSession(null);
+    setParticipants([]);
+    setNote(null);
+    setActiveIndex(0);
+    setLastScan(null);
     try {
       const qs = new URLSearchParams({ token });
       if (sessionIdOverride) qs.set("sessionId", sessionIdOverride);
@@ -583,6 +593,17 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
         {/* Participants list — matches SMS admin card density */}
         <div className="space-y-2">
+          {loading && participants.length === 0 && (
+            <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center py-10">
+              <div className="inline-flex items-center gap-2 text-[#00E2E5] text-sm">
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-4 h-4 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+                />
+                Loading roster…
+              </div>
+            </div>
+          )}
           {participants.length === 0 && !loading && (
             <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
               No participants.
