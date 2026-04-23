@@ -41,6 +41,14 @@ interface Participant {
   personId: string | number;
   firstName: string;
   lastName: string;
+  email?: string | null;
+  /** Raw Pandora contact fields — we let the client see them so video-
+   *  notifications (SMS/email) have what they need at match time. */
+  homePhone?: string | null;
+  mobilePhone?: string | null;
+  phone?: string | null;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
 }
 
 function etYmd(d: Date): string {
@@ -195,12 +203,22 @@ export async function GET(req: NextRequest) {
       listAssignmentsForSession(picked.sessionId),
     ]);
 
-    // Map assignments by personId for fast merge in the client
+    // Map assignments by personId for fast merge in the client.
+    // We expose the raw Pandora contact fields so the client can pass
+    // them back when scanning — the video-match cron needs them later
+    // to deliver the "your video is ready" SMS + email without a
+    // second Pandora round-trip.
     const byPid = new Map(assignments.map((a) => [String(a.personId), a]));
     const enriched = participants.map((p) => ({
       personId: p.personId,
       firstName: p.firstName,
       lastName: p.lastName,
+      email: p.email || undefined,
+      mobilePhone: p.mobilePhone || undefined,
+      homePhone: p.homePhone || undefined,
+      phone: p.phone || undefined,
+      acceptSmsCommercial: p.acceptSmsCommercial,
+      acceptSmsScores: p.acceptSmsScores,
       cameraNumber: byPid.get(String(p.personId))?.cameraNumber,
       assignedAt: byPid.get(String(p.personId))?.assignedAt,
     }));

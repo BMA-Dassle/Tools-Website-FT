@@ -18,7 +18,7 @@ export interface SmsLogEntry {
   /** Which cron / code path fired this.
    *  `admin-resend` is a manual resend from the /admin/* tool — distinguish
    *  these in reports so they don't double-count real cron deliveries. */
-  source: "pre-race-cron" | "checkin-cron" | "booking-confirm" | "level-up" | "admin-resend" | "other";
+  source: "pre-race-cron" | "checkin-cron" | "booking-confirm" | "level-up" | "admin-resend" | "video-match" | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;
   /** true iff Voxtelesys accepted the send (res.ok) */

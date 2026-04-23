@@ -4,10 +4,13 @@ import { listRecentVideos } from "@/lib/vt3";
 import { getAssignmentAtTime } from "@/lib/camera-assign";
 import {
   saveVideoMatch,
+  updateVideoMatch,
   hasVideoBeenMatched,
   getLastSeenVideoId,
   setLastSeenVideoId,
+  type VideoMatch,
 } from "@/lib/video-match";
+import { notifyVideoReady } from "@/lib/video-notify";
 import { logCronRun } from "@/lib/sms-log";
 
 /**
@@ -123,7 +126,7 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        const saved = await saveVideoMatch({
+        const matchRecord: VideoMatch = {
           sessionId: assignment.sessionId,
           personId: assignment.personId,
           firstName: assignment.firstName,
@@ -139,8 +142,10 @@ export async function GET(req: NextRequest) {
           sessionName: assignment.sessionName,
           scheduledStart: assignment.scheduledStart,
           track: assignment.track,
+          raceType: assignment.raceType,
           heatNumber: assignment.heatNumber,
-        });
+        };
+        const saved = await saveVideoMatch(matchRecord);
         if (saved) {
           matched++;
           matches.push({
@@ -149,6 +154,23 @@ export async function GET(req: NextRequest) {
             racer: `${assignment.firstName} ${assignment.lastName}`,
             sessionId: assignment.sessionId,
           });
+          // Notify the racer — SMS (consent-gated) + email. Best-effort,
+          // non-blocking. Persist the notify outcome back onto the match
+          // record so the admin UI can see what went out.
+          try {
+            const n = await notifyVideoReady(matchRecord, assignment);
+            matchRecord.notifySmsOk = n.sms.ok;
+            matchRecord.notifySmsError = n.sms.error;
+            matchRecord.notifyEmailOk = n.email.ok;
+            matchRecord.notifyEmailError = n.email.error;
+            // Patch the match record in place with the notify status
+            // so downstream reads (admin UI, e-ticket page) see it.
+            // Uses updateVideoMatch (not saveVideoMatch) so it bypasses
+            // the NX sentinel which has already fired for this video.
+            await updateVideoMatch(matchRecord).catch(() => void 0);
+          } catch (err) {
+            console.error(`[video-match] notify error for code=${v.code}:`, err);
+          }
         } else {
           // Another cron ran faster — treat as already matched.
           skippedAlreadyMatched++;

@@ -63,6 +63,14 @@ export async function POST(req: NextRequest) {
     raceType: body.raceType,
     heatNumber: body.heatNumber,
     assignedBy: body.assignedBy,
+    // Contact fields captured by the client from the session
+    // endpoint so the video-match cron can send notifications.
+    email: body.email,
+    mobilePhone: body.mobilePhone,
+    homePhone: body.homePhone,
+    phone: body.phone,
+    acceptSmsCommercial: body.acceptSmsCommercial,
+    acceptSmsScores: body.acceptSmsScores,
   };
 
   await upsertCameraAssignment(record);

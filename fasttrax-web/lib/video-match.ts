@@ -31,6 +31,7 @@ export interface VideoMatch {
   videoId: number;
   videoCode: string;
   customerUrl: string;          // https://vt3.io/?code={code}
+  shortUrl?: string;            // our /s/{code} redirect so clicks track
   thumbnailUrl?: string;
   capturedAt: string;           // video.created_at (ISO)
   duration?: number;            // seconds
@@ -38,7 +39,13 @@ export interface VideoMatch {
   sessionName?: string;
   scheduledStart?: string;
   track?: string;
+  raceType?: string;
   heatNumber?: number;
+  /** Notification status set by the cron after SMS/email attempts. */
+  notifySmsOk?: boolean;
+  notifySmsError?: string;
+  notifyEmailOk?: boolean;
+  notifyEmailError?: string;
 }
 
 function matchKey(sessionId: string | number, personId: string | number): string {
@@ -65,6 +72,15 @@ export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
   if (!ok) return false; // someone else matched this video first
   await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
   return true;
+}
+
+/**
+ * Update an already-persisted match record (no sentinel re-check).
+ * Use after `saveVideoMatch` returned true, to patch in notify
+ * outcomes (notifySmsOk / notifyEmailOk) without tripping the NX guard.
+ */
+export async function updateVideoMatch(m: VideoMatch): Promise<void> {
+  await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
 }
 
 export async function hasVideoBeenMatched(videoCode: string): Promise<boolean> {

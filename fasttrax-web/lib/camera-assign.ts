@@ -41,6 +41,16 @@ export interface CameraAssignment {
   assignedAt: string;
   /** Email of the staff member who scanned (optional, for audit) */
   assignedBy?: string;
+  /** Contact info for the "your video is ready" notification that
+   *  fires when the camera returns + uploads to vt3.io. Captured at
+   *  scan-in so the video-match cron doesn't need a second Pandora
+   *  round-trip per match. */
+  email?: string;
+  mobilePhone?: string;
+  homePhone?: string;
+  phone?: string;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
 }
 
 function assignKey(sessionId: string | number, personId: string | number): string {
@@ -86,6 +96,9 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
   const hist = historyKey(a.cameraNumber);
 
   const payload = JSON.stringify(a);
+  // Watch + history payloads include contact fields so the video-match
+  // cron can deliver the "video ready" notification without re-fetching
+  // from Pandora.
   const watchPayload = JSON.stringify({
     sessionId: a.sessionId,
     personId: a.personId,
@@ -95,8 +108,15 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
     sessionName: a.sessionName,
     scheduledStart: a.scheduledStart,
     track: a.track,
+    raceType: a.raceType,
     heatNumber: a.heatNumber,
     assignedAt: a.assignedAt,
+    email: a.email,
+    mobilePhone: a.mobilePhone,
+    homePhone: a.homePhone,
+    phone: a.phone,
+    acceptSmsCommercial: a.acceptSmsCommercial,
+    acceptSmsScores: a.acceptSmsScores,
   });
   const historyScore = new Date(a.assignedAt).getTime();
 
@@ -122,10 +142,7 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
  * video's capture time. Returns null if the camera was never
  * assigned (or the assignment TTL'd out before the video uploaded).
  */
-export async function getAssignmentAtTime(
-  cameraNumber: string,
-  atIso: string,
-): Promise<{
+export interface CameraHistoryEntry {
   sessionId: string | number;
   personId: string | number;
   firstName: string;
@@ -134,9 +151,21 @@ export async function getAssignmentAtTime(
   sessionName?: string;
   scheduledStart?: string;
   track?: string;
+  raceType?: string;
   heatNumber?: number;
   assignedAt: string;
-} | null> {
+  email?: string;
+  mobilePhone?: string;
+  homePhone?: string;
+  phone?: string;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+}
+
+export async function getAssignmentAtTime(
+  cameraNumber: string,
+  atIso: string,
+): Promise<CameraHistoryEntry | null> {
   try {
     const atMs = new Date(atIso).getTime();
     if (!Number.isFinite(atMs)) return null;

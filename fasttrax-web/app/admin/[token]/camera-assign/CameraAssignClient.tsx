@@ -32,6 +32,14 @@ type Participant = {
   lastName: string;
   cameraNumber?: string;
   assignedAt?: string;
+  /** Carried through from Pandora into the assignment record so the
+   *  video-match cron can notify the racer when their video is ready. */
+  email?: string;
+  mobilePhone?: string;
+  homePhone?: string;
+  phone?: string;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
 };
 
 type SessionInfo = {
@@ -204,6 +212,14 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           track: session?.track,
           raceType: session?.type,
           heatNumber: session?.heatNumber,
+          // Contact fields — pass through from the participant record
+          // so the video-match cron can notify without a Pandora refetch.
+          email: p.email,
+          mobilePhone: p.mobilePhone,
+          homePhone: p.homePhone,
+          phone: p.phone,
+          acceptSmsCommercial: p.acceptSmsCommercial,
+          acceptSmsScores: p.acceptSmsScores,
         }),
       });
       if (!res.ok) {
