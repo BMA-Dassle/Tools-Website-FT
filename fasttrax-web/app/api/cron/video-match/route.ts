@@ -78,8 +78,11 @@ export async function GET(req: NextRequest) {
   try {
     const siteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
 
+    // Pull the newest 200 (up from 50) so a multi-minute backlog (e.g. a
+    // restart after the match logic changed) catches up in a single
+    // cron fire instead of dripping across 4+ runs.
     const [videos, lastSeenId] = await Promise.all([
-      listRecentVideos({ siteId, limit: 50 }),
+      listRecentVideos({ siteId, limit: 200 }),
       getLastSeenVideoId(),
     ]);
 
@@ -93,9 +96,21 @@ export async function GET(req: NextRequest) {
       }
       if (v.id > highestId) highestId = v.id;
 
-      const systemNumber = v.system?.name || "";
-      if (!systemNumber) {
-        // Can't match — no system number on the record.
+      // Key the match on the CAMERA hardware id (video.camera) — that's
+      // what staff scans off the NFC tag on the camera. video.system.name
+      // is the base-station the camera happened to dock in, which isn't
+      // what the NFC tag reads.
+      //
+      // Cameras roam between racers each heat; base stations are fixed.
+      // Pairing by camera hardware id is what makes 'camera 9 went with
+      // Alice for heat 27' actually correct across the day.
+      //
+      // Legacy fallback: earlier assignments may have been stored keyed
+      // off the system number (when we had this wrong). If no match on
+      // camera id, try system.name before giving up.
+      const cameraKey = v.camera != null ? String(v.camera) : "";
+      const systemFallbackKey = v.system?.name || "";
+      if (!cameraKey && !systemFallbackKey) {
         skippedNoAssignment++;
         continue;
       }
@@ -106,9 +121,12 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Time-aware lookup: who was this system assigned to when the
+      // Time-aware lookup: who was this camera assigned to when the
       // video was captured?
-      const assignment = await getAssignmentAtTime(systemNumber, v.created_at);
+      let assignment = cameraKey ? await getAssignmentAtTime(cameraKey, v.created_at) : null;
+      if (!assignment && systemFallbackKey) {
+        assignment = await getAssignmentAtTime(systemFallbackKey, v.created_at);
+      }
       if (!assignment) {
         skippedNoAssignment++;
         continue;
@@ -118,7 +136,7 @@ export async function GET(req: NextRequest) {
         matched++;
         matches.push({
           videoCode: v.code,
-          systemNumber,
+          systemNumber: systemFallbackKey,
           cameraNumber: v.camera,
           racer: `${assignment.firstName} ${assignment.lastName}`,
           sessionId: assignment.sessionId,
@@ -132,8 +150,8 @@ export async function GET(req: NextRequest) {
           personId: assignment.personId,
           firstName: assignment.firstName,
           lastName: assignment.lastName,
-          systemNumber,                 // base / dock ID (video.system.name, e.g. "913")
-          cameraNumber: v.camera,       // hardware camera (video.camera, e.g. 20)
+          systemNumber: systemFallbackKey, // base / dock id (video.system.name, e.g. "913")
+          cameraNumber: v.camera,          // hardware camera (video.camera, e.g. 9)
           videoId: v.id,
           videoCode: v.code,
           customerUrl: `https://vt3.io/?code=${v.code}`,
@@ -159,7 +177,7 @@ export async function GET(req: NextRequest) {
           matched++;
           matches.push({
             videoCode: v.code,
-            systemNumber,
+            systemNumber: systemFallbackKey,
             cameraNumber: v.camera,
             racer: `${assignment.firstName} ${assignment.lastName}`,
             sessionId: assignment.sessionId,

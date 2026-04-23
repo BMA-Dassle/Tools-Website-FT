@@ -33,12 +33,22 @@ import { listRecentVideos } from "@/lib/vt3";
  */
 
 function etYmdToRangeMs(ymd: string): { startMs: number; endMs: number } {
-  // Inclusive day window in America/New_York. We use a simple UTC day-
-  // boundary math with a 5h padding on each side to cover EST/EDT
-  // without worrying about DST math for this filter.
-  const base = Date.parse(`${ymd}T00:00:00Z`);
-  const startMs = base - 5 * 60 * 60 * 1000; // 05:00 UTC = 00:00 EDT / -1h EST
-  const endMs = startMs + 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000; // generous end
+  // Inclusive day window in America/New_York (ET).
+  // Prior version had this inverted — it produced Apr-22 15:00 ET →
+  // Apr-23 17:00 ET instead of the actual ET day, cutting off everything
+  // after 5 PM. Staff noticed 'no videos since 4:53 PM'.
+  //
+  // Correct calc: if ymd is '2026-04-23', we want the window Apr-23
+  // 00:00 ET → Apr-24 00:00 ET. In UTC that's Apr-23 04:00Z → Apr-24
+  // 04:00Z during EDT (Apr-Oct). DST-aware offset per calendar month:
+  // UTC-4 for EDT months, UTC-5 for EST — close enough for a daily
+  // filter, which doesn't care about the 2-hour DST transition edge.
+  const month = parseInt(ymd.slice(5, 7), 10);
+  const isEDT = month >= 4 && month <= 10;
+  const offsetHours = isEDT ? 4 : 5;
+  const baseUtc = Date.parse(`${ymd}T00:00:00Z`);
+  const startMs = baseUtc + offsetHours * 60 * 60 * 1000;
+  const endMs = startMs + 24 * 60 * 60 * 1000;
   return { startMs, endMs };
 }
 
