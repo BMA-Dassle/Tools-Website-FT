@@ -180,7 +180,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Mirror scanBuffer into a ref so the "skip while mid-scan" gates on
-  // loadCalled / loadUpcoming / refreshSession don't cause those
+  // loadHeats / refreshSession don't cause those
   // callbacks' identities to flip on every keystroke — which used to
   // cascade into the track-change effect re-firing and clobbering the
   // currently-loaded session.
@@ -329,39 +329,32 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  don't rearrange under their thumb. scanBuffer intentionally
    *  NOT in the deps list — reading via ref keeps this callback's
    *  identity stable across typing. */
-  const loadCalled = useCallback(async () => {
-    if (!track) { setCalledSessions([]); setCalledLoading(false); return; }
+  /** Combined loader for prev-called + upcoming heats. One server
+   *  round-trip, both state updates applied in the same commit so the
+   *  pills arrive as a single visual wave (not prev-first-then-upcoming
+   *  staggered over a second). scanBufferRef gate keeps mid-scan safe. */
+  const loadHeats = useCallback(async () => {
+    if (!track) {
+      setCalledSessions([]); setCalledLoading(false);
+      setUpcomingSessions([]); setUpcomingLoading(false);
+      return;
+    }
     if (scanBufferRef.current) return;
     setCalledLoading(true);
+    setUpcomingLoading(true);
     try {
-      const qs = new URLSearchParams({ token, track, limit: "4" });
-      const res = await fetch(`/api/admin/camera-assign/called?${qs}`, { cache: "no-store" });
+      const qs = new URLSearchParams({ token, track, before: "4", after: "3" });
+      const res = await fetch(`/api/admin/camera-assign/heats?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
-      setCalledSessions(json.sessions || []);
+      // Both setStates in the same async tick — React 18 batches them
+      // automatically so the pills render in one commit.
+      setCalledSessions(json.called || []);
+      setUpcomingSessions(json.upcoming || []);
     } catch {
       /* non-fatal */
     } finally {
       setCalledLoading(false);
-    }
-  }, [token, track]);
-
-  /** Load next 3 upcoming sessions (scheduledStart > now) from Pandora.
-   *  Same scanBufferRef pattern as loadCalled — read via ref so typing
-   *  doesn't flip this callback's identity and retrigger effects. */
-  const loadUpcoming = useCallback(async () => {
-    if (!track) { setUpcomingSessions([]); setUpcomingLoading(false); return; }
-    if (scanBufferRef.current) return;
-    setUpcomingLoading(true);
-    try {
-      const qs = new URLSearchParams({ token, track, limit: "3" });
-      const res = await fetch(`/api/admin/camera-assign/upcoming?${qs}`, { cache: "no-store" });
-      if (!res.ok) return;
-      const json = await res.json();
-      setUpcomingSessions(json.sessions || []);
-    } catch {
-      /* non-fatal */
-    } finally {
       setUpcomingLoading(false);
     }
   }, [token, track]);
@@ -423,23 +416,20 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setLastScan(null);
     // Populate the live quick-pick feed + past dropdown for the new
     // track so they're always usable without a tap.
-    void loadCalled();
-    void loadUpcoming();
+    void loadHeats();
     void loadPast();
-  }, [track, loadCalled, loadUpcoming, loadPast]);
+  }, [track, loadHeats, loadPast]);
 
-  // In-place refresh every 30s for the current roster + the called-races
-  // feed that powers the live quick-pick buttons. Preserves scan state;
-  // merges new roster changes; auto-advances to the next session once
-  // all cameras are assigned (see below).
+  // In-place refresh every 30s for the current roster + the heats feed
+  // that powers the live quick-pick buttons. Preserves scan state;
+  // merges new roster changes.
   useEffect(() => {
     const id = setInterval(() => {
       void refreshSession();
-      void loadCalled();
-      void loadUpcoming();
+      void loadHeats();
     }, 30_000);
     return () => clearInterval(id);
-  }, [refreshSession, loadCalled, loadUpcoming]);
+  }, [refreshSession, loadHeats]);
 
   // Auto-advance to the next upcoming session once every racer in the
   // current session has a camera. We wait a few seconds so staff sees
