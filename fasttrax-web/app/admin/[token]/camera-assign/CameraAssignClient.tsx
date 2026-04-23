@@ -562,6 +562,30 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const totalCount = participants.length;
   const doneAll = totalCount > 0 && assignedCount === totalCount;
 
+  /** Session-id considered "the one the user picked", even before the
+   *  roster fetch completes. Used to highlight the right pill
+   *  immediately on tap — otherwise pills looked inert for ~2–3s
+   *  while the /session fetch was in flight. */
+  const activeSessionId = useMemo(
+    () => (overrideSessionId || (session ? String(session.sessionId) : "")),
+    [overrideSessionId, session],
+  );
+
+  /** Find a pending-tap's display label from whichever list has it,
+   *  so the Working-on pill can show 'Blue Pro 44' the instant it's
+   *  tapped instead of reverting to the 'tap a heat below →'
+   *  placeholder until the fetch returns. */
+  const pendingSessionLabel = useMemo(() => {
+    if (!overrideSessionId) return null;
+    if (session && String(session.sessionId) === overrideSessionId) return null; // already loaded
+    const allPools: PastSession[][] = [calledSessions, upcomingSessions, pastSessions];
+    for (const pool of allPools) {
+      const hit = pool.find((s) => String(s.sessionId) === overrideSessionId);
+      if (hit) return hit;
+    }
+    return null;
+  }, [overrideSessionId, session, calledSessions, upcomingSessions, pastSessions]);
+
   // No auto-advance — staff explicitly picks the next call from the
   // live quick-pick pills. Deliberate: avoids Current changing out
   // from under someone who's about to scan again or double-checking
@@ -652,7 +676,8 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
         {/* Working-session pill — staff's locked selection. Never
             changes automatically; only tapping a context pill below
-            sets this. Empty placeholder until first tap. */}
+            sets this. Shows the pending label + spinner immediately
+            on tap so feedback is instant. */}
         {track && (
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mr-1">
@@ -663,6 +688,16 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border ${trackChipClasses(session.track, true)}`}
               >
                 {sessionChipLabel(session)}
+              </span>
+            ) : pendingSessionLabel ? (
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border ${trackChipClasses(pendingSessionLabel.track, true)}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin opacity-80"
+                />
+                {sessionChipLabel(pendingSessionLabel)}
               </span>
             ) : (
               <span className="text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border border-dashed border-white/25 text-white/40">
@@ -694,7 +729,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 pill, rendered separately). Render in reverse order so the
                 oldest is left-most: -3 -2 -1. */}
             {calledSessions.slice(1, 4).reverse().map((p) => {
-              const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
+              const isLoaded = activeSessionId === String(p.sessionId);
               return (
                 <button
                   key={`prev-${p.sessionId}`}
@@ -720,7 +755,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 called group = most recent). */}
             {calledSessions[0] && (() => {
               const p = calledSessions[0];
-              const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
+              const isLoaded = activeSessionId === String(p.sessionId);
               return (
                 <button
                   key={`called0-${p.sessionId}`}
@@ -742,7 +777,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             {/* Upcoming scheduled (scheduledStart > now). Ascending —
                 +1 +2 +3 soonest-first so the reading order mirrors time. */}
             {upcomingSessions.slice(0, 3).map((p) => {
-              const isLoaded = !!session && String(session.sessionId) === String(p.sessionId);
+              const isLoaded = activeSessionId === String(p.sessionId);
               return (
                 <button
                   key={`up-${p.sessionId}`}
