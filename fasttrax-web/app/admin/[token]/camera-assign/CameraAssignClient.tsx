@@ -7,17 +7,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  *
  * Flow:
  *   1. On load, GET /api/admin/camera-assign/session → next upcoming
- *      session + its participants (with any pre-existing camera
- *      assignments merged in).
- *   2. Staff scans each kart's NFC tag with a USB NFC reader. The reader
- *      emulates a keyboard — it types the camera number + Enter into the
- *      always-focused input field. The onSubmit handler assigns that
- *      camera to the currently highlighted racer via POST /api/admin/
- *      camera-assign/assign, then auto-advances to the next unassigned
+ *      session + its participants (with any pre-existing assignments
+ *      merged in).
+ *   2. Staff scans each base-station's NFC tag with a USB NFC reader.
+ *      The reader emulates a keyboard — it types the SYSTEM number +
+ *      Enter into the always-focused input field. The onSubmit handler
+ *      assigns that system to the currently highlighted racer via
+ *      POST /api/admin/camera-assign/assign, then auto-advances to
+ *      the next unassigned racer.
+ *   3. Each assignment writes a system-watch:{systemNumber} reverse
+ *      lookup in Redis (24h TTL) so the video-match cron can route
+ *      incoming videos (matched on video.system.name) back to the
  *      racer.
- *   3. Each assignment writes a camera-watch:{cameraNumber} reverse
- *      lookup in Redis (12h TTL) so a downstream Viewpoint-watcher can
- *      route incoming videos back to the racer.
  *
  * Test-data dropdown: pick any past session from today to load its
  * roster instead of the live "next upcoming" pick — useful for
@@ -30,7 +31,9 @@ type Participant = {
   personId: string | number;
   firstName: string;
   lastName: string;
-  cameraNumber?: string;
+  /** The SYSTEM number (base/dock) the camera was plugged into —
+   *  read off the NFC tag, matches video.system.name on vt3.io. */
+  systemNumber?: string;
   assignedAt?: string;
   /** Carried through from Pandora into the assignment record so the
    *  video-match cron can notify the racer when their video is ready. */
@@ -140,7 +143,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       setParticipants(json.participants || []);
       setNote(json.note || null);
       // Auto-highlight the first UNASSIGNED racer (or first if all assigned)
-      const firstUnassigned = (json.participants || []).findIndex((p) => !p.cameraNumber);
+      const firstUnassigned = (json.participants || []).findIndex((p) => !p.systemNumber);
       setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "failed to load");
@@ -187,10 +190,13 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     return () => clearInterval(id);
   }, []);
 
-  /** Submit one camera number for the currently highlighted racer. */
-  const assign = useCallback(async (cameraNumber: string) => {
-    const cam = cameraNumber.trim();
-    if (!cam) return;
+  /** Submit one system number (from the NFC scan) for the currently
+   *  highlighted racer. The scanned value is the base/dock system ID,
+   *  which matches video.system.name on vt3.io and drives the
+   *  video-match cron. */
+  const assign = useCallback(async (systemNumber: string) => {
+    const sys = systemNumber.trim();
+    if (!sys) return;
     if (activeIndex < 0 || activeIndex >= participants.length) {
       setErr("No racer highlighted — can't assign.");
       return;
@@ -206,7 +212,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           personId: p.personId,
           firstName: p.firstName,
           lastName: p.lastName,
-          cameraNumber: cam,
+          systemNumber: sys,
           sessionName: session?.name,
           scheduledStart: session?.scheduledStart,
           track: session?.track,
@@ -230,14 +236,14 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       setParticipants((prev) =>
         prev.map((x, i) =>
           i === activeIndex
-            ? { ...x, cameraNumber: cam, assignedAt: new Date().toISOString() }
+            ? { ...x, systemNumber: sys, assignedAt: new Date().toISOString() }
             : x,
         ),
       );
-      setLastScan({ camera: cam, racer: `${p.firstName} ${p.lastName}`, at: Date.now() });
+      setLastScan({ camera: sys, racer: `${p.firstName} ${p.lastName}`, at: Date.now() });
       // Advance to next un-assigned racer; if none, stay put
       setActiveIndex((current) => {
-        const next = participants.findIndex((x, i) => i > current && !x.cameraNumber);
+        const next = participants.findIndex((x, i) => i > current && !x.systemNumber);
         return next >= 0 ? next : current;
       });
     } catch (e) {
@@ -259,7 +265,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const unassign = useCallback(async (idx: number) => {
     const p = participants[idx];
     if (!p || !session) return;
-    if (!confirm(`Un-assign camera ${p.cameraNumber} from ${p.firstName} ${p.lastName}?`)) return;
+    if (!confirm(`Un-assign system ${p.systemNumber} from ${p.firstName} ${p.lastName}?`)) return;
     try {
       const qs = new URLSearchParams({
         token,
@@ -272,7 +278,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       });
       if (!res.ok) throw new Error(`delete failed (${res.status})`);
       setParticipants((prev) =>
-        prev.map((x, i) => (i === idx ? { ...x, cameraNumber: undefined, assignedAt: undefined } : x)),
+        prev.map((x, i) => (i === idx ? { ...x, systemNumber: undefined, assignedAt: undefined } : x)),
       );
       setActiveIndex(idx);
     } catch (e) {
@@ -281,7 +287,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   }, [participants, session, token]);
 
   // Computed
-  const assignedCount = useMemo(() => participants.filter((p) => p.cameraNumber).length, [participants]);
+  const assignedCount = useMemo(() => participants.filter((p) => p.systemNumber).length, [participants]);
   const totalCount = participants.length;
   const doneAll = totalCount > 0 && assignedCount === totalCount;
 
@@ -290,6 +296,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
         <header className="mb-3 sm:mb-5">
           <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
+          <p className="text-white/50 text-xs sm:text-sm mt-0.5 hidden sm:block">
+            Scan each base-station&apos;s NFC tag to register which system a racer is on.
+          </p>
           <p className="text-white/50 text-xs sm:text-sm mt-0.5 hidden sm:block">
             Scan each kart&apos;s NFC tag to bind it to a racer. Assignments are saved so videos can be matched back to racers.
           </p>
@@ -390,7 +399,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             it's impossible to miss. Kept compact and single-line. */}
         <div className="sticky top-2 z-10 rounded-lg border border-[#00E2E5]/40 bg-[#00E2E5]/5 p-2.5 mb-3">
           <label htmlFor="camera-scan-input" className="text-xs text-white/60 block mb-1">
-            Scan NFC tag (or type camera # and press Enter)
+            Scan NFC tag (or type system # and press Enter)
           </label>
           <input
             id="camera-scan-input"
@@ -410,7 +419,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           />
           {lastScan && (
             <div className="mt-1 text-xs text-emerald-400 truncate">
-              ✓ Camera <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
+              ✓ System <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
             </div>
           )}
         </div>
@@ -424,7 +433,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           )}
           {participants.map((p, i) => {
             const isActive = i === activeIndex;
-            const hasCam = !!p.cameraNumber;
+            const hasCam = !!p.systemNumber;
             return (
               <button
                 key={String(p.personId)}
@@ -453,7 +462,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   {hasCam ? (
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                        cam {p.cameraNumber}
+                        sys {p.systemNumber}
                       </span>
                       <button
                         type="button"

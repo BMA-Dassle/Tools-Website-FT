@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   let skippedOld = 0;
   let matched = 0;
   let errors = 0;
-  const matches: { videoCode: string; cameraNumber: string; racer: string; sessionId: string | number }[] = [];
+  const matches: { videoCode: string; systemNumber: string; cameraNumber?: number; racer: string; sessionId: string | number }[] = [];
 
   try {
     const siteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
@@ -93,9 +93,9 @@ export async function GET(req: NextRequest) {
       }
       if (v.id > highestId) highestId = v.id;
 
-      const cameraNumber = v.system?.name || "";
-      if (!cameraNumber) {
-        // Can't match — no camera number on the record.
+      const systemNumber = v.system?.name || "";
+      if (!systemNumber) {
+        // Can't match — no system number on the record.
         skippedNoAssignment++;
         continue;
       }
@@ -106,9 +106,9 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Time-aware lookup: who was this camera assigned to when the
+      // Time-aware lookup: who was this system assigned to when the
       // video was captured?
-      const assignment = await getAssignmentAtTime(cameraNumber, v.created_at);
+      const assignment = await getAssignmentAtTime(systemNumber, v.created_at);
       if (!assignment) {
         skippedNoAssignment++;
         continue;
@@ -118,7 +118,8 @@ export async function GET(req: NextRequest) {
         matched++;
         matches.push({
           videoCode: v.code,
-          cameraNumber,
+          systemNumber,
+          cameraNumber: v.camera,
           racer: `${assignment.firstName} ${assignment.lastName}`,
           sessionId: assignment.sessionId,
         });
@@ -131,8 +132,8 @@ export async function GET(req: NextRequest) {
           personId: assignment.personId,
           firstName: assignment.firstName,
           lastName: assignment.lastName,
-          cameraNumber,                 // kart / system.name (e.g. "913")
-          cameraId: v.camera,           // vt3's hardware camera (e.g. 20)
+          systemNumber,                 // base / dock ID (video.system.name, e.g. "913")
+          cameraNumber: v.camera,       // hardware camera (video.camera, e.g. 20)
           videoId: v.id,
           videoCode: v.code,
           customerUrl: `https://vt3.io/?code=${v.code}`,
@@ -146,7 +147,7 @@ export async function GET(req: NextRequest) {
           raceType: assignment.raceType,
           heatNumber: assignment.heatNumber,
           // Snapshot contact so the admin-resend endpoint doesn't need to
-          // re-walk the camera-history set.
+          // re-walk the system-history set.
           email: assignment.email,
           phone: assignment.phone,
           mobilePhone: assignment.mobilePhone,
@@ -158,7 +159,8 @@ export async function GET(req: NextRequest) {
           matched++;
           matches.push({
             videoCode: v.code,
-            cameraNumber,
+            systemNumber,
+            cameraNumber: v.camera,
             racer: `${assignment.firstName} ${assignment.lastName}`,
             sessionId: assignment.sessionId,
           });

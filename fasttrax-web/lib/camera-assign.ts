@@ -35,8 +35,11 @@ export interface CameraAssignment {
   track?: string;
   raceType?: string;
   heatNumber?: number;
-  /** The number that came off the NFC tag (kart/camera ID) */
-  cameraNumber: string;
+  /** The number that came off the NFC tag — this is the SYSTEM (base
+   *  station / dock) number, matches `video.system.name` on vt3.io.
+   *  The actual camera hardware id is a separate field (`video.camera`)
+   *  that we don't know until the video uploads. */
+  systemNumber: string;
   /** ISO timestamp of the scan */
   assignedAt: string;
   /** Email of the staff member who scanned (optional, for audit) */
@@ -57,8 +60,9 @@ function assignKey(sessionId: string | number, personId: string | number): strin
   return `camera-assign:${sessionId}:${personId}`;
 }
 
-function watchKey(cameraNumber: string): string {
-  return `camera-watch:${cameraNumber}`;
+/** Reverse lookup keyed by the SYSTEM number (from NFC / video.system.name). */
+function watchKey(systemNumber: string): string {
+  return `system-watch:${systemNumber}`;
 }
 
 function sessionIndexKey(sessionId: string | number): string {
@@ -66,16 +70,16 @@ function sessionIndexKey(sessionId: string | number): string {
 }
 
 /**
- * Time-indexed history of assignments for a given camera. Sorted set,
+ * Time-indexed history of assignments for a given SYSTEM. Sorted set,
  * score = assignedAt epoch ms, value = JSON of the assignment.
- * Used by the video-match cron: when a video uploads from camera C
+ * Used by the video-match cron: when a video uploads from system S
  * at time T, we find the most recent history entry with score <= T
- * — that's the racer who had camera C at that moment. Critical for
- * days when the same kart/camera runs multiple heats with different
+ * — that's the racer who had system S at that moment. Critical for
+ * days when the same base station runs multiple heats with different
  * racers.
  */
-function historyKey(cameraNumber: string): string {
-  return `camera-history:${cameraNumber}`;
+function historyKey(systemNumber: string): string {
+  return `system-history:${systemNumber}`;
 }
 
 /**
@@ -91,9 +95,9 @@ function historyKey(cameraNumber: string): string {
  */
 export async function upsertCameraAssignment(a: CameraAssignment): Promise<void> {
   const primary = assignKey(a.sessionId, a.personId);
-  const watch = watchKey(a.cameraNumber);
+  const watch = watchKey(a.systemNumber);
   const idx = sessionIndexKey(a.sessionId);
-  const hist = historyKey(a.cameraNumber);
+  const hist = historyKey(a.systemNumber);
 
   const payload = JSON.stringify(a);
   // Watch + history payloads include contact fields so the video-match
@@ -104,7 +108,7 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
     personId: a.personId,
     firstName: a.firstName,
     lastName: a.lastName,
-    cameraNumber: a.cameraNumber,
+    systemNumber: a.systemNumber,
     sessionName: a.sessionName,
     scheduledStart: a.scheduledStart,
     track: a.track,
@@ -147,7 +151,7 @@ export interface CameraHistoryEntry {
   personId: string | number;
   firstName: string;
   lastName: string;
-  cameraNumber: string;
+  systemNumber: string;
   sessionName?: string;
   scheduledStart?: string;
   track?: string;
@@ -163,7 +167,7 @@ export interface CameraHistoryEntry {
 }
 
 export async function getAssignmentAtTime(
-  cameraNumber: string,
+  systemNumber: string,
   atIso: string,
 ): Promise<CameraHistoryEntry | null> {
   try {
@@ -172,7 +176,7 @@ export async function getAssignmentAtTime(
     // ZREVRANGEBYSCORE → all entries ≤ atMs, highest first. LIMIT 0 1
     // gives us just the one we want.
     const result = await redis.zrevrangebyscore(
-      historyKey(cameraNumber),
+      historyKey(systemNumber),
       atMs,
       "-inf",
       "LIMIT",
@@ -223,15 +227,15 @@ export async function deleteCameraAssignment(
   if (raw) {
     try {
       const a = JSON.parse(raw) as CameraAssignment;
-      if (a.cameraNumber) {
+      if (a.systemNumber) {
         // Only clear the watch if it STILL points at this assignment —
-        // another racer may have since scanned the same camera.
-        const watchRaw = await redis.get(watchKey(a.cameraNumber));
+        // another racer may have since scanned the same system.
+        const watchRaw = await redis.get(watchKey(a.systemNumber));
         if (watchRaw) {
           try {
             const w = JSON.parse(watchRaw);
             if (String(w.personId) === String(personId)) {
-              await redis.del(watchKey(a.cameraNumber));
+              await redis.del(watchKey(a.systemNumber));
             }
           } catch { /* leave watch alone */ }
         }
@@ -243,16 +247,16 @@ export async function deleteCameraAssignment(
 }
 
 /**
- * Reverse lookup: given a camera number, which racer is expected to be
+ * Reverse lookup: given a SYSTEM number, which racer is expected to be
  * using it (if any)? Downstream Viewpoint watcher uses this to route a
  * freshly-uploaded video to the right racer's e-ticket.
  */
-export async function getRacerByCamera(cameraNumber: string): Promise<{
+export async function getRacerBySystem(systemNumber: string): Promise<{
   sessionId: string | number;
   personId: string | number;
   firstName: string;
   lastName: string;
-  cameraNumber: string;
+  systemNumber: string;
   sessionName?: string;
   scheduledStart?: string;
   track?: string;
@@ -260,7 +264,7 @@ export async function getRacerByCamera(cameraNumber: string): Promise<{
   assignedAt: string;
 } | null> {
   try {
-    const raw = await redis.get(watchKey(cameraNumber));
+    const raw = await redis.get(watchKey(systemNumber));
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {

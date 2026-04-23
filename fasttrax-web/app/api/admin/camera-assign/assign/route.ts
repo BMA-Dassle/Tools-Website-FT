@@ -14,7 +14,7 @@ import {
  *     personId: string | number;
  *     firstName: string;
  *     lastName: string;
- *     cameraNumber: string;       // required, non-empty
+ *     systemNumber: string;       // required — the base/system # from the NFC scan
  *     sessionName?: string;
  *     scheduledStart?: string;    // ISO
  *     track?: string;             // "Blue Track" | etc.
@@ -23,9 +23,9 @@ import {
  *     assignedBy?: string;
  *   }
  *
- * Writes the primary assignment record AND the camera-watch reverse
- * lookup key so a downstream video-matching process can resolve an
- * incoming Viewpoint camera number to the racer.
+ * Writes the primary assignment record AND the system-watch reverse
+ * lookup key so the video-match cron can resolve an incoming vt3.io
+ * video (keyed by video.system.name) back to the racer.
  *
  * Auth: middleware.ts gates /api/admin/camera-assign/* on ADMIN_CAMERA_TOKEN.
  *
@@ -33,7 +33,9 @@ import {
  *   Un-assigns (used for rescans / typo corrections).
  */
 export async function POST(req: NextRequest) {
-  let body: Partial<CameraAssignment>;
+  // Also accept the legacy `cameraNumber` field name so an old client
+  // cached in a staff tab doesn't start 400-ing the minute this deploys.
+  let body: Partial<CameraAssignment> & { cameraNumber?: string };
   try {
     body = await req.json();
   } catch {
@@ -42,20 +44,20 @@ export async function POST(req: NextRequest) {
 
   const sessionId = body.sessionId;
   const personId = body.personId;
-  const cameraNumber = (body.cameraNumber || "").trim();
+  const systemNumber = (body.systemNumber || body.cameraNumber || "").trim();
   const firstName = body.firstName || "";
   const lastName = body.lastName || "";
 
   if (!sessionId) return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   if (!personId) return NextResponse.json({ error: "personId is required" }, { status: 400 });
-  if (!cameraNumber) return NextResponse.json({ error: "cameraNumber is required" }, { status: 400 });
+  if (!systemNumber) return NextResponse.json({ error: "systemNumber is required" }, { status: 400 });
 
   const record: CameraAssignment = {
     sessionId,
     personId,
     firstName,
     lastName,
-    cameraNumber,
+    systemNumber,
     assignedAt: new Date().toISOString(),
     sessionName: body.sessionName,
     scheduledStart: body.scheduledStart,

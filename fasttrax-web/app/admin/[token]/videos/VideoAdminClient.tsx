@@ -21,10 +21,10 @@ type VideoRow = {
   personId: string | number;
   firstName: string;
   lastName: string;
-  /** Kart / system number (what the NFC tag reads, e.g. "913") */
-  cameraNumber: string;
-  /** vt3 hardware camera number (e.g. 20) */
-  cameraId?: number;
+  /** System / base-station number (what the NFC tag reads, e.g. "913"). */
+  systemNumber: string;
+  /** Hardware camera number (e.g. 20) from vt3's video.camera field. */
+  cameraNumber?: number;
   videoId: number;
   videoCode: string;
   customerUrl: string;
@@ -257,11 +257,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
                 )}
                 <div className="flex items-center justify-between gap-2 mt-2 text-xs">
                   <span className="text-white/70">
-                    System <span className="font-mono text-emerald-300">{e.cameraNumber || "—"}</span>
-                    {e.cameraId != null && (
+                    System <span className="font-mono text-emerald-300">{e.systemNumber || "—"}</span>
+                    {e.cameraNumber != null && (
                       <>
                         <span className="text-white/30 mx-1">·</span>
-                        Camera <span className="font-mono text-amber-300">{e.cameraId}</span>
+                        Camera <span className="font-mono text-amber-300">{e.cameraNumber}</span>
                       </>
                     )}
                     <span className="text-white/30 mx-1">·</span>
@@ -336,8 +336,8 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         {!isUnmatched && e.track && e.heatNumber ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}` : ""}
                         {!isUnmatched && e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-emerald-300">{e.cameraNumber || "—"}</td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-amber-300">{e.cameraId ?? "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-emerald-300">{e.systemNumber || "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-amber-300">{e.cameraNumber ?? "—"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono text-xs">
                           {e.videoCode}
@@ -483,6 +483,7 @@ function ResendModal({
           throw new Error("Email is required for email send");
         }
         payload.videoCode = entry.videoCode;
+        payload.systemNumber = entry.systemNumber;
         payload.cameraNumber = entry.cameraNumber;
         payload.customerUrl = entry.customerUrl;
         payload.thumbnailUrl = entry.thumbnailUrl;
@@ -501,6 +502,7 @@ function ResendModal({
         // (e.g., trimmed from the match log). The server will only
         // use these if the primary match lookup fails.
         payload.videoCode = entry.videoCode;
+        payload.systemNumber = entry.systemNumber;
         payload.cameraNumber = entry.cameraNumber;
         payload.customerUrl = entry.customerUrl;
         payload.thumbnailUrl = entry.thumbnailUrl;
@@ -572,11 +574,11 @@ function ResendModal({
               </>
             )}
             <div>
-              System: <span className="text-white/80 font-mono">{entry.cameraNumber || "(none)"}</span>
-              {entry.cameraId != null && (
+              System: <span className="text-white/80 font-mono">{entry.systemNumber || "(none)"}</span>
+              {entry.cameraNumber != null && (
                 <>
                   {" · "}
-                  Camera: <span className="text-white/80 font-mono">{entry.cameraId}</span>
+                  Camera: <span className="text-white/80 font-mono">{entry.cameraNumber}</span>
                 </>
               )}
               {" · "}
@@ -800,8 +802,8 @@ function PreviewModal({
               )}
             </div>
             <div className="text-xs text-white/40 mt-0.5 font-mono">
-              sys {entry.cameraNumber || "—"}
-              {entry.cameraId != null && <> · cam {entry.cameraId}</>}
+              sys {entry.systemNumber || "—"}
+              {entry.cameraNumber != null && <> · cam {entry.cameraNumber}</>}
               {" · "}{entry.videoCode}
             </div>
           </div>

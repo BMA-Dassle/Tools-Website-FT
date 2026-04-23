@@ -112,7 +112,8 @@ type Body = {
    *  A manual match record is created on successful send so the row
    *  flips to "matched" on next list refresh. */
   videoCode?: string;
-  cameraNumber?: string;
+  systemNumber?: string;     // video.system.name — the base/dock id
+  cameraNumber?: number;     // video.camera — hardware camera id
   customerUrl?: string;
   thumbnailUrl?: string;
   capturedAt?: string;
@@ -177,7 +178,8 @@ export async function POST(req: NextRequest) {
       personId: body.videoCode,
       firstName: body.firstName || "",
       lastName: body.lastName || "",
-      cameraNumber: body.cameraNumber || "",
+      systemNumber: body.systemNumber || "",
+      cameraNumber: body.cameraNumber,
       videoId: 0,
       videoCode: body.videoCode,
       customerUrl: body.customerUrl,

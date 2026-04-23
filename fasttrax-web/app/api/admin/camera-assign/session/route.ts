@@ -219,7 +219,7 @@ export async function GET(req: NextRequest) {
       phone: p.phone || undefined,
       acceptSmsCommercial: p.acceptSmsCommercial,
       acceptSmsScores: p.acceptSmsScores,
-      cameraNumber: byPid.get(String(p.personId))?.cameraNumber,
+      systemNumber: byPid.get(String(p.personId))?.systemNumber,
       assignedAt: byPid.get(String(p.personId))?.assignedAt,
     }));
 
