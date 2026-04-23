@@ -82,6 +82,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resendTarget, setResendTarget] = useState<VideoRow | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<VideoRow | null>(null);
   const [flash, setFlash] = useState<{ key: string; msg: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -109,12 +110,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Auto-refresh every 2 min; paused while resend modal is open.
+  // Auto-refresh every 2 min; paused while any modal is open so we
+  // don't yank state out from under the operator.
   useEffect(() => {
-    if (resendTarget) return;
+    if (resendTarget || previewTarget) return;
     const id = setInterval(load, 120_000);
     return () => clearInterval(id);
-  }, [load, resendTarget]);
+  }, [load, resendTarget, previewTarget]);
 
   const rowKey = (e: VideoRow) => `${e.sessionId}:${e.personId}:${e.videoCode}`;
 
@@ -198,7 +200,9 @@ export default function VideoAdminClient({ token }: { token: string }) {
         <div className="md:hidden space-y-2">
           {entries.map((e) => {
             const flashHere = flash?.key === rowKey(e);
-            const isUnmatched = !e.matched;
+            // Treat "matched record with empty identifiers" as unmatched
+            // for UI purposes — same rationale as in ResendModal below.
+            const isUnmatched = !e.matched || !e.sessionId || !e.personId;
             return (
               <div
                 key={rowKey(e)}
@@ -255,17 +259,26 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{e.videoCode}</a>
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setResendTarget(e)}
-                  className={`w-full mt-3 py-2 rounded font-semibold text-sm ${
-                    isUnmatched
-                      ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                      : "bg-[#00E2E5] text-[#000418] hover:bg-white"
-                  }`}
-                >
-                  {isUnmatched ? "Send manually" : "Resend"}
-                </button>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTarget(e)}
+                    className="flex-1 py-2 rounded font-semibold text-sm bg-white/10 text-white border border-white/15 hover:bg-white/20"
+                  >
+                    ▶ Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResendTarget(e)}
+                    className={`flex-1 py-2 rounded font-semibold text-sm ${
+                      isUnmatched
+                        ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
+                        : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                    }`}
+                  >
+                    {isUnmatched ? "Send" : "Resend"}
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -289,7 +302,9 @@ export default function VideoAdminClient({ token }: { token: string }) {
               <tbody>
                 {entries.map((e) => {
                   const flashHere = flash?.key === rowKey(e);
-                  const isUnmatched = !e.matched;
+                  // Treat "matched record with empty identifiers" as unmatched
+            // for UI purposes — same rationale as in ResendModal below.
+            const isUnmatched = !e.matched || !e.sessionId || !e.personId;
                   return (
                     <tr
                       key={rowKey(e)}
@@ -339,18 +354,29 @@ export default function VideoAdminClient({ token }: { token: string }) {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => setResendTarget(e)}
-                          className={`text-xs px-2 py-1 rounded font-semibold ${
-                            isUnmatched
-                              ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                              : "bg-[#00E2E5] text-[#000418] hover:bg-white"
-                          }`}
-                        >
-                          {isUnmatched ? "Send" : "Resend"}
-                        </button>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewTarget(e)}
+                            aria-label="Preview video"
+                            className="text-xs px-2 py-1 rounded font-semibold bg-white/10 text-white border border-white/15 hover:bg-white/20"
+                            title="Preview video"
+                          >
+                            ▶ <span className="sr-only">Preview</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setResendTarget(e)}
+                            className={`text-xs px-2 py-1 rounded font-semibold ${
+                              isUnmatched
+                                ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
+                                : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                            }`}
+                          >
+                            {isUnmatched ? "Send" : "Resend"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -374,6 +400,15 @@ export default function VideoAdminClient({ token }: { token: string }) {
             }}
           />
         )}
+
+        {/* Preview modal */}
+        {previewTarget && (
+          <PreviewModal
+            entry={previewTarget}
+            token={token}
+            onClose={() => setPreviewTarget(null)}
+          />
+        )}
       </div>
     </div>
   );
@@ -390,7 +425,12 @@ function ResendModal({
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }) {
-  const isUnmatched = !entry.matched;
+  // A row is "unmatched" if it's flagged so by the server, OR if its
+  // identifiers are empty strings (a corrupted match record from an
+  // earlier manual send where we didn't capture identifiers). Either
+  // way, we can't use the matched-resend API path — fall through to
+  // the manual-send flow which only needs videoCode + contact info.
+  const isUnmatched = !entry.matched || !entry.sessionId || !entry.personId;
 
   // Sensible default: if neither send has succeeded, try both; if one
   // already succeeded, default to the other. Staff can override.
@@ -442,9 +482,19 @@ function ResendModal({
         if (tp) payload.overridePhone = tp;
         if (te) payload.overrideEmail = te;
       } else {
-        // Matched resend — legacy path.
+        // Matched resend.
         payload.sessionId = entry.sessionId;
         payload.personId = entry.personId;
+        // Also include videoCode + raw vt3 fields as a manual-send
+        // fallback in case the match record is missing on the server
+        // (e.g., trimmed from the match log). The server will only
+        // use these if the primary match lookup fails.
+        payload.videoCode = entry.videoCode;
+        payload.cameraNumber = entry.cameraNumber;
+        payload.customerUrl = entry.customerUrl;
+        payload.thumbnailUrl = entry.thumbnailUrl;
+        payload.capturedAt = entry.capturedAt;
+        payload.duration = entry.duration;
         if (tp && tp !== defaultPhone) payload.overridePhone = tp;
         if (te && te !== defaultEmail) payload.overrideEmail = te;
       }
@@ -634,6 +684,172 @@ Watch + share: ${entry.customerUrl}`}
               className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
             >
               {sending ? "Sending…" : "Send"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Preview modal — plays the vt3.io MP4 inline via a signed R2 URL
+ * fetched from /api/admin/videos/preview.
+ *
+ * Mobile-first layout:
+ *   - Full-width with tight padding
+ *   - Video uses aspect-ratio:16/9 so it scales cleanly without the
+ *     browser trying to match the intrinsic height before it loads
+ *   - Thumbnail poster so there's immediate visual feedback while the
+ *     MP4 stream establishes
+ *   - 'Open in new tab' fallback for the rare case /sample or /url
+ *     returns something we can't play inline
+ */
+function PreviewModal({
+  entry,
+  token,
+  onClose,
+}: {
+  entry: VideoRow;
+  token: string;
+  onClose: () => void;
+}) {
+  const [mp4Url, setMp4Url] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [kind, setKind] = useState<"url" | "sample" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr(null);
+    setMp4Url(null);
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ code: entry.videoCode, token });
+        const res = await fetch(`/api/admin/videos/preview?${qs.toString()}`, { cache: "no-store" });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data.url) throw new Error(data.error || `preview failed (${res.status})`);
+        setMp4Url(data.url);
+        setKind(data.kind || null);
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : "preview failed");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entry.videoCode, token]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-3 bg-black/85"
+      style={{ height: "100dvh" }}
+      {...modalBackdropProps(onClose)}
+    >
+      <div
+        className="relative w-full max-w-3xl rounded-xl"
+        style={{
+          backgroundColor: "#0a1128",
+          border: "1.78px solid rgba(255,255,255,0.1)",
+          maxHeight: "calc(100dvh - 1rem)",
+          overflowY: "auto",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close preview"
+          className="absolute top-2 right-2 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 text-white"
+          style={{ fontSize: "22px", lineHeight: 1 }}
+        >
+          &times;
+        </button>
+        <div className="p-3 sm:p-5">
+          {/* Title — compact on mobile */}
+          <div className="mb-3 pr-10">
+            <div className="text-[10px] uppercase tracking-widest text-white/40 font-semibold">
+              {kind === "sample" ? "Sample preview" : kind === "url" ? "Full video" : "Preview"}
+            </div>
+            <div className="text-sm sm:text-base font-semibold truncate">
+              {entry.matched
+                ? <>{entry.firstName} {entry.lastName}</>
+                : <span className="text-white/50 italic font-normal">(unmatched)</span>}
+              {entry.track && entry.heatNumber && (
+                <span className="text-white/40 ml-2 font-normal">
+                  · {entry.track.replace(" Track", "")} H{entry.heatNumber}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-white/40 mt-0.5 font-mono">
+              cam {entry.cameraNumber || "—"} · {entry.videoCode}
+            </div>
+          </div>
+
+          {/* Video slot — 16:9 so the modal scales cleanly on phones */}
+          <div
+            className="w-full rounded-lg overflow-hidden bg-black border border-white/10"
+            style={{ aspectRatio: "16 / 9" }}
+          >
+            {loading && (
+              <div className="w-full h-full flex items-center justify-center text-white/50 text-sm">
+                Loading preview…
+              </div>
+            )}
+            {!loading && err && (
+              <div className="w-full h-full flex items-center justify-center p-4 text-center">
+                <div>
+                  <div className="text-red-400 text-sm font-semibold mb-2">{err}</div>
+                  {entry.thumbnailUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={entry.thumbnailUrl}
+                      alt=""
+                      className="max-w-full max-h-32 mx-auto rounded opacity-60 mb-2"
+                    />
+                  )}
+                  <a
+                    href={entry.customerUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="inline-block text-xs px-3 py-1.5 rounded bg-[#00E2E5] text-[#000418] font-semibold"
+                  >
+                    Open in new tab ↗
+                  </a>
+                </div>
+              </div>
+            )}
+            {!loading && !err && mp4Url && (
+              // eslint-disable-next-line jsx-a11y/media-has-caption
+              <video
+                key={mp4Url}
+                src={mp4Url}
+                poster={entry.thumbnailUrl}
+                controls
+                autoPlay
+                playsInline
+                className="w-full h-full bg-black"
+              />
+            )}
+          </div>
+
+          {/* Bottom row — open in new tab + close. Stacked on phones. */}
+          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between mt-3">
+            <a
+              href={entry.customerUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-xs px-3 py-2 rounded border border-white/20 text-white/70 hover:text-white hover:border-white/40 text-center"
+            >
+              Open on vt3.io ↗
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm px-5 py-2.5 rounded bg-white/10 text-white border border-white/15 hover:bg-white/20"
+            >
+              Close
             </button>
           </div>
         </div>

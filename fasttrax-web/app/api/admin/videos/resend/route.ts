@@ -141,13 +141,22 @@ export async function POST(req: NextRequest) {
   // unmatched vt3 video. Matched path requires the racer's sessionId +
   // personId; manual path requires videoCode + at least overridePhone
   // (for SMS) / overrideEmail (for email).
+  //
+  // Fall-through: if sessionId+personId are provided but getMatch
+  // returns null, AND a videoCode is also in the payload, treat as a
+  // manual send. This keeps the UI working when the match-log is
+  // stale or the match record was saved with empty identifiers.
   let match: VideoMatch | null = null;
   let isManualSend = false;
 
   if (body.sessionId && body.personId) {
     match = await getMatch(body.sessionId, body.personId);
-    if (!match) return NextResponse.json({ error: "match not found" }, { status: 404 });
-  } else if (body.videoCode) {
+    if (!match && !body.videoCode) {
+      return NextResponse.json({ error: "match not found" }, { status: 404 });
+    }
+  }
+
+  if (!match && body.videoCode) {
     isManualSend = true;
     // Build a minimal match record from what the client passed. We'll
     // save it after a successful send so the row transitions to matched.
@@ -179,7 +188,9 @@ export async function POST(req: NextRequest) {
       email: body.overrideEmail,
       phone: body.overridePhone,
     };
-  } else {
+  }
+
+  if (!match) {
     return NextResponse.json(
       { error: "provide either (sessionId+personId) for a matched resend, or videoCode+overrides for a manual send" },
       { status: 400 },
