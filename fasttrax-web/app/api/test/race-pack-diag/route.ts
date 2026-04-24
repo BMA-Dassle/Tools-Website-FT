@@ -174,8 +174,13 @@ export async function GET(req: NextRequest) {
     //    line item. Staff suspects credits won't apply without this.
     const contactBody = `{"orderId":${orderId},"PersonId":${personId},"firstName":"Race","lastName":"Pack Test","email":"racepacktest@bma.test","phone":"2395550100"}`;
     const projectBody = `{"personId":${personId},"orderId":${orderId},"firstName":"Race","lastName":"Pack Test"}`;
+    // Include BOTH orderId (required — endpoint rejects if it can't
+    // find the reservation) and orderItemId so the participant binds
+    // to the specific line. First test with orderItemId alone came
+    // back "Cannot find the reservation for bill 0" — BMI ignores
+    // orderItemId without orderId.
     const projectLineBody = orderItemId
-      ? `{"personId":${personId},"orderItemId":${orderItemId},"firstName":"Race","lastName":"Pack Test"}`
+      ? `{"personId":${personId},"orderId":${orderId},"orderItemId":${orderItemId},"firstName":"Race","lastName":"Pack Test"}`
       : null;
     const runContact = async () => {
       const r = await bmi("person/registerContactPerson", { method: "POST", body: contactBody });
