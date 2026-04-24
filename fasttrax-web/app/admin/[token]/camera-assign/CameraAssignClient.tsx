@@ -82,6 +82,20 @@ type PastSession = {
   type: string;
 };
 
+/** One row in the full-day schedule — powers the scrollable heat list
+ *  that replaced the ±6 pill strip. Same base fields as PastSession
+ *  plus live status + per-session camera-assign count. */
+type DaySession = {
+  sessionId: string;
+  name: string;
+  scheduledStart: string;
+  track: string;
+  heatNumber: number;
+  type: string;
+  assignedCount: number;
+  status: "past" | "live" | "upcoming";
+};
+
 function formatEt(iso: string): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
@@ -223,6 +237,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const [upcomingSessions, setUpcomingSessions] = useState<PastSession[]>([]);
   const [upcomingLoading, setUpcomingLoading] = useState(false);
   const [pastLoading, setPastLoading] = useState(false);
+  /** Full-day schedule for the selected track — replaces the old
+   *  ±3 called + ±3 upcoming pill strip. Populated on track select
+   *  and refreshed every 30s alongside the existing feeds. */
+  const [daySessions, setDaySessions] = useState<DaySession[]>([]);
+  const [dayLoading, setDayLoading] = useState(false);
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
   /** Heat-wide block state. Populated from the session-load response.
@@ -451,6 +470,28 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     }
   }, [token, track]);
 
+  /** Full-day schedule loader. Pulls every session for the current
+   *  track today, sorted by scheduledStart asc, with per-heat
+   *  assignedCount from Redis. Drives the new scrollable heat list.
+   *  Respects the scanBuffer mid-scan guard so the list doesn't
+   *  jostle while staff is entering a camera number. */
+  const loadDay = useCallback(async () => {
+    if (!track) { setDaySessions([]); setDayLoading(false); return; }
+    if (scanBufferRef.current) return;
+    setDayLoading(true);
+    try {
+      const qs = new URLSearchParams({ token, track });
+      const res = await fetch(`/api/admin/camera-assign/day?${qs}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      setDaySessions(json.sessions || []);
+    } catch {
+      /* non-fatal — keep last-known list */
+    } finally {
+      setDayLoading(false);
+    }
+  }, [token, track]);
+
   /** Load today's past sessions for the test-data dropdown. Scoped to
    *  today (days=1) — staff only testing on the day's earlier heats.
    *  Re-sorts client-side newest-first (server already does this, but
@@ -501,27 +542,31 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setCalledLoading(!!track);
     setUpcomingSessions([]);
     setUpcomingLoading(!!track);
+    setDaySessions([]);
+    setDayLoading(!!track);
     setSession(null);
     setParticipants([]);
     setNote(null);
     setActiveIndex(0);
     setLastScan(null);
-    // Populate the live quick-pick feed + past dropdown for the new
-    // track so they're always usable without a tap.
+    // Populate the live quick-pick feed + past dropdown + full-day
+    // schedule for the new track so everything's usable without a tap.
     void loadHeats();
     void loadPast();
-  }, [track, loadHeats, loadPast]);
+    void loadDay();
+  }, [track, loadHeats, loadPast, loadDay]);
 
   // In-place refresh every 30s for the current roster + the heats feed
-  // that powers the live quick-pick buttons. Preserves scan state;
-  // merges new roster changes.
+  // + the full-day schedule. Preserves scan state; merges new roster
+  // changes.
   useEffect(() => {
     const id = setInterval(() => {
       void refreshSession();
       void loadHeats();
+      void loadDay();
     }, 30_000);
     return () => clearInterval(id);
-  }, [refreshSession, loadHeats]);
+  }, [refreshSession, loadHeats, loadDay]);
 
   // Auto-advance to the next upcoming session once every racer in the
   // current session has a camera. We wait a few seconds so staff sees
@@ -948,13 +993,17 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const pendingSessionLabel = useMemo(() => {
     if (!overrideSessionId) return null;
     if (session && String(session.sessionId) === overrideSessionId) return null; // already loaded
+    // Day list is the richest source — check it first. Fallback to the
+    // older calledSessions/upcoming/past pools for any edge cases.
+    const inDay = daySessions.find((s) => String(s.sessionId) === overrideSessionId);
+    if (inDay) return inDay;
     const allPools: PastSession[][] = [calledSessions, upcomingSessions, pastSessions];
     for (const pool of allPools) {
       const hit = pool.find((s) => String(s.sessionId) === overrideSessionId);
       if (hit) return hit;
     }
     return null;
-  }, [overrideSessionId, session, calledSessions, upcomingSessions, pastSessions]);
+  }, [overrideSessionId, session, calledSessions, upcomingSessions, pastSessions, daySessions]);
 
   // No auto-advance — staff explicitly picks the next call from the
   // live quick-pick pills. Deliberate: avoids Current changing out
@@ -1056,22 +1105,17 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           </div>
         </div>
 
-        {/* Context row — Working-on pill sits inline with the ±heats.
-            Horizontal-scrolls on mobile so all pills stay on one line;
-            wraps on sm+ so they're all visible without scrolling.
-            Labels drop the track prefix when a filter is active — the
-            row color + the track chip above already make it obvious. */}
+        {/* Working-on pill — shows which heat is currently loaded.
+            Kept from the old layout because staff valued the quick
+            glance confirmation. */}
         {track && (() => {
           const pillClass = "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
           return (
             <div
-              className="flex items-stretch flex-wrap gap-1.5 mb-3"
+              className="flex items-stretch flex-wrap gap-1.5 mb-2"
               role="group"
-              aria-label="Heat quick-pick"
+              aria-label="Current heat"
             >
-              {/* Working-on pill — dashed ring when empty, otherwise
-                  the track color filled. The white leading dot replaces
-                  the prose 'Working on:' label above. */}
               {session ? (
                 <span
                   className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(session.track, true)}`}
@@ -1092,95 +1136,98 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               ) : (
                 <span className={`${pillClass} border-dashed border-white/25 text-white/40 inline-flex items-center gap-1.5`}>
                   <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-white/30" />
-                  Tap a heat
+                  Tap a heat from the schedule below
                 </span>
               )}
+            </div>
+          );
+        })()}
 
-              {/* separator */}
-              {(calledSessions.length > 0 || upcomingSessions.length > 0 || calledLoading) && (
-                <span aria-hidden="true" className="self-center w-px h-5 bg-white/15 mx-0.5" />
-              )}
-
-              {(calledLoading || upcomingLoading) && calledSessions.length === 0 && upcomingSessions.length === 0 && (
-                <span className={`${pillClass} border-dashed border-[#00E2E5]/30 text-[#00E2E5]/80 inline-flex items-center gap-1.5`}>
+        {/* Full-day schedule — every heat for the selected track today,
+            sorted by time. Replaces the old ±3 called + ±3 upcoming
+            pill strip + Earlier modal. Past heats dimmed, live heat
+            pulses cyan, upcoming normal. Tap any row to load it. */}
+        {track && (() => {
+          const activeSid = activeSessionId;
+          const fmt = (iso: string) => new Date(iso).toLocaleString("en-US", {
+            timeZone: "America/New_York",
+            hour: "numeric", minute: "2-digit", hour12: true,
+          });
+          const counts = {
+            past: daySessions.filter((s) => s.status === "past").length,
+            live: daySessions.filter((s) => s.status === "live").length,
+            upcoming: daySessions.filter((s) => s.status === "upcoming").length,
+          };
+          return (
+            <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                <div className="text-xs text-white/50 uppercase tracking-wider">
+                  {daySessions.length === 0 && !dayLoading
+                    ? "No heats today"
+                    : `${daySessions.length} heat${daySessions.length === 1 ? "" : "s"} · ${counts.past} done · ${counts.live} live · ${counts.upcoming} upcoming`}
+                </div>
+                {dayLoading && (
                   <span
                     aria-hidden="true"
-                    className="inline-block w-3 h-3 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+                    className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
                   />
-                  Loading…
-                </span>
-              )}
-
-              {/* prev-3, prev-2, prev-1 (oldest left-most) */}
-              {calledSessions.slice(1, 4).reverse().map((p) => {
-                const isLoaded = activeSessionId === String(p.sessionId);
-                return (
-                  <button
-                    key={`prev-${p.sessionId}`}
-                    type="button"
-                    onClick={() => {
-                      if (isLoaded) return;
-                      setOverrideSessionId(String(p.sessionId));
-                      void loadSession(String(p.sessionId));
-                    }}
-                    disabled={isLoaded}
-                    className={`${pillClass} ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
-                    title={isLoaded ? "Currently loaded" : "Jump to this previously-called race"}
-                  >
-                    {sessionChipLabel(p, { dropTrack: true })}
-                  </button>
-                );
-              })}
-
-              {/* most-recent called */}
-              {calledSessions[0] && (() => {
-                const p = calledSessions[0];
-                const isLoaded = activeSessionId === String(p.sessionId);
-                return (
-                  <button
-                    key={`called0-${p.sessionId}`}
-                    type="button"
-                    onClick={() => {
-                      if (isLoaded) return;
-                      setOverrideSessionId(String(p.sessionId));
-                      void loadSession(String(p.sessionId));
-                    }}
-                    disabled={isLoaded}
-                    className={`${pillClass} ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default" : ""}`}
-                    title={isLoaded ? "Currently loaded" : "Jump to this race"}
-                  >
-                    {sessionChipLabel(p, { dropTrack: true })}
-                  </button>
-                );
-              })()}
-
-              {/* upcoming +1 +2 +3 (soonest first) — slight opacity to
-                  signal 'not yet called' */}
-              {upcomingSessions.slice(0, 3).map((p) => {
-                const isLoaded = activeSessionId === String(p.sessionId);
-                return (
-                  <button
-                    key={`up-${p.sessionId}`}
-                    type="button"
-                    onClick={() => {
-                      if (isLoaded) return;
-                      setOverrideSessionId(String(p.sessionId));
-                      void loadSession(String(p.sessionId));
-                    }}
-                    disabled={isLoaded}
-                    className={`${pillClass} opacity-75 ${trackChipClasses(p.track, isLoaded)} ${isLoaded ? "cursor-default opacity-100" : ""}`}
-                    title={isLoaded ? "Currently loaded" : "Pre-assign cameras for this upcoming race"}
-                  >
-                    {sessionChipLabel(p, { dropTrack: true })}
-                  </button>
-                );
-              })}
-
-              {!calledLoading && !upcomingLoading && calledSessions.length === 0 && upcomingSessions.length === 0 && (
-                <span className="shrink-0 text-[10px] uppercase tracking-wider text-white/30 self-center">
-                  no heats found
-                </span>
-              )}
+                )}
+              </div>
+              <div className="max-h-[260px] overflow-y-auto">
+                {daySessions.length === 0 && !dayLoading && (
+                  <div className="text-center text-white/30 text-xs py-6">No heats found for this track today.</div>
+                )}
+                {daySessions.map((s) => {
+                  const isLoaded = activeSid === String(s.sessionId);
+                  const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
+                  const statusColor = s.status === "past" ? "text-white/40" : s.status === "live" ? "text-[#00E2E5]" : "text-white/60";
+                  return (
+                    <button
+                      key={`day-${s.sessionId}`}
+                      type="button"
+                      onClick={() => {
+                        if (isLoaded) return;
+                        setOverrideSessionId(String(s.sessionId));
+                        void loadSession(String(s.sessionId));
+                      }}
+                      disabled={isLoaded}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs border-t border-white/[0.04] transition-colors ${
+                        isLoaded
+                          ? "bg-[#00E2E5]/15 cursor-default"
+                          : s.status === "past"
+                            ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
+                            : s.status === "live"
+                              ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
+                              : "hover:bg-white/[0.04]"
+                      }`}
+                      title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
+                    >
+                      <span aria-hidden="true" className={`w-4 text-center shrink-0 ${statusColor}`}>
+                        {statusIcon}
+                      </span>
+                      <span className="tabular-nums text-white/80 w-16 shrink-0">
+                        {fmt(s.scheduledStart)}
+                      </span>
+                      <span className="text-white/50 w-14 shrink-0 uppercase tracking-wider">
+                        Heat <span className="text-white font-semibold">{s.heatNumber}</span>
+                      </span>
+                      <span className="text-white/60 flex-1 truncate">
+                        {s.type}
+                      </span>
+                      <span
+                        className={`tabular-nums text-xs px-1.5 py-0.5 rounded shrink-0 ${
+                          s.assignedCount > 0
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : "bg-white/5 text-white/40"
+                        }`}
+                        title={`${s.assignedCount} camera${s.assignedCount === 1 ? "" : "s"} assigned`}
+                      >
+                        {s.assignedCount} cam
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           );
         })()}
