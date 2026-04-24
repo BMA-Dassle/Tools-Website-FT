@@ -1917,6 +1917,15 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 <input
                   ref={barcodeInputRef}
                   type="text"
+                  // Same Android-keyboard suppression we use on the main
+                  // scan field. Barcode provisioning is a USB-scanner-
+                  // driven workflow; mobile keyboard would just cover
+                  // the camera list. `readOnly` is the bulletproof
+                  // suppression hint (some IMEs ignore inputMode).
+                  // The HID barcode reader still writes here because
+                  // it dispatches keydown events that we capture below.
+                  readOnly={!showKeyboard}
+                  inputMode={showKeyboard ? "text" : "none"}
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -1924,6 +1933,13 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                       e.preventDefault();
                       const v = barcodeInput.trim();
                       if (v) void saveBarcode(barcodeActiveCam, v);
+                    } else if (!showKeyboard && e.key.length === 1) {
+                      // readOnly blocks default value-mutation, but a
+                      // USB barcode reader fires keydown for each
+                      // character — append manually.
+                      setBarcodeInput((b) => b + e.key);
+                    } else if (!showKeyboard && e.key === "Backspace") {
+                      setBarcodeInput((b) => b.slice(0, -1));
                     }
                   }}
                   placeholder="Waiting for barcode scan…"
