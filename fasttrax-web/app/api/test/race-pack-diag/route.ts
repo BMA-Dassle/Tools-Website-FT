@@ -12,10 +12,14 @@ import { randomUUID } from "crypto";
  *   GET /api/test/race-pack-diag?personId=63000000003063503&productId=13079165
  *
  * Optional:
- *   pageId    (defaults 42960253 — race packs page)
- *   clientKey (defaults "headpinzftmyers")
- *   doConfirm (default "1"; pass "0" to stop before payment confirm)
- *   doCancel  (default "1"; pass "0" to leave the test bill open)
+ *   pageId       (defaults 42960253 — race packs page)
+ *   clientKey    (defaults "headpinzftmyers")
+ *   depositKind  (default 0 — matches production race-packs confirmation.
+ *                 The original Apr-6 working bill used 0. The bug report
+ *                 also tested 2 and both failed; pass explicit value to
+ *                 isolate which variant BMI's fix applies to.)
+ *   doConfirm    (default "1"; pass "0" to stop before payment confirm)
+ *   doCancel     (default "1"; pass "0" to leave the test bill open)
  *
  * This is read/write against PROD BMI. Don't run it casually.
  * Use known-test person IDs only.
@@ -55,6 +59,14 @@ export async function GET(req: NextRequest) {
     const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
     const doConfirm = searchParams.get("doConfirm") !== "0";
     const doCancel = searchParams.get("doCancel") !== "0";
+    // Default to 0 — that's what app/book/race-packs/confirmation
+    // uses on every real checkout. Original Apr-6 working bill W24712
+    // went through this path. BMI's "fix" may only address one value.
+    const depositKindRaw = searchParams.get("depositKind");
+    const depositKind = depositKindRaw !== null ? parseInt(depositKindRaw, 10) : 0;
+    if (!Number.isFinite(depositKind)) {
+      return NextResponse.json({ error: "depositKind must be an integer" }, { status: 400 });
+    }
 
     if (!personId || !productIdRaw) {
       return NextResponse.json(
@@ -77,7 +89,7 @@ export async function GET(req: NextRequest) {
     };
 
     const trace: Record<string, unknown> = {
-      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel },
+      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind },
       timestamp: new Date().toISOString(),
     };
 
@@ -107,9 +119,10 @@ export async function GET(req: NextRequest) {
     const amount = sellJson?.prices?.[0]?.amount;
     trace.expectedAmount = amount;
 
-    // 5. Payment confirm with depositKind=2 (External Online) — simulates PSP success
+    // 5. Payment confirm — depositKind comes from the query param (default 0,
+    //    matching production race-packs confirmation).
     if (doConfirm && typeof amount === "number") {
-      const payBody = `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amount},"orderId":${orderId},"depositKind":2}`;
+      const payBody = `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amount},"orderId":${orderId},"depositKind":${depositKind}}`;
       const payResp = await bmi("payment/confirm", { method: "POST", body: payBody });
       trace.paymentConfirm = payResp;
 
