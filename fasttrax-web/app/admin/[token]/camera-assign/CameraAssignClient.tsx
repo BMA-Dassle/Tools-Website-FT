@@ -616,6 +616,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           sessionId: session.sessionId,
           block,
           reason: reason.trim() || undefined,
+          // Send the full roster so the server can instantly sync VT3
+          // + patch any already-matched videos without waiting for the
+          // next cron tick.
+          personIds: participants.map((p) => p.personId),
         }),
       });
       if (!res.ok) throw new Error(`block failed (${res.status})`);
@@ -640,7 +644,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     } finally {
       setBlockBusy(false);
     }
-  }, [session, token]);
+  }, [session, token, participants]);
 
   /**
    * Block or unblock one racer. When the heat is blocked and the caller
