@@ -148,6 +148,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body));
     }
 
+    // List recent projects (reservations) for a person — used by the
+    // temp-booking cleanup flow. SMS-Timing's Office API exposes
+    // /project/search with a personId filter.
+    if (action === "projects") {
+      const personId = searchParams.get("personId") || "";
+      if (!personId) {
+        return NextResponse.json({ error: "Missing personId parameter" }, { status: 400 });
+      }
+      const path = `/api/${CLIENT_KEY}/project/search?personId=${personId}&maxResults=500`;
+      const res = await httpsGet(path, apiHeaders(token));
+      if (res.status >= 400) {
+        cachedToken = null;
+        tokenExpiry = 0;
+        const newToken = await getOfficeToken();
+        const retry = await httpsGet(path, apiHeaders(newToken));
+        return NextResponse.json(
+          { status: retry.status, raw: retry.body.slice(0, 500) },
+          { status: retry.status >= 400 ? retry.status : 200 },
+        );
+      }
+      return NextResponse.json(JSON.parse(res.body));
+    }
+
     // Deposit history — check credit balance for a person
     if (action === "deposits") {
       const personId = searchParams.get("personId") || "";
