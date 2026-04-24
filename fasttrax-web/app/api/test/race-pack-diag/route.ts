@@ -31,6 +31,14 @@ import { randomUUID } from "crypto";
  *   personIdInSell (default "1") — include PersonId in booking/sell
  *                 body. Pass "0" to defer the association entirely to
  *                 the register calls.
+ *   includePageId  (default "1") — send PageId in the sell body.
+ *                 NOT in BMI's public docs schema but we've always
+ *                 sent it; worth testing omission to see if the
+ *                 "Online Deposits" page-type change makes PageId
+ *                 route the sell through a different handler that
+ *                 skips the deposit/credit pipeline.
+ *   includeProductXref (default "0") — send `ProductXref: null`
+ *                 explicitly (documented field we've been omitting).
  *   doConfirm    (default "1"; pass "0" to stop before payment confirm)
  *   doCancel     (default "1"; pass "0" to leave the test bill open)
  *
@@ -84,6 +92,8 @@ export async function GET(req: NextRequest) {
     const regProject = searchParams.get("regProject") === "1";
     const projectFirst = searchParams.get("projectFirst") === "1";
     const personIdInSell = searchParams.get("personIdInSell") !== "0";
+    const includePageId = searchParams.get("includePageId") !== "0";
+    const includeProductXref = searchParams.get("includeProductXref") === "1";
 
     if (!personId || !productIdRaw) {
       return NextResponse.json(
@@ -106,20 +116,31 @@ export async function GET(req: NextRequest) {
     };
 
     const trace: Record<string, unknown> = {
-      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, projectFirst, personIdInSell },
+      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, projectFirst, personIdInSell, includePageId, includeProductXref },
       timestamp: new Date().toISOString(),
     };
 
     // 1. Snapshot deposits before
     trace.depositsBefore = await depositSnapshot(base, personId);
 
-    // 2. Sell the pack — PersonId in body is OPTIONAL per the query flag
-    //    so we can isolate whether the in-sell association matters vs
-    //    only the post-sell register calls.
-    const sellCore = `"ProductId":${Number(productIdRaw)},"PageId":${Number(pageId)},"Quantity":1,"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]`;
-    const sellBody = personIdInSell
-      ? `{${sellCore},"PersonId":${personId}}`
-      : `{${sellCore}}`;
+    // 2. Sell the pack. Body composition is fully controlled by flags
+    //    so we can walk:
+    //      - PageId on/off       (not in BMI's documented schema)
+    //      - ProductXref null    (documented; we've been omitting)
+    //      - PersonId in-sell    (our standard, but not strictly needed)
+    //    Raw string concat to preserve big-int precision on PersonId.
+    const parts: string[] = [
+      `"ProductId":${Number(productIdRaw)}`,
+      ...(includeProductXref ? [`"ProductXref":null`] : []),
+      ...(includePageId ? [`"PageId":${Number(pageId)}`] : []),
+      `"Quantity":1`,
+      `"OrderId":null`,
+      `"ParentOrderItemId":null`,
+      `"DynamicLines":[]`,
+      ...(personIdInSell ? [`"PersonId":${personId}`] : []),
+    ];
+    const sellBody = `{${parts.join(",")}}`;
+    trace.sellBodySent = sellBody;
     const sellResp = await bmi("booking/sell", { method: "POST", body: sellBody });
     trace.sell = sellResp;
 
