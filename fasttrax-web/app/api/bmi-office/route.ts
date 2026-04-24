@@ -148,24 +148,37 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body));
     }
 
-    // List recent projects (reservations) for a person — used by the
-    // temp-booking cleanup flow. SMS-Timing's Office API exposes
-    // /project/search with a personId filter.
-    if (action === "projects") {
+    // Generic Office-API passthrough — lets us probe different
+    // list-bookings endpoint shapes without redeploy. Pass `path`
+    // as a full path under /api/{CLIENT_KEY}/...
+    //   /api/bmi-office?action=rawGet&path=booking/search?personId=...
+    if (action === "rawGet") {
+      const pathParam = searchParams.get("path") || "";
+      if (!pathParam) {
+        return NextResponse.json({ error: "Missing path parameter" }, { status: 400 });
+      }
+      const path = `/api/${CLIENT_KEY}/${pathParam}`;
+      const res = await httpsGet(path, apiHeaders(token));
+      return NextResponse.json(
+        { status: res.status, path, body: res.body.slice(0, 4000) },
+        { status: 200 },
+      );
+    }
+
+    // List recent bookings for a person via SMS-Timing's booking/search.
+    // The project/search endpoint rejects personId-only queries; the
+    // booking endpoint accepts it.
+    if (action === "bookings") {
       const personId = searchParams.get("personId") || "";
       if (!personId) {
         return NextResponse.json({ error: "Missing personId parameter" }, { status: 400 });
       }
-      const path = `/api/${CLIENT_KEY}/project/search?personId=${personId}&maxResults=500`;
+      const path = `/api/${CLIENT_KEY}/booking/search?personId=${personId}&maxResults=500`;
       const res = await httpsGet(path, apiHeaders(token));
       if (res.status >= 400) {
-        cachedToken = null;
-        tokenExpiry = 0;
-        const newToken = await getOfficeToken();
-        const retry = await httpsGet(path, apiHeaders(newToken));
         return NextResponse.json(
-          { status: retry.status, raw: retry.body.slice(0, 500) },
-          { status: retry.status >= 400 ? retry.status : 200 },
+          { status: res.status, raw: res.body.slice(0, 500) },
+          { status: 200 },
         );
       }
       return NextResponse.json(JSON.parse(res.body));
