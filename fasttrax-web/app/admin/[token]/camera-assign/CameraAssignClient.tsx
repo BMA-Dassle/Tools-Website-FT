@@ -94,6 +94,22 @@ function formatEt(iso: string): string {
 type TrackSlug = "" | "blue" | "red" | "mega";
 
 /**
+ * Preset reasons staff can pick from the block modal dropdown.
+ * "Other" shows a free-text field so unusual situations still get
+ * captured — otherwise staff would type variants of the same few
+ * reasons into an open-ended field and the audit log stays noisy.
+ */
+const BLOCK_REASONS = [
+  "Crash",
+  "Crash w/ Injury",
+  "Aggressive Driving",
+  "Unsportsmanlike",
+  "Language",
+  "Other",
+] as const;
+type BlockReason = (typeof BLOCK_REASONS)[number];
+
+/**
  * Abbreviated type names so pills fit on narrow screens.
  *   Starter         → STR
  *   Intermediate    → INT
@@ -213,9 +229,12 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  When `blocked: true`, the participant list paints names red and
    *  the "Block Heat" button flips to "Unblock Heat". */
   const [sessionBlock, setSessionBlock] = useState<BlockInfo>({ blocked: false });
-  /** Modal for confirming a heat-wide block / optional reason input. */
-  const [blockHeatOpen, setBlockHeatOpen] = useState(false);
-  const [blockHeatReason, setBlockHeatReason] = useState("");
+  /** Block-confirm modal state. `target` null → heat-wide, otherwise
+   *  the specific racer being blocked. Unblock skips the modal — it's
+   *  a safe direction. */
+  const [blockModalTarget, setBlockModalTarget] = useState<Participant | null | "heat">(null);
+  const [blockReason, setBlockReason] = useState<string>("Crash");
+  const [blockReasonOther, setBlockReasonOther] = useState<string>("");
   const [blockBusy, setBlockBusy] = useState(false);
   // Bumps on every successful scan — drives the full-screen flash
   // overlay. We key a fresh <div> on this counter so the CSS
@@ -600,11 +619,66 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   }, [participants, session, token]);
 
   /**
-   * Block or unblock the whole heat. Server writes `video-block:session:{id}`
-   * (or deletes it). Video-match cron picks up the state when new videos
-   * arrive + flips VT3's `disabled` flag per video.
+   * Resolve the user-visible reason string from the current modal state.
+   * When "Other" is picked, use the free-text field (trimmed). For
+   * preset reasons the label itself is the reason.
    */
-  const submitHeatBlock = useCallback(async (block: boolean, reason: string) => {
+  const effectiveBlockReason = useCallback((): string | undefined => {
+    if (blockReason === "Other") {
+      const t = blockReasonOther.trim();
+      return t.slice(0, 200) || undefined;
+    }
+    return blockReason;
+  }, [blockReason, blockReasonOther]);
+
+  /** Reset the block modal's inputs back to defaults. */
+  const resetBlockModal = useCallback(() => {
+    setBlockModalTarget(null);
+    setBlockReason("Crash");
+    setBlockReasonOther("");
+  }, []);
+
+  /**
+   * Block the whole heat. Server writes `video-block:session:{id}` and
+   * instantly syncs VT3 + existing match records for every racer on
+   * the roster. Only called from the confirm modal — unblock is direct.
+   */
+  const submitHeatBlockFromModal = useCallback(async () => {
+    if (!session) return;
+    const reason = effectiveBlockReason();
+    setBlockBusy(true);
+    try {
+      const res = await fetch(`/api/admin/camera-assign/block`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({
+          scope: "session",
+          sessionId: session.sessionId,
+          block: true,
+          reason,
+          // Send the full roster so the server can instantly sync VT3
+          // + patch any already-matched videos without waiting for the
+          // next cron tick.
+          personIds: participants.map((p) => p.personId),
+        }),
+      });
+      if (!res.ok) throw new Error(`block failed (${res.status})`);
+      const now = new Date().toISOString();
+      setSessionBlock({ blocked: true, level: "session", reason, blockedAt: now });
+      setParticipants((prev) => prev.map((p) => {
+        if (p.block?.level === "person") return p; // preserve person override
+        return { ...p, block: { blocked: true, level: "session", reason, blockedAt: now } };
+      }));
+      resetBlockModal();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "block failed");
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [session, token, participants, effectiveBlockReason, resetBlockModal]);
+
+  /** Unblock the whole heat — direct, no confirmation. */
+  const unblockHeat = useCallback(async () => {
     if (!session) return;
     setBlockBusy(true);
     try {
@@ -614,51 +688,71 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         body: JSON.stringify({
           scope: "session",
           sessionId: session.sessionId,
-          block,
-          reason: reason.trim() || undefined,
-          // Send the full roster so the server can instantly sync VT3
-          // + patch any already-matched videos without waiting for the
-          // next cron tick.
+          block: false,
           personIds: participants.map((p) => p.personId),
         }),
       });
-      if (!res.ok) throw new Error(`block failed (${res.status})`);
-      const now = new Date().toISOString();
-      setSessionBlock(block ? { blocked: true, level: "session", reason: reason.trim() || undefined, blockedAt: now } : { blocked: false });
-      // Optimistic: any racer without a person-level override inherits
-      // the new session state. Server reconciles on next refresh.
+      if (!res.ok) throw new Error(`unblock failed (${res.status})`);
+      setSessionBlock({ blocked: false });
       setParticipants((prev) => prev.map((p) => {
-        // Person-level "unblock" override beats session block — preserve it.
-        if (p.block?.level === "person") return p;
-        return {
-          ...p,
-          block: block
-            ? { blocked: true, level: "session", reason: reason.trim() || undefined, blockedAt: now }
-            : { blocked: false },
-        };
+        if (p.block?.level === "person") return p; // preserve person block
+        return { ...p, block: { blocked: false } };
       }));
-      setBlockHeatOpen(false);
-      setBlockHeatReason("");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "block failed");
+      setErr(e instanceof Error ? e.message : "unblock failed");
     } finally {
       setBlockBusy(false);
     }
   }, [session, token, participants]);
 
   /**
-   * Block or unblock one racer. When the heat is blocked and the caller
-   * passes `block:false`, we write an explicit "unblock" override so
-   * the person escapes the session block.
+   * Block ONE racer (from the confirm modal). If the heat is already
+   * blocked we still write a person-level block (it's redundant but
+   * explicit). Server instant-syncs VT3 + the match record if one
+   * exists.
    */
-  const togglePersonBlock = useCallback(async (participant: Participant) => {
+  const submitPersonBlockFromModal = useCallback(async () => {
     if (!session) return;
-    const currentlyBlocked = !!participant.block?.blocked;
+    const target = blockModalTarget;
+    if (!target || target === "heat") return;
+    const reason = effectiveBlockReason();
+    setBlockBusy(true);
+    try {
+      const res = await fetch(`/api/admin/camera-assign/block`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({
+          scope: "person",
+          sessionId: session.sessionId,
+          personId: target.personId,
+          block: true,
+          reason,
+        }),
+      });
+      if (!res.ok) throw new Error(`person block failed (${res.status})`);
+      const now = new Date().toISOString();
+      setParticipants((prev) => prev.map((p) =>
+        String(p.personId) === String(target.personId)
+          ? { ...p, block: { blocked: true, level: "person", reason, blockedAt: now } }
+          : p,
+      ));
+      resetBlockModal();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "person block failed");
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [session, token, blockModalTarget, effectiveBlockReason, resetBlockModal]);
+
+  /**
+   * Unblock one racer — direct, no confirm. If the heat is blocked,
+   * writes an "unblock" override marker so the person escapes the
+   * session-level block; otherwise clears the per-person key entirely.
+   */
+  const unblockPersonDirect = useCallback(async (participant: Participant) => {
+    if (!session) return;
     const heatBlocked = sessionBlock.blocked;
-    // If heat is blocked and staff unblocks one racer, they probably
-    // want the override (not a no-op delete). If heat is NOT blocked,
-    // a plain delete is fine.
-    const override = currentlyBlocked && heatBlocked;
+    const override = heatBlocked;
     setBlockBusy(true);
     try {
       const res = await fetch(`/api/admin/camera-assign/block`, {
@@ -668,31 +762,33 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           scope: "person",
           sessionId: session.sessionId,
           personId: participant.personId,
-          block: !currentlyBlocked,
+          block: false,
           override,
         }),
       });
-      if (!res.ok) throw new Error(`person block failed (${res.status})`);
-      const now = new Date().toISOString();
-      setParticipants((prev) => prev.map((p) => {
-        if (String(p.personId) !== String(participant.personId)) return p;
-        const newBlocked = !currentlyBlocked;
-        if (newBlocked) {
-          return { ...p, block: { blocked: true, level: "person", blockedAt: now } };
-        }
-        // Unblocked — either override (heat still blocks others) or
-        // clear to whatever session block says.
-        if (heatBlocked) {
-          return { ...p, block: { blocked: false, level: "person" } };
-        }
-        return { ...p, block: { blocked: false } };
-      }));
+      if (!res.ok) throw new Error(`person unblock failed (${res.status})`);
+      setParticipants((prev) => prev.map((p) =>
+        String(p.personId) === String(participant.personId)
+          ? { ...p, block: heatBlocked ? { blocked: false, level: "person" } : { blocked: false } }
+          : p,
+      ));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "person block failed");
+      setErr(e instanceof Error ? e.message : "person unblock failed");
     } finally {
       setBlockBusy(false);
     }
   }, [session, sessionBlock.blocked, token]);
+
+  /** Dispatch: open the modal on block; direct unblock. */
+  const togglePersonBlock = useCallback((participant: Participant) => {
+    if (participant.block?.blocked) {
+      void unblockPersonDirect(participant);
+    } else {
+      setBlockModalTarget(participant);
+      setBlockReason("Crash");
+      setBlockReasonOther("");
+    }
+  }, [unblockPersonDirect]);
 
   // Computed
   const assignedCount = useMemo(() => participants.filter((p) => p.systemNumber).length, [participants]);
@@ -955,7 +1051,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               sessionBlock.blocked ? (
                 <button
                   type="button"
-                  onClick={() => void submitHeatBlock(false, "")}
+                  onClick={() => void unblockHeat()}
                   disabled={blockBusy}
                   className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30 disabled:opacity-50"
                   title={sessionBlock.reason ? `Blocked: ${sessionBlock.reason}` : "Unblock this heat"}
@@ -965,7 +1061,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               ) : (
                 <button
                   type="button"
-                  onClick={() => setBlockHeatOpen(true)}
+                  onClick={() => { setBlockModalTarget("heat"); setBlockReason("Crash"); setBlockReasonOther(""); }}
                   disabled={blockBusy}
                   className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300 disabled:opacity-50"
                   title="Block all videos from this heat — no SMS/email will send"
@@ -1140,7 +1236,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); void unassign(i); }}
-                        className="text-xs text-white/40 hover:text-red-400"
+                        aria-label={`Un-assign camera from ${p.firstName} ${p.lastName}`}
+                        title="Un-assign this camera (re-scan to reassign)"
+                        className="text-xs px-1.5 py-0.5 rounded border border-white/15 text-white/50 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
                       >
                         redo
                       </button>
@@ -1252,74 +1350,111 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         </div>
       )}
 
-      {/* Block-heat confirmation modal — a hard stop before a
-          potentially heat-wide "no SMS/email goes out" action. */}
-      {blockHeatOpen && session && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
-          style={{ height: "100dvh" }}
-          {...modalBackdropProps(() => { if (!blockBusy) { setBlockHeatOpen(false); setBlockHeatReason(""); } })}
-        >
+      {/* Unified block confirmation modal — handles both heat-wide and
+          per-racer blocks. Reason is a dropdown of preset categories
+          so staff picks from a consistent vocabulary; "Other" reveals
+          a free-text field for the rare case not covered by presets. */}
+      {blockModalTarget && session && (() => {
+        const isHeat = blockModalTarget === "heat";
+        const personTarget = isHeat ? null : (blockModalTarget as Participant);
+        const onClose = () => { if (!blockBusy) resetBlockModal(); };
+        const onSubmit = () => { void (isHeat ? submitHeatBlockFromModal() : submitPersonBlockFromModal()); };
+        return (
           <div
-            className="relative w-full max-w-md rounded-xl"
-            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(239,68,68,0.4)", maxHeight: "calc(100dvh - 1.5rem)", overflowY: "auto" }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
+            style={{ height: "100dvh" }}
+            {...modalBackdropProps(onClose)}
           >
-            <button
-              type="button"
-              onClick={() => { if (!blockBusy) { setBlockHeatOpen(false); setBlockHeatReason(""); } }}
-              aria-label="Close"
-              disabled={blockBusy}
-              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white disabled:opacity-50"
-              style={{ fontSize: "20px", lineHeight: 1 }}
+            <div
+              className="relative w-full max-w-md rounded-xl"
+              style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(239,68,68,0.4)", maxHeight: "calc(100dvh - 1.5rem)", overflowY: "auto" }}
             >
-              &times;
-            </button>
-            <div className="p-5 sm:p-6">
-              <h3 className="text-lg font-bold uppercase tracking-wide mb-2 pr-10 text-red-300">
-                🚫 Block this heat?
-              </h3>
-              <p className="text-sm text-white/70 mb-3">
-                All <span className="font-semibold text-white">{totalCount}</span> racers in{" "}
-                <span className="font-semibold text-white">
-                  {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type}
-                </span>{" "}
-                will be blocked. Their videos will still be matched + visible in the admin, but
-                <span className="text-red-300 font-semibold"> no SMS or email will send</span>,
-                and the vt3.io link will be disabled.
-              </p>
-              <label className="flex flex-col gap-1 text-xs text-white/60 mb-4">
-                Reason (optional)
-                <input
-                  type="text"
-                  value={blockHeatReason}
-                  onChange={(e) => setBlockHeatReason(e.target.value)}
-                  placeholder="e.g. crash in turn 3, pending review"
-                  maxLength={200}
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => { setBlockHeatOpen(false); setBlockHeatReason(""); }}
-                  disabled={blockBusy}
-                  className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void submitHeatBlock(true, blockHeatReason)}
-                  disabled={blockBusy}
-                  className="text-sm px-5 py-3 sm:py-2 rounded bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
-                >
-                  {blockBusy ? "Blocking…" : "Block Heat"}
-                </button>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                disabled={blockBusy}
+                className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white disabled:opacity-50"
+                style={{ fontSize: "20px", lineHeight: 1 }}
+              >
+                &times;
+              </button>
+              <div className="p-5 sm:p-6">
+                <h3 className="text-lg font-bold uppercase tracking-wide mb-2 pr-10 text-red-300">
+                  🚫 {isHeat ? "Block this heat?" : "Block this racer?"}
+                </h3>
+                <p className="text-sm text-white/70 mb-3">
+                  {isHeat ? (
+                    <>
+                      All <span className="font-semibold text-white">{totalCount}</span> racers in{" "}
+                      <span className="font-semibold text-white">
+                        {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type}
+                      </span>{" "}
+                      will be blocked.
+                    </>
+                  ) : personTarget && (
+                    <>
+                      <span className="font-semibold text-white">
+                        {personTarget.firstName} {personTarget.lastName}
+                      </span>
+                      {personTarget.systemNumber && (
+                        <> (cam <span className="font-mono text-emerald-300">{personTarget.systemNumber}</span>)</>
+                      )}
+                      {" "}will be blocked.
+                    </>
+                  )}{" "}
+                  Video{isHeat ? "s" : ""} will still be matched + visible in the admin, but
+                  <span className="text-red-300 font-semibold"> no SMS or email will send</span>,
+                  and the vt3.io link will be disabled.
+                </p>
+                <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
+                  Reason
+                  <select
+                    value={blockReason}
+                    onChange={(e) => setBlockReason(e.target.value as BlockReason)}
+                    className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                  >
+                    {BLOCK_REASONS.map((r) => (
+                      <option key={r} value={r} style={{ backgroundColor: "#0a1128" }}>{r}</option>
+                    ))}
+                  </select>
+                </label>
+                {blockReason === "Other" && (
+                  <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
+                    Describe
+                    <input
+                      type="text"
+                      value={blockReasonOther}
+                      onChange={(e) => setBlockReasonOther(e.target.value)}
+                      placeholder="Short reason for the block"
+                      maxLength={200}
+                      className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                    />
+                  </label>
+                )}
+                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end mt-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    disabled={blockBusy}
+                    className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onSubmit}
+                    disabled={blockBusy || (blockReason === "Other" && !blockReasonOther.trim())}
+                    className="text-sm px-5 py-3 sm:py-2 rounded bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
+                  >
+                    {blockBusy ? "Blocking…" : isHeat ? "Block Heat" : "Block Racer"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
