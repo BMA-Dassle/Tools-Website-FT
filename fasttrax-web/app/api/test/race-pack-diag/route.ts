@@ -18,6 +18,19 @@ import { randomUUID } from "crypto";
  *                 The original Apr-6 working bill used 0. The bug report
  *                 also tested 2 and both failed; pass explicit value to
  *                 isolate which variant BMI's fix applies to.)
+ *   regContact   (default "1") — call person/registerContactPerson
+ *   regProject   (default "0") — also call person/registerProjectPerson
+ *                 (matches the working race-booking flow's pattern:
+ *                  see app/book/race/components/OrderSummary.tsx, where
+ *                  BOTH calls fire per racer before payment. Credits
+ *                  assignment may depend on the racer being a project
+ *                  person, not just a contact.)
+ *   projectFirst (default "0") — when both regs enabled, call project
+ *                 before contact. Lets us isolate whether ordering
+ *                 matters for BMI's credit pipeline.
+ *   personIdInSell (default "1") — include PersonId in booking/sell
+ *                 body. Pass "0" to defer the association entirely to
+ *                 the register calls.
  *   doConfirm    (default "1"; pass "0" to stop before payment confirm)
  *   doCancel     (default "1"; pass "0" to leave the test bill open)
  *
@@ -67,6 +80,10 @@ export async function GET(req: NextRequest) {
     if (!Number.isFinite(depositKind)) {
       return NextResponse.json({ error: "depositKind must be an integer" }, { status: 400 });
     }
+    const regContact = searchParams.get("regContact") !== "0";
+    const regProject = searchParams.get("regProject") === "1";
+    const projectFirst = searchParams.get("projectFirst") === "1";
+    const personIdInSell = searchParams.get("personIdInSell") !== "0";
 
     if (!personId || !productIdRaw) {
       return NextResponse.json(
@@ -89,15 +106,20 @@ export async function GET(req: NextRequest) {
     };
 
     const trace: Record<string, unknown> = {
-      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind },
+      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, projectFirst, personIdInSell },
       timestamp: new Date().toISOString(),
     };
 
     // 1. Snapshot deposits before
     trace.depositsBefore = await depositSnapshot(base, personId);
 
-    // 2. Sell the pack WITH personId (raw string JSON to avoid precision loss on big IDs)
-    const sellBody = `{"ProductId":${Number(productIdRaw)},"PageId":${Number(pageId)},"Quantity":1,"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[],"PersonId":${personId}}`;
+    // 2. Sell the pack — PersonId in body is OPTIONAL per the query flag
+    //    so we can isolate whether the in-sell association matters vs
+    //    only the post-sell register calls.
+    const sellCore = `"ProductId":${Number(productIdRaw)},"PageId":${Number(pageId)},"Quantity":1,"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]`;
+    const sellBody = personIdInSell
+      ? `{${sellCore},"PersonId":${personId}}`
+      : `{${sellCore}}`;
     const sellResp = await bmi("booking/sell", { method: "POST", body: sellBody });
     trace.sell = sellResp;
 
@@ -109,10 +131,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, stoppedAt: "sell", trace }, { status: 500 });
     }
 
-    // 3. Register contact person
-    const regBody = `{"orderId":${orderId},"PersonId":${personId},"firstName":"Race","lastName":"Pack Test","email":"racepacktest@bma.test","phone":"2395550100"}`;
-    const regResp = await bmi("person/registerContactPerson", { method: "POST", body: regBody });
-    trace.register = regResp;
+    // 3. Person registration — order controlled by `projectFirst`.
+    //    Contact = bill contact; Project = participant on the bill
+    //    project. Race booking flow calls BOTH (contact-first); bug
+    //    report exhausted single-register variants.
+    const contactBody = `{"orderId":${orderId},"PersonId":${personId},"firstName":"Race","lastName":"Pack Test","email":"racepacktest@bma.test","phone":"2395550100"}`;
+    const projectBody = `{"personId":${personId},"orderId":${orderId},"firstName":"Race","lastName":"Pack Test"}`;
+    const runContact = async () => {
+      const r = await bmi("person/registerContactPerson", { method: "POST", body: contactBody });
+      trace.registerContact = r;
+    };
+    const runProject = async () => {
+      const r = await bmi("person/registerProjectPerson", { method: "POST", body: projectBody });
+      trace.registerProject = r;
+    };
+    if (projectFirst && regProject) await runProject();
+    if (regContact) await runContact();
+    if (!projectFirst && regProject) await runProject();
 
     // 4. Capture the expected total from sell (use first price entry)
     const sellJson = sellResp.body as { prices?: { amount: number; kind: number }[] } | undefined;
