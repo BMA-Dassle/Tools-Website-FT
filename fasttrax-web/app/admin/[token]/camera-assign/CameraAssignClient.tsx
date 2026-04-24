@@ -372,6 +372,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setBarcodeModalOpen(true);
     setBarcodeInput("");
     void loadBarcodes();
+    // Steal keyboard focus away from the main scan input so the
+    // capture-phase listener doesn't have to fight it for keystrokes.
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setTimeout(() => barcodeInputRef.current?.focus(), 50);
   }, [loadBarcodes]);
 
@@ -380,48 +385,63 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  USB barcode scanners pump keydown events to the document, so we
    *  capture them no matter what's focused. Auto-saves on Enter
    *  (the scanner's typical terminator suffix). Also keeps the
-   *  input echoing the current buffer for visual feedback. */
+   *  input echoing the current buffer for visual feedback.
+   *
+   *  Two things matter for reliability:
+   *  - Capture-phase + stopImmediatePropagation so the MAIN scan
+   *    input's onKeyDown (assign-on-Enter) doesn't fire if focus
+   *    happens to still be on it under the modal.
+   *  - Refs for the callbacks so the listener attaches ONCE per
+   *    modal-open and doesn't churn every time barcodeMap changes
+   *    (each save would otherwise re-create saveBarcode →
+   *    re-create the effect → momentary listener gap → lost keys).
+   */
   const barcodeBufferRef = useRef("");
+  const saveBarcodeRef = useRef(saveBarcode);
+  const activeCamRef = useRef(barcodeActiveCam);
+  useEffect(() => { saveBarcodeRef.current = saveBarcode; }, [saveBarcode]);
+  useEffect(() => { activeCamRef.current = barcodeActiveCam; }, [barcodeActiveCam]);
   useEffect(() => {
     if (!barcodeModalOpen) return;
     barcodeBufferRef.current = "";
     const onKey = (e: KeyboardEvent) => {
-      // Don't hijack typing in the staff "Cancel" / "×" close button
-      // or any other interactive element with its own intent.
-      const t = e.target as HTMLElement | null;
-      // Allow keys to flow through normal interactive elements (we
-      // still capture them via this document listener) — only ignore
-      // if a non-modal text input has focus (shouldn't happen since
-      // the modal covers the page, but defensive).
-      if (t && t.tagName === "INPUT" && t !== barcodeInputRef.current) return;
-
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setBarcodeModalOpen(false);
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         const v = barcodeBufferRef.current.trim();
         if (v) {
-          void saveBarcode(barcodeActiveCam, v);
+          void saveBarcodeRef.current(activeCamRef.current, v);
           barcodeBufferRef.current = "";
         }
         return;
       }
       if (e.key === "Backspace") {
+        e.stopImmediatePropagation();
         barcodeBufferRef.current = barcodeBufferRef.current.slice(0, -1);
         setBarcodeInput(barcodeBufferRef.current);
         return;
       }
-      if (e.key === "Escape") {
-        setBarcodeModalOpen(false);
-        return;
-      }
-      // Single-char key — append to buffer.
+      // Single-char key — append to buffer. stopImmediatePropagation
+      // so the main scan input behind the modal doesn't also see it.
       if (e.key.length === 1) {
+        e.stopImmediatePropagation();
         barcodeBufferRef.current += e.key;
         setBarcodeInput(barcodeBufferRef.current);
       }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [barcodeModalOpen, barcodeActiveCam, saveBarcode]);
+    // capture: true means our handler runs BEFORE any other handler
+    // on the way down — and stopImmediatePropagation prevents the
+    // bubble back up. Belt-and-suspenders against the main scan
+    // input swallowing scanner keys when focus drifted there.
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [barcodeModalOpen]);
 
   // Load the barcode map on mount (not just when the modal opens) so
   // the MAIN scan input can resolve barcodes → camera numbers in real
