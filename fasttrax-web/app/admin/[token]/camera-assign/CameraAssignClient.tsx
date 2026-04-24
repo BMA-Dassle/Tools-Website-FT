@@ -257,6 +257,14 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   useEffect(() => {
     setNfcSupported(typeof window !== "undefined" && "NDEFReader" in window);
   }, []);
+  /** Row-blink state for duplicate-camera rejection. When a staffer
+   *  scans a camera already bound to another racer in the current
+   *  session, we flash THAT row red and hold the cursor on the
+   *  current racer so they can re-scan a different camera. Cleared
+   *  on a timer so the red fades out. */
+  const [conflictBlinkPid, setConflictBlinkPid] = useState<string | null>(null);
+  const conflictTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current); }, []);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Mirror scanBuffer into a ref so the "skip while mid-scan" gates on
@@ -546,6 +554,28 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       return;
     }
     const p = participants[activeIndex];
+
+    // Duplicate-camera guard: if any OTHER racer in this session
+    // already holds this system number, flash their row red, surface
+    // the conflict in the error line, and DO NOT advance — staff
+    // needs to re-scan with a different camera. Scanning the same
+    // camera back onto the SAME racer is a no-op (ignored).
+    const existing = participants.find(
+      (x) => x.systemNumber === sys && String(x.personId) !== String(p.personId),
+    );
+    if (existing) {
+      const pid = String(existing.personId);
+      setConflictBlinkPid(pid);
+      setErr(`Camera ${sys} already assigned to ${existing.firstName} ${existing.lastName}`);
+      // Clear scan input so the next scan doesn't echo the old value
+      setScanBuffer("");
+      if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current);
+      conflictTimerRef.current = setTimeout(() => {
+        setConflictBlinkPid((cur) => (cur === pid ? null : cur));
+      }, 2500);
+      return;
+    }
+
     setErr(null);
     try {
       const res = await fetch("/api/admin/camera-assign/assign", {
@@ -1317,6 +1347,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             // person-level unblock override, paint a distinguishing
             // chip so staff remembers the override is in effect.
             const personOverride = !isBlocked && sessionBlock.blocked && p.block?.level === "person";
+            // Duplicate-camera blink — conflictBlinkPid is set for ~2.5s
+            // after staff tries to scan a camera already bound to this
+            // racer; the CSS animation on this class pulses red.
+            const isConflict = conflictBlinkPid === String(p.personId);
             return (
               <button
                 key={String(p.personId)}
@@ -1324,13 +1358,15 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 onClick={() => setActiveIndex(i)}
                 style={isActive ? { boxShadow: "0 0 18px rgba(0,226,229,0.45)" } : undefined}
                 className={`w-full text-left rounded-lg border p-3 transition-colors ${
-                  isBlocked
-                    ? "border-red-500/40 bg-red-500/10"
-                    : isActive
-                      ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
-                      : hasCam
-                        ? "border-emerald-500/25 bg-emerald-500/5"
-                        : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                  isConflict
+                    ? "border-red-500/80 bg-red-500/25 animate-pulse"
+                    : isBlocked
+                      ? "border-red-500/40 bg-red-500/10"
+                      : isActive
+                        ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
+                        : hasCam
+                          ? "border-emerald-500/25 bg-emerald-500/5"
+                          : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
                 }`}
               >
                 <div className="flex items-center gap-3">
