@@ -1165,9 +1165,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           </div>
         </div>
 
-        {/* Working-on pill — shows which heat is currently loaded.
-            Kept from the old layout because staff valued the quick
-            glance confirmation. */}
+        {/* Working-on pill — shows which heat is currently loaded,
+            with an inline "Change" button on mobile that opens the
+            heat-picker modal. Desktop uses the inline schedule panel
+            below instead, so no Change button is rendered on md+. */}
         {track && (() => {
           const pillClass = "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
           return (
@@ -1196,9 +1197,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               ) : (
                 <span className={`${pillClass} border-dashed border-white/25 text-white/40 inline-flex items-center gap-1.5`}>
                   <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-white/30" />
-                  Tap a heat from the schedule below
+                  Pick a heat
                 </span>
               )}
+              {/* Small Change button — mobile only. Desktop has the
+                  inline schedule list below and doesn't need this. */}
+              <button
+                type="button"
+                onClick={() => setHeatModalOpen(true)}
+                className={`${pillClass} md:hidden border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10`}
+              >
+                Change ▸
+              </button>
             </div>
           );
         })()}
@@ -1288,26 +1298,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
           return (
             <>
-              {/* Mobile summary button (<md) — opens the modal. */}
-              <button
-                type="button"
-                onClick={() => setHeatModalOpen(true)}
-                className="md:hidden w-full mb-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-3 flex items-center justify-between hover:bg-white/[0.04] transition-colors"
-              >
-                <div className="flex flex-col items-start">
-                  <span className="text-xs text-white/50 uppercase tracking-wider">Pick a heat</span>
-                  <span className="text-sm text-white/80 mt-0.5">{summaryText}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {dayLoading && (
-                    <span
-                      aria-hidden="true"
-                      className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
-                    />
-                  )}
-                  <span aria-hidden="true" className="text-[#00E2E5] text-xl leading-none">▸</span>
-                </div>
-              </button>
+              {/* Mobile uses the inline "Change ▸" button up on the
+                  Working-on pill row — no big summary card needed
+                  here. Desktop keeps the inline schedule panel. */}
 
               {/* Desktop inline panel (md+). */}
               <div className="hidden md:block mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
@@ -1553,85 +1546,97 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                           : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <div className={`text-sm tabular-nums w-6 text-center shrink-0 ${
-                    isBlocked ? "text-red-300" : isActive ? "text-[#00E2E5]" : hasCam ? "text-emerald-400" : "text-white/40"
-                  }`}>
-                    {i + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className={`text-sm font-semibold truncate ${isBlocked ? "text-red-300" : ""}`}>
-                      {p.firstName} {p.lastName}
-                      {isBlocked && (
-                        <span
-                          className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200 align-middle"
-                          title={p.block?.reason ? `Blocked: ${p.block.reason}` : `Blocked (${p.block?.level})`}
-                        >
-                          🚫 blocked
-                        </span>
-                      )}
-                      {personOverride && (
-                        <span
-                          className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 align-middle"
-                          title="Heat is blocked but this racer is released"
-                        >
-                          released
-                        </span>
-                      )}
+                {/* Two-row on mobile, one-row on sm+ (tablets/desktop).
+                    Row 1: index number + driver name + status chips
+                           → full width, name not truncated on phones.
+                    Row 2 (mobile only): cam chip, scan-next, redo, block
+                           buttons. Indented past the number column so
+                           it lines up with the name above. */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className={`text-sm tabular-nums w-6 text-center shrink-0 ${
+                      isBlocked ? "text-red-300" : isActive ? "text-[#00E2E5]" : hasCam ? "text-emerald-400" : "text-white/40"
+                    }`}>
+                      {i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-semibold ${isBlocked ? "text-red-300" : ""}`}>
+                        <span className="break-words">{p.firstName} {p.lastName}</span>
+                        {isBlocked && (
+                          <span
+                            className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200 align-middle"
+                            title={p.block?.reason ? `Blocked: ${p.block.reason}` : `Blocked (${p.block?.level})`}
+                          >
+                            🚫 blocked
+                          </span>
+                        )}
+                        {personOverride && (
+                          <span
+                            className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 align-middle"
+                            title="Heat is blocked but this racer is released"
+                          >
+                            released
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  {hasCam ? (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                        cam {p.systemNumber}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); void unassign(i); }}
-                        aria-label={`Un-assign camera from ${p.firstName} ${p.lastName}`}
-                        title="Un-assign this camera (re-scan to reassign)"
-                        className="text-xs px-1.5 py-0.5 rounded border border-white/15 text-white/50 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
-                      >
-                        redo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
-                        disabled={blockBusy}
-                        aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
-                        title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
-                        className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
-                          isBlocked
-                            ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
-                            : "border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
-                        }`}
-                      >
-                        {isBlocked ? "unblock" : "block"}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isActive && (
-                        <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-[#00E2E5]/20 text-[#00E2E5]">
-                          scan next
+                  {/* Action row — mobile-indented to align with the name,
+                      desktop stays right-aligned inline. */}
+                  <div className="flex items-center gap-2 shrink-0 pl-9 sm:pl-0">
+                    {hasCam ? (
+                      <>
+                        <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                          cam {p.systemNumber}
                         </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
-                        disabled={blockBusy}
-                        aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
-                        title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
-                        className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
-                          isBlocked
-                            ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
-                            : "border-white/10 text-white/40 hover:text-red-300 hover:border-red-500/40"
-                        }`}
-                      >
-                        {isBlocked ? "unblock" : "block"}
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void unassign(i); }}
+                          aria-label={`Un-assign camera from ${p.firstName} ${p.lastName}`}
+                          title="Un-assign this camera (re-scan to reassign)"
+                          className="text-xs px-1.5 py-0.5 rounded border border-white/15 text-white/50 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
+                        >
+                          redo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
+                          disabled={blockBusy}
+                          aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
+                          title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
+                          className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                            isBlocked
+                              ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                              : "border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
+                          }`}
+                        >
+                          {isBlocked ? "unblock" : "block"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {isActive && (
+                          <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-[#00E2E5]/20 text-[#00E2E5]">
+                            scan next
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
+                          disabled={blockBusy}
+                          aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
+                          title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
+                          className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                            isBlocked
+                              ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                              : "border-white/10 text-white/40 hover:text-red-300 hover:border-red-500/40"
+                          }`}
+                        >
+                          {isBlocked ? "unblock" : "block"}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </button>
             );
