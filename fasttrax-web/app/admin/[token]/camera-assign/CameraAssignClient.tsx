@@ -303,6 +303,25 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     }
   }, []);
 
+  /** Auto-enter fullscreen on the first user interaction. Browsers
+   *  block programmatic `requestFullscreen()` without a user gesture,
+   *  so we latch a one-shot `pointerdown` listener — the operator's
+   *  very first tap (track button, heat pick, NFC, anywhere) promotes
+   *  the page into fullscreen. Capture phase so child handlers that
+   *  call stopPropagation don't eat the event; `once: true` so we
+   *  don't keep re-promoting if the user intentionally ESCs out. */
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onFirstTap = () => {
+      if (document.fullscreenElement) return;
+      document.documentElement.requestFullscreen().catch(() => {
+        /* gesture not sufficient / feature blocked — silent */
+      });
+    };
+    document.addEventListener("pointerdown", onFirstTap, { once: true, capture: true });
+    return () => document.removeEventListener("pointerdown", onFirstTap, true);
+  }, []);
+
   /** Row-blink state for duplicate-camera rejection. When a staffer
    *  scans a camera already bound to another racer in the current
    *  session, we flash THAT row red and hold the cursor on the
