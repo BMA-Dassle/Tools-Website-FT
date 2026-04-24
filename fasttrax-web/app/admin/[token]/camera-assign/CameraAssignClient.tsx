@@ -276,6 +276,33 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   useEffect(() => {
     setNfcSupported(typeof window !== "undefined" && "NDEFReader" in window);
   }, []);
+  /** Fullscreen mode — lets Android staff flip the camera-assign page
+   *  into kiosk-style fullscreen (hides browser chrome + status bar) so
+   *  the scan input + roster get the most vertical space possible.
+   *  Fires `document.documentElement.requestFullscreen()` on toggle.
+   *  Escape / gesture-exit flips the flag back via fullscreenchange. */
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  /** Mobile heat-picker modal. The inline day-list cramps on phones —
+   *  on <md viewports we show a summary button instead that opens this
+   *  modal with bigger tap targets. Desktop keeps the inline list. */
+  const [heatModalOpen, setHeatModalOpen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      /* user gesture required / not supported — no-op */
+    }
+  }, []);
+
   /** Row-blink state for duplicate-camera rejection. When a staffer
    *  scans a camera already bound to another racer in the current
    *  session, we flash THAT row red and hold the cursor on the
@@ -1102,6 +1129,20 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 <span className="hidden sm:inline">NFC {nfcActive ? "on" : "off"}</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => void toggleFullscreen()}
+              title={isFullscreen ? "Exit fullscreen" : "Hide browser chrome + status bar for kiosk use"}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
+                isFullscreen
+                  ? "bg-white/15 border-white/30 text-white"
+                  : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+              }`}
+            >
+              <span>{isFullscreen ? "🗗" : "⛶"}</span>
+              <span className="hidden sm:inline">{isFullscreen ? "Exit" : "Full"}</span>
+            </button>
           </div>
         </div>
 
@@ -1145,8 +1186,10 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
         {/* Full-day schedule — every heat for the selected track today,
             sorted by time. Replaces the old ±3 called + ±3 upcoming
-            pill strip + Earlier modal. Past heats dimmed, live heat
-            pulses cyan, upcoming normal. Tap any row to load it. */}
+            pill strip + Earlier modal.
+            - Desktop (md+): inline scrollable panel.
+            - Mobile (<md):  summary button that opens a fullscreen
+                             modal with bigger tap targets. */}
         {track && (() => {
           const activeSid = activeSessionId;
           const fmt = (iso: string) => new Date(iso).toLocaleString("en-US", {
@@ -1158,77 +1201,152 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             live: daySessions.filter((s) => s.status === "live").length,
             upcoming: daySessions.filter((s) => s.status === "upcoming").length,
           };
+          const summaryText = daySessions.length === 0 && !dayLoading
+            ? "No heats today"
+            : `${daySessions.length} heat${daySessions.length === 1 ? "" : "s"} · ${counts.past} done · ${counts.live} live · ${counts.upcoming} upcoming`;
+
+          // Shared row renderer for both desktop list + mobile modal.
+          // `bigTouch` controls padding + font-size so the mobile modal
+          // gets fat-finger-friendly tap targets.
+          const renderRow = (s: DaySession, bigTouch: boolean) => {
+            const isLoaded = activeSid === String(s.sessionId);
+            const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
+            const statusColor = s.status === "past" ? "text-white/40" : s.status === "live" ? "text-[#00E2E5]" : "text-white/60";
+            return (
+              <button
+                key={`day-${s.sessionId}`}
+                type="button"
+                onClick={() => {
+                  if (isLoaded) {
+                    setHeatModalOpen(false);
+                    return;
+                  }
+                  setOverrideSessionId(String(s.sessionId));
+                  void loadSession(String(s.sessionId));
+                  setHeatModalOpen(false);
+                }}
+                disabled={isLoaded}
+                className={`w-full flex items-center gap-2 text-left border-t border-white/[0.04] transition-colors ${
+                  bigTouch ? "px-4 py-3.5 text-sm" : "px-3 py-2 text-xs"
+                } ${
+                  isLoaded
+                    ? "bg-[#00E2E5]/15 cursor-default"
+                    : s.status === "past"
+                      ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
+                      : s.status === "live"
+                        ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
+                        : "hover:bg-white/[0.04]"
+                }`}
+                title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
+              >
+                <span aria-hidden="true" className={`${bigTouch ? "w-5 text-base" : "w-4"} text-center shrink-0 ${statusColor}`}>
+                  {statusIcon}
+                </span>
+                <span className={`tabular-nums text-white/80 shrink-0 ${bigTouch ? "w-20" : "w-16"}`}>
+                  {fmt(s.scheduledStart)}
+                </span>
+                <span className={`text-white/50 shrink-0 uppercase tracking-wider ${bigTouch ? "w-20" : "w-14"}`}>
+                  Heat <span className="text-white font-semibold">{s.heatNumber}</span>
+                </span>
+                <span className="text-white/60 flex-1 truncate">
+                  {s.type}
+                </span>
+                <span
+                  className={`tabular-nums px-1.5 py-0.5 rounded shrink-0 ${
+                    bigTouch ? "text-sm" : "text-xs"
+                  } ${
+                    s.assignedCount > 0
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-white/5 text-white/40"
+                  }`}
+                  title={`${s.assignedCount} camera${s.assignedCount === 1 ? "" : "s"} assigned`}
+                >
+                  {s.assignedCount} cam
+                </span>
+              </button>
+            );
+          };
+
           return (
-            <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-                <div className="text-xs text-white/50 uppercase tracking-wider">
-                  {daySessions.length === 0 && !dayLoading
-                    ? "No heats today"
-                    : `${daySessions.length} heat${daySessions.length === 1 ? "" : "s"} · ${counts.past} done · ${counts.live} live · ${counts.upcoming} upcoming`}
+            <>
+              {/* Mobile summary button (<md) — opens the modal. */}
+              <button
+                type="button"
+                onClick={() => setHeatModalOpen(true)}
+                className="md:hidden w-full mb-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-3 flex items-center justify-between hover:bg-white/[0.04] transition-colors"
+              >
+                <div className="flex flex-col items-start">
+                  <span className="text-xs text-white/50 uppercase tracking-wider">Pick a heat</span>
+                  <span className="text-sm text-white/80 mt-0.5">{summaryText}</span>
                 </div>
-                {dayLoading && (
-                  <span
-                    aria-hidden="true"
-                    className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
-                  />
-                )}
+                <div className="flex items-center gap-2">
+                  {dayLoading && (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
+                    />
+                  )}
+                  <span aria-hidden="true" className="text-[#00E2E5] text-xl leading-none">▸</span>
+                </div>
+              </button>
+
+              {/* Desktop inline panel (md+). */}
+              <div className="hidden md:block mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                  <div className="text-xs text-white/50 uppercase tracking-wider">{summaryText}</div>
+                  {dayLoading && (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
+                    />
+                  )}
+                </div>
+                <div className="max-h-[260px] overflow-y-auto">
+                  {daySessions.length === 0 && !dayLoading && (
+                    <div className="text-center text-white/30 text-xs py-6">No heats found for this track today.</div>
+                  )}
+                  {daySessions.map((s) => renderRow(s, false))}
+                </div>
               </div>
-              <div className="max-h-[260px] overflow-y-auto">
-                {daySessions.length === 0 && !dayLoading && (
-                  <div className="text-center text-white/30 text-xs py-6">No heats found for this track today.</div>
-                )}
-                {daySessions.map((s) => {
-                  const isLoaded = activeSid === String(s.sessionId);
-                  const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
-                  const statusColor = s.status === "past" ? "text-white/40" : s.status === "live" ? "text-[#00E2E5]" : "text-white/60";
-                  return (
-                    <button
-                      key={`day-${s.sessionId}`}
-                      type="button"
-                      onClick={() => {
-                        if (isLoaded) return;
-                        setOverrideSessionId(String(s.sessionId));
-                        void loadSession(String(s.sessionId));
-                      }}
-                      disabled={isLoaded}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs border-t border-white/[0.04] transition-colors ${
-                        isLoaded
-                          ? "bg-[#00E2E5]/15 cursor-default"
-                          : s.status === "past"
-                            ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
-                            : s.status === "live"
-                              ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
-                              : "hover:bg-white/[0.04]"
-                      }`}
-                      title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
-                    >
-                      <span aria-hidden="true" className={`w-4 text-center shrink-0 ${statusColor}`}>
-                        {statusIcon}
-                      </span>
-                      <span className="tabular-nums text-white/80 w-16 shrink-0">
-                        {fmt(s.scheduledStart)}
-                      </span>
-                      <span className="text-white/50 w-14 shrink-0 uppercase tracking-wider">
-                        Heat <span className="text-white font-semibold">{s.heatNumber}</span>
-                      </span>
-                      <span className="text-white/60 flex-1 truncate">
-                        {s.type}
-                      </span>
-                      <span
-                        className={`tabular-nums text-xs px-1.5 py-0.5 rounded shrink-0 ${
-                          s.assignedCount > 0
-                            ? "bg-emerald-500/15 text-emerald-300"
-                            : "bg-white/5 text-white/40"
-                        }`}
-                        title={`${s.assignedCount} camera${s.assignedCount === 1 ? "" : "s"} assigned`}
+
+              {/* Mobile heat-picker modal. */}
+              {heatModalOpen && (
+                <div
+                  className="fixed inset-0 z-[9999] flex items-stretch justify-center p-0 bg-black/80 md:hidden"
+                  style={{ height: "100dvh" }}
+                  {...modalBackdropProps(() => setHeatModalOpen(false))}
+                >
+                  <div
+                    className="relative w-full h-full flex flex-col"
+                    style={{ backgroundColor: "#0a1128" }}
+                  >
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                      <div>
+                        <div className="text-base font-bold uppercase tracking-wider">
+                          {track.toUpperCase()} Heats
+                        </div>
+                        <div className="text-xs text-white/50 mt-0.5">{summaryText}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHeatModalOpen(false)}
+                        aria-label="Close heat picker"
+                        className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+                        style={{ fontSize: "22px", lineHeight: 1 }}
                       >
-                        {s.assignedCount} cam
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+                        &times;
+                      </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                      {daySessions.length === 0 && !dayLoading && (
+                        <div className="text-center text-white/30 text-sm py-10">No heats found for this track today.</div>
+                      )}
+                      {daySessions.map((s) => renderRow(s, true))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           );
         })()}
 
