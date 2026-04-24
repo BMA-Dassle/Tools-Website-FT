@@ -240,10 +240,23 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   // overlay. We key a fresh <div> on this counter so the CSS
   // animation restarts from scratch each time.
   const [flashCounter, setFlashCounter] = useState(0);
-  // Android keyboard is off by default (inputMode="none") so taps on the
-  // scan input don't cover the roster. Staff can flip this on if they
-  // need to hand-type a camera # and don't have a USB keyboard attached.
+  // Android keyboard is off by default (inputMode="none" + readOnly) so
+  // taps on the scan input don't cover the roster. Staff can flip this
+  // on if they need to hand-type a camera # and don't have a USB
+  // keyboard attached.
   const [showKeyboard, setShowKeyboard] = useState(false);
+  /** Web NFC (Android Chrome only). When true, ndef.scan() is running
+   *  and tag reads feed scanBuffer + assign() just like the USB reader
+   *  path. iPhone has no Web NFC support — the button hides there. */
+  const [nfcActive, setNfcActive] = useState(false);
+  const [nfcError, setNfcError] = useState<string | null>(null);
+  const nfcAbortRef = useRef<AbortController | null>(null);
+  // Cached at mount so we don't re-probe every render. Web NFC is
+  // Chromium-only and only on Android — no Safari/iOS support.
+  const [nfcSupported, setNfcSupported] = useState(false);
+  useEffect(() => {
+    setNfcSupported(typeof window !== "undefined" && "NDEFReader" in window);
+  }, []);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Mirror scanBuffer into a ref so the "skip while mid-scan" gates on
@@ -593,6 +606,100 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     }
   }, [scanBuffer, assign]);
 
+  /**
+   * Start / stop the Web NFC reader. Uses the phone's built-in NFC radio
+   * (Android Chrome only). `scan()` prompts the user for permission on
+   * first call, then fires `reading` events for every tag tapped until
+   * we abort the controller.
+   *
+   * Tag-content extraction is lenient — different tag vendors encode
+   * the camera number differently:
+   *   - NDEF text record → decode bytes
+   *   - NDEF URL record  → take the last path segment
+   *   - fallback         → stringify serialNumber or record data
+   * We regex out digit sequences at the end to tolerate prefixes like
+   * "CAM-913" or "https://.../nfc/913".
+   */
+  const toggleNfc = useCallback(async () => {
+    // Already running → abort.
+    if (nfcActive) {
+      nfcAbortRef.current?.abort();
+      nfcAbortRef.current = null;
+      setNfcActive(false);
+      setNfcError(null);
+      return;
+    }
+    setNfcError(null);
+    if (!("NDEFReader" in window)) {
+      setNfcError("Web NFC not supported on this browser. Use Chrome on Android.");
+      return;
+    }
+    try {
+      // Use the constructor via a dynamic cast — NDEFReader is not in
+      // the TypeScript DOM lib as of this project's TS version.
+      const NDEFReaderCtor = (window as unknown as { NDEFReader: new () => {
+        scan: (opts?: { signal: AbortSignal }) => Promise<void>;
+        onreading: ((ev: { serialNumber?: string; message: { records: Array<{ recordType: string; data: ArrayBuffer | DataView; mediaType?: string }> } }) => void) | null;
+        onreadingerror: ((ev: Event) => void) | null;
+      } }).NDEFReader;
+      const ndef = new NDEFReaderCtor();
+      const controller = new AbortController();
+      nfcAbortRef.current = controller;
+
+      await ndef.scan({ signal: controller.signal });
+      setNfcActive(true);
+
+      ndef.onreading = (ev) => {
+        const decoder = new TextDecoder();
+        let raw = "";
+        for (const record of ev.message.records) {
+          try {
+            const buf = record.data instanceof ArrayBuffer
+              ? record.data
+              : (record.data as DataView).buffer;
+            const text = decoder.decode(buf);
+            if (record.recordType === "text") {
+              // NDEF text records start with a status byte + lang code
+              // (e.g. "\x02en"), then the actual text. Strip any
+              // non-printable leading chars by taking everything after
+              // the lang code if present.
+              raw += text.replace(/^[\x00-\x1F]*[a-z]{2}/i, "");
+              continue;
+            }
+            if (record.recordType === "url") {
+              raw += text.split("/").pop() || text;
+              continue;
+            }
+            raw += text;
+          } catch {
+            /* skip malformed records */
+          }
+        }
+        if (!raw && ev.serialNumber) raw = ev.serialNumber;
+        // Pull the last run of digits — tolerant of prefixes/suffixes.
+        const digits = raw.match(/(\d+)(?!.*\d)/)?.[1] || raw.trim();
+        if (digits) {
+          setScanBuffer("");
+          void assign(digits);
+        }
+      };
+      ndef.onreadingerror = () => {
+        setNfcError("Couldn't read that tag — try again.");
+      };
+    } catch (e) {
+      setNfcError(e instanceof Error ? e.message : "NFC permission denied");
+      setNfcActive(false);
+      nfcAbortRef.current = null;
+    }
+  }, [nfcActive, assign]);
+
+  // Cleanup on unmount — don't leave the NFC radio listening.
+  useEffect(() => {
+    return () => {
+      nfcAbortRef.current?.abort();
+    };
+  }, []);
+
   /** Un-assign a specific participant. */
   const unassign = useCallback(async (idx: number) => {
     const p = participants[idx];
@@ -900,6 +1007,22 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               <span>⌨</span>
               <span className="hidden sm:inline">Kb {showKeyboard ? "on" : "off"}</span>
             </button>
+            {nfcSupported && (
+              <button
+                type="button"
+                onClick={() => void toggleNfc()}
+                title={nfcActive ? "Stop listening for NFC tags" : "Use this phone's NFC radio (tap a tag to assign)"}
+                aria-label={nfcActive ? "Stop NFC scanning" : "Start NFC scanning"}
+                className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
+                  nfcActive
+                    ? "bg-[#00E2E5]/20 border-[#00E2E5]/60 text-[#00E2E5] animate-pulse"
+                    : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+                }`}
+              >
+                <span>📡</span>
+                <span className="hidden sm:inline">NFC {nfcActive ? "on" : "off"}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1107,18 +1230,22 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               // and a plain digits-only keyboard on Android (better than
               // type="number" which brings spinners + accepts decimals).
               type="tel"
-              // inputMode='none' suppresses the Android virtual keyboard
-              // entirely when the toggle is off; the USB NFC reader (HID
-              // keyboard) still types into the field. When staff flips
-              // the toggle ON for manual entry we show 'numeric' — a
-              // compact 0-9 pad matching what the camera IDs actually are.
+              // Bulletproof Android-keyboard suppression: `readOnly` when
+              // the Kb toggle is off. Android/iOS never open the virtual
+              // keyboard for a readOnly field, even if inputMode hints
+              // are ignored by the IME. USB NFC readers + Web NFC both
+              // update the value programmatically so readOnly doesn't
+              // block them. When staff flips the toggle ON for manual
+              // entry, readOnly drops + inputMode='numeric' shows the
+              // compact 0-9 pad.
+              readOnly={!showKeyboard}
               inputMode={showKeyboard ? "numeric" : "none"}
               pattern="[0-9]*"
               enterKeyHint="enter"
               value={scanBuffer}
               onChange={(e) => setScanBuffer(e.target.value)}
               onKeyDown={onInputKey}
-              placeholder="Waiting for scan…"
+              placeholder={nfcActive ? "📡 Listening — tap an NFC tag…" : "Waiting for scan…"}
               autoComplete="off"
               className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30"
             />
@@ -1143,6 +1270,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           {lastScan && (
             <div className="mt-1 text-xs text-emerald-400 truncate">
               ✓ Camera <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
+            </div>
+          )}
+          {nfcError && (
+            <div className="mt-1 text-xs text-red-400 truncate">
+              NFC: {nfcError}
             </div>
           )}
         </div>
