@@ -142,7 +142,11 @@ export async function GET(req: NextRequest) {
     // the track isn't open. We still only want sessions whose start is
     // in the past.
     if (mode === "past") {
-      const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 0);
+      // forwardDays MUST be ≥ 1 so the Pandora query window extends
+      // through today. With 0 here, the window ended at today-00:00 UTC
+      // (~8 PM yesterday ET during EDT), dropping today's already-run
+      // heats from the "Earlier" modal.
+      const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 1);
       const all = await fetchSessionsInWindow(resources, startDate, endDate);
       const past = all
         .filter((s) => new Date(s.scheduledStart).getTime() <= now)
