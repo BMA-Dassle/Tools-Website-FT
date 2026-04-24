@@ -5,12 +5,12 @@ import { getAssignmentAtTime } from "@/lib/camera-assign";
 import {
   saveVideoMatch,
   updateVideoMatch,
-  hasVideoBeenMatched,
+  getMatchByVideoCode,
   getLastSeenVideoId,
   setLastSeenVideoId,
   type VideoMatch,
 } from "@/lib/video-match";
-import { notifyVideoReady } from "@/lib/video-notify";
+import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 import { logCronRun } from "@/lib/sms-log";
 
 /**
@@ -71,8 +71,10 @@ export async function GET(req: NextRequest) {
   let skippedAlreadyMatched = 0;
   let skippedNoAssignment = 0;
   let skippedOld = 0;
-  let skippedNotReady = 0;
-  let matched = 0;
+  let skippedNotReady = 0;       // match row exists + still waiting on VT3
+  let savedPending = 0;           // NEW match, saved with pendingNotify=true
+  let deferredSent = 0;           // pending match turned ready, notify fired on this tick
+  let matched = 0;                // new match + immediate notify (VT3 already ready)
   let errors = 0;
 
   /**
@@ -117,6 +119,33 @@ export async function GET(req: NextRequest) {
     // the next cron tick will retry them once VT3 transitions the state.
     let highestId = lastSeenId;
 
+    // Small helper: fire SMS/email + patch notify fields onto the record.
+    // Used by both the immediate-notify branch (new match, VT3 ready) and
+    // the deferred-notify branch (existing pending match, VT3 now ready).
+    const fireNotify = async (record: VideoMatch): Promise<void> => {
+      try {
+        const entry = cameraHistoryEntryFromMatch(record);
+        const n = await notifyVideoReady(record, entry);
+        const nowIso = new Date().toISOString();
+        if (n.sms.attempted) {
+          record.notifySmsOk = n.sms.ok;
+          record.notifySmsError = n.sms.error;
+          record.notifySmsSentTo = n.sms.sentTo;
+          record.notifySmsSentAt = nowIso;
+        }
+        if (n.email.attempted) {
+          record.notifyEmailOk = n.email.ok;
+          record.notifyEmailError = n.email.error;
+          record.notifyEmailSentTo = n.email.sentTo;
+          record.notifyEmailSentAt = nowIso;
+        }
+        record.pendingNotify = false;
+        await updateVideoMatch(record).catch(() => void 0);
+      } catch (err) {
+        console.error(`[video-match] notify error for code=${record.videoCode}:`, err);
+      }
+    };
+
     for (const v of videos) {
       fetched++;
       if (v.id <= lastSeenId) {
@@ -124,29 +153,63 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Status gate: only match videos past the TRANSFERRING/SAMPLING
-      // phase, so the preview link in the SMS/email actually works when
-      // the racer taps it. Don't update highestId — leave these for the
-      // next cron tick to reattempt.
-      if (v.status && NOT_READY_STATUSES.has(v.status)) {
-        skippedNotReady++;
+      const notReady = !!v.status && NOT_READY_STATUSES.has(v.status);
+
+      // -----------------------------------------------------------------
+      // PATH 1: existing match (prior cron run already created a record).
+      // If it's pending-notify and the video has now transitioned to a
+      // preview-ready status, fire the notification now + mark ready.
+      // Otherwise skip.
+      // -----------------------------------------------------------------
+      const existing = await getMatchByVideoCode(v.code);
+      if (existing) {
+        if (!existing.pendingNotify) {
+          // Fully done in a prior run.
+          if (v.id > highestId) highestId = v.id;
+          skippedAlreadyMatched++;
+          continue;
+        }
+        // Pending match. Is it ready yet?
+        if (notReady) {
+          skippedNotReady++;
+          // Don't advance highestId — we'll retry next tick.
+          continue;
+        }
+        // It's ready now. Fire the deferred notify.
+        if (dryRun) {
+          deferredSent++;
+          matches.push({
+            videoCode: v.code,
+            systemNumber: existing.systemNumber,
+            cameraNumber: existing.cameraNumber,
+            racer: `${existing.firstName} ${existing.lastName}`,
+            sessionId: existing.sessionId,
+          });
+          continue;
+        }
+        existing.videoStatus = v.status;
+        await fireNotify(existing);
+        if (v.id > highestId) highestId = v.id;
+        deferredSent++;
+        matches.push({
+          videoCode: v.code,
+          systemNumber: existing.systemNumber,
+          cameraNumber: existing.cameraNumber,
+          racer: `${existing.firstName} ${existing.lastName}`,
+          sessionId: existing.sessionId,
+        });
         continue;
       }
 
-      if (v.id > highestId) highestId = v.id;
-
-      // Key the match on the CAMERA hardware id (video.camera) — that's
-      // what staff scans off the NFC tag on the camera. video.system.name
-      // is the base-station the camera happened to dock in, which isn't
-      // what the NFC tag reads.
+      // -----------------------------------------------------------------
+      // PATH 2: no existing record. Try to match by camera + save. If VT3
+      // isn't ready, save with pendingNotify=true (admin sees the row
+      // now, racer gets the SMS once VT3 transitions). If ready, notify
+      // immediately.
+      // -----------------------------------------------------------------
       //
-      // Cameras roam between racers each heat; base stations are fixed.
-      // Pairing by camera hardware id is what makes 'camera 9 went with
-      // Alice for heat 27' actually correct across the day.
-      //
-      // Legacy fallback: earlier assignments may have been stored keyed
-      // off the system number (when we had this wrong). If no match on
-      // camera id, try system.name before giving up.
+      // Key the match on video.camera (NFC-scanned hardware id). Fallback
+      // to video.system.name for legacy records stored that way.
       const cameraKey = v.camera != null ? String(v.camera) : "";
       const systemFallbackKey = v.system?.name || "";
       if (!cameraKey && !systemFallbackKey) {
@@ -154,25 +217,19 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Already matched by a previous run? (sentinel check)
-      if (await hasVideoBeenMatched(v.code)) {
-        skippedAlreadyMatched++;
-        continue;
-      }
-
-      // Time-aware lookup: who was this camera assigned to when the
-      // video was captured?
+      // Time-aware: who was this camera assigned to when the video was
+      // captured?
       let assignment = cameraKey ? await getAssignmentAtTime(cameraKey, v.created_at) : null;
       if (!assignment && systemFallbackKey) {
         assignment = await getAssignmentAtTime(systemFallbackKey, v.created_at);
       }
       if (!assignment) {
+        if (v.id > highestId) highestId = v.id;
         skippedNoAssignment++;
         continue;
       }
 
       if (dryRun) {
-        matched++;
         matches.push({
           videoCode: v.code,
           systemNumber: systemFallbackKey,
@@ -180,6 +237,7 @@ export async function GET(req: NextRequest) {
           racer: `${assignment.firstName} ${assignment.lastName}`,
           sessionId: assignment.sessionId,
         });
+        if (notReady) savedPending++; else matched++;
         continue;
       }
 
@@ -189,8 +247,8 @@ export async function GET(req: NextRequest) {
           personId: assignment.personId,
           firstName: assignment.firstName,
           lastName: assignment.lastName,
-          systemNumber: systemFallbackKey, // base / dock id (video.system.name, e.g. "913")
-          cameraNumber: v.camera,          // hardware camera (video.camera, e.g. 9)
+          systemNumber: systemFallbackKey,
+          cameraNumber: v.camera,
           videoId: v.id,
           videoCode: v.code,
           customerUrl: `https://vt3.io/?code=${v.code}`,
@@ -203,52 +261,37 @@ export async function GET(req: NextRequest) {
           track: assignment.track,
           raceType: assignment.raceType,
           heatNumber: assignment.heatNumber,
-          // Snapshot contact so the admin-resend endpoint doesn't need to
-          // re-walk the system-history set.
           email: assignment.email,
           phone: assignment.phone,
           mobilePhone: assignment.mobilePhone,
           homePhone: assignment.homePhone,
           acceptSmsCommercial: assignment.acceptSmsCommercial,
+          pendingNotify: notReady,
+          videoStatus: v.status,
         };
         const saved = await saveVideoMatch(matchRecord);
-        if (saved) {
-          matched++;
-          matches.push({
-            videoCode: v.code,
-            systemNumber: systemFallbackKey,
-            cameraNumber: v.camera,
-            racer: `${assignment.firstName} ${assignment.lastName}`,
-            sessionId: assignment.sessionId,
-          });
-          // Notify the racer — SMS (consent-gated) + email. Best-effort,
-          // non-blocking. Persist the notify outcome back onto the match
-          // record so the admin UI can see what went out.
-          try {
-            const n = await notifyVideoReady(matchRecord, assignment);
-            const nowIso = new Date().toISOString();
-            if (n.sms.attempted) {
-              matchRecord.notifySmsOk = n.sms.ok;
-              matchRecord.notifySmsError = n.sms.error;
-              matchRecord.notifySmsSentTo = n.sms.sentTo;
-              matchRecord.notifySmsSentAt = nowIso;
-            }
-            if (n.email.attempted) {
-              matchRecord.notifyEmailOk = n.email.ok;
-              matchRecord.notifyEmailError = n.email.error;
-              matchRecord.notifyEmailSentTo = n.email.sentTo;
-              matchRecord.notifyEmailSentAt = nowIso;
-            }
-            // Patch the match record in place with the notify status.
-            // updateVideoMatch bypasses the NX sentinel which has
-            // already fired for this video.
-            await updateVideoMatch(matchRecord).catch(() => void 0);
-          } catch (err) {
-            console.error(`[video-match] notify error for code=${v.code}:`, err);
-          }
-        } else {
-          // Another cron ran faster — treat as already matched.
+        if (!saved) {
           skippedAlreadyMatched++;
+          continue;
+        }
+        matches.push({
+          videoCode: v.code,
+          systemNumber: systemFallbackKey,
+          cameraNumber: v.camera,
+          racer: `${assignment.firstName} ${assignment.lastName}`,
+          sessionId: assignment.sessionId,
+        });
+        if (notReady) {
+          // Saved as pending. Admin will see the row; notify fires on
+          // the next tick once VT3 says ready. Do NOT advance highestId
+          // so we revisit this video.
+          savedPending++;
+        } else {
+          // VT3 is ready now — fire notify immediately, mark record
+          // final, advance cursor.
+          await fireNotify(matchRecord);
+          if (v.id > highestId) highestId = v.id;
+          matched++;
         }
       } catch (err) {
         console.error(`[video-match] save error for code=${v.code}:`, err);
@@ -283,6 +326,8 @@ export async function GET(req: NextRequest) {
         lastSeenIdAfter: highestId,
         fetched,
         matched,
+        savedPending,
+        deferredSent,
         skippedOld,
         skippedAlreadyMatched,
         skippedNoAssignment,

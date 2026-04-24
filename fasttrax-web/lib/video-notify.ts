@@ -177,6 +177,37 @@ function buildVideoEmailHtml(entry: CameraHistoryEntry, videoUrl: string, thumbn
 </html>`;
 }
 
+/**
+ * Reconstruct a CameraHistoryEntry from a saved VideoMatch record.
+ * Used by the cron's deferred-notify path: on the tick where a
+ * pending-notify match becomes ready, we don't have the original
+ * camera-history entry in scope — but we snapshotted every field we
+ * need onto the match record when we first saved it. This just
+ * re-packages them into the shape notifyVideoReady() wants.
+ */
+export function cameraHistoryEntryFromMatch(m: VideoMatch): CameraHistoryEntry {
+  return {
+    sessionId: m.sessionId,
+    personId: m.personId,
+    firstName: m.firstName,
+    lastName: m.lastName,
+    systemNumber: m.systemNumber,
+    sessionName: m.sessionName,
+    scheduledStart: m.scheduledStart,
+    track: m.track,
+    raceType: m.raceType,
+    heatNumber: m.heatNumber,
+    // matchedAt is close enough to an 'assignedAt' for downstream — the
+    // retry path doesn't re-check consent timing.
+    assignedAt: m.matchedAt,
+    email: m.email,
+    mobilePhone: m.mobilePhone,
+    homePhone: m.homePhone,
+    phone: m.phone,
+    acceptSmsCommercial: m.acceptSmsCommercial,
+  };
+}
+
 /** Build a minimal Participant-ish object so the existing
  *  `pickPhone` / `hasSmsConsent` helpers work without us reimplementing
  *  the field-preference logic. */

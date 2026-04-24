@@ -64,6 +64,16 @@ export interface VideoMatch {
   notifyEmailError?: string;
   notifyEmailSentTo?: string;
   notifyEmailSentAt?: string;
+  /** True when the match was saved but SMS/email are held off because
+   *  VT3 hasn't finished sampling the video yet (status is one of
+   *  TRANSFERRING/SAMPLING/PROCESSING). Once the next cron tick sees
+   *  the status flipped to PENDING_ACTIVATION or later, notify fires
+   *  and this flag goes false. */
+  pendingNotify?: boolean;
+  /** Last VT3 status observed for the video (e.g. 'TRANSFERRING',
+   *  'PENDING_ACTIVATION'). Surfaced in the admin UI so staff can
+   *  see where in the upload pipeline a pending row sits. */
+  videoStatus?: string;
 }
 
 function matchKey(sessionId: string | number, personId: string | number): string {
@@ -180,4 +190,23 @@ export async function getMatch(
   const raw = await redis.get(matchKey(sessionId, personId));
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
+}
+
+/**
+ * Lookup a match record by its video code. Two-hop via the
+ * video-match:by-code sentinel → the full record. Used by the cron
+ * to detect "already matched, may still need notify" rows on
+ * subsequent ticks when a pending-notify video's VT3 status finally
+ * transitions to preview-ready.
+ */
+export async function getMatchByVideoCode(videoCode: string): Promise<VideoMatch | null> {
+  try {
+    const sentinelRaw = await redis.get(seenVideoKey(videoCode));
+    if (!sentinelRaw) return null;
+    const sentinel = JSON.parse(sentinelRaw) as { sessionId?: string | number; personId?: string | number };
+    if (!sentinel.sessionId || !sentinel.personId) return null;
+    return await getMatch(sentinel.sessionId, sentinel.personId);
+  } catch {
+    return null;
+  }
 }

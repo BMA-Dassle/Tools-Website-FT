@@ -49,6 +49,13 @@ type VideoRow = {
   notifyEmailError?: string;
   notifyEmailSentTo?: string;
   notifyEmailSentAt?: string;
+  /** True when the match is saved but SMS/email are deferred because
+   *  VT3 hasn't finished sampling yet. Admin shows a 'pending upload'
+   *  chip instead of sms/email status until the cron's next tick
+   *  catches the status transition and fires the notify. */
+  pendingNotify?: boolean;
+  /** Last VT3 status observed for the video, for debug / transparency. */
+  videoStatus?: string;
 };
 
 type ListResponse = {
@@ -223,6 +230,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
                   <div className="flex items-center gap-1 flex-wrap justify-end">
                     {isUnmatched ? (
                       <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
+                    ) : e.pendingNotify ? (
+                      <span
+                        className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
+                        title={`Matched — waiting for VT3 preview to finish (${e.videoStatus || "status unknown"})`}
+                      >
+                        ⏳ pending upload
+                      </span>
                     ) : (
                       <>
                         {e.notifySmsOk === true ? (
@@ -336,6 +350,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       <td className="px-3 py-2 whitespace-nowrap">
                         {isUnmatched ? (
                           <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
+                        ) : e.pendingNotify ? (
+                          <span
+                            className="text-xs uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
+                            title={`Matched — waiting for VT3 preview to finish (${e.videoStatus || "status unknown"})`}
+                          >
+                            ⏳ pending upload
+                          </span>
                         ) : (
                           <span className="inline-flex items-center gap-1">
                             {e.notifySmsOk === true ? (
