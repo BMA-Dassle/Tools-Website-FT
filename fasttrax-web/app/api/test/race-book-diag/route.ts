@@ -77,12 +77,34 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "confirmDepositKind must be an integer" }, { status: 400 });
     }
 
+    // Short-circuit BEFORE the required-param check so deploy-status
+    // polling (`until curl ...; sleep`) can hit this endpoint without
+    // creating a BMI bill OR tripping the 400 validator. Every normal
+    // invocation creates a real reservation that does NOT auto-cancel
+    // (by design — staff check-in test). That cost adds up fast if
+    // the endpoint is called repeatedly by accident.
+    if (searchParams.get("probe") === "1") {
+      return NextResponse.json({
+        ok: true,
+        probe: true,
+        inputShape: {
+          personId, productId, pageId, date, clientKey, heatIndex,
+          doConfirm, confirmDepositKind, time: timeStr,
+        },
+        message: "Probe only — no BMI call. Drop probe=1 to actually run.",
+      });
+    }
+
     if (!personId || !productId || !pageId || !date) {
       return NextResponse.json(
         { error: "Required: personId, productId, pageId, date (YYYY-MM-DD)" },
         { status: 400 },
       );
     }
+
+    // Log the fact we're about to create a real BMI bill so staff can
+    // see in Vercel logs if something is spamming this endpoint.
+    console.log(`[race-book-diag] CREATING BILL for person ${personId} on ${date} (NO auto-cancel)`);
 
     const base = baseUrl(req);
     const sms = async (endpoint: string, init: RequestInit = {}) => {

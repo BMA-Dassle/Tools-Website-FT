@@ -121,6 +121,25 @@ export async function GET(req: NextRequest) {
       return { status: res.status, body: parsed, raw: text };
     };
 
+    // Short-circuit for deploy-status polling. Hitting this endpoint
+    // without `probe=1` always creates (and usually cancels) a live
+    // BMI bill. Cheap to invoke = dangerous to poll. Use `probe=1`
+    // to verify the endpoint is alive + echoes the expected input
+    // shape, without touching BMI at all.
+    if (searchParams.get("probe") === "1") {
+      return NextResponse.json({
+        ok: true,
+        probe: true,
+        inputShape: {
+          personId, productId: productIdRaw, pageId, clientKey,
+          doConfirm, doCancel, depositKind, regContact, regProject,
+          regProjectLine, projectFirst, personIdInSell, includePageId,
+          includeProductXref,
+        },
+        message: "Probe only — no BMI call. Drop probe=1 to actually run.",
+      });
+    }
+
     const trace: Record<string, unknown> = {
       input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, regProjectLine, projectFirst, personIdInSell, includePageId, includeProductXref },
       timestamp: new Date().toISOString(),
