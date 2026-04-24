@@ -17,6 +17,10 @@ import { randomUUID } from "crypto";
  *   clientKey    (defaults "headpinzftmyers")
  *   heatIndex    (default 0; picks the Nth available time block)
  *   doConfirm    (default 1; set 0 to stop after booking/book)
+ *   time         (default "15:00"; HH:MM UTC — dayplanner picks slots
+ *                 from this time forward on the given date. Default
+ *                 15:00 UTC = 11 AM ET which covers most weekend
+ *                 opens. Passing "T00:00:00Z" returns zero proposals.)
  *
  * UNLIKE race-pack-diag, this does NOT auto-cancel the bill — the
  * whole point is to leave a live booking in place so staff can
@@ -57,6 +61,7 @@ export async function GET(req: NextRequest) {
     const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
     const heatIndex = parseInt(searchParams.get("heatIndex") || "0", 10);
     const doConfirm = searchParams.get("doConfirm") !== "0";
+    const timeStr = searchParams.get("time") || "15:00"; // HH:MM UTC
 
     if (!personId || !productId || !pageId || !date) {
       return NextResponse.json(
@@ -105,7 +110,7 @@ export async function GET(req: NextRequest) {
       pageId: Number(pageId),
       quantity: 1,
       dynamicLines: null,
-      date: `${date}T00:00:00.000Z`,
+      date: `${date}T${timeStr}:00.000Z`,
     });
     const dpResp = await sms("dayplanner/dayplanner", { method: "POST", body: dayplannerBody });
     trace.dayplanner = { status: dpResp.status, proposalCount: Array.isArray((dpResp.body as { proposals?: unknown[] })?.proposals) ? (dpResp.body as { proposals: unknown[] }).proposals.length : 0 };
