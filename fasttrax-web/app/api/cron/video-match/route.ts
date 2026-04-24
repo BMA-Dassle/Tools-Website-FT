@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import { listRecentVideos } from "@/lib/vt3";
+import { listRecentVideos, type Vt3Video } from "@/lib/vt3";
 import { getAssignmentAtTime } from "@/lib/camera-assign";
 import {
   saveVideoMatch,
@@ -51,6 +51,59 @@ import { logCronRun } from "@/lib/sms-log";
 
 const CRON_LOCK_KEY = "cron-lock:video-match";
 const CRON_LOCK_TTL = 90;
+
+/**
+ * Pull VT3's impression + purchase fields off a /videos record into
+ * the shape we persist on each VideoMatch. Called on every video every
+ * tick so the admin UI's "viewed" / "purchased" chips stay fresh even
+ * after the match row is fully notified and past the lastSeenId cursor.
+ *
+ * `viewed` collapses VT3's two impression flags + the firstImpressionAt
+ * timestamp into one boolean — any of those being truthy means a racer
+ * (or anyone with the link) has loaded the player. `purchased` keys off
+ * unlockTime, which VT3 sets when the vid is unlocked via the purchase
+ * flow. Keeping both booleans + the raw timestamps/strings lets the UI
+ * render a chip AND a tooltip without re-deriving.
+ */
+type Overlay = {
+  viewed?: boolean;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  purchased?: boolean;
+  purchaseType?: string;
+  unlockedAt?: string;
+};
+
+function extractOverlay(v: Vt3Video): Overlay {
+  const viewed =
+    !!v.hasVideoPageImpression ||
+    !!v.hasMediaCentreImpression ||
+    !!v.firstImpressionAt;
+  const unlockedAt = v.unlockTime || undefined;
+  const purchased = !!unlockedAt;
+  return {
+    viewed: viewed || undefined,
+    firstViewedAt: v.firstImpressionAt || undefined,
+    lastViewedAt: v.lastImpressionAt || undefined,
+    purchased: purchased || undefined,
+    purchaseType: v.purchaseType || undefined,
+    unlockedAt,
+  };
+}
+
+/** True when any of the overlay fields differs from what's already
+ *  persisted on the record. Used to gate the Redis write so the cron
+ *  doesn't churn 200 SETs/tick when nothing has changed. */
+function overlayDiffers(m: VideoMatch, o: Overlay): boolean {
+  return (
+    m.viewed !== o.viewed ||
+    m.firstViewedAt !== o.firstViewedAt ||
+    m.lastViewedAt !== o.lastViewedAt ||
+    m.purchased !== o.purchased ||
+    m.purchaseType !== o.purchaseType ||
+    m.unlockedAt !== o.unlockedAt
+  );
+}
 
 export async function GET(req: NextRequest) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
@@ -148,6 +201,33 @@ export async function GET(req: NextRequest) {
 
     for (const v of videos) {
       fetched++;
+
+      // Always-run overlay pass: mirror VT3's impression + purchase
+      // fields onto any existing match record for this video code,
+      // regardless of cursor position or readiness state. Videos
+      // matched days ago still need their "viewed" / "purchased" chips
+      // to tick forward each time a racer opens the share link.
+      //
+      // Cheap: at most `videos.length` GETs/tick (≤200), and we only
+      // SET when a field actually changed.
+      const overlay = extractOverlay(v);
+      const existing = await getMatchByVideoCode(v.code);
+      if (existing) {
+        const changed = overlayDiffers(existing, overlay);
+        // Mutate in place AFTER the diff check — any subsequent write
+        // in this iteration (deferred-notify's `updateVideoMatch(existing)`,
+        // the save-path fallback, etc.) then carries the overlay fields
+        // forward without clobbering.
+        Object.assign(existing, overlay);
+        if (changed && !dryRun) {
+          try {
+            await updateVideoMatch(existing);
+          } catch (err) {
+            console.error(`[video-match] overlay update failed for code=${v.code}:`, err);
+          }
+        }
+      }
+
       if (v.id <= lastSeenId) {
         skippedOld++;
         continue;
@@ -161,7 +241,6 @@ export async function GET(req: NextRequest) {
       // preview-ready status, fire the notification now + mark ready.
       // Otherwise skip.
       // -----------------------------------------------------------------
-      const existing = await getMatchByVideoCode(v.code);
       if (existing) {
         if (!existing.pendingNotify) {
           // Fully done in a prior run.
@@ -268,6 +347,7 @@ export async function GET(req: NextRequest) {
           acceptSmsCommercial: assignment.acceptSmsCommercial,
           pendingNotify: notReady,
           videoStatus: v.status,
+          ...overlay,
         };
         const saved = await saveVideoMatch(matchRecord);
         if (!saved) {

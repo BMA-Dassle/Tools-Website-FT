@@ -79,6 +79,15 @@ type ListEntry = (VideoMatch & { matched: true }) | {
   lastName: string;
   sessionId: "";
   personId: "";
+  // VT3 impression / purchase overlay — same shape the cron writes onto
+  // matched rows, so the UI's `👁 viewed` / `💰 purchased` chips work
+  // uniformly regardless of match state.
+  viewed?: boolean;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  purchased?: boolean;
+  purchaseType?: string;
+  unlockedAt?: string;
 };
 
 export async function GET(req: NextRequest) {
@@ -121,22 +130,35 @@ export async function GET(req: NextRequest) {
           const sentinels = sentinelKeys.length ? await redis.mget(...sentinelKeys) : [];
           unmatched = candidates
             .filter((_, i) => !sentinels[i])
-            .map((v) => ({
-              matched: false as const,
-              videoId: v.id,
-              videoCode: v.code,
-              systemNumber: v.system?.name || "",
-              cameraNumber: v.camera,
-              customerUrl: `https://vt3.io/?code=${v.code}`,
-              thumbnailUrl: v.thumbnailUrl,
-              capturedAt: v.created_at,
-              duration: v.duration,
-              matchedAt: v.created_at, // treat capture time as the sortable timestamp
-              firstName: "",
-              lastName: "",
-              sessionId: "",
-              personId: "",
-            }));
+            .map((v) => {
+              const viewed =
+                !!v.hasVideoPageImpression ||
+                !!v.hasMediaCentreImpression ||
+                !!v.firstImpressionAt;
+              const unlockedAt = v.unlockTime || undefined;
+              return {
+                matched: false as const,
+                videoId: v.id,
+                videoCode: v.code,
+                systemNumber: v.system?.name || "",
+                cameraNumber: v.camera,
+                customerUrl: `https://vt3.io/?code=${v.code}`,
+                thumbnailUrl: v.thumbnailUrl,
+                capturedAt: v.created_at,
+                duration: v.duration,
+                matchedAt: v.created_at, // treat capture time as the sortable timestamp
+                firstName: "",
+                lastName: "",
+                sessionId: "" as const,
+                personId: "" as const,
+                viewed: viewed || undefined,
+                firstViewedAt: v.firstImpressionAt || undefined,
+                lastViewedAt: v.lastImpressionAt || undefined,
+                purchased: !!unlockedAt || undefined,
+                purchaseType: v.purchaseType || undefined,
+                unlockedAt,
+              };
+            });
         }
       } catch (err) {
         // VT3 API failure shouldn't kill the whole list — matched rows

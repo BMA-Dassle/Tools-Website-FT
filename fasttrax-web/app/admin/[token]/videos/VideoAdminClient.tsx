@@ -56,6 +56,19 @@ type VideoRow = {
   pendingNotify?: boolean;
   /** Last VT3 status observed for the video, for debug / transparency. */
   videoStatus?: string;
+  /** VT3 impression overlay — populated by the video-match cron from
+   *  vt3's /videos feed. `viewed` is true once ANY viewer has loaded
+   *  the video page or media-centre tile. Timestamps let staff see
+   *  when the racer first/last opened it. */
+  viewed?: boolean;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  /** True when the video has been unlocked via VT3's purchase flow.
+   *  `purchaseType` is the raw VT3 string (e.g. 'FREE', 'PAID') for
+   *  the chip tooltip; `unlockedAt` is when unlock happened. */
+  purchased?: boolean;
+  purchaseType?: string;
+  unlockedAt?: string;
 };
 
 type ListResponse = {
@@ -255,6 +268,30 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         )}
                       </>
                     )}
+                    {e.viewed && (
+                      <span
+                        className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300"
+                        title={
+                          e.lastViewedAt
+                            ? `Last viewed ${formatEt(e.lastViewedAt)}${e.firstViewedAt && e.firstViewedAt !== e.lastViewedAt ? ` · first ${formatEt(e.firstViewedAt)}` : ""}`
+                            : "Racer opened the video"
+                        }
+                      >
+                        👁 viewed
+                      </span>
+                    )}
+                    {e.purchased && (
+                      <span
+                        className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300"
+                        title={
+                          e.unlockedAt
+                            ? `Unlocked ${formatEt(e.unlockedAt)}${e.purchaseType ? ` · ${e.purchaseType}` : ""}`
+                            : e.purchaseType || "Purchased"
+                        }
+                      >
+                        💰 purchased
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="font-semibold text-white mb-1">
@@ -348,33 +385,59 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         </a>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        {isUnmatched ? (
-                          <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
-                        ) : e.pendingNotify ? (
-                          <span
-                            className="text-xs uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
-                            title={`Matched — waiting for VT3 preview to finish (${e.videoStatus || "status unknown"})`}
-                          >
-                            ⏳ pending upload
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1">
-                            {e.notifySmsOk === true ? (
-                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">sms ✓</span>
-                            ) : e.notifySmsError ? (
-                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifySmsError}>sms ✗</span>
-                            ) : (
-                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">sms —</span>
-                            )}
-                            {e.notifyEmailOk === true ? (
-                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">email ✓</span>
-                            ) : e.notifyEmailError ? (
-                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifyEmailError}>email ✗</span>
-                            ) : (
-                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">email —</span>
-                            )}
-                          </span>
-                        )}
+                        <span className="inline-flex items-center gap-1 flex-wrap">
+                          {isUnmatched ? (
+                            <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
+                          ) : e.pendingNotify ? (
+                            <span
+                              className="text-xs uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
+                              title={`Matched — waiting for VT3 preview to finish (${e.videoStatus || "status unknown"})`}
+                            >
+                              ⏳ pending upload
+                            </span>
+                          ) : (
+                            <>
+                              {e.notifySmsOk === true ? (
+                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">sms ✓</span>
+                              ) : e.notifySmsError ? (
+                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifySmsError}>sms ✗</span>
+                              ) : (
+                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">sms —</span>
+                              )}
+                              {e.notifyEmailOk === true ? (
+                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">email ✓</span>
+                              ) : e.notifyEmailError ? (
+                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifyEmailError}>email ✗</span>
+                              ) : (
+                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">email —</span>
+                              )}
+                            </>
+                          )}
+                          {e.viewed && (
+                            <span
+                              className="text-xs uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300"
+                              title={
+                                e.lastViewedAt
+                                  ? `Last viewed ${formatEt(e.lastViewedAt)}${e.firstViewedAt && e.firstViewedAt !== e.lastViewedAt ? ` · first ${formatEt(e.firstViewedAt)}` : ""}`
+                                  : "Racer opened the video"
+                              }
+                            >
+                              👁 viewed
+                            </span>
+                          )}
+                          {e.purchased && (
+                            <span
+                              className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300"
+                              title={
+                                e.unlockedAt
+                                  ? `Unlocked ${formatEt(e.unlockedAt)}${e.purchaseType ? ` · ${e.purchaseType}` : ""}`
+                                  : e.purchaseType || "Purchased"
+                              }
+                            >
+                              💰 purchased
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className="px-3 py-2">
                         <button

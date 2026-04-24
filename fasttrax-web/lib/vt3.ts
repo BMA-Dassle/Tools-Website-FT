@@ -36,6 +36,17 @@ export interface Vt3Video {
   thumbnailUrl?: string;
   sampleUploadTime: string | null;
   uploadTime: string | null;
+  /** First / last time ANY viewer loaded the video page or media-centre
+   *  tile. VT3 populates these as racers open the vt3.io share link. */
+  firstImpressionAt?: string | null;
+  lastImpressionAt?: string | null;
+  /** True once someone has hit the video-page (vt3.io/?code=X) or the
+   *  media-centre grid view. Either one means the racer clicked through. */
+  hasVideoPageImpression?: boolean;
+  hasMediaCentreImpression?: boolean;
+  /** Set when the video has been "unlocked" (paid out of the purchase
+   *  flow). Presence is the purchased signal; absence = still locked. */
+  unlockTime?: string | null;
 }
 
 async function login(): Promise<string> {

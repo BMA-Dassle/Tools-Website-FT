@@ -74,6 +74,21 @@ export interface VideoMatch {
    *  'PENDING_ACTIVATION'). Surfaced in the admin UI so staff can
    *  see where in the upload pipeline a pending row sits. */
   videoStatus?: string;
+  /** VT3 impression / purchase overlay — populated by the video-match
+   *  cron every tick from vt3's /videos feed, even for videos past the
+   *  lastSeenId cursor. Lets the admin UI answer "did the racer watch
+   *  this?" / "did they buy it?" without us calling VT3 from the
+   *  browser (which would bump impression counters and skew metrics).
+   *
+   *  `viewed` / `purchased` are booleans we derive from the underlying
+   *  VT3 fields so the UI chip render stays simple. `purchaseType` is
+   *  the raw VT3 string (e.g. 'FREE', 'PAID') for chip tooltips. */
+  viewed?: boolean;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  purchased?: boolean;
+  purchaseType?: string;
+  unlockedAt?: string;
 }
 
 function matchKey(sessionId: string | number, personId: string | number): string {
