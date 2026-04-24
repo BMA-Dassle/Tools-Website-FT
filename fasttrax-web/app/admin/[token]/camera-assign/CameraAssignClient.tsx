@@ -375,6 +375,54 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     setTimeout(() => barcodeInputRef.current?.focus(), 50);
   }, [loadBarcodes]);
 
+  /** Document-level keydown listener while the barcode modal is open.
+   *  Removes the "you have to tap into the input first" friction —
+   *  USB barcode scanners pump keydown events to the document, so we
+   *  capture them no matter what's focused. Auto-saves on Enter
+   *  (the scanner's typical terminator suffix). Also keeps the
+   *  input echoing the current buffer for visual feedback. */
+  const barcodeBufferRef = useRef("");
+  useEffect(() => {
+    if (!barcodeModalOpen) return;
+    barcodeBufferRef.current = "";
+    const onKey = (e: KeyboardEvent) => {
+      // Don't hijack typing in the staff "Cancel" / "×" close button
+      // or any other interactive element with its own intent.
+      const t = e.target as HTMLElement | null;
+      // Allow keys to flow through normal interactive elements (we
+      // still capture them via this document listener) — only ignore
+      // if a non-modal text input has focus (shouldn't happen since
+      // the modal covers the page, but defensive).
+      if (t && t.tagName === "INPUT" && t !== barcodeInputRef.current) return;
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const v = barcodeBufferRef.current.trim();
+        if (v) {
+          void saveBarcode(barcodeActiveCam, v);
+          barcodeBufferRef.current = "";
+        }
+        return;
+      }
+      if (e.key === "Backspace") {
+        barcodeBufferRef.current = barcodeBufferRef.current.slice(0, -1);
+        setBarcodeInput(barcodeBufferRef.current);
+        return;
+      }
+      if (e.key === "Escape") {
+        setBarcodeModalOpen(false);
+        return;
+      }
+      // Single-char key — append to buffer.
+      if (e.key.length === 1) {
+        barcodeBufferRef.current += e.key;
+        setBarcodeInput(barcodeBufferRef.current);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [barcodeModalOpen, barcodeActiveCam, saveBarcode]);
+
   // Load the barcode map on mount (not just when the modal opens) so
   // the MAIN scan input can resolve barcodes → camera numbers in real
   // time. Racers' cameras carry a barcode; when USB barcode scanners
@@ -1917,29 +1965,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 <input
                   ref={barcodeInputRef}
                   type="text"
-                  // Same Android-keyboard suppression we use on the main
-                  // scan field. Barcode provisioning is a USB-scanner-
-                  // driven workflow; mobile keyboard would just cover
-                  // the camera list. `readOnly` is the bulletproof
-                  // suppression hint (some IMEs ignore inputMode).
-                  // The HID barcode reader still writes here because
-                  // it dispatches keydown events that we capture below.
+                  // readOnly + inputMode='none' suppress the Android
+                  // virtual keyboard. The actual scan capture happens
+                  // at the document level (see effect above) — the
+                  // input is just a visual buffer + manual-typing
+                  // path when the global Kb toggle is on.
                   readOnly={!showKeyboard}
                   inputMode={showKeyboard ? "text" : "none"}
                   value={barcodeInput}
-                  onChange={(e) => setBarcodeInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const v = barcodeInput.trim();
-                      if (v) void saveBarcode(barcodeActiveCam, v);
-                    } else if (!showKeyboard && e.key.length === 1) {
-                      // readOnly blocks default value-mutation, but a
-                      // USB barcode reader fires keydown for each
-                      // character — append manually.
-                      setBarcodeInput((b) => b + e.key);
-                    } else if (!showKeyboard && e.key === "Backspace") {
-                      setBarcodeInput((b) => b.slice(0, -1));
+                  onChange={(e) => {
+                    if (showKeyboard) {
+                      setBarcodeInput(e.target.value);
+                      barcodeBufferRef.current = e.target.value;
                     }
                   }}
                   placeholder="Waiting for barcode scan…"
@@ -1963,39 +2000,63 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               )}
             </div>
 
-            {/* Camera list — 1 to 96 */}
+            {/* Camera list — 1 to 96. The entire row is tappable to
+                make it the active scan target; selecting auto-focuses
+                the scan input so the next barcode scan lands there. */}
             <div className="flex-1 overflow-y-auto">
               {Array.from({ length: 96 }, (_, i) => i + 1).map((camN) => {
                 const bc = barcodeMap[String(camN)] || "";
                 const isActive = camN === barcodeActiveCam;
+                const selectThis = () => {
+                  setBarcodeActiveCam(camN);
+                  setBarcodeInput("");
+                  setBarcodeErr(null);
+                  // Focus input so the very next scan/keydown lands in
+                  // it. Use rAF instead of setTimeout(0) so React's
+                  // commit + the modal scroll settle first. Then scroll
+                  // the input into view so it's not hidden by the
+                  // virtual keyboard or scroll position.
+                  requestAnimationFrame(() => {
+                    barcodeInputRef.current?.focus();
+                    barcodeInputRef.current?.scrollIntoView({ block: "nearest" });
+                  });
+                };
                 return (
+                  // Outer div instead of <button> so we can nest a
+                  // real <button> for the clear action without
+                  // violating "no nested interactive" rules. role=button
+                  // + onKeyDown make it keyboard-equivalent.
                   <div
                     key={`bc-${camN}`}
-                    className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-white/[0.04] ${
-                      isActive ? "bg-[#00E2E5]/10 border-y-[#00E2E5]/30" : ""
+                    role="button"
+                    tabIndex={0}
+                    onClick={selectThis}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        selectThis();
+                      }
+                    }}
+                    className={`w-full flex items-center gap-2 px-4 py-3 text-sm border-t border-white/[0.04] text-left transition-colors cursor-pointer ${
+                      isActive
+                        ? "bg-[#00E2E5]/15 border-y-[#00E2E5]/40"
+                        : "hover:bg-white/[0.03] active:bg-[#00E2E5]/10"
                     }`}
+                    aria-label={`Select camera ${camN} as active scan target`}
+                    aria-pressed={isActive}
                   >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBarcodeActiveCam(camN);
-                        setBarcodeInput("");
-                        setTimeout(() => barcodeInputRef.current?.focus(), 0);
-                      }}
-                      className={`w-16 shrink-0 text-left tabular-nums uppercase tracking-wider ${
-                        isActive ? "text-[#00E2E5] font-bold" : "text-white/70"
-                      }`}
-                      title="Tap to make this the active scan target"
-                    >
+                    <span className={`w-16 shrink-0 tabular-nums uppercase tracking-wider ${
+                      isActive ? "text-[#00E2E5] font-bold" : "text-white/70"
+                    }`}>
                       Cam {camN}
-                    </button>
+                    </span>
                     <span className={`flex-1 truncate font-mono text-xs ${bc ? "text-emerald-300" : "text-white/30"}`}>
                       {bc || "— no barcode —"}
                     </span>
                     {bc && (
                       <button
                         type="button"
-                        onClick={() => void deleteBarcode(camN)}
+                        onClick={(e) => { e.stopPropagation(); void deleteBarcode(camN); }}
                         className="shrink-0 text-xs px-2 py-1 rounded border border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
                         aria-label={`Clear barcode for camera ${camN}`}
                       >
