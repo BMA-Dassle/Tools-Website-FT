@@ -399,13 +399,14 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     type="button"
                     onClick={() => void toggleBlock(e)}
                     disabled={blockBusy === e.videoCode}
+                    aria-label={e.blocked ? "Unblock this video" : "Block this video"}
                     className={`px-3 py-2 rounded font-semibold text-sm border transition-colors disabled:opacity-50 ${
                       e.blocked
                         ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
                         : "border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
                     }`}
                   >
-                    {blockBusy === e.videoCode ? "…" : e.blocked ? "Unblock" : "Block"}
+                    {blockBusy === e.videoCode ? "Working…" : e.blocked ? "Unblock" : "Block"}
                   </button>
                 </div>
               </div>
@@ -549,13 +550,14 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             type="button"
                             onClick={() => void toggleBlock(e)}
                             disabled={blockBusy === e.videoCode}
+                            aria-label={e.blocked ? "Unblock this video" : "Block this video"}
                             className={`text-xs px-2 py-1 rounded font-semibold border transition-colors disabled:opacity-50 ${
                               e.blocked
                                 ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
                                 : "border-white/15 text-white/60 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
                             }`}
                           >
-                            {blockBusy === e.videoCode ? "…" : e.blocked ? "Unblock" : "Block"}
+                            {blockBusy === e.videoCode ? "Working…" : e.blocked ? "Unblock" : "Block"}
                           </button>
                         </div>
                       </td>

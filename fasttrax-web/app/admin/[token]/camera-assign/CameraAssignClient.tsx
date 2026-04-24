@@ -1144,6 +1144,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                         type="button"
                         onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
                         disabled={blockBusy}
+                        aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
                         title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
                         className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
                           isBlocked
@@ -1165,6 +1166,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                         type="button"
                         onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
                         disabled={blockBusy}
+                        aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
                         title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
                         className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
                           isBlocked
@@ -1290,7 +1292,6 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   placeholder="e.g. crash in turn 3, pending review"
                   maxLength={200}
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                  autoFocus
                 />
               </label>
               <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
