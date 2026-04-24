@@ -71,8 +71,33 @@ export async function GET(req: NextRequest) {
   let skippedAlreadyMatched = 0;
   let skippedNoAssignment = 0;
   let skippedOld = 0;
+  let skippedNotReady = 0;
   let matched = 0;
   let errors = 0;
+
+  /**
+   * VT3 video status values seen in the wild:
+   *   TRANSFERRING       — upload in progress, preview NOT viewable yet
+   *   SAMPLING           — generating preview, still not viewable by staff
+   *   TRANSFERRED        — upload complete
+   *   PENDING_ACTIVATION — activation pending but preview MP4 IS viewable
+   *   UPLOADED / ACTIVE  — fully available
+   *
+   * We hold off notifying racers until the status reaches a state where
+   * tapping the link in the SMS actually plays something. Staff reported
+   * a race condition where texts were landing while vt3.io/?code=X was
+   * still showing 'processing'.
+   *
+   * Blocklist of known "too early" statuses; everything else passes.
+   * Using a blocklist (not allowlist) so VT3 adding a new later state
+   * doesn't silently block the cron.
+   */
+  const NOT_READY_STATUSES = new Set([
+    "TRANSFERRING",
+    "SAMPLING",
+    "PENDING_UPLOAD",
+    "PROCESSING",
+  ]);
   const matches: { videoCode: string; systemNumber: string; cameraNumber?: number; racer: string; sessionId: string | number }[] = [];
 
   try {
@@ -86,6 +111,10 @@ export async function GET(req: NextRequest) {
       getLastSeenVideoId(),
     ]);
 
+    // Only advance lastSeenId past videos we actually finished with
+    // (either matched, ready-but-no-assignment, or fatal error). Videos
+    // we skip because they're not ready yet keep their id "unseen" so
+    // the next cron tick will retry them once VT3 transitions the state.
     let highestId = lastSeenId;
 
     for (const v of videos) {
@@ -94,6 +123,16 @@ export async function GET(req: NextRequest) {
         skippedOld++;
         continue;
       }
+
+      // Status gate: only match videos past the TRANSFERRING/SAMPLING
+      // phase, so the preview link in the SMS/email actually works when
+      // the racer taps it. Don't update highestId — leave these for the
+      // next cron tick to reattempt.
+      if (v.status && NOT_READY_STATUSES.has(v.status)) {
+        skippedNotReady++;
+        continue;
+      }
+
       if (v.id > highestId) highestId = v.id;
 
       // Key the match on the CAMERA hardware id (video.camera) — that's
@@ -230,7 +269,7 @@ export async function GET(req: NextRequest) {
       invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
       candidates: fetched,
       sent: matched,
-      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld,
+      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady,
       errors,
     });
 
@@ -247,6 +286,7 @@ export async function GET(req: NextRequest) {
         skippedOld,
         skippedAlreadyMatched,
         skippedNoAssignment,
+        skippedNotReady,
         errors,
         matches,
       },
@@ -262,7 +302,7 @@ export async function GET(req: NextRequest) {
       invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
       candidates: fetched,
       sent: matched,
-      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld,
+      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady,
       errors,
       fatalError: err instanceof Error ? err.message : "cron error",
     });
