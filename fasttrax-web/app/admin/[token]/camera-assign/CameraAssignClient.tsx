@@ -286,6 +286,111 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  on <md viewports we show a summary button instead that opens this
    *  modal with bigger tap targets. Desktop keeps the inline list. */
   const [heatModalOpen, setHeatModalOpen] = useState(false);
+  /** Barcode-provisioning modal. Lets staff map each camera (1-96)
+   *  to its physical barcode — scan with a USB barcode reader or type
+   *  by hand. Persisted server-side so it survives across sessions.
+   *  barcodeMap: cameraNumber(string) → barcode(string). */
+  const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
+  const [barcodeMap, setBarcodeMap] = useState<Record<string, string>>({});
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeErr, setBarcodeErr] = useState<string | null>(null);
+  /** Which camera number slot the scan/type should land in. Increments
+   *  after each successful save so staff can rip through cameras
+   *  sequentially with a barcode reader. */
+  const [barcodeActiveCam, setBarcodeActiveCam] = useState<number>(1);
+  const [barcodeInput, setBarcodeInput] = useState<string>("");
+  const barcodeInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** Load the full mapping when the modal opens. */
+  const loadBarcodes = useCallback(async () => {
+    setBarcodeLoading(true);
+    setBarcodeErr(null);
+    try {
+      const res = await fetch("/api/admin/camera-assign/barcodes", {
+        cache: "no-store",
+        headers: { "x-admin-token": token },
+      });
+      if (!res.ok) throw new Error(`load failed (${res.status})`);
+      const json = await res.json();
+      setBarcodeMap(json.mappings || {});
+    } catch (e) {
+      setBarcodeErr(e instanceof Error ? e.message : "load failed");
+    } finally {
+      setBarcodeLoading(false);
+    }
+  }, [token]);
+
+  const saveBarcode = useCallback(async (cameraNumber: number, barcode: string) => {
+    const bc = barcode.trim();
+    if (!bc) return;
+    setBarcodeErr(null);
+    try {
+      const res = await fetch("/api/admin/camera-assign/barcodes", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ cameraNumber, barcode: bc }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `save failed (${res.status})`);
+      setBarcodeMap((prev) => ({ ...prev, [String(cameraNumber)]: bc }));
+      // Auto-advance to the next unmapped camera so USB barcode
+      // readers can chain scans without staff having to click.
+      setBarcodeInput("");
+      setBarcodeActiveCam((cur) => {
+        const start = Math.max(cur + 1, 1);
+        for (let i = start; i <= 96; i++) {
+          if (!barcodeMap[String(i)] && i !== cameraNumber) return i;
+        }
+        return Math.min(96, cur + 1);
+      });
+      // Re-focus the input so next scan lands here.
+      setTimeout(() => barcodeInputRef.current?.focus(), 0);
+    } catch (e) {
+      setBarcodeErr(e instanceof Error ? e.message : "save failed");
+    }
+  }, [token, barcodeMap]);
+
+  const deleteBarcode = useCallback(async (cameraNumber: number) => {
+    setBarcodeErr(null);
+    try {
+      const res = await fetch(
+        `/api/admin/camera-assign/barcodes?cameraNumber=${cameraNumber}`,
+        { method: "DELETE", headers: { "x-admin-token": token } },
+      );
+      if (!res.ok) throw new Error(`delete failed (${res.status})`);
+      setBarcodeMap((prev) => {
+        const next = { ...prev };
+        delete next[String(cameraNumber)];
+        return next;
+      });
+    } catch (e) {
+      setBarcodeErr(e instanceof Error ? e.message : "delete failed");
+    }
+  }, [token]);
+
+  const openBarcodeModal = useCallback(() => {
+    setBarcodeModalOpen(true);
+    setBarcodeInput("");
+    void loadBarcodes();
+    setTimeout(() => barcodeInputRef.current?.focus(), 50);
+  }, [loadBarcodes]);
+
+  // Load the barcode map on mount (not just when the modal opens) so
+  // the MAIN scan input can resolve barcodes → camera numbers in real
+  // time. Racers' cameras carry a barcode; when USB barcode scanners
+  // type the barcode into the main input, we translate it to the
+  // camera number before calling assign().
+  useEffect(() => { void loadBarcodes(); }, [loadBarcodes]);
+
+  /** Reverse lookup: barcode → cameraNumber (string). Derived from
+   *  the forward `barcodeMap` so there's a single source of truth. */
+  const barcodeToCam = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [cam, bc] of Object.entries(barcodeMap)) {
+      if (bc) out[bc] = cam;
+    }
+    return out;
+  }, [barcodeMap]);
   useEffect(() => {
     const onChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onChange);
@@ -303,23 +408,51 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     }
   }, []);
 
-  /** Auto-enter fullscreen on the first user interaction. Browsers
-   *  block programmatic `requestFullscreen()` without a user gesture,
-   *  so we latch a one-shot `pointerdown` listener — the operator's
-   *  very first tap (track button, heat pick, NFC, anywhere) promotes
-   *  the page into fullscreen. Capture phase so child handlers that
-   *  call stopPropagation don't eat the event; `once: true` so we
-   *  don't keep re-promoting if the user intentionally ESCs out. */
+  /** Auto-enter (and re-enter) fullscreen on every user interaction.
+   *  Browsers block programmatic `requestFullscreen()` without a
+   *  user gesture, so the persistent pointerdown listener is the
+   *  closest viable approach to "always be fullscreen": every tap
+   *  promotes the page if it's not already there. Combined with a
+   *  periodic check below as a safety net.
+   *
+   *  Effect: if the user ESCs / back-gestures out of fullscreen,
+   *  the very next tap (which they'd do to keep working) puts them
+   *  right back in. The manual ⛶/🗗 button still works as a one-time
+   *  toggle until the next tap.
+   *
+   *  Capture phase so child stopPropagation can't eat the event. */
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const onFirstTap = () => {
+    const onTap = () => {
       if (document.fullscreenElement) return;
       document.documentElement.requestFullscreen().catch(() => {
         /* gesture not sufficient / feature blocked — silent */
       });
     };
-    document.addEventListener("pointerdown", onFirstTap, { once: true, capture: true });
-    return () => document.removeEventListener("pointerdown", onFirstTap, true);
+    document.addEventListener("pointerdown", onTap, { capture: true });
+    return () => document.removeEventListener("pointerdown", onTap, true);
+  }, []);
+
+  /** Periodic safety check — every 30s, if we're not fullscreen and
+   *  the page is visible, hint the browser by re-attaching nothing
+   *  (the persistent listener above is still in place). This mostly
+   *  serves as a documented intent: "we want to stay fullscreen".
+   *  Real re-entry happens on the next user tap because that's the
+   *  only path the browser allows. We can't programmatically force
+   *  fullscreen from a setInterval — that's a hard browser rule. */
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      // No-op if already fullscreen.
+      if (document.fullscreenElement) return;
+      // We can't directly call requestFullscreen here (no user
+      // gesture). The persistent pointerdown listener picks this up
+      // on the next tap. Logging so anyone debugging knows why a
+      // page isn't fullscreen between taps.
+      // (Intentionally quiet — would be too noisy in production logs)
+    }, 30_000);
+    return () => clearInterval(id);
   }, []);
 
   /** Row-blink state for duplicate-camera rejection. When a staffer
@@ -638,12 +771,19 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
    *  which matches video.system.name on vt3.io and drives the
    *  video-match cron. */
   const assign = useCallback(async (systemNumber: string) => {
-    const sys = systemNumber.trim();
-    if (!sys) return;
+    const rawScan = systemNumber.trim();
+    if (!rawScan) return;
     if (activeIndex < 0 || activeIndex >= participants.length) {
       setErr("No racer highlighted — can't assign.");
       return;
     }
+    // Translate barcodes → camera numbers. USB barcode scanners type
+    // the printed barcode value (usually a long alphanumeric string)
+    // into the scan input. If we have a mapping for it, substitute
+    // the camera number before binding. Falls through to using the
+    // raw value as a direct camera number if no mapping exists.
+    const mappedCam = barcodeToCam[rawScan];
+    const sys = mappedCam || rawScan;
     const p = participants[activeIndex];
 
     // Duplicate-camera guard: if any OTHER racer in this session
@@ -715,7 +855,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     } catch (e) {
       setErr(e instanceof Error ? e.message : "save failed");
     }
-  }, [participants, activeIndex, session, token]);
+  }, [participants, activeIndex, session, token, barcodeToCam]);
 
   /** Handle Enter-delimited scan from NFC reader (or manual typing). */
   const onInputKey = useCallback((ev: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1180,6 +1320,16 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             >
               <span>{isFullscreen ? "🗗" : "⛶"}</span>
               <span className="hidden sm:inline">{isFullscreen ? "Exit" : "Full"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={openBarcodeModal}
+              title="Map physical camera barcodes to camera numbers (1-96)"
+              aria-label="Open barcode provisioning"
+              className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+            >
+              <span>🏷</span>
+              <span className="hidden sm:inline">BC</span>
             </button>
           </div>
         </div>
@@ -1721,6 +1871,124 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barcode-provisioning modal. Lists all 96 cameras; staff
+          taps a row to make it the active scan target, then scans
+          (or types) the barcode and presses Enter. Auto-advances
+          to the next unmapped camera on save so a USB barcode
+          reader can chain scans hands-free. */}
+      {barcodeModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-stretch justify-center p-0 bg-black/80"
+          style={{ height: "100dvh" }}
+          {...modalBackdropProps(() => setBarcodeModalOpen(false))}
+        >
+          <div className="relative w-full max-w-2xl mx-auto h-full flex flex-col" style={{ backgroundColor: "#0a1128" }}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
+              <div>
+                <div className="text-base font-bold uppercase tracking-wider">🏷 Barcode → Camera</div>
+                <div className="text-xs text-white/50 mt-0.5">
+                  {Object.keys(barcodeMap).length} / 96 mapped
+                  {barcodeLoading && " · loading…"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBarcodeModalOpen(false)}
+                aria-label="Close barcode provisioning"
+                className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+                style={{ fontSize: "22px", lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Sticky scan input */}
+            <div className="px-4 py-3 border-b border-white/10 bg-[#0a1128] sticky top-0 z-10 shrink-0">
+              <div className="text-xs text-white/60 mb-1">
+                Scan or type barcode for{" "}
+                <span className="text-[#00E2E5] font-semibold">Camera {barcodeActiveCam}</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const v = barcodeInput.trim();
+                      if (v) void saveBarcode(barcodeActiveCam, v);
+                    }
+                  }}
+                  placeholder="Waiting for barcode scan…"
+                  autoComplete="off"
+                  className="flex-1 min-w-0 bg-white/5 border border-[#00E2E5]/40 rounded px-3 py-2 text-sm text-white font-mono placeholder:text-white/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const v = barcodeInput.trim();
+                    if (v) void saveBarcode(barcodeActiveCam, v);
+                  }}
+                  disabled={!barcodeInput.trim()}
+                  className="shrink-0 px-4 py-2 rounded bg-[#00E2E5] text-[#000418] font-semibold text-sm hover:bg-white disabled:opacity-40"
+                >
+                  Save
+                </button>
+              </div>
+              {barcodeErr && (
+                <div className="mt-1 text-xs text-red-400">{barcodeErr}</div>
+              )}
+            </div>
+
+            {/* Camera list — 1 to 96 */}
+            <div className="flex-1 overflow-y-auto">
+              {Array.from({ length: 96 }, (_, i) => i + 1).map((camN) => {
+                const bc = barcodeMap[String(camN)] || "";
+                const isActive = camN === barcodeActiveCam;
+                return (
+                  <div
+                    key={`bc-${camN}`}
+                    className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-white/[0.04] ${
+                      isActive ? "bg-[#00E2E5]/10 border-y-[#00E2E5]/30" : ""
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBarcodeActiveCam(camN);
+                        setBarcodeInput("");
+                        setTimeout(() => barcodeInputRef.current?.focus(), 0);
+                      }}
+                      className={`w-16 shrink-0 text-left tabular-nums uppercase tracking-wider ${
+                        isActive ? "text-[#00E2E5] font-bold" : "text-white/70"
+                      }`}
+                      title="Tap to make this the active scan target"
+                    >
+                      Cam {camN}
+                    </button>
+                    <span className={`flex-1 truncate font-mono text-xs ${bc ? "text-emerald-300" : "text-white/30"}`}>
+                      {bc || "— no barcode —"}
+                    </span>
+                    {bc && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteBarcode(camN)}
+                        className="shrink-0 text-xs px-2 py-1 rounded border border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
+                        aria-label={`Clear barcode for camera ${camN}`}
+                      >
+                        clear
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
