@@ -789,7 +789,26 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         setNfcError("Couldn't read that tag — try again.");
       };
     } catch (e) {
-      setNfcError(e instanceof Error ? e.message : "NFC permission denied");
+      // Map the Chrome-thrown DOMExceptions to staff-actionable text.
+      //   NotAllowedError = user denied or previously blocked
+      //   NotSupportedError = device has no NFC or it's off
+      //   NotReadableError = NFC radio failed to start (turn off/on)
+      //   SecurityError = non-HTTPS (shouldn't happen on prod)
+      const err = e as { name?: string; message?: string };
+      const name = err?.name;
+      let msg: string;
+      if (name === "NotAllowedError") {
+        msg = "NFC blocked — tap the 🔒 in Chrome's URL bar → Permissions → NFC → Allow, then reload.";
+      } else if (name === "NotSupportedError") {
+        msg = "No NFC hardware found, or the phone's NFC is turned off in Settings.";
+      } else if (name === "NotReadableError") {
+        msg = "NFC radio couldn't start — toggle NFC off/on in Android settings.";
+      } else if (name === "SecurityError") {
+        msg = "Web NFC needs HTTPS (this page IS HTTPS, so this shouldn't happen — check if you're inside a WebView).";
+      } else {
+        msg = err?.message || "NFC failed to start";
+      }
+      setNfcError(msg);
       setNfcActive(false);
       nfcAbortRef.current = null;
     }
