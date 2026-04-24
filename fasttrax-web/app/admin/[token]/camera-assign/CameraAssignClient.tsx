@@ -399,8 +399,25 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const barcodeBufferRef = useRef("");
   const saveBarcodeRef = useRef(saveBarcode);
   const activeCamRef = useRef(barcodeActiveCam);
+  const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { saveBarcodeRef.current = saveBarcode; }, [saveBarcode]);
   useEffect(() => { activeCamRef.current = barcodeActiveCam; }, [barcodeActiveCam]);
+
+  /** Auto-save helper — fires the save + clears the buffer + cancels
+   *  any pending burst timer. Min length 2 to avoid saving an
+   *  accidental single-character keystroke. */
+  const autoSaveBarcode = useCallback(() => {
+    if (burstTimerRef.current) {
+      clearTimeout(burstTimerRef.current);
+      burstTimerRef.current = null;
+    }
+    const v = barcodeBufferRef.current.trim();
+    if (v.length >= 2) {
+      void saveBarcodeRef.current(activeCamRef.current, v);
+      barcodeBufferRef.current = "";
+    }
+  }, []);
+
   useEffect(() => {
     if (!barcodeModalOpen) return;
     barcodeBufferRef.current = "";
@@ -414,11 +431,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       if (e.key === "Enter") {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const v = barcodeBufferRef.current.trim();
-        if (v) {
-          void saveBarcodeRef.current(activeCamRef.current, v);
-          barcodeBufferRef.current = "";
-        }
+        autoSaveBarcode();
         return;
       }
       if (e.key === "Backspace") {
@@ -427,21 +440,28 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         setBarcodeInput(barcodeBufferRef.current);
         return;
       }
-      // Single-char key — append to buffer. stopImmediatePropagation
-      // so the main scan input behind the modal doesn't also see it.
+      // Single-char key — append to buffer + arm a "burst-end" timer.
+      // HID barcode scanners burst at <10ms/char; humans type at
+      // 100-300ms/char. A 250ms quiet window after the last char
+      // means the scan is done, so we auto-save without needing the
+      // scanner to send an Enter terminator.
       if (e.key.length === 1) {
         e.stopImmediatePropagation();
         barcodeBufferRef.current += e.key;
         setBarcodeInput(barcodeBufferRef.current);
+        if (burstTimerRef.current) clearTimeout(burstTimerRef.current);
+        burstTimerRef.current = setTimeout(autoSaveBarcode, 250);
       }
     };
-    // capture: true means our handler runs BEFORE any other handler
-    // on the way down — and stopImmediatePropagation prevents the
-    // bubble back up. Belt-and-suspenders against the main scan
-    // input swallowing scanner keys when focus drifted there.
     document.addEventListener("keydown", onKey, { capture: true });
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [barcodeModalOpen]);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      if (burstTimerRef.current) {
+        clearTimeout(burstTimerRef.current);
+        burstTimerRef.current = null;
+      }
+    };
+  }, [barcodeModalOpen, autoSaveBarcode]);
 
   // Load the barcode map on mount (not just when the modal opens) so
   // the MAIN scan input can resolve barcodes → camera numbers in real
@@ -2003,6 +2023,19 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   onChange={(e) => {
                     setBarcodeInput(e.target.value);
                     barcodeBufferRef.current = e.target.value;
+                  }}
+                  onPaste={(e) => {
+                    // Phone-camera QR scanner apps deliver decoded
+                    // values via paste. Save immediately so staff
+                    // doesn't need to tap save after each scan.
+                    const text = e.clipboardData?.getData("text") || "";
+                    const trimmed = text.trim();
+                    if (trimmed.length >= 2) {
+                      e.preventDefault();
+                      setBarcodeInput(trimmed);
+                      barcodeBufferRef.current = trimmed;
+                      void saveBarcode(barcodeActiveCam, trimmed);
+                    }
                   }}
                   placeholder="Waiting for barcode scan…"
                   autoComplete="off"
