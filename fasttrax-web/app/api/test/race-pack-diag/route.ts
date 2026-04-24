@@ -28,6 +28,11 @@ import { randomUUID } from "crypto";
  *   projectFirst (default "0") — when both regs enabled, call project
  *                 before contact. Lets us isolate whether ordering
  *                 matters for BMI's credit pipeline.
+ *   regProjectLine (default "0") — additionally call registerProjectPerson
+ *                 with the orderItemId from the sell response (line-item
+ *                 level, not just bill-level). Per staff, credits for
+ *                 packs require the participant to be bound to the
+ *                 specific line item, not just the bill.
  *   personIdInSell (default "1") — include PersonId in booking/sell
  *                 body. Pass "0" to defer the association entirely to
  *                 the register calls.
@@ -90,6 +95,7 @@ export async function GET(req: NextRequest) {
     }
     const regContact = searchParams.get("regContact") !== "0";
     const regProject = searchParams.get("regProject") === "1";
+    const regProjectLine = searchParams.get("regProjectLine") === "1";
     const projectFirst = searchParams.get("projectFirst") === "1";
     const personIdInSell = searchParams.get("personIdInSell") !== "0";
     const includePageId = searchParams.get("includePageId") !== "0";
@@ -116,7 +122,7 @@ export async function GET(req: NextRequest) {
     };
 
     const trace: Record<string, unknown> = {
-      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, projectFirst, personIdInSell, includePageId, includeProductXref },
+      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, regProjectLine, projectFirst, personIdInSell, includePageId, includeProductXref },
       timestamp: new Date().toISOString(),
     };
 
@@ -147,6 +153,11 @@ export async function GET(req: NextRequest) {
     const orderIdMatch = sellResp.raw.match(/"orderId"\s*:\s*(\d+)/);
     const orderId = orderIdMatch ? orderIdMatch[1] : null;
     trace.orderId = orderId;
+    // Line-item id — same-precision raw-string extraction. BMI's docs
+    // show this is returned on every sell (§8 response.orderItemId).
+    const orderItemIdMatch = sellResp.raw.match(/"orderItemId"\s*:\s*(\d+)/);
+    const orderItemId = orderItemIdMatch ? orderItemIdMatch[1] : null;
+    trace.orderItemId = orderItemId;
 
     if (!orderId) {
       return NextResponse.json({ ok: false, stoppedAt: "sell", trace }, { status: 500 });
@@ -156,8 +167,16 @@ export async function GET(req: NextRequest) {
     //    Contact = bill contact; Project = participant on the bill
     //    project. Race booking flow calls BOTH (contact-first); bug
     //    report exhausted single-register variants.
+    //
+    //    `regProjectLine` fires an extra registerProjectPerson call
+    //    that references the orderItemId from the sell response
+    //    instead of the orderId — ties the participant to the specific
+    //    line item. Staff suspects credits won't apply without this.
     const contactBody = `{"orderId":${orderId},"PersonId":${personId},"firstName":"Race","lastName":"Pack Test","email":"racepacktest@bma.test","phone":"2395550100"}`;
     const projectBody = `{"personId":${personId},"orderId":${orderId},"firstName":"Race","lastName":"Pack Test"}`;
+    const projectLineBody = orderItemId
+      ? `{"personId":${personId},"orderItemId":${orderItemId},"firstName":"Race","lastName":"Pack Test"}`
+      : null;
     const runContact = async () => {
       const r = await bmi("person/registerContactPerson", { method: "POST", body: contactBody });
       trace.registerContact = r;
@@ -166,9 +185,19 @@ export async function GET(req: NextRequest) {
       const r = await bmi("person/registerProjectPerson", { method: "POST", body: projectBody });
       trace.registerProject = r;
     };
+    const runProjectLine = async () => {
+      if (!projectLineBody) {
+        trace.registerProjectLine = { skipped: "no orderItemId in sell response" };
+        return;
+      }
+      const r = await bmi("person/registerProjectPerson", { method: "POST", body: projectLineBody });
+      trace.registerProjectLine = r;
+      trace.registerProjectLineBodySent = projectLineBody;
+    };
     if (projectFirst && regProject) await runProject();
     if (regContact) await runContact();
     if (!projectFirst && regProject) await runProject();
+    if (regProjectLine) await runProjectLine();
 
     // 4. Capture the expected total from sell (use first price entry)
     const sellJson = sellResp.body as { prices?: { amount: number; kind: number }[] } | undefined;
