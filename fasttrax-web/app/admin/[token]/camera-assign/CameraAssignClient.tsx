@@ -545,6 +545,45 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   useEffect(() => () => { if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current); }, []);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  /** Ref on whichever participant row is currently the active scan
+   *  target. After each scan we set activeIndex to the next unassigned
+   *  racer; the effect below scrolls that row into view so staff
+   *  always sees who they're scanning for next. */
+  const activeRacerRef = useRef<HTMLButtonElement | null>(null);
+  /** Ref on the heat row in the day-list that's "live" right now
+   *  (closest to the current time). Used to auto-scroll the schedule
+   *  into view on first load so staff lands on the current heat. */
+  const liveHeatRef = useRef<HTMLButtonElement | null>(null);
+  /** Brief red flash on the scan input + error line when a scanned
+   *  barcode isn't registered in the camera-barcode map. Auto-clears
+   *  after 2.5s. */
+  const [unknownScanFlash, setUnknownScanFlash] = useState(false);
+  const unknownScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (unknownScanTimerRef.current) clearTimeout(unknownScanTimerRef.current); }, []);
+
+  /** Scroll the active racer into view whenever activeIndex changes.
+   *  Refs in React commit before useEffect, so by the time this runs
+   *  activeRacerRef.current points at the new row. `block: "center"`
+   *  centers the active racer in the visible roster — handles both
+   *  scrolling down (advance) and back up (manual tap on an earlier
+   *  row). Smooth scroll so it doesn't jolt. */
+  useEffect(() => {
+    if (!participants.length) return;
+    activeRacerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [activeIndex, participants.length]);
+
+  /** Scroll the day schedule to the current/live heat. Runs on:
+   *   - daySessions changes (initial load + 30s refresh)
+   *   - heatModalOpen flipping true (mobile modal mounts)
+   *  `block: "center"` puts the live row in the middle of the
+   *  visible window. Defers a beat so the rows are mounted. */
+  useEffect(() => {
+    if (!daySessions.length) return;
+    const id = setTimeout(() => {
+      liveHeatRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+    return () => clearTimeout(id);
+  }, [daySessions, heatModalOpen]);
   // Mirror scanBuffer into a ref so the "skip while mid-scan" gates on
   // loadHeats / refreshSession don't cause those
   // callbacks' identities to flip on every keystroke — which used to
@@ -857,13 +896,28 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       setErr("No racer highlighted — can't assign.");
       return;
     }
-    // Translate barcodes → camera numbers. USB barcode scanners type
-    // the printed barcode value (usually a long alphanumeric string)
-    // into the scan input. If we have a mapping for it, substitute
-    // the camera number before binding. Falls through to using the
-    // raw value as a direct camera number if no mapping exists.
+    // Resolve the scan → camera number. Three accepted shapes:
+    //   1. Value is a known mapped barcode → translate to camera #
+    //   2. Value is a short pure-digit camera number (1-99) — direct
+    //   3. Anything else: REJECT with a red flash. Forces staff to
+    //      provision the barcode via the 🏷 BC modal first instead
+    //      of silently binding an unrecognized value.
     const mappedCam = barcodeToCam[rawScan];
-    const sys = mappedCam || rawScan;
+    let sys: string;
+    if (mappedCam) {
+      sys = mappedCam;
+    } else if (/^\d{1,2}$/.test(rawScan)) {
+      // 1-2 digit numeric — treat as a direct camera number
+      // (legacy NFC-typed input path, plus quick manual entry).
+      sys = rawScan;
+    } else {
+      // Unmapped barcode-shaped value. Flash red, drop the scan.
+      setUnknownScanFlash(true);
+      setErr(`"${rawScan}" is not registered to a camera. Map it via 🏷 BC first.`);
+      if (unknownScanTimerRef.current) clearTimeout(unknownScanTimerRef.current);
+      unknownScanTimerRef.current = setTimeout(() => setUnknownScanFlash(false), 2500);
+      return;
+    }
     const p = participants[activeIndex];
 
     // Duplicate-camera guard: if any OTHER racer in this session
@@ -1483,6 +1537,14 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             ? "No heats today"
             : `${daySessions.length} heat${daySessions.length === 1 ? "" : "s"} · ${counts.past} done · ${counts.live} live · ${counts.upcoming} upcoming`;
 
+          // The session that auto-scroll should target on load.
+          // Prefer a "live" heat (currently running); fall back to
+          // the first upcoming one. Computed once per render.
+          const focusSessionId = (
+            daySessions.find((s) => s.status === "live")
+            || daySessions.find((s) => s.status === "upcoming")
+          )?.sessionId;
+
           // Shared row renderer for both desktop list + mobile modal.
           // `bigTouch` controls padding + font-size so the mobile modal
           // gets fat-finger-friendly tap targets.
@@ -1490,10 +1552,12 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             const isLoaded = activeSid === String(s.sessionId);
             const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
             const statusColor = s.status === "past" ? "text-white/40" : s.status === "live" ? "text-[#00E2E5]" : "text-white/60";
+            const isFocusTarget = String(s.sessionId) === String(focusSessionId);
             return (
               <button
                 key={`day-${s.sessionId}`}
                 type="button"
+                ref={isFocusTarget ? liveHeatRef : null}
                 onClick={() => {
                   if (isLoaded) {
                     setHeatModalOpen(false);
@@ -1723,7 +1787,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               }}
               placeholder={nfcActive ? "📡 Listening — tap an NFC tag…" : "Waiting for scan…"}
               autoComplete="off"
-              className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30"
+              className={`flex-1 min-w-0 bg-white/5 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30 border transition-colors ${
+                unknownScanFlash
+                  ? "border-red-500/80 bg-red-500/15 animate-pulse"
+                  : "border-white/10"
+              }`}
             />
             {/* Manual-submit button — iOS's numeric pad has no Enter
                 key, so staff needs an explicit Assign control to commit
@@ -1801,6 +1869,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               <button
                 key={String(p.personId)}
                 type="button"
+                ref={isActive ? activeRacerRef : null}
                 onClick={() => setActiveIndex(i)}
                 style={isActive ? { boxShadow: "0 0 18px rgba(0,226,229,0.45)" } : undefined}
                 className={`w-full text-left rounded-lg border p-3 transition-colors ${
