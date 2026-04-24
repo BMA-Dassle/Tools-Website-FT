@@ -89,6 +89,22 @@ export interface VideoMatch {
   purchased?: boolean;
   purchaseType?: string;
   unlockedAt?: string;
+  /** Block state — mirrored from `lib/video-block.ts` onto the match
+   *  record so the admin list can render a chip without a second
+   *  Redis round-trip. Block "source of truth" stays on the block
+   *  keys (video/person/session); this is a cached copy that the
+   *  cron refreshes each tick. */
+  blocked?: boolean;
+  blockLevel?: "video" | "person" | "session";
+  blockReason?: string;
+  blockedAt?: string;
+  /** Email-to-customer-profile push to VT3 (POST /videos/{code}/customer).
+   *  Tracked so the cron doesn't keep re-linking the same email on
+   *  every overlay pass. Reset to undefined if we ever change the
+   *  associated email (e.g., admin re-sends with override). */
+  vt3CustomerLinked?: boolean;
+  vt3CustomerLinkedEmail?: string;
+  vt3CustomerLinkedAt?: string;
 }
 
 function matchKey(sessionId: string | number, personId: string | number): string {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import { listRecentVideos, type Vt3Video } from "@/lib/vt3";
+import { listRecentVideos, setVideoDisabled, linkCustomerEmail, type Vt3Video } from "@/lib/vt3";
 import { getAssignmentAtTime } from "@/lib/camera-assign";
 import {
   saveVideoMatch,
@@ -11,6 +11,7 @@ import {
   type VideoMatch,
 } from "@/lib/video-match";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
+import { getBlockState } from "@/lib/video-block";
 import { logCronRun } from "@/lib/sms-log";
 
 /**
@@ -128,6 +129,10 @@ export async function GET(req: NextRequest) {
   let savedPending = 0;           // NEW match, saved with pendingNotify=true
   let deferredSent = 0;           // pending match turned ready, notify fired on this tick
   let matched = 0;                // new match + immediate notify (VT3 already ready)
+  let skippedBlocked = 0;         // NEW match, blocked via camera-assign — saved but no notify
+  let unblockedAndSent = 0;       // existing blocked match detected as unblocked this tick, notify fired
+  let vt3Linked = 0;              // successful POST /videos/{code}/customer calls
+  let vt3DisabledFlips = 0;       // successful PUT /videos/by-code/{code} disabled:{bool} calls
   let errors = 0;
 
   /**
@@ -204,22 +209,109 @@ export async function GET(req: NextRequest) {
 
       // Always-run overlay pass: mirror VT3's impression + purchase
       // fields onto any existing match record for this video code,
-      // regardless of cursor position or readiness state. Videos
-      // matched days ago still need their "viewed" / "purchased" chips
-      // to tick forward each time a racer opens the share link.
+      // regardless of cursor position or readiness state. Also re-
+      // resolves block state each tick so VT3's `disabled` flag stays
+      // in sync with our source-of-truth block keys, and a deferred
+      // notify fires the tick we detect a block→unblock flip.
       //
       // Cheap: at most `videos.length` GETs/tick (≤200), and we only
-      // SET when a field actually changed.
+      // SET / call VT3 when something actually changed.
       const overlay = extractOverlay(v);
       const existing = await getMatchByVideoCode(v.code);
+
+      // Will be set true by the overlay pass if it finishes this video
+      // (e.g., fires a deferred notify on unblock) — skips PATH 1 below.
+      let overlayHandled = false;
+
       if (existing) {
-        const changed = overlayDiffers(existing, overlay);
-        // Mutate in place AFTER the diff check — any subsequent write
-        // in this iteration (deferred-notify's `updateVideoMatch(existing)`,
-        // the save-path fallback, etc.) then carries the overlay fields
-        // forward without clobbering.
+        const overlayChanged = overlayDiffers(existing, overlay);
+        // Mutate in place AFTER the diff check so any subsequent write
+        // carries overlay fields forward. See `overlayDiffers`.
         Object.assign(existing, overlay);
-        if (changed && !dryRun) {
+
+        // Resolve block state from the block keys — source of truth
+        // outside this record. Mirror onto `existing` for the admin UI.
+        const blockState = await getBlockState({
+          sessionId: existing.sessionId,
+          personId: existing.personId,
+          videoCode: v.code,
+        });
+        const wasBlocked = !!existing.blocked;
+        const isBlocked = blockState.blocked;
+        const blockChanged = wasBlocked !== isBlocked;
+
+        if (blockChanged) {
+          existing.blocked = isBlocked || undefined;
+          existing.blockLevel = blockState.level;
+          existing.blockReason = blockState.reason;
+          existing.blockedAt = isBlocked ? blockState.blockedAt : undefined;
+
+          // Sync VT3's `disabled` flag with our block state. Best-effort
+          // — log failure but keep Redis authoritative.
+          if (!dryRun) {
+            try {
+              await setVideoDisabled(v.code, isBlocked);
+              vt3DisabledFlips++;
+            } catch (err) {
+              console.error(`[video-match] setVideoDisabled(${v.code},${isBlocked}) failed:`, err);
+            }
+          }
+
+          // Block → Unblock: mark pending-notify so the "ready to fire"
+          // branch below (or a later tick once VT3 is ready) picks it
+          // up. If the record was already notified before it got
+          // blocked, leave pendingNotify alone — no re-send.
+          if (wasBlocked && !isBlocked) {
+            const neverNotified =
+              !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
+            if (neverNotified) existing.pendingNotify = true;
+          }
+        }
+
+        // Ready-to-fire check: handles both the block→unblock transition
+        // we may have just made AND legacy pending-notify records that
+        // sit past the lastSeenId cursor (PATH 1 only runs inside the
+        // cursor; this branch runs for every fetched record).
+        //
+        // We suppress this pass during dry runs so the counters stay
+        // honest without hitting VT3 or Voxtelesys.
+        const vt3Ready = !v.status || !NOT_READY_STATUSES.has(v.status);
+        const shouldFireNow =
+          !existing.blocked &&
+          existing.pendingNotify === true &&
+          vt3Ready;
+
+        if (shouldFireNow) {
+          if (dryRun) {
+            // Count as unblocked-and-sent vs deferred-sent so dry-run
+            // output distinguishes the two signals.
+            if (blockChanged) unblockedAndSent++;
+            else deferredSent++;
+            overlayHandled = true;
+          } else {
+            // Push email to VT3 customer profile so the racer's vt3.io
+            // account has the vid linked when they tap the SMS.
+            if (existing.email && !existing.vt3CustomerLinked) {
+              try {
+                await linkCustomerEmail(v.code, existing.email);
+                existing.vt3CustomerLinked = true;
+                existing.vt3CustomerLinkedEmail = existing.email;
+                existing.vt3CustomerLinkedAt = new Date().toISOString();
+                vt3Linked++;
+              } catch (err) {
+                console.error(`[video-match] linkCustomerEmail(${v.code}) failed:`, err);
+              }
+            }
+            existing.videoStatus = v.status;
+            await fireNotify(existing); // also updates the record
+            if (blockChanged) unblockedAndSent++;
+            else deferredSent++;
+            if (v.id > highestId) highestId = v.id;
+            overlayHandled = true;
+          }
+        } else if ((overlayChanged || blockChanged) && !dryRun) {
+          // No notify to fire — just persist the overlay / block mirror
+          // changes we made in memory.
           try {
             await updateVideoMatch(existing);
           } catch (err) {
@@ -227,6 +319,8 @@ export async function GET(req: NextRequest) {
           }
         }
       }
+
+      if (overlayHandled) continue;
 
       if (v.id <= lastSeenId) {
         skippedOld++;
@@ -242,6 +336,15 @@ export async function GET(req: NextRequest) {
       // Otherwise skip.
       // -----------------------------------------------------------------
       if (existing) {
+        if (existing.blocked) {
+          // Blocked match — overlay pass has already kept VT3 in sync.
+          // Don't notify, don't double-count. Advance cursor so we don't
+          // re-visit every tick (the overlay pass still handles unblock
+          // even when we're past lastSeenId).
+          if (v.id > highestId) highestId = v.id;
+          skippedAlreadyMatched++;
+          continue;
+        }
         if (!existing.pendingNotify) {
           // Fully done in a prior run.
           if (v.id > highestId) highestId = v.id;
@@ -265,6 +368,19 @@ export async function GET(req: NextRequest) {
             sessionId: existing.sessionId,
           });
           continue;
+        }
+        // Push email to VT3 customer profile so the racer's vt3.io
+        // account links the vid before they tap the SMS.
+        if (existing.email && !existing.vt3CustomerLinked) {
+          try {
+            await linkCustomerEmail(v.code, existing.email);
+            existing.vt3CustomerLinked = true;
+            existing.vt3CustomerLinkedEmail = existing.email;
+            existing.vt3CustomerLinkedAt = new Date().toISOString();
+            vt3Linked++;
+          } catch (err) {
+            console.error(`[video-match] linkCustomerEmail(${v.code}) failed:`, err);
+          }
         }
         existing.videoStatus = v.status;
         await fireNotify(existing);
@@ -308,6 +424,15 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      // Resolve block state BEFORE we save — saved records get the
+      // block mirror populated from the start, and we know whether to
+      // call VT3 disable or to fire notify.
+      const blockState = await getBlockState({
+        sessionId: assignment.sessionId,
+        personId: assignment.personId,
+        videoCode: v.code,
+      });
+
       if (dryRun) {
         matches.push({
           videoCode: v.code,
@@ -316,7 +441,9 @@ export async function GET(req: NextRequest) {
           racer: `${assignment.firstName} ${assignment.lastName}`,
           sessionId: assignment.sessionId,
         });
-        if (notReady) savedPending++; else matched++;
+        if (blockState.blocked) skippedBlocked++;
+        else if (notReady) savedPending++;
+        else matched++;
         continue;
       }
 
@@ -345,8 +472,15 @@ export async function GET(req: NextRequest) {
           mobilePhone: assignment.mobilePhone,
           homePhone: assignment.homePhone,
           acceptSmsCommercial: assignment.acceptSmsCommercial,
-          pendingNotify: notReady,
+          // Blocked matches are NOT pendingNotify — we never intend to
+          // notify until they're explicitly unblocked. Keeps the admin
+          // UI's "pending upload" chip honest.
+          pendingNotify: notReady && !blockState.blocked,
           videoStatus: v.status,
+          blocked: blockState.blocked || undefined,
+          blockLevel: blockState.level,
+          blockReason: blockState.reason,
+          blockedAt: blockState.blocked ? blockState.blockedAt : undefined,
           ...overlay,
         };
         const saved = await saveVideoMatch(matchRecord);
@@ -361,14 +495,40 @@ export async function GET(req: NextRequest) {
           racer: `${assignment.firstName} ${assignment.lastName}`,
           sessionId: assignment.sessionId,
         });
-        if (notReady) {
+
+        if (blockState.blocked) {
+          // Racer bound to the video (so admin sees the row), but
+          // notify is suppressed. Flip VT3's `disabled` flag so the
+          // customer-facing vt3.io link also won't play. Best-effort.
+          try {
+            await setVideoDisabled(v.code, true);
+            vt3DisabledFlips++;
+          } catch (err) {
+            console.error(`[video-match] setVideoDisabled(${v.code},true) failed:`, err);
+          }
+          if (v.id > highestId) highestId = v.id;
+          skippedBlocked++;
+        } else if (notReady) {
           // Saved as pending. Admin will see the row; notify fires on
           // the next tick once VT3 says ready. Do NOT advance highestId
           // so we revisit this video.
           savedPending++;
         } else {
-          // VT3 is ready now — fire notify immediately, mark record
-          // final, advance cursor.
+          // VT3 is ready now — push the racer's email to VT3's customer
+          // profile so the vid shows up in their vt3.io account, then
+          // fire notify. Email push is best-effort; if it fails we
+          // still notify.
+          if (matchRecord.email) {
+            try {
+              await linkCustomerEmail(v.code, matchRecord.email);
+              matchRecord.vt3CustomerLinked = true;
+              matchRecord.vt3CustomerLinkedEmail = matchRecord.email;
+              matchRecord.vt3CustomerLinkedAt = new Date().toISOString();
+              vt3Linked++;
+            } catch (err) {
+              console.error(`[video-match] linkCustomerEmail(${v.code}) failed:`, err);
+            }
+          }
           await fireNotify(matchRecord);
           if (v.id > highestId) highestId = v.id;
           matched++;
@@ -391,8 +551,8 @@ export async function GET(req: NextRequest) {
       elapsedMs: Date.now() - started,
       invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
       candidates: fetched,
-      sent: matched,
-      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady,
+      sent: matched + deferredSent + unblockedAndSent,
+      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady + skippedBlocked,
       errors,
     });
 
@@ -408,6 +568,10 @@ export async function GET(req: NextRequest) {
         matched,
         savedPending,
         deferredSent,
+        skippedBlocked,
+        unblockedAndSent,
+        vt3Linked,
+        vt3DisabledFlips,
         skippedOld,
         skippedAlreadyMatched,
         skippedNoAssignment,

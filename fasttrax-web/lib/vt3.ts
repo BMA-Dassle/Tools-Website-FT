@@ -123,3 +123,85 @@ export async function listRecentVideos(opts: {
   if (!Array.isArray(data)) throw new Error("vt3 listVideos returned non-array");
   return data as Vt3Video[];
 }
+
+/**
+ * Small helper that wraps the auth+retry pattern around a single fetch
+ * closure. Keeps `setVideoDisabled` / `linkCustomerEmail` short.
+ */
+async function authedFetch(
+  doFetch: (jwt: string) => Promise<Response>,
+  errLabel: string,
+): Promise<Response> {
+  let jwt = await getJwt();
+  let res = await doFetch(jwt);
+  if (res.status === 401 || res.status === 403) {
+    await invalidateJwt();
+    jwt = await login();
+    res = await doFetch(jwt);
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${errLabel} failed: ${res.status} ${body.slice(0, 200)}`);
+  }
+  return res;
+}
+
+/**
+ * Flip VT3's `disabled` flag on a video. When `disabled: true`, the
+ * customer-facing `https://vt3.io/?code={code}` URL stops playing the
+ * video — used by our block flow so a blocked racer can't watch a
+ * video we've already SMS/emailed (or that they've stumbled into via
+ * their vt3.io account).
+ *
+ * Endpoint verified via HAR capture from control-panel.vt3.io:
+ *   PUT /videos/by-code/{code}  body: {"disabled": bool}
+ */
+export async function setVideoDisabled(code: string, disabled: boolean): Promise<void> {
+  await authedFetch(
+    (jwt) =>
+      fetch(`${VT3_HOST}/videos/by-code/${encodeURIComponent(code)}`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${jwt}`,
+          "x-cp-ui": "mui",
+          "x-cp-ver": "v2.48.2",
+        },
+        body: JSON.stringify({ disabled }),
+        cache: "no-store",
+      }),
+    `vt3 setVideoDisabled(${code}, ${disabled})`,
+  );
+}
+
+/**
+ * Link a customer email to a VT3 video so the video shows up under the
+ * customer's vt3.io account profile ("My Videos") and VT3's own
+ * purchase-confirmation emails reach that address. We push Pandora's
+ * email here after every successful video match.
+ *
+ * Endpoint verified via HAR:
+ *   POST /videos/{code}/customer  body: {"email": "..."}
+ *
+ * Safe to call multiple times — VT3 treats it as idempotent link-or-
+ * no-op per (code, email). Caller should still guard with the
+ * `vt3CustomerLinked` flag on the match record to avoid needless
+ * network churn.
+ */
+export async function linkCustomerEmail(code: string, email: string): Promise<void> {
+  await authedFetch(
+    (jwt) =>
+      fetch(`${VT3_HOST}/videos/${encodeURIComponent(code)}/customer`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${jwt}`,
+          "x-cp-ui": "mui",
+          "x-cp-ver": "v2.48.2",
+        },
+        body: JSON.stringify({ email }),
+        cache: "no-store",
+      }),
+    `vt3 linkCustomerEmail(${code})`,
+  );
+}
