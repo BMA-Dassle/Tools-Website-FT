@@ -28,6 +28,14 @@ import { modalBackdropProps } from "@/lib/a11y";
  * Input always refocuses on blur so the NFC stream never goes stale.
  */
 
+type BlockInfo = {
+  blocked: boolean;
+  level?: "video" | "person" | "session";
+  reason?: string;
+  blockedAt?: string;
+  blockedBy?: string;
+};
+
 type Participant = {
   personId: string | number;
   firstName: string;
@@ -44,6 +52,9 @@ type Participant = {
   phone?: string;
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
+  /** Effective block state for this racer (session-level inherited, or
+   *  person-level override). Populated by the server from one MGET. */
+  block?: BlockInfo;
 };
 
 type SessionInfo = {
@@ -59,6 +70,7 @@ type SessionResponse = {
   session: SessionInfo | null;
   participants: Participant[];
   note?: string;
+  sessionBlock?: BlockInfo;
 };
 
 type PastSession = {
@@ -197,6 +209,14 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const [pastLoading, setPastLoading] = useState(false);
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
+  /** Heat-wide block state. Populated from the session-load response.
+   *  When `blocked: true`, the participant list paints names red and
+   *  the "Block Heat" button flips to "Unblock Heat". */
+  const [sessionBlock, setSessionBlock] = useState<BlockInfo>({ blocked: false });
+  /** Modal for confirming a heat-wide block / optional reason input. */
+  const [blockHeatOpen, setBlockHeatOpen] = useState(false);
+  const [blockHeatReason, setBlockHeatReason] = useState("");
+  const [blockBusy, setBlockBusy] = useState(false);
   // Bumps on every successful scan — drives the full-screen flash
   // overlay. We key a fresh <div> on this counter so the CSS
   // animation restarts from scratch each time.
@@ -255,6 +275,7 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       setSession(json.session);
       setParticipants(json.participants || []);
       setNote(json.note || null);
+      setSessionBlock(json.sessionBlock || { blocked: false });
       // Auto-highlight the first UNASSIGNED racer (or first if all assigned)
       const firstUnassigned = (json.participants || []).findIndex((p) => !p.systemNumber);
       setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
@@ -336,6 +357,9 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           return np;
         });
       });
+      // Always refresh the block snapshot from the server — block state
+      // is authoritative there (and can flip from other staff screens).
+      setSessionBlock(json.sessionBlock || { blocked: false });
 
       // Fix up activeIndex if the racer at that slot got removed.
       setActiveIndex((prev) => {
@@ -574,6 +598,97 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
       setErr(e instanceof Error ? e.message : "un-assign failed");
     }
   }, [participants, session, token]);
+
+  /**
+   * Block or unblock the whole heat. Server writes `video-block:session:{id}`
+   * (or deletes it). Video-match cron picks up the state when new videos
+   * arrive + flips VT3's `disabled` flag per video.
+   */
+  const submitHeatBlock = useCallback(async (block: boolean, reason: string) => {
+    if (!session) return;
+    setBlockBusy(true);
+    try {
+      const res = await fetch(`/api/admin/camera-assign/block`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({
+          scope: "session",
+          sessionId: session.sessionId,
+          block,
+          reason: reason.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`block failed (${res.status})`);
+      const now = new Date().toISOString();
+      setSessionBlock(block ? { blocked: true, level: "session", reason: reason.trim() || undefined, blockedAt: now } : { blocked: false });
+      // Optimistic: any racer without a person-level override inherits
+      // the new session state. Server reconciles on next refresh.
+      setParticipants((prev) => prev.map((p) => {
+        // Person-level "unblock" override beats session block — preserve it.
+        if (p.block?.level === "person") return p;
+        return {
+          ...p,
+          block: block
+            ? { blocked: true, level: "session", reason: reason.trim() || undefined, blockedAt: now }
+            : { blocked: false },
+        };
+      }));
+      setBlockHeatOpen(false);
+      setBlockHeatReason("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "block failed");
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [session, token]);
+
+  /**
+   * Block or unblock one racer. When the heat is blocked and the caller
+   * passes `block:false`, we write an explicit "unblock" override so
+   * the person escapes the session block.
+   */
+  const togglePersonBlock = useCallback(async (participant: Participant) => {
+    if (!session) return;
+    const currentlyBlocked = !!participant.block?.blocked;
+    const heatBlocked = sessionBlock.blocked;
+    // If heat is blocked and staff unblocks one racer, they probably
+    // want the override (not a no-op delete). If heat is NOT blocked,
+    // a plain delete is fine.
+    const override = currentlyBlocked && heatBlocked;
+    setBlockBusy(true);
+    try {
+      const res = await fetch(`/api/admin/camera-assign/block`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({
+          scope: "person",
+          sessionId: session.sessionId,
+          personId: participant.personId,
+          block: !currentlyBlocked,
+          override,
+        }),
+      });
+      if (!res.ok) throw new Error(`person block failed (${res.status})`);
+      const now = new Date().toISOString();
+      setParticipants((prev) => prev.map((p) => {
+        if (String(p.personId) !== String(participant.personId)) return p;
+        const newBlocked = !currentlyBlocked;
+        if (newBlocked) {
+          return { ...p, block: { blocked: true, level: "person", blockedAt: now } };
+        }
+        // Unblocked — either override (heat still blocks others) or
+        // clear to whatever session block says.
+        if (heatBlocked) {
+          return { ...p, block: { blocked: false, level: "person" } };
+        }
+        return { ...p, block: { blocked: false } };
+      }));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "person block failed");
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [session, sessionBlock.blocked, token]);
 
   // Computed
   const assignedCount = useMemo(() => participants.filter((p) => p.systemNumber).length, [participants]);
@@ -831,14 +946,52 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 : note || "—"}
             {err && <span className="ml-2 text-red-400">· {err}</span>}
           </span>
-          <button
-            type="button"
-            onClick={() => { setOverrideSessionId(""); void loadSession(); }}
-            className="text-[#00E2E5] hover:underline shrink-0"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            {session && (
+              sessionBlock.blocked ? (
+                <button
+                  type="button"
+                  onClick={() => void submitHeatBlock(false, "")}
+                  disabled={blockBusy}
+                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30 disabled:opacity-50"
+                  title={sessionBlock.reason ? `Blocked: ${sessionBlock.reason}` : "Unblock this heat"}
+                >
+                  🚫 Unblock Heat
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setBlockHeatOpen(true)}
+                  disabled={blockBusy}
+                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300 disabled:opacity-50"
+                  title="Block all videos from this heat — no SMS/email will send"
+                >
+                  Block Heat
+                </button>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => { setOverrideSessionId(""); void loadSession(); }}
+              className="text-[#00E2E5] hover:underline"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
+
+        {/* Heat-blocked banner — loud so staff can't miss it. */}
+        {sessionBlock.blocked && (
+          <div className="mb-2 rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm">
+            <div className="flex items-center gap-2 text-red-200 font-semibold uppercase tracking-wide text-xs">
+              <span aria-hidden="true">🚫</span>
+              <span>Heat blocked — no videos will send</span>
+            </div>
+            {sessionBlock.reason && (
+              <div className="mt-1 text-xs text-red-300/80">Reason: {sessionBlock.reason}</div>
+            )}
+          </div>
+        )}
 
         {/* Scan input — the one on-brand flourish: sticky cyan slab so
             it's impossible to miss. Kept compact and single-line. */}
@@ -927,6 +1080,11 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
           {participants.map((p, i) => {
             const isActive = i === activeIndex;
             const hasCam = !!p.systemNumber;
+            const isBlocked = !!p.block?.blocked;
+            // When heat is blocked but this racer has an explicit
+            // person-level unblock override, paint a distinguishing
+            // chip so staff remembers the override is in effect.
+            const personOverride = !isBlocked && sessionBlock.blocked && p.block?.level === "person";
             return (
               <button
                 key={String(p.personId)}
@@ -934,22 +1092,40 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 onClick={() => setActiveIndex(i)}
                 style={isActive ? { boxShadow: "0 0 18px rgba(0,226,229,0.45)" } : undefined}
                 className={`w-full text-left rounded-lg border p-3 transition-colors ${
-                  isActive
-                    ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
-                    : hasCam
-                      ? "border-emerald-500/25 bg-emerald-500/5"
-                      : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                  isBlocked
+                    ? "border-red-500/40 bg-red-500/10"
+                    : isActive
+                      ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
+                      : hasCam
+                        ? "border-emerald-500/25 bg-emerald-500/5"
+                        : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div className={`text-sm tabular-nums w-6 text-center shrink-0 ${
-                    isActive ? "text-[#00E2E5]" : hasCam ? "text-emerald-400" : "text-white/40"
+                    isBlocked ? "text-red-300" : isActive ? "text-[#00E2E5]" : hasCam ? "text-emerald-400" : "text-white/40"
                   }`}>
                     {i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">
+                    <div className={`text-sm font-semibold truncate ${isBlocked ? "text-red-300" : ""}`}>
                       {p.firstName} {p.lastName}
+                      {isBlocked && (
+                        <span
+                          className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200 align-middle"
+                          title={p.block?.reason ? `Blocked: ${p.block.reason}` : `Blocked (${p.block?.level})`}
+                        >
+                          🚫 blocked
+                        </span>
+                      )}
+                      {personOverride && (
+                        <span
+                          className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 align-middle"
+                          title="Heat is blocked but this racer is released"
+                        >
+                          released
+                        </span>
+                      )}
                     </div>
                   </div>
                   {hasCam ? (
@@ -964,12 +1140,42 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                       >
                         redo
                       </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
+                        disabled={blockBusy}
+                        title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
+                        className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                          isBlocked
+                            ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                            : "border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
+                        }`}
+                      >
+                        {isBlocked ? "unblock" : "block"}
+                      </button>
                     </div>
-                  ) : isActive ? (
-                    <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-[#00E2E5]/20 text-[#00E2E5] shrink-0">
-                      scan next
-                    </span>
-                  ) : null}
+                  ) : (
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isActive && (
+                        <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-[#00E2E5]/20 text-[#00E2E5]">
+                          scan next
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
+                        disabled={blockBusy}
+                        title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
+                        className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                          isBlocked
+                            ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                            : "border-white/10 text-white/40 hover:text-red-300 hover:border-red-500/40"
+                        }`}
+                      >
+                        {isBlocked ? "unblock" : "block"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </button>
             );
@@ -1035,6 +1241,76 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Block-heat confirmation modal — a hard stop before a
+          potentially heat-wide "no SMS/email goes out" action. */}
+      {blockHeatOpen && session && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
+          style={{ height: "100dvh" }}
+          {...modalBackdropProps(() => { if (!blockBusy) { setBlockHeatOpen(false); setBlockHeatReason(""); } })}
+        >
+          <div
+            className="relative w-full max-w-md rounded-xl"
+            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(239,68,68,0.4)", maxHeight: "calc(100dvh - 1.5rem)", overflowY: "auto" }}
+          >
+            <button
+              type="button"
+              onClick={() => { if (!blockBusy) { setBlockHeatOpen(false); setBlockHeatReason(""); } }}
+              aria-label="Close"
+              disabled={blockBusy}
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white disabled:opacity-50"
+              style={{ fontSize: "20px", lineHeight: 1 }}
+            >
+              &times;
+            </button>
+            <div className="p-5 sm:p-6">
+              <h3 className="text-lg font-bold uppercase tracking-wide mb-2 pr-10 text-red-300">
+                🚫 Block this heat?
+              </h3>
+              <p className="text-sm text-white/70 mb-3">
+                All <span className="font-semibold text-white">{totalCount}</span> racers in{" "}
+                <span className="font-semibold text-white">
+                  {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type}
+                </span>{" "}
+                will be blocked. Their videos will still be matched + visible in the admin, but
+                <span className="text-red-300 font-semibold"> no SMS or email will send</span>,
+                and the vt3.io link will be disabled.
+              </p>
+              <label className="flex flex-col gap-1 text-xs text-white/60 mb-4">
+                Reason (optional)
+                <input
+                  type="text"
+                  value={blockHeatReason}
+                  onChange={(e) => setBlockHeatReason(e.target.value)}
+                  placeholder="e.g. crash in turn 3, pending review"
+                  maxLength={200}
+                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                  autoFocus
+                />
+              </label>
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setBlockHeatOpen(false); setBlockHeatReason(""); }}
+                  disabled={blockBusy}
+                  className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitHeatBlock(true, blockHeatReason)}
+                  disabled={blockBusy}
+                  className="text-sm px-5 py-3 sm:py-2 rounded bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
+                >
+                  {blockBusy ? "Blocking…" : "Block Heat"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

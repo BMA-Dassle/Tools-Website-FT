@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listAssignmentsForSession } from "@/lib/camera-assign";
+import { getSessionBlockSnapshot } from "@/lib/video-block";
 
 /**
  * GET /api/admin/camera-assign/session
@@ -209,6 +210,23 @@ export async function GET(req: NextRequest) {
     // to deliver the "your video is ready" SMS + email without a
     // second Pandora round-trip.
     const byPid = new Map(assignments.map((a) => [String(a.personId), a]));
+
+    // Fetch block snapshot in one MGET so the client can paint blocked
+    // names red on the first render. Falls back to "no blocks" on any
+    // error — the block UI is an enhancement, not load-critical.
+    let blockSnapshot: {
+      sessionBlock: { blocked: boolean; reason?: string; blockedAt?: string };
+      personBlocks: Record<string, { blocked: boolean; level?: string; reason?: string; blockedAt?: string }>;
+    } = { sessionBlock: { blocked: false }, personBlocks: {} };
+    try {
+      blockSnapshot = await getSessionBlockSnapshot({
+        sessionId: picked.sessionId,
+        personIds: participants.map((p) => p.personId),
+      });
+    } catch (err) {
+      console.error("[camera-assign/session] block snapshot failed:", err);
+    }
+
     const enriched = participants.map((p) => ({
       personId: p.personId,
       firstName: p.firstName,
@@ -221,6 +239,7 @@ export async function GET(req: NextRequest) {
       acceptSmsScores: p.acceptSmsScores,
       systemNumber: byPid.get(String(p.personId))?.systemNumber,
       assignedAt: byPid.get(String(p.personId))?.assignedAt,
+      block: blockSnapshot.personBlocks[String(p.personId)] || { blocked: false },
     }));
 
     return NextResponse.json(
@@ -234,6 +253,7 @@ export async function GET(req: NextRequest) {
           type: picked.type,
         },
         participants: enriched,
+        sessionBlock: blockSnapshot.sessionBlock,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

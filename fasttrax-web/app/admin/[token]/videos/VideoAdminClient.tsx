@@ -69,6 +69,12 @@ type VideoRow = {
   purchased?: boolean;
   purchaseType?: string;
   unlockedAt?: string;
+  /** Block mirror — set by the cron / block endpoints. Source of
+   *  truth is the video-block:* keys. */
+  blocked?: boolean;
+  blockLevel?: "video" | "person" | "session";
+  blockReason?: string;
+  blockedAt?: string;
 };
 
 type ListResponse = {
@@ -106,6 +112,9 @@ export default function VideoAdminClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [resendTarget, setResendTarget] = useState<VideoRow | null>(null);
   const [flash, setFlash] = useState<{ key: string; msg: string } | null>(null);
+  // Tracks which videoCode is currently being block-toggled so we can
+  // disable its button and prevent double-clicks.
+  const [blockBusy, setBlockBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -141,6 +150,48 @@ export default function VideoAdminClient({ token }: { token: string }) {
   }, [load, resendTarget]);
 
   const rowKey = (e: VideoRow) => `${e.sessionId}:${e.personId}:${e.videoCode}`;
+
+  /**
+   * Toggle video-level block. On block: prompts for optional reason.
+   * On unblock: if the resulting record is first-send-able (no prior
+   * notify, VT3 ready), the server fires the notify inline and we
+   * show a success toast reflecting it.
+   */
+  const toggleBlock = useCallback(async (row: VideoRow) => {
+    const nowBlocked = !row.blocked;
+    let reason: string | undefined;
+    if (nowBlocked) {
+      const r = prompt(`Block video ${row.videoCode}?\n\nOptional reason (shown in tooltip):`);
+      if (r === null) return; // cancelled
+      reason = r.trim() || undefined;
+    } else if (!confirm(`Unblock video ${row.videoCode}? If not yet notified, SMS + email will send now.`)) {
+      return;
+    }
+    setBlockBusy(row.videoCode);
+    try {
+      const res = await fetch(`/api/admin/videos/block`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ videoCode: row.videoCode, block: nowBlocked, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `block failed (${res.status})`);
+      const bits: string[] = [];
+      if (nowBlocked) bits.push("blocked on VT3");
+      else {
+        if (data.stillBlocked) bits.push("still blocked (heat/person)");
+        else if (data.vt3Ok) bits.push("unblocked on VT3");
+        if (data.notified) bits.push("SMS + email sent");
+      }
+      setFlash({ key: rowKey(row), msg: bits.join(" · ") || "done" });
+      setTimeout(() => setFlash(null), 4000);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "block failed");
+    } finally {
+      setBlockBusy(null);
+    }
+  }, [token, load]);
 
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
@@ -241,6 +292,18 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     {isUnmatched ? `Captured ${formatEt(e.capturedAt)}` : formatEt(e.matchedAt)}
                   </span>
                   <div className="flex items-center gap-1 flex-wrap justify-end">
+                    {e.blocked && (
+                      <span
+                        className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200"
+                        title={
+                          e.blockReason
+                            ? `Blocked (${e.blockLevel || "?"}): ${e.blockReason}`
+                            : `Blocked at ${e.blockLevel || "?"} level`
+                        }
+                      >
+                        🚫 blocked
+                      </span>
+                    )}
                     {isUnmatched ? (
                       <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
                     ) : e.pendingNotify ? (
@@ -318,17 +381,33 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{e.videoCode}</a>
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setResendTarget(e)}
-                  className={`w-full mt-3 py-2 rounded font-semibold text-sm ${
-                    isUnmatched
-                      ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                      : "bg-[#00E2E5] text-[#000418] hover:bg-white"
-                  }`}
-                >
-                  {isUnmatched ? "Send" : "Resend"}
-                </button>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setResendTarget(e)}
+                    disabled={e.blocked}
+                    className={`flex-1 py-2 rounded font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isUnmatched
+                        ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
+                        : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                    }`}
+                    title={e.blocked ? "Unblock first to resend" : undefined}
+                  >
+                    {isUnmatched ? "Send" : "Resend"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleBlock(e)}
+                    disabled={blockBusy === e.videoCode}
+                    className={`px-3 py-2 rounded font-semibold text-sm border transition-colors disabled:opacity-50 ${
+                      e.blocked
+                        ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                        : "border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
+                    }`}
+                  >
+                    {blockBusy === e.videoCode ? "…" : e.blocked ? "Unblock" : "Block"}
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -386,6 +465,18 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1 flex-wrap">
+                          {e.blocked && (
+                            <span
+                              className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200"
+                              title={
+                                e.blockReason
+                                  ? `Blocked (${e.blockLevel || "?"}): ${e.blockReason}`
+                                  : `Blocked at ${e.blockLevel || "?"} level`
+                              }
+                            >
+                              🚫 blocked
+                            </span>
+                          )}
                           {isUnmatched ? (
                             <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
                           ) : e.pendingNotify ? (
@@ -440,17 +531,33 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => setResendTarget(e)}
-                          className={`text-xs px-2 py-1 rounded font-semibold ${
-                            isUnmatched
-                              ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                              : "bg-[#00E2E5] text-[#000418] hover:bg-white"
-                          }`}
-                        >
-                          {isUnmatched ? "Send" : "Resend"}
-                        </button>
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setResendTarget(e)}
+                            disabled={e.blocked}
+                            className={`text-xs px-2 py-1 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
+                              isUnmatched
+                                ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
+                                : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                            }`}
+                            title={e.blocked ? "Unblock first to resend" : undefined}
+                          >
+                            {isUnmatched ? "Send" : "Resend"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void toggleBlock(e)}
+                            disabled={blockBusy === e.videoCode}
+                            className={`text-xs px-2 py-1 rounded font-semibold border transition-colors disabled:opacity-50 ${
+                              e.blocked
+                                ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                                : "border-white/15 text-white/60 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
+                            }`}
+                          >
+                            {blockBusy === e.videoCode ? "…" : e.blocked ? "Unblock" : "Block"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
