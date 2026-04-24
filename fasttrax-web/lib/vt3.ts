@@ -177,18 +177,26 @@ export async function setVideoDisabled(code: string, disabled: boolean): Promise
 /**
  * Link a customer email to a VT3 video so the video shows up under the
  * customer's vt3.io account profile ("My Videos") and VT3's own
- * purchase-confirmation emails reach that address. We push Pandora's
- * email here after every successful video match.
+ * purchase-confirmation emails reach that address.
  *
  * Endpoint verified via HAR:
  *   POST /videos/{code}/customer  body: {"email": "..."}
  *
- * Safe to call multiple times — VT3 treats it as idempotent link-or-
- * no-op per (code, email). Caller should still guard with the
- * `vt3CustomerLinked` flag on the match record to avoid needless
- * network churn.
+ * Returns `true` when the network call actually ran and succeeded;
+ * `false` when the feature is disabled via env (see below). Callers
+ * should gate their `vt3CustomerLinked` tracking on the return value
+ * so records don't get marked "linked" during a disabled window —
+ * otherwise they'd never retry after the feature is flipped back on.
+ *
+ * DISABLED by default via env gate — staff reported the VT3 customer
+ * link was "doing weird things" so this is a no-op unless
+ * `VT3_LINK_CUSTOMER_ENABLED=1` is set in Vercel env. Set the env var
+ * and redeploy to re-enable.
  */
-export async function linkCustomerEmail(code: string, email: string): Promise<void> {
+export async function linkCustomerEmail(code: string, email: string): Promise<boolean> {
+  if (process.env.VT3_LINK_CUSTOMER_ENABLED !== "1") {
+    return false;
+  }
   await authedFetch(
     (jwt) =>
       fetch(`${VT3_HOST}/videos/${encodeURIComponent(code)}/customer`, {
@@ -204,4 +212,5 @@ export async function linkCustomerEmail(code: string, email: string): Promise<vo
       }),
     `vt3 linkCustomerEmail(${code})`,
   );
+  return true;
 }

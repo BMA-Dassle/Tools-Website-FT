@@ -290,14 +290,19 @@ export async function GET(req: NextRequest) {
             overlayHandled = true;
           } else {
             // Push email to VT3 customer profile so the racer's vt3.io
-            // account has the vid linked when they tap the SMS.
+            // account has the vid linked when they tap the SMS. Only
+            // set the tracking fields when the call actually ran — it
+            // no-ops when the feature is disabled via env so records
+            // don't get marked "linked" and skip future retries.
             if (existing.email && !existing.vt3CustomerLinked) {
               try {
-                await linkCustomerEmail(v.code, existing.email);
-                existing.vt3CustomerLinked = true;
-                existing.vt3CustomerLinkedEmail = existing.email;
-                existing.vt3CustomerLinkedAt = new Date().toISOString();
-                vt3Linked++;
+                const linked = await linkCustomerEmail(v.code, existing.email);
+                if (linked) {
+                  existing.vt3CustomerLinked = true;
+                  existing.vt3CustomerLinkedEmail = existing.email;
+                  existing.vt3CustomerLinkedAt = new Date().toISOString();
+                  vt3Linked++;
+                }
               } catch (err) {
                 console.error(`[video-match] linkCustomerEmail(${v.code}) failed:`, err);
               }
@@ -370,14 +375,17 @@ export async function GET(req: NextRequest) {
           continue;
         }
         // Push email to VT3 customer profile so the racer's vt3.io
-        // account links the vid before they tap the SMS.
+        // account links the vid before they tap the SMS. Tracking
+        // fields only set when the call actually ran (env-gated).
         if (existing.email && !existing.vt3CustomerLinked) {
           try {
-            await linkCustomerEmail(v.code, existing.email);
-            existing.vt3CustomerLinked = true;
-            existing.vt3CustomerLinkedEmail = existing.email;
-            existing.vt3CustomerLinkedAt = new Date().toISOString();
-            vt3Linked++;
+            const linked = await linkCustomerEmail(v.code, existing.email);
+            if (linked) {
+              existing.vt3CustomerLinked = true;
+              existing.vt3CustomerLinkedEmail = existing.email;
+              existing.vt3CustomerLinkedAt = new Date().toISOString();
+              vt3Linked++;
+            }
           } catch (err) {
             console.error(`[video-match] linkCustomerEmail(${v.code}) failed:`, err);
           }
@@ -517,14 +525,17 @@ export async function GET(req: NextRequest) {
           // VT3 is ready now — push the racer's email to VT3's customer
           // profile so the vid shows up in their vt3.io account, then
           // fire notify. Email push is best-effort; if it fails we
-          // still notify.
+          // still notify. Tracking fields only set when the call
+          // actually ran (env-gated via VT3_LINK_CUSTOMER_ENABLED).
           if (matchRecord.email) {
             try {
-              await linkCustomerEmail(v.code, matchRecord.email);
-              matchRecord.vt3CustomerLinked = true;
-              matchRecord.vt3CustomerLinkedEmail = matchRecord.email;
-              matchRecord.vt3CustomerLinkedAt = new Date().toISOString();
-              vt3Linked++;
+              const linked = await linkCustomerEmail(v.code, matchRecord.email);
+              if (linked) {
+                matchRecord.vt3CustomerLinked = true;
+                matchRecord.vt3CustomerLinkedEmail = matchRecord.email;
+                matchRecord.vt3CustomerLinkedAt = new Date().toISOString();
+                vt3Linked++;
+              }
             } catch (err) {
               console.error(`[video-match] linkCustomerEmail(${v.code}) failed:`, err);
             }

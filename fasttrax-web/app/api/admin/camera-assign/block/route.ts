@@ -125,11 +125,13 @@ async function applyToExistingMatches(
         if (neverNotified && vt3Ready) {
           if (match.email && !match.vt3CustomerLinked) {
             try {
-              await linkCustomerEmail(match.videoCode, match.email);
-              match.vt3CustomerLinked = true;
-              match.vt3CustomerLinkedEmail = match.email;
-              match.vt3CustomerLinkedAt = new Date().toISOString();
-              result.vt3Linked++;
+              const linked = await linkCustomerEmail(match.videoCode, match.email);
+              if (linked) {
+                match.vt3CustomerLinked = true;
+                match.vt3CustomerLinkedEmail = match.email;
+                match.vt3CustomerLinkedAt = new Date().toISOString();
+                result.vt3Linked++;
+              }
             } catch (err) {
               result.errors.push(`linkCustomerEmail(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`);
             }

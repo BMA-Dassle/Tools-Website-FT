@@ -118,11 +118,13 @@ export async function POST(req: NextRequest) {
         // Push email to VT3 customer profile first, then fire notify.
         if (existing.email && !existing.vt3CustomerLinked) {
           try {
-            await linkCustomerEmail(videoCode, existing.email);
-            existing.vt3CustomerLinked = true;
-            existing.vt3CustomerLinkedEmail = existing.email;
-            existing.vt3CustomerLinkedAt = new Date().toISOString();
-            vt3Linked = true;
+            const linked = await linkCustomerEmail(videoCode, existing.email);
+            if (linked) {
+              existing.vt3CustomerLinked = true;
+              existing.vt3CustomerLinkedEmail = existing.email;
+              existing.vt3CustomerLinkedAt = new Date().toISOString();
+              vt3Linked = true;
+            }
           } catch (err) {
             console.error(`[videos/block] linkCustomerEmail(${videoCode}) failed:`, err);
           }
