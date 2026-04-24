@@ -1985,19 +1985,24 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                 <input
                   ref={barcodeInputRef}
                   type="text"
-                  // readOnly + inputMode='none' suppress the Android
-                  // virtual keyboard. The actual scan capture happens
-                  // at the document level (see effect above) — the
-                  // input is just a visual buffer + manual-typing
-                  // path when the global Kb toggle is on.
-                  readOnly={!showKeyboard}
+                  // `inputMode="none"` alone for soft-keyboard
+                  // suppression. We deliberately AVOID `readOnly`
+                  // here because phone-camera QR scanner apps
+                  // dispatch their decoded result via paste — and
+                  // browsers block paste on read-only inputs. That
+                  // was the reason scans only worked with the Kb
+                  // toggle on. Now any input path lands the scan:
+                  //   - HID USB scanner → keydown stream → caught
+                  //     by the document-level listener (in capture
+                  //     phase) AND mirrored here via onChange
+                  //   - Camera-app QR scanner → paste event →
+                  //     onChange fires → buffer updates
+                  //   - Manual typing → only if Kb toggle is on
                   inputMode={showKeyboard ? "text" : "none"}
                   value={barcodeInput}
                   onChange={(e) => {
-                    if (showKeyboard) {
-                      setBarcodeInput(e.target.value);
-                      barcodeBufferRef.current = e.target.value;
-                    }
+                    setBarcodeInput(e.target.value);
+                    barcodeBufferRef.current = e.target.value;
                   }}
                   placeholder="Waiting for barcode scan…"
                   autoComplete="off"
