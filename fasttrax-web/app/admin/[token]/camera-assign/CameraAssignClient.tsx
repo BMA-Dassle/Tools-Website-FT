@@ -1690,25 +1690,34 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             <input
               id="camera-scan-input"
               ref={inputRef}
-              // type="tel" pulls up the phone-style number pad on iOS
-              // and a plain digits-only keyboard on Android (better than
-              // type="number" which brings spinners + accepts decimals).
-              type="tel"
-              // Bulletproof Android-keyboard suppression: `readOnly` when
-              // the Kb toggle is off. Android/iOS never open the virtual
-              // keyboard for a readOnly field, even if inputMode hints
-              // are ignored by the IME. USB NFC readers + Web NFC both
-              // update the value programmatically so readOnly doesn't
-              // block them. When staff flips the toggle ON for manual
-              // entry, readOnly drops + inputMode='numeric' shows the
-              // compact 0-9 pad.
-              readOnly={!showKeyboard}
-              inputMode={showKeyboard ? "numeric" : "none"}
-              pattern="[0-9]*"
+              // type="text" so camera-app QR scanners (which paste
+              // alphanumeric values) work alongside HID readers.
+              // The barcode→camera translation in assign() handles
+              // either format.
+              type="text"
+              // `inputMode="none"` alone for soft-keyboard suppression
+              // on Android. We deliberately AVOID `readOnly` because
+              // phone-camera QR scanner apps deliver decoded values
+              // via PASTE, and browsers block paste on read-only
+              // inputs. (Same fix already applied to the barcode
+              // provisioning modal — was blocking scans there too.)
+              inputMode={showKeyboard ? "text" : "none"}
               enterKeyHint="enter"
               value={scanBuffer}
               onChange={(e) => setScanBuffer(e.target.value)}
               onKeyDown={onInputKey}
+              onPaste={(e) => {
+                // Camera-app QR scanners paste here. Auto-fire the
+                // assign() flow on paste so staff doesn't need to
+                // tap Assign or press Enter.
+                const text = e.clipboardData?.getData("text") || "";
+                const trimmed = text.trim();
+                if (trimmed.length >= 1) {
+                  e.preventDefault();
+                  setScanBuffer("");
+                  void assign(trimmed);
+                }
+              }}
               placeholder={nfcActive ? "📡 Listening — tap an NFC tag…" : "Waiting for scan…"}
               autoComplete="off"
               className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30"
