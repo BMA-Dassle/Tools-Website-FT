@@ -399,20 +399,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
   const barcodeBufferRef = useRef("");
   const saveBarcodeRef = useRef(saveBarcode);
   const activeCamRef = useRef(barcodeActiveCam);
-  const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { saveBarcodeRef.current = saveBarcode; }, [saveBarcode]);
   useEffect(() => { activeCamRef.current = barcodeActiveCam; }, [barcodeActiveCam]);
 
-  /** Auto-save helper — fires the save + clears the buffer + cancels
-   *  any pending burst timer. Min length 2 to avoid saving an
-   *  accidental single-character keystroke. */
-  const autoSaveBarcode = useCallback(() => {
-    if (burstTimerRef.current) {
-      clearTimeout(burstTimerRef.current);
-      burstTimerRef.current = null;
-    }
-    const v = barcodeBufferRef.current.trim();
-    if (v.length >= 2) {
+  /** Auto-save helper. Fires the save + clears the buffer.
+   *  Uses a 7-char length trigger as the primary auto-fire signal
+   *  (matches the standard scan length on the cameras' QR tags) so
+   *  scanners that don't send an Enter terminator still trigger
+   *  immediate save the moment the scan is complete. Caller passes
+   *  the explicit value to avoid stale-ref races during burst input. */
+  const autoSaveBarcode = useCallback((forceValue?: string) => {
+    const v = (forceValue ?? barcodeBufferRef.current).trim();
+    if (v.length >= 1) {
       void saveBarcodeRef.current(activeCamRef.current, v);
       barcodeBufferRef.current = "";
     }
@@ -440,26 +438,20 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
         setBarcodeInput(barcodeBufferRef.current);
         return;
       }
-      // Single-char key — append to buffer + arm a "burst-end" timer.
-      // HID barcode scanners burst at <10ms/char; humans type at
-      // 100-300ms/char. A 250ms quiet window after the last char
-      // means the scan is done, so we auto-save without needing the
-      // scanner to send an Enter terminator.
+      // Single-char key — append to buffer. Auto-fire when the
+      // buffer hits the standard 7-character scan length.
       if (e.key.length === 1) {
         e.stopImmediatePropagation();
         barcodeBufferRef.current += e.key;
         setBarcodeInput(barcodeBufferRef.current);
-        if (burstTimerRef.current) clearTimeout(burstTimerRef.current);
-        burstTimerRef.current = setTimeout(autoSaveBarcode, 250);
+        if (barcodeBufferRef.current.trim().length === 7) {
+          autoSaveBarcode(barcodeBufferRef.current);
+        }
       }
     };
     document.addEventListener("keydown", onKey, { capture: true });
     return () => {
       document.removeEventListener("keydown", onKey, true);
-      if (burstTimerRef.current) {
-        clearTimeout(burstTimerRef.current);
-        burstTimerRef.current = null;
-      }
     };
   }, [barcodeModalOpen, autoSaveBarcode]);
 
@@ -1704,7 +1696,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
               inputMode={showKeyboard ? "text" : "none"}
               enterKeyHint="enter"
               value={scanBuffer}
-              onChange={(e) => setScanBuffer(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setScanBuffer(v);
+                // Auto-fire when the scanner finishes writing a
+                // standard 7-character scan (configured camera-tag
+                // length). Covers HID readers that don't send Enter.
+                const trimmed = v.trim();
+                if (trimmed.length === 7) {
+                  setScanBuffer("");
+                  void assign(trimmed);
+                }
+              }}
               onKeyDown={onInputKey}
               onPaste={(e) => {
                 // Camera-app QR scanners paste here. Auto-fire the
@@ -2030,16 +2033,21 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
                   inputMode={showKeyboard ? "text" : "none"}
                   value={barcodeInput}
                   onChange={(e) => {
-                    setBarcodeInput(e.target.value);
-                    barcodeBufferRef.current = e.target.value;
+                    const v = e.target.value;
+                    setBarcodeInput(v);
+                    barcodeBufferRef.current = v;
+                    // Auto-save when the value reaches the standard
+                    // 7-character scan length.
+                    if (v.trim().length === 7) {
+                      autoSaveBarcode(v);
+                    }
                   }}
                   onPaste={(e) => {
                     // Phone-camera QR scanner apps deliver decoded
-                    // values via paste. Save immediately so staff
-                    // doesn't need to tap save after each scan.
+                    // values via paste. Save immediately.
                     const text = e.clipboardData?.getData("text") || "";
                     const trimmed = text.trim();
-                    if (trimmed.length >= 2) {
+                    if (trimmed.length >= 1) {
                       e.preventDefault();
                       setBarcodeInput(trimmed);
                       barcodeBufferRef.current = trimmed;
