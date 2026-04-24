@@ -31,6 +31,17 @@ export interface Participant {
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
 
+  /** Kart number assigned by SMS-Timing during/after the race.
+   *  Populated on past/in-progress sessions, `null` for upcoming
+   *  (karts get assigned closer to race time). Surfaced on the
+   *  camera-assign page once staff confirms the Pandora rollout. */
+  kartNumber?: number | string | null;
+
+  /** Payment status from the participant's linked bill. The Pandora
+   *  proxy filters unpaid by default via `excludeUnpaid=true`; pass
+   *  `excludeUnpaid=false` to see this field populated. */
+  paid?: boolean;
+
   // Legacy — may still appear briefly
   phone?: string | null;
 }

@@ -50,6 +50,16 @@ interface Participant {
   phone?: string | null;
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
+  /** Kart number assigned by SMS-Timing. Populated during/after the
+   *  race; null/undefined on upcoming sessions (karts are assigned
+   *  close to race time). Passed through so the camera-assign UI can
+   *  display it when present. */
+  kartNumber?: number | string | null;
+  /** True when the participant's bill is paid. Always present when
+   *  we call Pandora with `excludeUnpaid=false`; used by the client
+   *  to dim/flag unpaid racers so staff knows to collect payment
+   *  before binding a camera. */
+  paid?: boolean;
 }
 
 function etYmd(d: Date): string {
@@ -102,8 +112,11 @@ async function fetchSessionsInWindow(
 }
 
 async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
+  // Camera-assign wants to see unpaid racers too — staff can still bind
+  // a camera while payment is being taken. `excludeRemoved` stays on
+  // so scratched racers don't pollute the roster.
   const res = await fetch(
-    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}`,
+    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=true&excludeUnpaid=false`,
     { cache: "no-store" },
   );
   if (!res.ok) return [];
@@ -237,6 +250,8 @@ export async function GET(req: NextRequest) {
       phone: p.phone || undefined,
       acceptSmsCommercial: p.acceptSmsCommercial,
       acceptSmsScores: p.acceptSmsScores,
+      kartNumber: p.kartNumber ?? undefined,
+      paid: p.paid,
       systemNumber: byPid.get(String(p.personId))?.systemNumber,
       assignedAt: byPid.get(String(p.personId))?.assignedAt,
       block: blockSnapshot.personBlocks[String(p.personId)] || { blocked: false },
