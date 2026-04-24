@@ -21,6 +21,13 @@ import { randomUUID } from "crypto";
  *                 from this time forward on the given date. Default
  *                 15:00 UTC = 11 AM ET which covers most weekend
  *                 opens. Passing "T00:00:00Z" returns zero proposals.)
+ *   confirmDepositKind (default 2) — value to pass in payment/confirm.
+ *                 Production uses 2 (Credit). Workaround test for the
+ *                 check-in double-deduct bug uses 0 (Money) — theory
+ *                 is BMI's check-in handler re-fires the credit
+ *                 pipeline only on bills tagged as credit-paid. The
+ *                 credit itself still auto-applies at booking/book
+ *                 regardless of this value.
  *
  * UNLIKE race-pack-diag, this does NOT auto-cancel the bill — the
  * whole point is to leave a live booking in place so staff can
@@ -62,6 +69,13 @@ export async function GET(req: NextRequest) {
     const heatIndex = parseInt(searchParams.get("heatIndex") || "0", 10);
     const doConfirm = searchParams.get("doConfirm") !== "0";
     const timeStr = searchParams.get("time") || "15:00"; // HH:MM UTC
+    const confirmDepositKindRaw = searchParams.get("confirmDepositKind");
+    const confirmDepositKind = confirmDepositKindRaw !== null
+      ? parseInt(confirmDepositKindRaw, 10)
+      : 2;
+    if (!Number.isFinite(confirmDepositKind)) {
+      return NextResponse.json({ error: "confirmDepositKind must be an integer" }, { status: 400 });
+    }
 
     if (!personId || !productId || !pageId || !date) {
       return NextResponse.json(
@@ -165,9 +179,15 @@ export async function GET(req: NextRequest) {
     trace.creditApplied = creditTotal?.amount ?? 0;
     trace.cashOwed = cashTotal?.amount ?? 0;
 
-    // 5. Payment confirm with amount=0, depositKind=2 (credit-paid order)
+    // 5. Payment confirm with amount=0 and the chosen depositKind.
+    //    The actual credit is already applied to the bill by
+    //    booking/book (see overview totals). This call just closes
+    //    out the bill. Production sends depositKind=2 (Credit), but
+    //    we're testing whether depositKind=0 (Money) avoids the
+    //    check-in double-deduct bug.
     if (doConfirm) {
-      const payBody = `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":2}`;
+      const payBody = `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":${confirmDepositKind}}`;
+      trace.paymentConfirmBodySent = payBody;
       const payResp = await bmi("payment/confirm", { method: "POST", body: payBody });
       trace.paymentConfirm = payResp;
       await new Promise((r) => setTimeout(r, 2500));
