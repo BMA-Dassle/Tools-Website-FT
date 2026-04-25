@@ -21,5 +21,12 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <CameraAssignClient token={token} />;
+  // Build/deploy version. Vercel auto-populates VERCEL_GIT_COMMIT_SHA
+  // on every deployment; we shorten to 7 chars (the conventional Git
+  // short SHA) for a compact display string. Falls back to "dev" when
+  // running locally without Vercel env.
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA || "";
+  const version = sha ? sha.slice(0, 7) : "dev";
+
+  return <CameraAssignClient token={token} version={version} />;
 }

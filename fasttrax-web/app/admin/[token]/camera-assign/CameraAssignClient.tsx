@@ -214,7 +214,7 @@ const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string
   },
 ];
 
-export default function CameraAssignClient({ token, track: initialTrack }: { token: string; track?: string }) {
+export default function CameraAssignClient({ token, track: initialTrack, version }: { token: string; track?: string; version?: string }) {
   const [track, setTrack] = useState<TrackSlug>((initialTrack as TrackSlug) || "");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -854,16 +854,26 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
     void loadDay();
   }, [track, loadHeats, loadPast, loadDay]);
 
-  // In-place refresh every 30s for the current roster + the heats feed
-  // + the full-day schedule. Preserves scan state; merges new roster
-  // changes.
+  // Two-tier refresh:
+  //  - Roster (refreshSession) every 5s so cross-device assignments
+  //    show up nearly real-time when two staff scan into the same
+  //    heat from separate devices. Cheap call — single Pandora
+  //    session pull + Redis assignment merge.
+  //  - Heat metadata (loadHeats + loadDay) every 30s — these don't
+  //    change minute-to-minute and are heavier (per-track Pandora
+  //    fetches + Redis SCARDs).
+  //  scanBufferRef gate inside refreshSession/loadHeats already
+  //  skips updates while the operator is mid-scan.
   useEffect(() => {
-    const id = setInterval(() => {
-      void refreshSession();
+    const fastId = setInterval(() => { void refreshSession(); }, 5_000);
+    const slowId = setInterval(() => {
       void loadHeats();
       void loadDay();
     }, 30_000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(fastId);
+      clearInterval(slowId);
+    };
   }, [refreshSession, loadHeats, loadDay]);
 
   // Auto-advance to the next upcoming session once every racer in the
@@ -1352,6 +1362,18 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
 
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
+      {/* Build version — bottom-right corner, very small + low-contrast.
+          Vercel injects VERCEL_GIT_COMMIT_SHA per deployment so this
+          updates automatically. Useful for "what version am I on" when
+          debugging mismatched-behavior reports across devices. */}
+      {version && (
+        <div
+          className="fixed bottom-1 right-1.5 text-[9px] font-mono text-white/20 pointer-events-none select-none z-[9999]"
+          aria-label={`Build ${version}`}
+        >
+          v {version}
+        </div>
+      )}
       {/* Full-screen success flash. Keyed on flashCounter so each
           successful scan remounts the element and the animation
           restarts. pointer-events-none so it never blocks input. */}
