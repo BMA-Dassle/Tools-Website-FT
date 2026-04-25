@@ -125,19 +125,19 @@ export default function PovUpsell({ racerCount, onContinue, onBack, initial, rac
                 <ul className="space-y-1 text-sm text-white/70">
                   <li className="flex items-baseline gap-2">
                     <span className="text-emerald-400">✓</span>
-                    <span>Racing License <span className="text-white/40">(required, ${LICENSE_PRICE})</span></span>
+                    <span>Racing License <span className="text-white/40">(required, ${LICENSE_PRICE} per racer)</span></span>
                   </li>
                   <li className="flex items-baseline gap-2">
                     <span className="text-emerald-400">✓</span>
-                    <span>POV Race Video <span className="text-white/40">($7 at check-in)</span></span>
+                    <span>POV Race Video <span className="text-white/40">(per racer · $7 at check-in)</span></span>
                   </li>
                   <li className="flex items-baseline gap-2">
                     <span className="text-emerald-400">✓</span>
-                    <span>Free Appetizer at Nemo&apos;s <span className="text-white/40">(dine-in, day-of)</span></span>
+                    <span>Free Appetizer at Nemo&apos;s <span className="text-white/40">(1 per group · dine-in, day-of)</span></span>
                   </li>
                 </ul>
                 <p className="text-[11px] text-amber-400/80 mt-2">
-                  Save up to $12 vs paying separately
+                  Save up to $20 vs paying separately
                 </p>
               </div>
             </div>

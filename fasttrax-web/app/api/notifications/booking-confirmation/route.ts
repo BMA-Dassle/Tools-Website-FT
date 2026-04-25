@@ -349,7 +349,7 @@ export async function POST(req: NextRequest) {
           code is on your confirmation page — open the link above to grab it.
         </p>
         <p style="margin:0;font-size:12px;color:#6B7280;">
-          One free appetizer (Bruschetta, GF Mac &amp; Cheese Bites, or Fried Zucchini Sticks).
+          One free appetizer per group (Bruschetta, GF Mac &amp; Cheese Bites, or Fried Zucchini Sticks).
           Dine-in only · Same-day redemption.
         </p>
       </td></tr>
@@ -404,7 +404,7 @@ ${reservationTime || ""}
 ${isExpressLane ? "EXPRESS CHECK-IN\n\nSkip Guest Services.\nSkip Event Check-In.\nHead straight to Karting! 1st Floor.\n\nArrive 5 min before your race.\nHave your express pass ready on your phone.\n14501 Global Parkway, Fort Myers\n\nIMPORTANT: If you have other attractions booked, Guest Services check-in is still required for those." : ""}${!isExpressLane && showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\nGuest Services\n14513 Global Parkway, Fort Myers" : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz\n14513 Global Parkway, Fort Myers" : "FastTrax — Guest Services, 2nd Floor\n14501 Global Parkway, Fort Myers"}.` : ""}
 ${waiverSection}
 ${confirmSection}
-${isRookiePack ? "\n🍴 Free appetizer at Nemo's — join us upstairs before or after your race. Coupon code is on your confirmation link above.\n" : ""}
+${isRookiePack ? "\n🍴 Free appetizer at Nemo's (one per group) — join us upstairs before or after your race. Coupon code is on your confirmation link above.\n" : ""}
 Important information about your race check-in:
 https://fasttraxent.com/racing#racers-journey`;
 

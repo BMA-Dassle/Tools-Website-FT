@@ -1070,7 +1070,7 @@ export default function ConfirmationPage() {
                   </h3>
                   <p className="text-white/70 text-sm leading-relaxed mb-4">
                     Join us upstairs at <strong className="text-white">Nemo&apos;s</strong> before
-                    or after your race. Show this code at the bar.
+                    or after your race. Show this code at the bar — one free appetizer per group.
                   </p>
                   <div className="rounded-xl bg-black/30 border border-amber-400/40 px-4 py-3 mb-4 text-center">
                     <p className="text-[10px] uppercase tracking-widest text-amber-300/70 mb-1">Coupon Code</p>
@@ -1079,13 +1079,13 @@ export default function ConfirmationPage() {
                     </p>
                   </div>
                   <div className="space-y-1.5 text-xs text-white/60">
-                    <p className="font-semibold text-white/80">One free appetizer — your choice:</p>
+                    <p className="font-semibold text-white/80">Choose one:</p>
                     <ul className="ml-4 space-y-0.5 list-disc list-inside marker:text-amber-400/60">
                       <li>Bruschetta</li>
                       <li>GF Mac &amp; Cheese Bites</li>
                       <li>Fried Zucchini Sticks</li>
                     </ul>
-                    <p className="text-white/40 pt-2">Dine-in only · Same-day redemption</p>
+                    <p className="text-white/40 pt-2">One per group · Dine-in only · Same-day redemption</p>
                   </div>
                 </div>
               </div>
