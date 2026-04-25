@@ -1054,11 +1054,18 @@ export default function ConfirmationPage() {
           {/* Rookie Pack — Free Appetizer at Nemo's. The promo code is
               shown here on-page only. Confirmation SMS + email hint
               "see your confirmation page for the appetizer code" so
-              the code itself doesn't leak through forwarded messages. */}
+              the code itself doesn't leak through forwarded messages.
+
+              Width matches the POV Camera Codes section above
+              (lg:col-span-2). On desktop we split into two columns so
+              the extra width pays off — left side carries the
+              messaging, right side carries the dominant coupon-code
+              card. Mobile stacks. */}
           {rookiePack && (
-            <div className="max-w-2xl mx-auto mt-6">
-              <div className="rounded-2xl border-2 border-amber-400/50 bg-amber-500/10 overflow-hidden">
-                <div className="p-5 sm:p-6">
+            <div className="lg:col-span-2 mt-6 rounded-2xl border-2 border-amber-400/50 bg-amber-500/10 overflow-hidden">
+              <div className="p-5 sm:p-8 grid gap-6 lg:grid-cols-[minmax(0,1fr),minmax(0,360px)] lg:items-center">
+                {/* LEFT — messaging + appetizer choices */}
+                <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span aria-hidden="true" className="text-2xl">🍴</span>
                     <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
@@ -1072,17 +1079,6 @@ export default function ConfirmationPage() {
                     Join us upstairs at <strong className="text-white">Nemo&apos;s</strong> before
                     or after your race. Show this code at the bar — one free appetizer per group.
                   </p>
-                  <div className="rounded-lg bg-amber-400/10 border border-amber-400/30 px-3 py-2 mb-4">
-                    <p className="text-amber-200 text-xs font-bold uppercase tracking-wider text-center">
-                      ⏰ Valid Race Day Only
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-black/30 border border-amber-400/40 px-4 py-3 mb-4 text-center">
-                    <p className="text-[10px] uppercase tracking-widest text-amber-300/70 mb-1">Coupon Code</p>
-                    <p className="font-mono font-bold text-amber-300 text-3xl tracking-[0.2em]">
-                      RACEAPP
-                    </p>
-                  </div>
                   <div className="space-y-1.5 text-xs text-white/60">
                     <p className="font-semibold text-white/80">Choose one:</p>
                     <ul className="ml-4 space-y-0.5 list-disc list-inside marker:text-amber-400/60">
@@ -1091,6 +1087,20 @@ export default function ConfirmationPage() {
                       <li>Fried Zucchini Sticks</li>
                     </ul>
                     <p className="text-white/40 pt-2">One per group · Dine-in only · Race day only</p>
+                  </div>
+                </div>
+                {/* RIGHT — race-day pill + coupon code */}
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-amber-400/10 border border-amber-400/30 px-3 py-2">
+                    <p className="text-amber-200 text-xs font-bold uppercase tracking-wider text-center">
+                      ⏰ Valid Race Day Only
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-black/30 border border-amber-400/40 px-4 py-5 text-center">
+                    <p className="text-[10px] uppercase tracking-widest text-amber-300/70 mb-1">Coupon Code</p>
+                    <p className="font-mono font-bold text-amber-300 text-3xl sm:text-4xl tracking-[0.2em]">
+                      RACEAPP
+                    </p>
                   </div>
                 </div>
               </div>
