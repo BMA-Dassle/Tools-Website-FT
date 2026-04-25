@@ -770,7 +770,7 @@ export default function OrderSummary({
                           <span className="text-white/50">${(povPerRacer * racers).toFixed(2)}</span>
                         </li>
                         <li className="flex items-baseline justify-between gap-2">
-                          <span><span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s <span className="text-white/40">(1 per group)</span></span>
+                          <span><span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s <span className="text-white/40">(1 per group · race day only)</span></span>
                           <span className="text-emerald-300 font-semibold">FREE</span>
                         </li>
                       </ul>

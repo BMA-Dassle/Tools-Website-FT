@@ -1072,6 +1072,11 @@ export default function ConfirmationPage() {
                     Join us upstairs at <strong className="text-white">Nemo&apos;s</strong> before
                     or after your race. Show this code at the bar — one free appetizer per group.
                   </p>
+                  <div className="rounded-lg bg-amber-400/10 border border-amber-400/30 px-3 py-2 mb-4">
+                    <p className="text-amber-200 text-xs font-bold uppercase tracking-wider text-center">
+                      ⏰ Valid Race Day Only
+                    </p>
+                  </div>
                   <div className="rounded-xl bg-black/30 border border-amber-400/40 px-4 py-3 mb-4 text-center">
                     <p className="text-[10px] uppercase tracking-widest text-amber-300/70 mb-1">Coupon Code</p>
                     <p className="font-mono font-bold text-amber-300 text-3xl tracking-[0.2em]">
@@ -1085,7 +1090,7 @@ export default function ConfirmationPage() {
                       <li>GF Mac &amp; Cheese Bites</li>
                       <li>Fried Zucchini Sticks</li>
                     </ul>
-                    <p className="text-white/40 pt-2">One per group · Dine-in only · Same-day redemption</p>
+                    <p className="text-white/40 pt-2">One per group · Dine-in only · Race day only</p>
                   </div>
                 </div>
               </div>
