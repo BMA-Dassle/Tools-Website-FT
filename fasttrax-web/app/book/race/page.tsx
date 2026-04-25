@@ -1664,10 +1664,43 @@ export default function BookRacePage() {
             onCancelRookiePack={async () => {
               // Cancelling the Rookie Pack from the review screen
               // returns the user to the PovUpsell so they can pick
-              // License-only (or re-add the bundle). Removes the
-              // POV bill line first; license stays auto-sold.
-              if (selectedPov?.billLineId) {
-                await removeBookingLine(activeOrderId!, selectedPov.billLineId).catch(() => {});
+              // License-only (or re-add the bundle). License stays
+              // auto-sold (it's required for new racers).
+              //
+              // Removing JUST selectedPov.billLineId (the parent line
+              // returned by booking/sell) sometimes leaves child rows
+              // on the bill — BMI doesn't always cascade. So we fetch
+              // the bill overview, find every line whose name looks
+              // like a POV row, and remove each one. This is what
+              // staff actually expects when they hit "cancel pack".
+              try {
+                if (activeOrderId) {
+                  const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${activeOrderId}`);
+                  if (ovRes.ok) {
+                    const ov = await ovRes.json();
+                    const povLines: { lineId: string; name: string }[] = (ov.lines || [])
+                      .filter((l: { name?: string; lineId?: string }) =>
+                        !!l.lineId && (l.name || "").toLowerCase().includes("pov"),
+                      )
+                      .map((l: { name?: string; lineId?: string }) => ({
+                        lineId: String(l.lineId),
+                        name: l.name || "",
+                      }));
+                    for (const l of povLines) {
+                      await removeBookingLine(activeOrderId, l.lineId).catch((err) =>
+                        console.warn("[cancel rookie pack] remove POV line failed:", l, err),
+                      );
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn("[cancel rookie pack] overview fetch failed:", err);
+                // Last-ditch fallback: try the parent-line we tracked
+                // at sell time. Better than nothing if overview was
+                // unavailable.
+                if (selectedPov?.billLineId && activeOrderId) {
+                  await removeBookingLine(activeOrderId, selectedPov.billLineId).catch(() => {});
+                }
               }
               setSelectedPov(null);
               changeStep("pov");
