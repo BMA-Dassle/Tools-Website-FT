@@ -107,6 +107,13 @@ function dedupeLatestPerSms(entries: EnrichedLogEntry[]): EnrichedLogEntry[] {
   );
 }
 
+type QuotaStatus = {
+  exhausted: boolean;
+  status: { hitAt: string; status: number | null; error: string } | null;
+  queueSize: number;
+  queue?: Array<{ phone: string; source: string; queuedAt: string; shortCode?: string }>;
+};
+
 export default function EticketAdminClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayYmd());
   const [source, setSource] = useState<"" | "pre-race-cron" | "checkin-cron" | "admin-resend">("");
@@ -117,6 +124,44 @@ export default function EticketAdminClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [resendTarget, setResendTarget] = useState<EnrichedLogEntry | null>(null);
   const [flash, setFlash] = useState<{ shortCode: string; msg: string } | null>(null);
+  const [quota, setQuota] = useState<QuotaStatus | null>(null);
+  const [quotaBusy, setQuotaBusy] = useState(false);
+  const [quotaMsg, setQuotaMsg] = useState<string | null>(null);
+
+  /** Pull current SMS quota / queue state. Cheap (Redis only). */
+  const loadQuota = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/sms-quota?token=${token}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as QuotaStatus;
+      setQuota(data);
+    } catch { /* non-fatal */ }
+  }, [token]);
+
+  /** Clear cooldown and drain queue. Wired to "Vox is back — push pending" button. */
+  const clearAndDrain = useCallback(async () => {
+    setQuotaBusy(true);
+    setQuotaMsg(null);
+    try {
+      const res = await fetch(`/api/admin/sms-quota?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "clear-and-drain" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `drain failed (${res.status})`);
+      const drained = data.drain?.ok ?? 0;
+      const stopped = data.drain?.stoppedOnQuota ? " — quota re-hit, will retry" : "";
+      const remaining = data.queueAfter ?? 0;
+      setQuotaMsg(`Sent ${drained} queued SMS${stopped}. ${remaining} still queued.`);
+      await Promise.all([loadQuota(), load()]);
+    } catch (err) {
+      setQuotaMsg(err instanceof Error ? err.message : "drain failed");
+    } finally {
+      setQuotaBusy(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, loadQuota]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,6 +200,14 @@ export default function EticketAdminClient({ token }: { token: string }) {
     return () => clearInterval(id);
   }, [load, resendTarget]);
 
+  // Pull SMS quota state on mount + every 30s. Lighter than the entries
+  // refresh, and the data is what staff stare at when Vox is degraded.
+  useEffect(() => {
+    loadQuota();
+    const id = setInterval(loadQuota, 30_000);
+    return () => clearInterval(id);
+  }, [loadQuota]);
+
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
@@ -164,6 +217,57 @@ export default function EticketAdminClient({ token }: { token: string }) {
             Audit and resend SMS e-tickets. Entries below are ordered newest first.
           </p>
         </header>
+
+        {/* SMS quota panel — only renders when there's something the
+            operator can act on (queue non-empty OR cooldown flag set).
+            Provides the one-click "Vox is back, push pending" button. */}
+        {quota && (quota.queueSize > 0 || quota.exhausted) && (
+          <div className={`mb-3 sm:mb-4 rounded-xl border p-3 sm:p-4 ${
+            quota.exhausted
+              ? "border-amber-500/40 bg-amber-500/10"
+              : "border-emerald-500/30 bg-emerald-500/5"
+          }`}>
+            <div className="flex items-start gap-3 flex-wrap">
+              <div className="text-2xl shrink-0" aria-hidden="true">
+                {quota.exhausted ? "⏸" : "▶"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-bold uppercase tracking-wider ${
+                  quota.exhausted ? "text-amber-300" : "text-emerald-300"
+                }`}>
+                  {quota.exhausted ? "Vox cooldown active" : "Vox cooldown cleared"}
+                </p>
+                <p className="text-white/70 text-xs sm:text-sm mt-1 leading-relaxed">
+                  <strong className="text-white">{quota.queueSize}</strong> SMS queued for delivery.
+                  {quota.exhausted ? (
+                    <>
+                      {" "}Cooldown set <strong>{formatEt(quota.status?.hitAt || "")}</strong>
+                      {quota.status?.status ? <> · status <code className="text-white/60">{quota.status.status}</code></> : null}.
+                      Sweep cron will retry on its own once the 1-hour TTL elapses.
+                    </>
+                  ) : (
+                    <> Cooldown is clear — the next minute&apos;s sweep cron will drain the queue.</>
+                  )}
+                </p>
+                {quotaMsg && (
+                  <p className="text-emerald-300 text-xs sm:text-sm mt-1.5">{quotaMsg}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={clearAndDrain}
+                disabled={quotaBusy}
+                className="shrink-0 px-4 py-2 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {quotaBusy
+                  ? "Sending…"
+                  : quota.exhausted
+                    ? "Vox is back — clear & drain"
+                    : `Drain ${quota.queueSize} now`}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Filter bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
