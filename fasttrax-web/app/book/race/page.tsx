@@ -1468,7 +1468,35 @@ export default function BookRacePage() {
             racerType={racerType}
             onContinue={async (pov) => {
               trackBookingPov(pov?.quantity ?? 0);
-              // Remove old POV from bill if changing
+              // Belt-and-suspenders: scrub EVERY POV line from the
+              // bill before deciding what to do next. Handles
+              // - The previous Rookie Pack's parent line + any orphan
+              //   children that weren't cascaded by removeItem
+              // - Stale POV from a prior pick where billLineId
+              //   tracking failed
+              // - The user toggling License-only after cancelling a
+              //   pack from review (selectedPov is null at that
+              //   point, so the existing single-line remove was a
+              //   no-op).
+              if (activeOrderId) {
+                try {
+                  const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${activeOrderId}`);
+                  if (ovRes.ok) {
+                    const ov = await ovRes.json();
+                    const povLines: string[] = (ov.lines || [])
+                      .filter((l: { name?: string; lineId?: string }) =>
+                        !!l.lineId && (l.name || "").toLowerCase().includes("pov"),
+                      )
+                      .map((l: { lineId: string }) => String(l.lineId));
+                    for (const lineId of povLines) {
+                      await removeBookingLine(activeOrderId, lineId).catch(() => {});
+                    }
+                  }
+                } catch { /* non-fatal */ }
+              }
+              // (Old single-line removal kept for parity with prior
+              // logic in case the overview fetch returned no POV
+              // lines but selectedPov had a tracked id.)
               if (selectedPov?.billLineId) {
                 await removeBookingLine(activeOrderId!,selectedPov.billLineId).catch(() => {});
               }
