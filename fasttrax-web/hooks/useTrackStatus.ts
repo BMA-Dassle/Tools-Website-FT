@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-const TRACK_STATUS_URL = "https://tools-track-status.vercel.app/api/v1/status";
-const POLL_INTERVAL = 10_000; // 10 seconds
+// Cached proxy on our own backend — see app/api/track-status/route.ts.
+// Used to be tools-track-status.vercel.app directly, which meant every
+// open ticket / homepage / e-ticket pinged the upstream service every
+// 10s. Now they all hit our Redis-cached proxy instead, which fans
+// down to one upstream call per ~30s across the whole site.
+const TRACK_STATUS_URL = "/api/track-status";
+const POLL_INTERVAL = 10_000; // 10 seconds — still polls fast for UI freshness, but mostly cache hits
 
 // ── Track delay / running status (existing) ──────────────────────────────────
 
@@ -60,10 +65,12 @@ export function useTrackStatus(): TrackStatusResult | null {
 
     async function poll() {
       try {
-        // Fetch both in parallel
+        // Fetch both in parallel. Both endpoints are server-cached:
+        //   /api/track-status      — Redis 30s cache around the BMA upstream
+        //   /api/pandora/races-current — 12s in-memory + Redis fallback
         const [statusRes, racesRes] = await Promise.all([
-          fetch(`${TRACK_STATUS_URL}?_t=${Date.now()}`, { cache: "no-store" }),
-          fetch(`/api/pandora/races-current?_t=${Date.now()}`, { cache: "no-store" }),
+          fetch(TRACK_STATUS_URL, { cache: "no-store" }),
+          fetch("/api/pandora/races-current", { cache: "no-store" }),
         ]);
 
         const statusJson = await statusRes.json();
