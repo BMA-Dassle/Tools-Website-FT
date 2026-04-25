@@ -166,11 +166,15 @@ export async function GET(req: NextRequest) {
   try {
     const siteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
 
-    // Pull the newest 200 (up from 50) so a multi-minute backlog (e.g. a
-    // restart after the match logic changed) catches up in a single
-    // cron fire instead of dripping across 4+ runs.
+    // Pull the newest 500. Higher than strictly needed for new-match
+    // detection, but the cron's overlay-refresh pass also runs over
+    // every video in this set — so a wider window keeps older match
+    // records' viewed/purchased/unlock fields in sync with VT3 longer
+    // before they age out. (Reported case: a stale unlock fields
+    // lingered on a record that scrolled off a 200-window during a
+    // busy race day.)
     const [videos, lastSeenId] = await Promise.all([
-      listRecentVideos({ siteId, limit: 200 }),
+      listRecentVideos({ siteId, limit: 500 }),
       getLastSeenVideoId(),
     ]);
 
