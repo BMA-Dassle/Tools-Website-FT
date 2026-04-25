@@ -154,7 +154,10 @@ export async function GET(req: NextRequest) {
                 viewed: viewed || undefined,
                 firstViewedAt: v.firstImpressionAt || undefined,
                 lastViewedAt: v.lastImpressionAt || undefined,
-                purchased: !!unlockedAt || undefined,
+                // Only "PAID" counts as purchased — VT3 sets unlockTime
+                // on free / unlockCode unlocks too. See extractOverlay
+                // in app/api/cron/video-match/route.ts for the same gate.
+                purchased: v.purchaseType === "PAID" || undefined,
                 purchaseType: v.purchaseType || undefined,
                 unlockedAt,
               };
