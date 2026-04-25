@@ -1661,6 +1661,17 @@ export default function BookRacePage() {
               changeStep("heat");
               setTimeout(() => changeStep("summary"), 200);
             }}
+            onCancelRookiePack={async () => {
+              // Cancelling the Rookie Pack from the review screen
+              // returns the user to the PovUpsell so they can pick
+              // License-only (or re-add the bundle). Removes the
+              // POV bill line first; license stays auto-sold.
+              if (selectedPov?.billLineId) {
+                await removeBookingLine(activeOrderId!, selectedPov.billLineId).catch(() => {});
+              }
+              setSelectedPov(null);
+              changeStep("pov");
+            }}
           />
         )}
 

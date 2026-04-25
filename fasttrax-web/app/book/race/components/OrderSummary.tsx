@@ -72,6 +72,11 @@ interface OrderSummaryProps {
   onRemoveAddOn?: (index: number) => void;
   /** Callback to remove POV */
   onRemovePov?: () => void;
+  /** Cancel the Rookie Pack from the review screen — removes POV
+   *  AND navigates back to the PovUpsell step so the user can pick
+   *  License-only or re-add the bundle. Distinct from `onRemovePov`
+   *  which is the inline X on a non-bundle POV row (no navigation). */
+  onCancelRookiePack?: () => void;
   /** Override confirmation page path (default: /book/race/confirmation) */
   confirmationPath?: string;
 }
@@ -149,6 +154,7 @@ export default function OrderSummary({
   pov,
   onRemoveAddOn,
   onRemovePov,
+  onCancelRookiePack,
   confirmationPath = "/book/race/confirmation",
 }: OrderSummaryProps) {
   const [removingPack, setRemovingPack] = useState(false);
@@ -717,6 +723,64 @@ export default function OrderSummary({
               }
 
               if (card.type === "pov") {
+                // Rookie Pack hero card — replaces the plain POV row
+                // when the customer picked the bundle in PovUpsell.
+                // Shows the bundle value framing on the review screen
+                // even though the BMI bill below still lists each
+                // SKU individually (license + POV separate lines).
+                if (pov!.rookiePack) {
+                  const racers = pov!.quantity;
+                  const licensePerRacer = 4.99;
+                  const povPerRacer = pov!.price;
+                  const povAtCheckin = 7;
+                  const appRetail = 10;
+                  const totalCharged = (licensePerRacer + povPerRacer) * racers;
+                  const wouldHavePaid = (licensePerRacer + povAtCheckin) * racers + appRetail;
+                  const youSave = wouldHavePaid - totalCharged;
+                  return (
+                    <div key="pov" className="px-4 py-4 bg-amber-500/[0.06]">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-amber-400 text-[10px] font-bold uppercase tracking-widest shrink-0">Rookie Pack</span>
+                            <span className="text-white/20 text-xs shrink-0">{racers} racer{racers === 1 ? "" : "s"}</span>
+                          </div>
+                          <p className="text-white/70 text-xs">License + POV Video + Free Appetizer</p>
+                        </div>
+                        {onCancelRookiePack && state.status === "booked" && (
+                          <button
+                            type="button"
+                            aria-label="Cancel Rookie Pack and pick a different option"
+                            onClick={onCancelRookiePack}
+                            className="text-red-400/40 hover:text-red-400 transition-colors p-0.5 -mr-1 shrink-0"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                      <ul className="space-y-1 text-xs text-white/70 mb-2">
+                        <li className="flex items-baseline justify-between gap-2">
+                          <span><span className="text-emerald-400">✓</span> Racing License × {racers}</span>
+                          <span className="text-white/50">${(licensePerRacer * racers).toFixed(2)}</span>
+                        </li>
+                        <li className="flex items-baseline justify-between gap-2">
+                          <span><span className="text-emerald-400">✓</span> POV Race Video × {racers}</span>
+                          <span className="text-white/50">${(povPerRacer * racers).toFixed(2)}</span>
+                        </li>
+                        <li className="flex items-baseline justify-between gap-2">
+                          <span><span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s <span className="text-white/40">(1 per group)</span></span>
+                          <span className="text-emerald-300 font-semibold">FREE</span>
+                        </li>
+                      </ul>
+                      <div className="flex items-baseline justify-between text-xs pt-2 border-t border-white/[0.06]">
+                        <span className="text-amber-400 font-bold">💰 You save ${youSave.toFixed(2)}</span>
+                        <span className="text-white/40 line-through">${wouldHavePaid.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key="pov" className="px-4 py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
