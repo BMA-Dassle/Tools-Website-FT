@@ -1027,9 +1027,12 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   });
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Persist cart + orderId to sessionStorage
+  // Persist cart + orderId to sessionStorage. Broadcast a `cart:changed`
+  // event so MiniCart updates instantly instead of waiting on its
+  // (now 800ms) poll.
   useEffect(() => {
     sessionStorage.setItem("attractionCart", JSON.stringify(cartItems));
+    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
   }, [cartItems]);
 
   // Restore orderId from cart if returning from /book

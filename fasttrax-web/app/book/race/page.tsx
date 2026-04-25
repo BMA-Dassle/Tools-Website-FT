@@ -229,21 +229,90 @@ export default function BookRacePage() {
         packSchedules: packResult.schedules.map(s => ({ start: s.start, name: s.name })),
       });
     }
-    // Add license if sold
-    if (licenseSold) {
+    // License + POV handling.
+    // If the racer picked the Rookie Pack we collapse license + POV into a
+    // single "Rookie Pack" cart row — matches how the review screen and
+    // confirmation page already present the bundle. Otherwise show the
+    // separate license / POV lines.
+    const baseDate = bookings[0]?.block.start.split("T")[0] || "";
+    const isRookieBundle = !!(selectedPov && selectedPov.quantity > 0 && selectedPov.rookiePack);
+    if (isRookieBundle && selectedPov) {
+      const LICENSE_PRICE = 4.99;
       racingItems.push({
         attraction: "racing",
         attractionName: "Racing",
-        product: { name: "FastTrax License", price: 4.99, bookingMode: "per-person" },
-        date: bookings[0]?.block.start.split("T")[0] || "",
+        product: {
+          name: "Rookie Pack (License + POV + Free App)",
+          price: LICENSE_PRICE + (selectedPov.price || 0),
+          bookingMode: "per-person",
+        },
+        date: baseDate,
         time: { block: { start: "" } },
-        quantity: licenseSold.quantity,
-        billLineId: licenseSold.billLineId,
-        color: "#3B82F6",
+        quantity: selectedPov.quantity,
+        // Removing the bundle is a multi-step undo (cancel from review or
+        // step-back to PovUpsell) — don't expose the cart × button for it.
+        billLineId: null,
+        color: "#F59E0B",
+        racerNames: undefined,
+      });
+    } else {
+      if (licenseSold) {
+        racingItems.push({
+          attraction: "racing",
+          attractionName: "Racing",
+          product: { name: "FastTrax License", price: 4.99, bookingMode: "per-person" },
+          date: baseDate,
+          time: { block: { start: "" } },
+          quantity: licenseSold.quantity,
+          billLineId: licenseSold.billLineId,
+          color: "#3B82F6",
+          racerNames: undefined,
+        });
+      }
+      if (selectedPov && selectedPov.quantity > 0) {
+        racingItems.push({
+          attraction: "racing",
+          attractionName: "Racing",
+          product: {
+            name: "POV Race Video",
+            price: selectedPov.price || 0,
+            bookingMode: "per-person",
+          },
+          date: baseDate,
+          time: { block: { start: "" } },
+          quantity: selectedPov.quantity,
+          billLineId: selectedPov.billLineId || null,
+          color: "#A855F7",
+          racerNames: undefined,
+        });
+      }
+    }
+    // Add-ons (Shuffly, Duck Pin, etc) — also need to surface in the
+    // floating cart. Filter to ones the racer actually selected.
+    for (const ao of selectedAddOns.filter(a => a.quantity > 0)) {
+      const aoStart = ao.selectedTime || (ao.block as { start?: string } | undefined)?.start || "";
+      racingItems.push({
+        attraction: "racing",
+        attractionName: ao.location === "headpinz" ? "HeadPinz" : "FastTrax",
+        product: {
+          name: ao.name,
+          price: ao.price,
+          bookingMode: ao.perPerson ? "per-person" : "per-table",
+        },
+        date: aoStart.split("T")[0] || baseDate,
+        time: { block: { start: aoStart } },
+        quantity: ao.quantity,
+        billLineId: ao.billLineId || null,
+        color: ao.color,
         racerNames: undefined,
       });
     }
     sessionStorage.setItem("attractionCart", JSON.stringify([...nonRacing, ...racingItems]));
+    // Nudge MiniCart immediately. It also polls as a fallback, but the
+    // poll interval is up to 1.5s which felt sluggish — broadcast a
+    // synchronous event so the cart reflects state changes the instant
+    // the page state changes.
+    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR / no DOM */ }
 
     // Also store full racer assignments for the booking record
     // (needed when checkout page creates the booking record)
@@ -274,7 +343,7 @@ export default function BookRacePage() {
       sessionStorage.setItem("primaryPersonId", verifiedPerson.personId);
       console.log("[cart sync] saved primaryPersonId:", verifiedPerson.personId);
     }
-  }, [bookings, licenseSold, verifiedRacers, verifiedPerson, packResult, selectedProduct]);
+  }, [bookings, licenseSold, verifiedRacers, verifiedPerson, packResult, selectedProduct, selectedPov, selectedAddOns]);
 
   // Load product catalog from static registry based on day-of-week and racer type
   const fetchCatalog = useCallback((date: string) => {

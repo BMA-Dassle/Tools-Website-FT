@@ -40,7 +40,17 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
   // Race booking has its own checkout flow — hide the generic checkout button
   const isRaceFlow = pathname?.startsWith("/book/race");
 
-  // Poll sessionStorage for cart items
+  // Read sessionStorage for cart items.
+  // Three triggers, in order of preference:
+  //   1. `cart:changed` event — fired by writers (race page, attraction
+  //      pages) the moment they update sessionStorage. Updates are
+  //      effectively instant.
+  //   2. Native `storage` event — fires when sessionStorage is changed
+  //      from a *different* tab/window. Cheap to listen for; covers
+  //      multi-tab.
+  //   3. Poll fallback every 800ms — defends against any writer that
+  //      forgot the event dispatch. The previous 1500ms poll is what
+  //      made cart updates feel laggy.
   useEffect(() => {
     function loadCart() {
       try {
@@ -51,8 +61,14 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
       } catch { setItems([]); }
     }
     loadCart();
-    const interval = setInterval(loadCart, 1500);
-    return () => clearInterval(interval);
+    const interval = setInterval(loadCart, 800);
+    window.addEventListener("cart:changed", loadCart);
+    window.addEventListener("storage", loadCart);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("cart:changed", loadCart);
+      window.removeEventListener("storage", loadCart);
+    };
   }, []);
 
   function handleRemove(index: number) {
@@ -75,6 +91,8 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
     if (updated.length === 0) {
       sessionStorage.removeItem("attractionOrderId");
     }
+    // Notify other listeners (and any other open MiniCart instances)
+    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
   }
 
   if (items.length === 0 && !hasActiveBill) return null;
