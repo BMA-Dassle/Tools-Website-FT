@@ -825,6 +825,12 @@ export default function OrderSummary({
             {state.bmiLines.map((line, i) => {
               const isLicense = line.name.toLowerCase().includes("license");
               const isRace = line.productGroup === "Karting";
+              const isPov = line.name.toLowerCase().includes("pov");
+              // When the Rookie Pack hero card is showing above, the
+              // license + POV are already represented there. Hide
+              // them here so customers don't see them twice. Subtotal
+              // / tax / total below still reflect the full bill.
+              if (pov?.rookiePack && (isLicense || isPov)) return null;
               // Removable: not a license, not a race (races removed via item cards above)
               const canRemove = !isLicense && !isRace && line.lineId && state.status === "booked";
               return (
