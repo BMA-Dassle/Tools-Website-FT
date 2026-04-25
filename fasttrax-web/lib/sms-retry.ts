@@ -2,6 +2,8 @@ import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
 import { canonicalizePhone } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
+import { isQuotaError, isQuotaExhausted, markQuotaExhausted } from "@/lib/sms-quota";
+import { twilioSend, isTwilioQuotaError } from "@/lib/twilio-send";
 
 /**
  * SMS retry queue — failed sends get re-attempted on subsequent cron ticks
@@ -235,13 +237,58 @@ async function voxSendOnce(
   }
 }
 
+/**
+ * Result shape — adds flags so callers can route quota / failover
+ * outcomes correctly:
+ *
+ *   skipped     — we never tried Vox; the cooldown flag is set AND
+ *                 Twilio failover also unavailable (or also exhausted).
+ *                 Caller should enqueue.
+ *   quotaHit    — Vox AND Twilio both returned quota errors. Cooldown
+ *                 flag is now set. Caller should enqueue.
+ *   provider    — which provider actually delivered the message
+ *                 ("vox" | "twilio"). Useful for log audits.
+ *   failedOver  — true when Vox returned a quota error and Twilio
+ *                 picked it up successfully. ok=true, but the audit
+ *                 trail should note the failover.
+ *
+ * For all other failures the existing retry queue still applies.
+ */
+export interface VoxSendResult {
+  ok: boolean;
+  status: number | null;
+  error?: string;
+  skipped?: boolean;
+  quotaHit?: boolean;
+  provider?: "vox" | "twilio";
+  failedOver?: boolean;
+}
+
 export async function voxSend(
   toFormatted: string,
   body: string,
   opts?: VoxSendOpts,
-): Promise<{ ok: boolean; status: number | null; error?: string }> {
+): Promise<VoxSendResult> {
+  // Short-circuit during cooldown — saves a doomed Vox call. Try
+  // Twilio directly: if Vox is throttled but Twilio is fine, the
+  // customer still gets the SMS in real time.
+  if (await isQuotaExhausted()) {
+    const tw = await twilioSend(toFormatted, body);
+    if (tw.ok) {
+      console.log("[voxSend] cooldown active, delivered via Twilio failover");
+      return { ok: true, status: tw.status, provider: "twilio", failedOver: true };
+    }
+    return {
+      ok: false,
+      status: tw.status ?? 429,
+      error: `cooldown + twilio failed: ${tw.error || "unknown"}`,
+      skipped: true,
+      provider: "twilio",
+    };
+  }
+
   const from = opts?.fromOverride || VOX_FROM;
-  const result = await voxSendOnce(toFormatted, body, from);
+  let result = await voxSendOnce(toFormatted, body, from);
 
   // If we tried with an override and Voxtelesys rejected it (likely DID not owned),
   // degrade to default VOX_FROM and prepend a "From {planner}" prefix so the
@@ -253,10 +300,36 @@ export async function voxSend(
   ) {
     const prefix = opts.fallbackPrefix || `(From ${opts.fromOverride}) `;
     const fallbackBody = prefix + body;
-    return await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
+    result = await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
   }
 
-  return result;
+  // Vox quota / daily-limit hit — try Twilio failover BEFORE marking
+  // the cooldown. If Twilio succeeds we still mark cooldown (so future
+  // voxSends skip Vox for the next hour and go straight to Twilio
+  // first), but the current send goes through immediately.
+  if (!result.ok && isQuotaError(result.status, result.error || "")) {
+    console.warn(`[voxSend] Vox quota error (${result.status}); attempting Twilio failover`);
+    const tw = await twilioSend(toFormatted, body);
+    if (tw.ok) {
+      // Mark cooldown so subsequent calls in the next hour go straight
+      // to Twilio (one less doomed Vox call per send).
+      await markQuotaExhausted(result.status, result.error || "");
+      return { ok: true, status: tw.status, provider: "twilio", failedOver: true };
+    }
+    // Twilio also unavailable / quota'd — caller queues.
+    await markQuotaExhausted(result.status, result.error || "");
+    const twFailDetail = isTwilioQuotaError(tw.status, tw.error || "")
+      ? `twilio also quota'd (${tw.status})`
+      : `twilio failed (${tw.status}: ${tw.error || "unknown"})`;
+    return {
+      ...result,
+      quotaHit: true,
+      error: `${result.error || ""} | ${twFailDetail}`,
+      provider: "vox",
+    };
+  }
+
+  return { ...result, provider: "vox" };
 }
 
 /**
@@ -267,14 +340,15 @@ export async function voxSend(
  */
 export async function drainRetries(
   cron: SmsRetryCron,
-): Promise<{ attempted: number; ok: number; requeued: number; dead: number }> {
+): Promise<{ attempted: number; ok: number; requeued: number; dead: number; quotaQueued: number }> {
   const DEDUP_TTL_PRE_RACE = 60 * 60 * 24;
   const DEDUP_TTL_CHECKIN = 60 * 60 * 6;
   const prefix = cron === "pre-race-cron" ? "alert:pre-race" : "alert:checkin";
   const dedupTtl = cron === "pre-race-cron" ? DEDUP_TTL_PRE_RACE : DEDUP_TTL_CHECKIN;
 
+  const { quotaEnqueue } = await import("@/lib/sms-quota");
   const due = await dueRetries(cron);
-  let ok = 0, requeued = 0, dead = 0;
+  let ok = 0, requeued = 0, dead = 0, quotaQueued = 0;
   for (const { raw, entry } of due) {
     const toFormatted = canonicalizePhone(entry.phone);
     if (!toFormatted) { await removeRetry(raw); continue; }
@@ -287,6 +361,7 @@ export async function drainRetries(
         status: result.status, ok: true, body: entry.body,
         sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
         memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
+        provider: result.provider, failedOver: result.failedOver,
       });
       for (const sid of entry.audit.sessionIds) {
         for (const pid of entry.audit.personIds) {
@@ -294,6 +369,33 @@ export async function drainRetries(
         }
       }
       ok++;
+    } else if (result.skipped || result.quotaHit) {
+      // Quota exhausted — move to the long-lived quota queue instead of
+      // burning attempts on the standard retry queue. The standard queue's
+      // 3-attempt × 10-min-max-backoff would dead-letter every entry well
+      // before the daily cap reset.
+      await removeRetry(raw);
+      await quotaEnqueue({
+        phone: toFormatted,
+        body: entry.body,
+        source: cron,
+        queuedAt: ts,
+        shortCode: entry.audit.shortCode,
+        audit: {
+          sessionIds: entry.audit.sessionIds,
+          personIds: entry.audit.personIds,
+          memberCount: entry.audit.memberCount,
+        },
+      });
+      await logSms({
+        ts, phone: toFormatted, source: cron,
+        status: result.status, ok: false,
+        error: `[quota] queued for next reset window (${result.error || "429"})`,
+        body: entry.body,
+        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
+      });
+      quotaQueued++;
     } else {
       await logSms({
         ts, phone: toFormatted, source: cron,
@@ -306,5 +408,5 @@ export async function drainRetries(
       if (movedToDead) dead++; else requeued++;
     }
   }
-  return { attempted: due.length, ok, requeued, dead };
+  return { attempted: due.length, ok, requeued, dead, quotaQueued };
 }

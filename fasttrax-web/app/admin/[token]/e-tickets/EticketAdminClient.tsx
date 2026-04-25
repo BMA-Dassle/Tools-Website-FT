@@ -57,6 +57,56 @@ function isConsentSkip(e: EnrichedLogEntry): boolean {
   return !e.ok && e.error === "SMS not opted in";
 }
 
+/**
+ * Quota-queued state: Vox returned a daily / rate limit and we routed
+ * the send to the long-lived quota queue. The every-minute sweep cron
+ * will retry as soon as the quota resets — at that point a fresh log
+ * entry is written with ok=true. We render these as grey "queued"
+ * instead of red "failed" so staff know it's pending, not broken.
+ */
+function isQuotaQueued(e: EnrichedLogEntry): boolean {
+  if (e.ok) return false;
+  const err = e.error || "";
+  if (err.includes("[quota]")) return true;
+  if (err.includes("[quota-drain]")) return true;
+  if (e.status === 429) return true;
+  return false;
+}
+
+/**
+ * When an SMS is queued and later drained successfully, two distinct
+ * log entries exist for the same logical send. Collapse them: keep
+ * only the most recent entry per (shortCode + phone + source) tuple.
+ *
+ * Entries that have no shortCode (booking-confirm direct sends, etc)
+ * pass through unfiltered — they're already 1-to-1 with their delivery.
+ */
+function dedupeLatestPerSms(entries: EnrichedLogEntry[]): EnrichedLogEntry[] {
+  // Newest first ordering is preserved by the API; group + take first.
+  const seen = new Map<string, EnrichedLogEntry>();
+  const passthrough: EnrichedLogEntry[] = [];
+  for (const e of entries) {
+    if (!e.shortCode) {
+      passthrough.push(e);
+      continue;
+    }
+    const key = `${e.shortCode}|${e.phone}|${e.source}`;
+    const prior = seen.get(key);
+    if (!prior) { seen.set(key, e); continue; }
+    // Prefer ok=true over queued/failed (drain success outranks the
+    // earlier queued attempt for the same SMS), then prefer the newer
+    // timestamp.
+    const priorTs = new Date(prior.ts).getTime();
+    const curTs = new Date(e.ts).getTime();
+    if (e.ok && !prior.ok) seen.set(key, e);
+    else if (!e.ok && prior.ok) { /* keep prior */ }
+    else if (curTs > priorTs) seen.set(key, e);
+  }
+  return [...seen.values(), ...passthrough].sort(
+    (a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime(),
+  );
+}
+
 export default function EticketAdminClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayYmd());
   const [source, setSource] = useState<"" | "pre-race-cron" | "checkin-cron" | "admin-resend">("");
@@ -78,8 +128,11 @@ export default function EticketAdminClient({ token }: { token: string }) {
       const res = await fetch(`/api/admin/e-tickets/list?${qs.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`list failed: ${res.status}`);
       const json = (await res.json()) as ListResponse;
-      setEntries(json.entries || []);
-      setTotal(json.total || 0);
+      // Collapse "queued" + "drained" pairs into the latest state per
+      // logical SMS so staff see one row per ticket rather than duplicates.
+      const collapsed = dedupeLatestPerSms(json.entries || []);
+      setEntries(collapsed);
+      setTotal(collapsed.length);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to load");
     } finally {
@@ -229,10 +282,17 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   <span className="font-mono text-xs text-white/70">{e.phone}</span>
                   <span className="text-xs">
                     {e.ok
-                      ? <span className="text-emerald-400">sent</span>
+                      ? (
+                        <span className="text-emerald-400">
+                          sent
+                          {e.failedOver && <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>}
+                        </span>
+                      )
                       : noConsent
                         ? <span className="text-red-300 font-semibold">needs verbal OK</span>
-                        : <span className="text-red-400">failed ({e.status ?? "?"})</span>}
+                        : isQuotaQueued(e)
+                          ? <span className="text-white/50" title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry on quota reset — auto-flips to green when delivered.">⏳ queued</span>
+                          : <span className="text-red-400">failed ({e.status ?? "?"})</span>}
                   </span>
                 </div>
 
@@ -302,10 +362,19 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {e.ok
-                          ? <span className="text-emerald-400 text-xs">sent</span>
+                          ? (
+                            <span className="text-emerald-400 text-xs">
+                              sent
+                              {e.failedOver && (
+                                <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>
+                              )}
+                            </span>
+                          )
                           : noConsent
                             ? <span className="text-red-300 text-xs font-semibold">needs verbal OK</span>
-                            : <span className="text-red-400 text-xs">failed ({e.status ?? "?"})</span>}
+                            : isQuotaQueued(e)
+                              ? <span className="text-white/50 text-xs" title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry on quota reset — auto-flips to green when delivered.">⏳ queued</span>
+                              : <span className="text-red-400 text-xs">failed ({e.status ?? "?"})</span>}
                         {/* Click telemetry — only show if we actually have a shortCode + at least one click */}
                         {e.clickCount && e.clickCount > 0 ? (
                           <span

@@ -35,6 +35,13 @@ export interface SmsLogEntry {
   shortCode?: string;
   /** Full outgoing SMS body */
   body?: string;
+  /** Which SMS provider actually attempted/delivered this send. Defaults
+   *  to "vox" when omitted (back-compat for entries logged before
+   *  Twilio failover existed). */
+  provider?: "vox" | "twilio";
+  /** True when Vox returned a quota error and Twilio picked up the send.
+   *  Lets the admin tool surface "Vox→Twilio failover" rows. */
+  failedOver?: boolean;
 }
 
 const LOG_TTL = 60 * 60 * 24 * 90; // 90 days

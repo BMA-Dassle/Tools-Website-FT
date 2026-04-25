@@ -316,9 +316,21 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     ) : (
                       <>
                         {e.notifySmsOk === true ? (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">sms ✓</span>
+                          <span
+                            className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300"
+                            title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo}` : undefined}
+                          >
+                            sms ✓
+                          </span>
+                        ) : e.notifySmsError?.includes("[quota") ? (
+                          <span
+                            className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/60 ring-1 ring-amber-400/20"
+                            title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry as soon as the quota resets — this chip flips to green automatically."
+                          >
+                            sms ⏳ queued
+                          </span>
                         ) : e.notifySmsError ? (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">sms ✗</span>
+                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifySmsError}>sms ✗</span>
                         ) : (
                           <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">sms —</span>
                         )}
@@ -490,7 +502,19 @@ export default function VideoAdminClient({ token }: { token: string }) {
                           ) : (
                             <>
                               {e.notifySmsOk === true ? (
-                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">sms ✓</span>
+                                <span
+                                  className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300"
+                                  title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo}` : undefined}
+                                >
+                                  sms ✓
+                                </span>
+                              ) : e.notifySmsError?.includes("[quota") ? (
+                                <span
+                                  className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/60 ring-1 ring-amber-400/20"
+                                  title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry as soon as the quota resets — this chip flips to green automatically."
+                                >
+                                  sms ⏳ queued
+                                </span>
                               ) : e.notifySmsError ? (
                                 <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifySmsError}>sms ✗</span>
                               ) : (

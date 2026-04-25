@@ -85,32 +85,47 @@ async function sendEmail(to: string, subject: string, html: string, fromName?: s
   return true;
 }
 
+/**
+ * Send via the centralized voxSend helper — picks up quota detection
+ * automatically. If we're in cooldown OR Vox returns a quota error,
+ * we enqueue onto the quota queue so the every-minute sweep delivers
+ * it as soon as the daily limit resets.
+ *
+ * Returns true for "delivered or queued for guaranteed delivery" and
+ * false only for hard failures (bad phone, missing config).
+ */
 async function sendSms(to: string, body: string, fromNumber?: string): Promise<boolean> {
   if (!VOX_API_KEY) {
     console.error("[booking-confirmation] Missing VOX_API_KEY");
     return false;
   }
   const toFormatted = to.length === 10 ? `+1${to}` : `+${to}`;
+  const from = fromNumber || VOX_FROM_FASTTRAX;
 
-  const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${VOX_API_KEY}`,
-    },
-    body: JSON.stringify({
-      to: toFormatted,
-      from: fromNumber || VOX_FROM_FASTTRAX,
+  // Lazy-load to avoid pulling Redis into the route's import chain
+  // until we actually need to send.
+  const { voxSend } = await import("@/lib/sms-retry");
+  const result = await voxSend(toFormatted, body, { fromOverride: from });
+
+  if (result.ok) return true;
+
+  if (result.skipped || result.quotaHit) {
+    const { quotaEnqueue } = await import("@/lib/sms-quota");
+    await quotaEnqueue({
+      phone: toFormatted,
       body,
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    console.error("[booking-confirmation] Voxtelesys error:", res.status, err);
-    return false;
+      from,
+      source: "booking-confirm",
+      queuedAt: new Date().toISOString(),
+    });
+    console.warn("[booking-confirmation] queued SMS for next quota reset:", toFormatted, result.error);
+    // Treat as "we'll get it sent eventually" — not a customer-facing
+    // failure, since email already delivered.
+    return true;
   }
-  return true;
+
+  console.error("[booking-confirmation] Voxtelesys error:", result.status, result.error);
+  return false;
 }
 
 // ── POST handler ────────────────────────────────────────────────────────────

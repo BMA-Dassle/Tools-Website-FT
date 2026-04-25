@@ -293,8 +293,33 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
 
   const result = await voxSend(toFormatted, body);
   if (result.ok) {
-    await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: result.status, ok: true, body, ...audit });
+    await logSms({
+      ts, phone: toFormatted, source: "checkin-cron",
+      status: result.status, ok: true, body,
+      provider: result.provider, failedOver: result.failedOver,
+      ...audit,
+    });
     return true;
+  }
+
+  // Quota / daily-limit hit — route to the long-lived quota queue.
+  if (result.skipped || result.quotaHit) {
+    const { quotaEnqueue } = await import("@/lib/sms-quota");
+    await quotaEnqueue({
+      phone: toFormatted,
+      body,
+      source: "checkin-cron",
+      queuedAt: ts,
+      shortCode: audit.shortCode,
+      audit: { sessionIds: audit.sessionIds, personIds: audit.personIds, memberCount: audit.memberCount },
+    });
+    await logSms({
+      ts, phone: toFormatted, source: "checkin-cron",
+      status: result.status, ok: false,
+      error: `[quota] queued for next reset window (${result.error || "429"})`,
+      body, ...audit,
+    });
+    return false;
   }
 
   console.error(`[checkin-alerts] SMS ${result.status}: ${result.error}`);

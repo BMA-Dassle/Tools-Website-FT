@@ -262,18 +262,50 @@ export async function notifyVideoReady(
       result.sms.status = send.status;
       result.sms.sentTo = phone;
       if (!send.ok) result.sms.error = send.error;
+
+      // Quota / daily-limit hit — queue for next reset window. Match
+      // record stores `notifySmsOk: false` + a "[quota]" tag in
+      // notifySmsError so the videos board can render a grey chip
+      // instead of red "sms ✗". On drain success the sweep cron
+      // patches the record to notifySmsOk: true (see sms-retry-sweep
+      // route). Log carries the same tag so the admin SMS board
+      // also distinguishes queued from failed.
+      const isQuotaQueued = !send.ok && (send.skipped || send.quotaHit);
+      if (isQuotaQueued) {
+        const { quotaEnqueue } = await import("@/lib/sms-quota");
+        await quotaEnqueue({
+          phone,
+          body,
+          source: "video-match",
+          queuedAt: ts,
+          shortCode: match.videoCode,
+          audit: {
+            sessionIds: [match.sessionId],
+            personIds: [match.personId],
+            memberCount: 1,
+          },
+        });
+        result.sms.error = `[quota] queued for next reset window (${send.error || "429"})`;
+      }
+
       await logSms({
         ts,
         phone,
         source: "video-match",
         status: send.status,
         ok: send.ok,
-        error: send.ok ? undefined : (send.error || "").slice(0, 500),
+        error: send.ok
+          ? undefined
+          : isQuotaQueued
+            ? result.sms.error
+            : (send.error || "").slice(0, 500),
         body,
         sessionIds: [match.sessionId],
         personIds: [match.personId],
         memberCount: 1,
         shortCode: match.videoCode,
+        provider: send.provider,
+        failedOver: send.failedOver,
       });
     } catch (err) {
       result.sms.ok = false;
