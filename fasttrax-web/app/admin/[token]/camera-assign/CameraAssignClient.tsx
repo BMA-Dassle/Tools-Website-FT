@@ -1715,7 +1715,23 @@ export default function CameraAssignClient({ token, track: initialTrack }: { tok
             )}
             <button
               type="button"
-              onClick={() => { setOverrideSessionId(""); void loadSession(); }}
+              // Refresh the CURRENTLY LOADED heat (or pending pick if
+              // staff just tapped a row but the fetch is still in
+              // flight). Falls back to "next upcoming" only when no
+              // heat is selected — previously we always cleared
+              // overrideSessionId, which kicked staff out of any
+              // past/manually-picked heat they were working on.
+              onClick={() => {
+                const sid = session
+                  ? String(session.sessionId)
+                  : (overrideSessionId || undefined);
+                if (sid) {
+                  setOverrideSessionId(sid);
+                  void loadSession(sid);
+                } else {
+                  void loadSession();
+                }
+              }}
               className="text-[#00E2E5] hover:underline"
             >
               Refresh
