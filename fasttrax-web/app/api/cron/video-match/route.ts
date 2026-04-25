@@ -81,13 +81,10 @@ function extractOverlay(v: Vt3Video): Overlay {
     !!v.hasMediaCentreImpression ||
     !!v.firstImpressionAt;
   const unlockedAt = v.unlockTime || undefined;
-  // VT3 sets unlockTime for any unlock event — paid purchase, promo
-  // unlockCode, free, etc. Only flag as "purchased" when the
-  // purchaseType matches what VT3's own UI considers a paid sale.
-  // Anything else (unlockCode/FREE/null) leaves purchased=undefined
-  // so the admin chip stays off; we still surface unlockedAt +
-  // purchaseType for context.
-  const purchased = v.purchaseType === "PAID";
+  // VT3 considers ANY unlockTime → purchased (PAID, unlockCode,
+  // and the rest are all paid paths per staff). Reverted from the
+  // brief PAID-only gate.
+  const purchased = !!unlockedAt;
   return {
     viewed: viewed || undefined,
     firstViewedAt: v.firstImpressionAt || undefined,
