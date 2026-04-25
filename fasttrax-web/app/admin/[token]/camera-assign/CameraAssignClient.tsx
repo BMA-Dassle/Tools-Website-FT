@@ -286,6 +286,10 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  on <md viewports we show a summary button instead that opens this
    *  modal with bigger tap targets. Desktop keeps the inline list. */
   const [heatModalOpen, setHeatModalOpen] = useState(false);
+  /** Which sessionId the user just tapped in the heat-picker modal,
+   *  so we can render an inline spinner on that row + auto-close
+   *  the modal once the load completes. */
+  const [pickingSid, setPickingSid] = useState<string | null>(null);
   /** Barcode-provisioning modal. Lets staff map each camera (1-96)
    *  to its physical barcode — scan with a USB barcode reader or type
    *  by hand. Persisted server-side so it survives across sessions.
@@ -584,6 +588,19 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     }, 100);
     return () => clearTimeout(id);
   }, [daySessions, heatModalOpen]);
+
+  /** Auto-close the heat-picker modal once the heat the user tapped
+   *  has finished loading. We track which sessionId they picked and
+   *  watch for the loaded `session` to match. Keeps the modal +
+   *  spinner visible during the fetch instead of closing immediately
+   *  and leaving the screen blank while loading. */
+  useEffect(() => {
+    if (!pickingSid) return;
+    if (session && String(session.sessionId) === pickingSid) {
+      setHeatModalOpen(false);
+      setPickingSid(null);
+    }
+  }, [session, pickingSid]);
   // Mirror scanBuffer into a ref so the "skip while mid-scan" gates on
   // loadHeats / refreshSession don't cause those
   // callbacks' identities to flip on every keystroke — which used to
@@ -1572,6 +1589,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
           // gets fat-finger-friendly tap targets.
           const renderRow = (s: DaySession, bigTouch: boolean) => {
             const isLoaded = activeSid === String(s.sessionId);
+            const isPicking = pickingSid === String(s.sessionId);
             const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
             const statusColor = s.status === "past" ? "text-white/40" : s.status === "live" ? "text-[#00E2E5]" : "text-white/60";
             const isFocusTarget = String(s.sessionId) === String(focusSessionId);
@@ -1585,27 +1603,43 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                     setHeatModalOpen(false);
                     return;
                   }
+                  // Track the pick so the modal can render an inline
+                  // spinner on this row + auto-close once the loaded
+                  // session matches. Modal stays open during the fetch
+                  // so the user gets a clear loading affordance instead
+                  // of a blank screen.
+                  setPickingSid(String(s.sessionId));
                   setOverrideSessionId(String(s.sessionId));
                   void loadSession(String(s.sessionId));
-                  setHeatModalOpen(false);
                 }}
-                disabled={isLoaded}
-                className={`w-full flex items-center gap-2 text-left border-t border-white/[0.04] transition-colors ${
+                disabled={isLoaded || !!pickingSid}
+                className={`w-full flex items-center gap-2 text-left border-t border-white/[0.04] transition-colors disabled:cursor-not-allowed ${
                   bigTouch ? "px-4 py-3.5 text-sm" : "px-3 py-2 text-xs"
                 } ${
-                  isLoaded
-                    ? "bg-[#00E2E5]/15 cursor-default"
-                    : s.status === "past"
-                      ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
-                      : s.status === "live"
-                        ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
-                        : "hover:bg-white/[0.04]"
+                  isPicking
+                    ? "bg-[#00E2E5]/20 border-[#00E2E5]/40"
+                    : isLoaded
+                      ? "bg-[#00E2E5]/15 cursor-default"
+                      : pickingSid
+                        ? "opacity-40"
+                        : s.status === "past"
+                          ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
+                          : s.status === "live"
+                            ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
+                            : "hover:bg-white/[0.04]"
                 }`}
                 title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
               >
-                <span aria-hidden="true" className={`${bigTouch ? "w-5 text-base" : "w-4"} text-center shrink-0 ${statusColor}`}>
-                  {statusIcon}
-                </span>
+                {isPicking ? (
+                  <span
+                    aria-hidden="true"
+                    className={`${bigTouch ? "w-5 h-5" : "w-4 h-4"} shrink-0 inline-block rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin`}
+                  />
+                ) : (
+                  <span aria-hidden="true" className={`${bigTouch ? "w-5 text-base" : "w-4"} text-center shrink-0 ${statusColor}`}>
+                    {statusIcon}
+                  </span>
+                )}
                 <span className={`tabular-nums text-white/80 shrink-0 ${bigTouch ? "w-20" : "w-16"}`}>
                   {fmt(s.scheduledStart)}
                 </span>
@@ -1661,7 +1695,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                 <div
                   className="fixed inset-0 z-[9999] flex items-stretch justify-center p-0 bg-black/80 md:hidden"
                   style={{ height: "100dvh" }}
-                  {...modalBackdropProps(() => setHeatModalOpen(false))}
+                  {...modalBackdropProps(() => { setHeatModalOpen(false); setPickingSid(null); })}
                 >
                   <div
                     className="relative w-full h-full flex flex-col"
@@ -1676,7 +1710,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                       </div>
                       <button
                         type="button"
-                        onClick={() => setHeatModalOpen(false)}
+                        onClick={() => { setHeatModalOpen(false); setPickingSid(null); }}
                         aria-label="Close heat picker"
                         className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
                         style={{ fontSize: "22px", lineHeight: 1 }}
