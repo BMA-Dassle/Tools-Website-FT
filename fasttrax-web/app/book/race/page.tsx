@@ -1465,6 +1465,7 @@ export default function BookRacePage() {
           <PovUpsell
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
             initial={selectedPov}
+            racerType={racerType}
             onContinue={async (pov) => {
               trackBookingPov(pov?.quantity ?? 0);
               // Remove old POV from bill if changing

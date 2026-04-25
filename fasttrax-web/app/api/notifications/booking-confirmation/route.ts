@@ -138,8 +138,13 @@ export async function POST(req: NextRequest) {
       brand,
       location,
       expressLane,
+      rookiePack,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
+    // Rookie Pack hint — adds a one-liner pointing at the
+    // confirmation link to find the appetizer code. Code itself
+    // never appears in SMS/email so it can't be screenshot-shared.
+    const isRookiePack = rookiePack === true;
     const products: string[] = Array.isArray(productNames) ? productNames : [];
     const scheduled: { name: string; start: string }[] = Array.isArray(scheduledItems) ? scheduledItems : [];
     const isExpressLane = !!expressLane;
@@ -327,6 +332,34 @@ export async function POST(req: NextRequest) {
           : "")
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
+      // Rookie Pack — append a small free-appetizer call-out before
+      // </body> when the booking opted in. The actual coupon code
+      // lives on the confirmation page only; this email just tells
+      // the racer to look there.
+      if (isRookiePack) {
+        const rookieBlock = `
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 20px;max-width:600px;">
+  <tr><td style="padding:0 20px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FEF3C7;border:2px solid #F59E0B;border-radius:14px;">
+      <tr><td style="padding:18px 22px;font-family:Arial,sans-serif;color:#1F2937;">
+        <p style="margin:0 0 6px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#92400E;font-weight:bold;">Rookie Pack — Included</p>
+        <h3 style="margin:0 0 8px;font-size:20px;color:#111827;">🍴 Your Free Appetizer at Nemo's</h3>
+        <p style="margin:0 0 8px;font-size:14px;color:#374151;line-height:1.5;">
+          Join us <strong>upstairs at Nemo's</strong> before or after your race. Your coupon
+          code is on your confirmation page — open the link above to grab it.
+        </p>
+        <p style="margin:0;font-size:12px;color:#6B7280;">
+          One free appetizer (Bruschetta, GF Mac &amp; Cheese Bites, or Fried Zucchini Sticks).
+          Dine-in only · Same-day redemption.
+        </p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>`;
+        html = html.replace("</body>", rookieBlock);
+      }
+
       // Waiver section already handled by ^WaiverSection()$ placeholder
 
       results.email = await sendEmail(
@@ -371,7 +404,7 @@ ${reservationTime || ""}
 ${isExpressLane ? "EXPRESS CHECK-IN\n\nSkip Guest Services.\nSkip Event Check-In.\nHead straight to Karting! 1st Floor.\n\nArrive 5 min before your race.\nHave your express pass ready on your phone.\n14501 Global Parkway, Fort Myers\n\nIMPORTANT: If you have other attractions booked, Guest Services check-in is still required for those." : ""}${!isExpressLane && showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\nGuest Services\n14513 Global Parkway, Fort Myers" : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz\n14513 Global Parkway, Fort Myers" : "FastTrax — Guest Services, 2nd Floor\n14501 Global Parkway, Fort Myers"}.` : ""}
 ${waiverSection}
 ${confirmSection}
-
+${isRookiePack ? "\n🍴 Free appetizer at Nemo's — join us upstairs before or after your race. Coupon code is on your confirmation link above.\n" : ""}
 Important information about your race check-in:
 https://fasttraxent.com/racing#racers-journey`;
 

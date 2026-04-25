@@ -177,6 +177,10 @@ export default function ConfirmationPage() {
   const [expressLane, setExpressLane] = useState(false);
   /** Race groups — confirmations grouped by heat for display */
   const [raceGroups, setRaceGroups] = useState<{ product: string; track: string | null; heatStart: string; heatName: string; racers: string[]; resNumber: string; resCode: string; billId: string }[]>([]);
+  /** Rookie Pack opt-in flag from the booking record. When true, we
+   *  render the "Free Appetizer at Nemo's — code RACEAPP" card on
+   *  the confirmation page. Set in OrderSummary at booking time. */
+  const [rookiePack, setRookiePack] = useState(false);
   const confirmStarted = useRef(false);
   const liveStatus = useTrackStatus();
   const currentRaces = liveStatus?.currentRaces ?? null;
@@ -371,6 +375,11 @@ export default function ConfirmationPage() {
           const recRes = await fetch(`/api/booking-record?billId=${id}`, { headers: { "x-api-key": BOOKING_API_KEY } });
           if (recRes.ok) bookingRecord = await recRes.json();
         } catch { /* non-fatal */ }
+
+        // Pull the Rookie Pack flag if present so we can render the
+        // appetizer-code card below the main booking confirmation.
+        // Older bookings simply lack the field → defaults to false.
+        if (bookingRecord?.rookiePack === true) setRookiePack(true);
 
         // Build race groups — group racers by heat for display tiles
         if (bookingRecord?.racers && Array.isArray(bookingRecord.racers) && bookingRecord.racers.length > 0) {
@@ -567,6 +576,11 @@ export default function ConfirmationPage() {
               povCodes: claimedPovCodes,
               brand: window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
               expressLane: allWaiversValid,
+              // Rookie Pack flag — adds a "free appetizer at Nemo's"
+              // line to the SMS + email pointing to the confirmation
+              // link for the actual code (we don't leak the code in
+              // forwarded messages).
+              rookiePack,
             }),
           }).catch(() => {});
         }
@@ -1034,6 +1048,47 @@ export default function ConfirmationPage() {
           {expressLane && bookingType === "racing" && (
             <div className="max-w-2xl mx-auto mt-6">
               <ExpressTrackStatus />
+            </div>
+          )}
+
+          {/* Rookie Pack — Free Appetizer at Nemo's. The promo code is
+              shown here on-page only. Confirmation SMS + email hint
+              "see your confirmation page for the appetizer code" so
+              the code itself doesn't leak through forwarded messages. */}
+          {rookiePack && (
+            <div className="max-w-2xl mx-auto mt-6">
+              <div className="rounded-2xl border-2 border-amber-400/50 bg-amber-500/10 overflow-hidden">
+                <div className="p-5 sm:p-6">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span aria-hidden="true" className="text-2xl">🍴</span>
+                    <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
+                      Rookie Pack — Included
+                    </p>
+                  </div>
+                  <h3 className="text-2xl font-display uppercase tracking-widest text-white mb-2">
+                    Your Free Appetizer
+                  </h3>
+                  <p className="text-white/70 text-sm leading-relaxed mb-4">
+                    Join us upstairs at <strong className="text-white">Nemo&apos;s</strong> before
+                    or after your race. Show this code at the bar.
+                  </p>
+                  <div className="rounded-xl bg-black/30 border border-amber-400/40 px-4 py-3 mb-4 text-center">
+                    <p className="text-[10px] uppercase tracking-widest text-amber-300/70 mb-1">Coupon Code</p>
+                    <p className="font-mono font-bold text-amber-300 text-3xl tracking-[0.2em]">
+                      RACEAPP
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 text-xs text-white/60">
+                    <p className="font-semibold text-white/80">One free appetizer — your choice:</p>
+                    <ul className="ml-4 space-y-0.5 list-disc list-inside marker:text-amber-400/60">
+                      <li>Bruschetta</li>
+                      <li>GF Mac &amp; Cheese Bites</li>
+                      <li>Fried Zucchini Sticks</li>
+                    </ul>
+                    <p className="text-white/40 pt-2">Dine-in only · Same-day redemption</p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

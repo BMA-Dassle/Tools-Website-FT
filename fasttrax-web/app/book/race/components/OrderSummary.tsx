@@ -64,8 +64,10 @@ interface OrderSummaryProps {
   onRemovePack?: () => void | Promise<void>;
   /** Selected add-on activities */
   addOns?: { id: string; name: string; price: number; quantity: number; perPerson: boolean; proposal?: unknown; block?: unknown; selectedTime?: string }[];
-  /** Selected POV cameras */
-  pov?: { id: string; quantity: number; price: number } | null;
+  /** Selected POV cameras. `rookiePack` is true when the new-racer
+   *  picked the bundle in PovUpsell — written to the booking record
+   *  so the confirmation page can show the appetizer code card. */
+  pov?: { id: string; quantity: number; price: number; rookiePack?: boolean } | null;
   /** Callback to remove an add-on by its index in the addOns array */
   onRemoveAddOn?: (index: number) => void;
   /** Callback to remove POV */
@@ -417,6 +419,12 @@ export default function OrderSummary({
         overviews: billOverviews,
         createdAt: new Date().toISOString(),
         status: "pending_payment",
+        // Rookie Pack flag — tells the confirmation page whether to
+        // render the appetizer code card. Only set when the customer
+        // chose the pack in PovUpsell. Staged behind
+        // NEXT_PUBLIC_ROOKIE_PACK_ENABLED in the upsell component;
+        // older bookings simply lack the field.
+        rookiePack: pov?.rookiePack === true,
       };
       try {
         await fetch("/api/booking-record", {
