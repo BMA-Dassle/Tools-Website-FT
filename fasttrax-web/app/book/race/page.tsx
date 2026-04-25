@@ -1483,16 +1483,26 @@ export default function BookRacePage() {
                   const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${activeOrderId}`);
                   if (ovRes.ok) {
                     const ov = await ovRes.json();
+                    // BMI/SMS-Timing returns lines keyed by `id`, NOT `lineId`.
+                    // Earlier versions of this scrub filtered on `lineId` and
+                    // matched nothing, leaving POV on the bill — so the user
+                    // saw the POV row stick around after switching from pack
+                    // to license-only. Filter on `id` to actually catch them.
                     const povLines: string[] = (ov.lines || [])
-                      .filter((l: { name?: string; lineId?: string }) =>
-                        !!l.lineId && (l.name || "").toLowerCase().includes("pov"),
+                      .filter((l: { name?: string; id?: string | number }) =>
+                        !!l.id && (l.name || "").toLowerCase().includes("pov"),
                       )
-                      .map((l: { lineId: string }) => String(l.lineId));
+                      .map((l: { id: string | number }) => String(l.id));
+                    console.log("[PovUpsell continue] POV scrub on bill", activeOrderId, "lines:", povLines);
                     for (const lineId of povLines) {
-                      await removeBookingLine(activeOrderId, lineId).catch(() => {});
+                      await removeBookingLine(activeOrderId, lineId).catch((err) =>
+                        console.warn("[PovUpsell continue] remove POV line failed:", lineId, err),
+                      );
                     }
                   }
-                } catch { /* non-fatal */ }
+                } catch (err) {
+                  console.warn("[PovUpsell continue] overview fetch failed:", err);
+                }
               }
               // (Old single-line removal kept for parity with prior
               // logic in case the overview fetch returned no POV
@@ -1706,14 +1716,20 @@ export default function BookRacePage() {
                   const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${activeOrderId}`);
                   if (ovRes.ok) {
                     const ov = await ovRes.json();
+                    // SMS-Timing bill/overview returns each line's id under
+                    // `id`, not `lineId`. Filtering on `lineId` matched zero
+                    // rows and nothing was actually removed — that's why
+                    // POV was still on the BMI bill after cancelling the
+                    // pack. Filter on `id`.
                     const povLines: { lineId: string; name: string }[] = (ov.lines || [])
-                      .filter((l: { name?: string; lineId?: string }) =>
-                        !!l.lineId && (l.name || "").toLowerCase().includes("pov"),
+                      .filter((l: { name?: string; id?: string | number }) =>
+                        !!l.id && (l.name || "").toLowerCase().includes("pov"),
                       )
-                      .map((l: { name?: string; lineId?: string }) => ({
-                        lineId: String(l.lineId),
+                      .map((l: { name?: string; id: string | number }) => ({
+                        lineId: String(l.id),
                         name: l.name || "",
                       }));
+                    console.log("[cancel rookie pack] POV scrub on bill", activeOrderId, "lines:", povLines);
                     for (const l of povLines) {
                       await removeBookingLine(activeOrderId, l.lineId).catch((err) =>
                         console.warn("[cancel rookie pack] remove POV line failed:", l, err),
