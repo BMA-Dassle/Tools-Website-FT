@@ -115,6 +115,8 @@ export default function VideoAdminClient({ token }: { token: string }) {
   // Tracks which videoCode is currently being block-toggled so we can
   // disable its button and prevent double-clicks.
   const [blockBusy, setBlockBusy] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,6 +159,39 @@ export default function VideoAdminClient({ token }: { token: string }) {
    * notify, VT3 ready), the server fires the notify inline and we
    * show a success toast reflecting it.
    */
+  /**
+   * Bulk-resend video SMS for the last N minutes. Called from the
+   * "Resend last hour" button. Confirms with the staff first so a
+   * mistap doesn't fire a hundred SMS.
+   */
+  const bulkResend = useCallback(async (minutes: number) => {
+    if (!confirm(`Re-fire video SMS for matches in the last ${minutes} min?\n\nQueued sends are also retried; quota errors auto-route to the queue. This is what you want when Vox was down and matches went out without delivery.`)) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch(`/api/admin/videos/bulk-resend?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ minutes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `bulk-resend failed (${res.status})`);
+      const bits: string[] = [];
+      bits.push(`${data.candidates} candidates`);
+      if (data.sent) bits.push(`${data.sent} sent`);
+      if (data.queued) bits.push(`${data.queued} queued (quota)`);
+      if (data.failed) bits.push(`${data.failed} failed`);
+      if (data.skipped) bits.push(`${data.skipped} skipped`);
+      setBulkMsg(bits.join(" · "));
+      // Reload immediately so chips update.
+      await load();
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : "bulk-resend failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [token, load]);
+
   const toggleBlock = useCallback(async (row: VideoRow) => {
     const nowBlocked = !row.blocked;
     let reason: string | undefined;
@@ -196,11 +231,39 @@ export default function VideoAdminClient({ token }: { token: string }) {
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
-        <header className="mb-3 sm:mb-5">
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Video Admin</h1>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
-            Matched race videos from vt3.io. Resend via SMS, email, or both with optional overrides.
-          </p>
+        <header className="mb-3 sm:mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Video Admin</h1>
+            <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
+              Matched race videos from vt3.io. Resend via SMS, email, or both with optional overrides.
+            </p>
+          </div>
+          {/* Bulk-resend buttons — useful after Vox/Twilio outage to
+              re-fire video SMS that didn't actually deliver. Quota
+              errors auto-funnel to the queue. */}
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <button
+                type="button"
+                onClick={() => bulkResend(60)}
+                disabled={bulkBusy}
+                className="px-3 py-1.5 rounded-lg font-bold text-xs bg-amber-500/90 text-[#000418] hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Re-fire video SMS for the last 60 minutes"
+              >
+                {bulkBusy ? "Sending…" : "Resend last 1h"}
+              </button>
+              <button
+                type="button"
+                onClick={() => bulkResend(180)}
+                disabled={bulkBusy}
+                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-white/10 text-white hover:bg-white/20 disabled:opacity-50"
+                title="Re-fire video SMS for the last 3 hours"
+              >
+                Last 3h
+              </button>
+            </div>
+            {bulkMsg && <p className="text-emerald-300 text-xs max-w-xs text-right">{bulkMsg}</p>}
+          </div>
         </header>
 
         {/* Filter bar */}
