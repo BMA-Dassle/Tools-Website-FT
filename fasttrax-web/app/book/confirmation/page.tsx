@@ -979,23 +979,78 @@ export default function ConfirmationPage() {
 
           </div>
 
-          {/* POV Camera Codes */}
-          {povCodes.length > 0 && (
-            <div className="lg:col-span-2 mt-6 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-6 sm:p-8">
-              <h3 className="font-display text-white text-xl uppercase tracking-widest mb-4">Your ViewPoint POV Camera Codes</h3>
-              <p className="text-white/50 text-sm leading-relaxed mb-6">
-                After your race, be sure to collect your POV camera slip. Without this slip, you will not be able to get your video. Scan the QR code on the slip and enter the codes below to redeem your video. Videos take 15-30 minutes to upload.
-              </p>
-              <div className="flex flex-wrap gap-4">
-                {povCodes.map((code, i) => (
-                  <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-5 py-3">
-                    <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-1">Code {i + 1}</p>
-                    <p className="text-white font-mono text-xl font-bold tracking-wider">{code}</p>
+          {/* POV Camera Codes
+              Delivery rules differ by race category:
+              - Adult races: video is automatically emailed + texted
+                ~5-10 minutes after the race finishes. Codes are still
+                shown as a backup but the racer doesn't need to do
+                anything.
+              - Junior races: ViewPoint can't auto-deliver these yet;
+                the racer must collect the QR slip when they turn the
+                camera in and scan/enter codes manually.
+              We detect the mix from the booking's race line names
+              (BMI products embed "Junior" in the name). */}
+          {povCodes.length > 0 && (() => {
+            const allOvLines = order?.lines || storedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+            const raceLines = allOvLines.filter((l: OrderLine) => l.productGroup === "Karting");
+            const hasJunior = raceLines.some((l: OrderLine) => l.name.toLowerCase().includes("junior"));
+            const hasAdult = raceLines.some((l: OrderLine) => !l.name.toLowerCase().includes("junior"));
+            return (
+              <div className="lg:col-span-2 mt-6 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-6 sm:p-8">
+                <h3 className="font-display text-white text-xl uppercase tracking-widest mb-4">Your ViewPoint POV Camera Codes</h3>
+
+                {/* Adult delivery banner */}
+                {hasAdult && (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 mb-3 flex items-start gap-3">
+                    <span aria-hidden="true" className="text-xl leading-none">📨</span>
+                    <div>
+                      <p className="text-emerald-300 text-sm font-semibold mb-0.5">
+                        Adult races — video sent automatically
+                      </p>
+                      <p className="text-white/60 text-xs leading-relaxed">
+                        Your race video will be <strong className="text-white/80">emailed and texted</strong> to you about
+                        5–10 minutes after your race. No slip needed. Codes below are kept here as a backup.
+                      </p>
+                    </div>
                   </div>
-                ))}
+                )}
+
+                {/* Junior slip reminder */}
+                {hasJunior && (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 mb-3 flex items-start gap-3">
+                    <span aria-hidden="true" className="text-xl leading-none">🎫</span>
+                    <div>
+                      <p className="text-amber-300 text-sm font-semibold mb-0.5">
+                        Junior races — grab your QR slip
+                      </p>
+                      <p className="text-white/60 text-xs leading-relaxed">
+                        When you turn in your camera, <strong className="text-white/80">be sure to collect your QR slip</strong>.
+                        Without it you won&apos;t be able to retrieve the video. Scan the QR or enter the code below
+                        to redeem. Videos take 15–30 minutes to upload.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fallback (no race-line info available) */}
+                {!hasAdult && !hasJunior && (
+                  <p className="text-white/50 text-sm leading-relaxed mb-4">
+                    After your race, be sure to collect your POV camera slip. Scan the QR code on the slip
+                    and enter the codes below to redeem your video. Videos take 15–30 minutes to upload.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap gap-4 mt-4">
+                  {povCodes.map((code, i) => (
+                    <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-5 py-3">
+                      <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-1">Code {i + 1}</p>
+                      <p className="text-white font-mono text-xl font-bold tracking-wider">{code}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Additional Attractions for express lane bookings with mixed items */}
           {expressLane && (() => {
