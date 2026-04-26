@@ -75,6 +75,10 @@ type VideoRow = {
   blockLevel?: "video" | "person" | "session";
   blockReason?: string;
   blockedAt?: string;
+  /** True when the SMS / email landed via the guardian instead of
+   *  the racer (minor with no usable own contact). Drives a small
+   *  "↻ guardian" chip alongside the sms/email status. */
+  viaGuardian?: boolean;
 };
 
 type ListResponse = {
@@ -447,6 +451,14 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         ) : (
                           <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">email —</span>
                         )}
+                        {e.viaGuardian && (
+                          <span
+                            className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
+                            title="Sent to guardian — minor racer with no usable own contact"
+                          >
+                            ↻ guardian
+                          </span>
+                        )}
                       </>
                     )}
                     {e.viewed && (
@@ -632,6 +644,14 @@ export default function VideoAdminClient({ token }: { token: string }) {
                                 <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifyEmailError}>email ✗</span>
                               ) : (
                                 <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">email —</span>
+                              )}
+                              {e.viaGuardian && (
+                                <span
+                                  className="text-xs uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
+                                  title="Sent to guardian — minor racer with no usable own contact"
+                                >
+                                  ↻ guardian
+                                </span>
                               )}
                             </>
                           )}

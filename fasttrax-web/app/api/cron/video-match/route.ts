@@ -204,6 +204,11 @@ export async function GET(req: NextRequest) {
           record.notifyEmailSentTo = n.email.sentTo;
           record.notifyEmailSentAt = nowIso;
         }
+        // Capture which recipient the picker chose so the admin board
+        // can render the "↻ guardian" chip.
+        if (n.recipient) {
+          record.viaGuardian = n.recipient === "guardian" || undefined;
+        }
         record.pendingNotify = false;
         await updateVideoMatch(record).catch(() => void 0);
       } catch (err) {

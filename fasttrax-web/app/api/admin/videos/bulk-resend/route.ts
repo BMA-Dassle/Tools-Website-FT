@@ -176,12 +176,14 @@ export async function POST(req: NextRequest) {
       match.notifySmsError = undefined;
       match.notifySmsSentTo = phone;
       match.notifySmsSentAt = ts;
+      match.viaGuardian = recipient === "guardian" || undefined;
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
         ts, phone,
         source: "admin-resend",
         status: send.status, ok: true,
         body: smsBody,
+        viaGuardian: recipient === "guardian",
         sessionIds: [match.sessionId],
         personIds: [match.personId],
         memberCount: 1,
@@ -211,6 +213,7 @@ export async function POST(req: NextRequest) {
       match.notifySmsError = `[quota] queued for next reset window (${send.error || "429"})`;
       match.notifySmsSentTo = phone;
       match.notifySmsSentAt = ts;
+      match.viaGuardian = recipient === "guardian" || undefined;
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
         ts, phone,
@@ -222,6 +225,7 @@ export async function POST(req: NextRequest) {
         personIds: [match.personId],
         memberCount: 1,
         shortCode: match.videoCode,
+        viaGuardian: recipient === "guardian",
       });
       // Don't keep hammering — the cooldown flag is now set, every
       // subsequent voxSend in this loop will short-circuit anyway.
@@ -243,6 +247,7 @@ export async function POST(req: NextRequest) {
         m.notifySmsError = "[quota] queued for next reset window";
         m.notifySmsSentTo = c.phone;
         m.notifySmsSentAt = tts;
+        m.viaGuardian = c.recipient === "guardian" || undefined;
         await updateVideoMatch(m).catch(() => void 0);
       }
       break;
@@ -252,6 +257,7 @@ export async function POST(req: NextRequest) {
       match.notifySmsError = (send.error || "send failed").slice(0, 500);
       match.notifySmsSentTo = phone;
       match.notifySmsSentAt = ts;
+      match.viaGuardian = recipient === "guardian" || undefined;
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
         ts, phone,

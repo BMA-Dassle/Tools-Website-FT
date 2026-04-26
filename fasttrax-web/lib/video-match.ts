@@ -56,6 +56,11 @@ export interface VideoMatch {
   mobilePhone?: string;
   homePhone?: string;
   acceptSmsCommercial?: boolean;
+  /** True when the SMS / email was routed to the guardian instead of
+   *  the racer (minor with no usable own contact). The notify path
+   *  sets this; the videos admin board surfaces a "↻ guardian" chip
+   *  next to the green sms/email status. */
+  viaGuardian?: boolean;
   /** Guardian / parent contact — populated for minor racers by
    *  Pandora's participant payload. The video-notify path falls
    *  back to this when the racer themselves has no usable contact;

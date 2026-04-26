@@ -392,7 +392,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
                         <span className="text-emerald-400">
                           sent
                           {e.failedOver && <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>}
-                          {e.viaGuardian && <span className="text-purple-300/80 ml-1" title="Routed to guardian — minor racer with no usable own contact">↻ guardian</span>}
+                          {e.viaGuardian && <span className="text-purple-300/80 ml-1" title="Sent to guardian — minor racer with no usable own contact">↻ guardian</span>}
                         </span>
                       )
                       : noConsent
@@ -476,7 +476,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
                                 <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>
                               )}
                               {e.viaGuardian && (
-                                <span className="text-purple-300/80 ml-1" title="Routed to guardian — minor racer with no usable own contact">↻ guardian</span>
+                                <span className="text-purple-300/80 ml-1" title="Sent to guardian — minor racer with no usable own contact">↻ guardian</span>
                               )}
                             </span>
                           )
@@ -553,11 +553,14 @@ function ResendModal({
   onSuccess: (msg: string) => void;
 }) {
   const noConsent = isConsentSkip(entry);
-  // For no-consent entries we pre-fill the phone so staff can click Send
-  // without retyping — they already had to dial/look up the racer to get
-  // verbal OK, don't make them type it again. For normal resends we stay
-  // blank so "re-send to same phone" is explicit (leave empty) vs
-  // "change phone" (type new number).
+  // Two explicit modes — staff picks one. Defaults to "same" so the
+  // common case (resend to the already-known number) is one click.
+  // No-consent and missing-original-phone cases force "new" since
+  // there's nothing to reuse.
+  const hasOriginal = !!entry.phone;
+  const [destMode, setDestMode] = useState<"same" | "new">(
+    !hasOriginal || noConsent ? "new" : "same",
+  );
   const [phone, setPhone] = useState(noConsent ? (entry.phone || "") : "");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -565,19 +568,38 @@ function ResendModal({
   async function submit() {
     if (!entry.shortCode) { setErr("No shortCode on this entry — can't resend."); return; }
     if (!entry.body) { setErr("No body text — can't resend."); return; }
+
+    // Resolve destination phone: "same" reuses the original, "new"
+    // takes the typed value. Validation happens here so the user gets
+    // a clear inline message instead of an opaque server 400.
+    let destPhone = "";
+    if (destMode === "same") {
+      destPhone = entry.phone || "";
+      if (!destPhone) {
+        setErr("No original phone on file. Switch to 'Different number' and enter one.");
+        return;
+      }
+    } else {
+      destPhone = phone.trim();
+      if (!destPhone) {
+        setErr("Enter a phone number.");
+        return;
+      }
+    }
+
     setSending(true);
     setErr(null);
     try {
-      const trimmed = phone.trim();
+      // Always send overridePhone explicitly. Side benefit: the backend
+      // can fire even when the ticket has expired (12h TTL) — without
+      // the override, an expired-ticket resend hits a 404.
       const res = await fetch("/api/admin/e-tickets/resend", {
         method: "POST",
         headers: { "content-type": "application/json", "x-admin-token": token },
         body: JSON.stringify({
           shortCode: entry.shortCode,
           body: entry.body,
-          // Only pass override if operator actually typed something different
-          // from the original — keeps the server-side default-phone path hot.
-          overridePhone: trimmed && trimmed !== entry.phone ? trimmed : undefined,
+          overridePhone: destPhone,
         }),
       });
       const data = await res.json();
@@ -665,18 +687,46 @@ function ResendModal({
             ) : null}
           </div>
 
-          <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-            {noConsent
-              ? "Send to (edit if wrong number)"
-              : `Send to (leave blank to reuse ${entry.phone || "original"})`}
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white font-mono"
-              placeholder="+12395551234"
-            />
-          </label>
+          <fieldset className="mb-3">
+            <legend className="text-xs text-white/60 mb-1.5">Send to</legend>
+            <div className="flex flex-col gap-2">
+              {hasOriginal && !noConsent && (
+                <label className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="destMode"
+                    value="same"
+                    checked={destMode === "same"}
+                    onChange={() => setDestMode("same")}
+                    className="accent-[#00E2E5]"
+                  />
+                  <span>Same number <span className="font-mono text-white/60">{entry.phone}</span></span>
+                </label>
+              )}
+              <label className="flex flex-col gap-1.5">
+                <span className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="destMode"
+                    value="new"
+                    checked={destMode === "new"}
+                    onChange={() => setDestMode("new")}
+                    className="accent-[#00E2E5]"
+                  />
+                  Different number
+                </span>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  onFocus={() => setDestMode("new")}
+                  disabled={destMode !== "new"}
+                  className="ml-6 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white font-mono disabled:opacity-40 disabled:cursor-not-allowed"
+                  placeholder="+12395551234"
+                />
+              </label>
+            </div>
+          </fieldset>
 
           <div className="text-xs text-white/60 mb-1">Body preview</div>
           <pre

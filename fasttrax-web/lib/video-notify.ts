@@ -271,6 +271,10 @@ function entryAsParticipant(entry: CameraHistoryEntry): Participant {
 export interface NotifyResult {
   sms: { attempted: boolean; ok?: boolean; status?: number | null; error?: string; sentTo?: string };
   email: { attempted: boolean; ok?: boolean; status?: number | null; error?: string; sentTo?: string };
+  /** Which recipient the picker chose for this notify event — present
+   *  whenever notify was attempted. Caller writes this onto the saved
+   *  match record so the videos admin can surface a "↻ guardian" chip. */
+  recipient?: "racer" | "guardian";
 }
 
 /**
@@ -324,6 +328,9 @@ export async function notifyVideoReady(
 
   const recipient = candidate.recipient;
   const guardianFirstName = recipient === "guardian" ? candidate.contactFirstName : undefined;
+  // Bubble the chosen recipient back so the cron + admin-resend path
+  // can patch the saved match record (drives the videos board chip).
+  result.recipient = recipient;
 
   // ── SMS ────────────────────────────────────────────────────────────
   const phone = candidate.phone;
@@ -384,6 +391,7 @@ export async function notifyVideoReady(
         shortCode: match.videoCode,
         provider: send.provider,
         failedOver: send.failedOver,
+        viaGuardian: recipient === "guardian",
       });
     } catch (err) {
       result.sms.ok = false;
@@ -400,6 +408,7 @@ export async function notifyVideoReady(
         personIds: [match.personId],
         memberCount: 1,
         shortCode: match.videoCode,
+        viaGuardian: recipient === "guardian",
       });
     }
   }

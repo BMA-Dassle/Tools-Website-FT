@@ -253,15 +253,16 @@ export async function POST(req: NextRequest) {
         if (n.email.ok) emailSent++;
       }
 
-      // Tag whether this attempt landed via guardian. Heuristic — if
-      // the SMS was sent to a phone that matches the guardian's
-      // mobilePhone/homePhone, count it. Same for email.
-      const gPhones = [match.guardian?.mobilePhone, match.guardian?.homePhone]
-        .filter(Boolean) as string[];
-      const gEmails = [match.guardian?.email].filter(Boolean) as string[];
-      const smsViaGuardian = !!(n.sms.ok && n.sms.sentTo && gPhones.some((g) => g.replace(/\D/g, "") && n.sms.sentTo!.includes(g.replace(/\D/g, "").slice(-10))));
-      const emailViaGuardian = !!(n.email.ok && n.email.sentTo && gEmails.includes(n.email.sentTo));
-      if (smsViaGuardian || emailViaGuardian) viaGuardian++;
+      // Tag whether this attempt landed via guardian. notifyVideoReady
+      // now bubbles the picker's chosen recipient back via n.recipient,
+      // so we can read it directly instead of pattern-matching on the
+      // sentTo address. Patch the match record so the videos board's
+      // "↻ guardian" chip lights up next refresh.
+      const wasGuardian = n.recipient === "guardian";
+      if (wasGuardian) {
+        viaGuardian++;
+        match.viaGuardian = true;
+      }
 
       if (!n.sms.attempted && !n.email.attempted) {
         // pickVideoContact returned null — neither racer nor guardian
