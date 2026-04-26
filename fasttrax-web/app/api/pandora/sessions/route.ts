@@ -71,36 +71,73 @@ export async function GET(req: NextRequest) {
     resourceName,
   }).toString();
 
-  try {
-    const res = await fetch(`${PANDORA_URL}/bmi/sessions/${locationId}?${upstreamQs}`, {
-      headers: {
-        Authorization: `Bearer ${API_KEY}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      console.error(`[sessions] Pandora ${res.status} for ${resourceName}: ${(await res.text()).slice(0, 300)}`);
-      return NextResponse.json(
-        { data: [], error: `Pandora ${res.status}` },
-        { status: 200, headers: { "Cache-Control": "no-store" } },
-      );
+  /**
+   * Pandora's /bmi/sessions endpoint goes flaky during peak race
+   * windows — sporadic 500s with no clear pattern. The camera-assign
+   * page fans out one call per track on each refresh, so a single
+   * upstream 500 currently zeroes out the heat list ("0 HEATS · 0
+   * DONE · 0 LIVE · 0 UPCOMING") even when only one of three tracks
+   * is affected.
+   *
+   * Mitigations layered here:
+   *  1. Retry once on 5xx (or fetch throw) after a 250ms back-off —
+   *     usually clears it.
+   *  2. On final failure, fall back to whatever was last in our
+   *     in-memory cache (any age) before returning empty. Better to
+   *     show slightly stale heats than no heats.
+   *  3. Surface the upstream body slice in the JSON response so the
+   *     page can `console.warn` it for debugging — separate from the
+   *     empty fallback so the data path stays uniform.
+   */
+  async function fetchOnce(): Promise<{ ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }> {
+    try {
+      const res = await fetch(`${PANDORA_URL}/bmi/sessions/${locationId}?${upstreamQs}`, {
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const body = (await res.text()).slice(0, 300);
+        return { ok: false, status: res.status, body };
+      }
+      const json = await res.json();
+      const data: PandoraSession[] = Array.isArray(json?.data) ? json.data : [];
+      return { ok: true, data };
+    } catch (err) {
+      return { ok: false, status: null, body: err instanceof Error ? err.message : "fetch threw" };
     }
+  }
 
-    const json = await res.json();
-    const data: PandoraSession[] = Array.isArray(json?.data) ? json.data : [];
-    cache.set(cacheKey, { data, expiry: Date.now() + CACHE_TTL_MS });
+  let attempt = await fetchOnce();
+  // Retry once on 5xx / network failure. Don't retry 4xx — those are
+  // our fault (auth, bad params) and won't get better.
+  if (!attempt.ok && (attempt.status == null || attempt.status >= 500)) {
+    await new Promise((r) => setTimeout(r, 250));
+    attempt = await fetchOnce();
+  }
+
+  if (attempt.ok) {
+    cache.set(cacheKey, { data: attempt.data, expiry: Date.now() + CACHE_TTL_MS });
     return NextResponse.json(
-      { data },
+      { data: attempt.data },
       { headers: { "X-Cache": "MISS", "Cache-Control": "no-store" } },
     );
-  } catch (err) {
-    console.error("[sessions] fetch error:", err);
-    const stale = cache.get(cacheKey)?.data ?? [];
-    return NextResponse.json(
-      { data: stale, error: "fetch failed" },
-      { headers: { "X-Cache": "ERROR", "Cache-Control": "no-store" } },
-    );
   }
+
+  console.error(`[sessions] Pandora ${attempt.status ?? "ERR"} for ${resourceName}: ${attempt.body}`);
+  // Fall back to last-known cached data (any age) so the page doesn't
+  // zero out during transient Pandora flakiness. Empty array if we've
+  // never successfully fetched this combination before.
+  const stale = cache.get(cacheKey)?.data ?? [];
+  return NextResponse.json(
+    {
+      data: stale,
+      error: `Pandora ${attempt.status ?? "fetch failed"}`,
+      upstreamBody: attempt.body.slice(0, 200),
+      stale: stale.length > 0,
+    },
+    { status: 200, headers: { "X-Cache": stale.length > 0 ? "STALE" : "ERROR", "Cache-Control": "no-store" } },
+  );
 }
