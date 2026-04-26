@@ -179,7 +179,12 @@ export async function GET(req: NextRequest) {
     const pool = await readSmsLog(date, { limit: poolSize, offset: 0 });
 
     // Pre-filter by fields that live on SmsLogEntry directly.
+    // Video-match SMS (race-video notifications) belong on the
+    // /admin/{token}/videos board, NOT here. Exclude them from the
+    // default view but respect an explicit `source=video-match`
+    // filter so staff can still drill in if they need to.
     const preFiltered = pool.filter((e) => {
+      if (!source && e.source === "video-match") return false;
       if (source && e.source !== source) return false;
       if (phone && e.phone !== phone) return false;
       if (sessionId && !(e.sessionIds || []).map(String).includes(sessionId)) return false;

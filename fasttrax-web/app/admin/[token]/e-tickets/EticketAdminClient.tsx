@@ -44,6 +44,7 @@ function sourceLabel(s: string): string {
   if (s === "pre-race-cron") return "eTicket";
   if (s === "checkin-cron") return "check-in";
   if (s === "admin-resend") return "resend";
+  if (s === "video-match") return "video";
   return s;
 }
 
@@ -116,7 +117,7 @@ type QuotaStatus = {
 
 export default function EticketAdminClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayYmd());
-  const [source, setSource] = useState<"" | "pre-race-cron" | "checkin-cron" | "admin-resend">("");
+  const [source, setSource] = useState<"" | "pre-race-cron" | "checkin-cron" | "admin-resend" | "video-match">("");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<EnrichedLogEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -287,10 +288,11 @@ export default function EticketAdminClient({ token }: { token: string }) {
               onChange={(e) => setSource(e.target.value as typeof source)}
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
             >
-              <option value="" style={{ backgroundColor: "#0a1128" }}>All</option>
+              <option value="" style={{ backgroundColor: "#0a1128" }}>All e-tickets</option>
               <option value="pre-race-cron" style={{ backgroundColor: "#0a1128" }}>eTicket (2hr ahead)</option>
               <option value="checkin-cron" style={{ backgroundColor: "#0a1128" }}>check-in (live)</option>
               <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>admin resends</option>
+              <option value="video-match" style={{ backgroundColor: "#0a1128" }}>video-match (manage on /videos)</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-white/60 col-span-2">
