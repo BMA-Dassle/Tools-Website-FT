@@ -22,6 +22,15 @@ export interface RaceTicket {
   heatNumber: number;
   /** Optional — filled in if we can correlate to a Square reservation */
   resNumber?: string;
+  /** True when the SMS / email was routed to a guardian instead of
+   *  the racer (minor with no usable own contact). The `phone` and
+   *  `email` fields above hold the destination contact (guardian's
+   *  in this case) so the resend path works without further lookups. */
+  viaGuardian?: boolean;
+  /** Guardian's first name when known — used by the /t/{id} page to
+   *  render a "Sent to {GuardianFirstName} (parent)" line so the
+   *  parent immediately understands. */
+  guardianFirstName?: string;
 }
 
 const TICKET_TTL = 60 * 60 * 12; // 12 hours
@@ -86,10 +95,19 @@ export interface GroupTicketMember {
 
 export interface GroupTicket {
   id: string;
-  phone: string;        // canonical +1...
+  phone: string;        // canonical +1... (the destination phone — guardian's when `recipient === "guardian"`)
   locationId: string;
   members: GroupTicketMember[];
   createdAt: string;    // ISO
+  /** Who this group ticket is addressed to. Defaults to "racer"
+   *  when absent (back-compat for tickets minted before guardian
+   *  fallback). When "guardian" the /g/{id} page swaps its heading
+   *  to "Your racers' e-tickets" — the member list rendering is
+   *  already multi-member-aware. */
+  recipient?: "racer" | "guardian";
+  /** Guardian's first name for body-builder use. Only meaningful
+   *  when recipient === "guardian". */
+  guardianFirstName?: string;
 }
 
 function groupKey(id: string) {

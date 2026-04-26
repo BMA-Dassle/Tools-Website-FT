@@ -158,17 +158,24 @@ export function hasSmsConsent(p: Participant): boolean {
   return p.acceptSmsCommercial !== false;
 }
 
-// ── Video-notification contact picker (with guardian fallback) ─────────
+// ── Contact picker with guardian fallback (videos + e-tickets) ─────────
 
 /**
  * Compact view of "who, on what channel, with what consent" — the same
- * shape `pickVideoContact` produces for both racer and guardian, so
- * downstream consumers don't have to repeat the field-preference logic.
+ * shape `pickContactWithGuardianFallback` produces for both racer and
+ * guardian, so downstream consumers don't have to repeat the
+ * field-preference logic.
+ *
+ * Used by both the video-match notify path and the pre-race +
+ * check-in e-ticket crons. The `recipient` field drives body framing
+ * ("Your race video" vs. "Race video ready for {Racer}",
+ * "FastTrax e-tickets" vs. "FastTrax e-tickets for your racers").
  */
-export interface VideoContactCandidate {
+export interface ContactCandidate {
   /** Whose contact we're using — drives the SMS/email body framing.
    *  When "guardian" the body is reframed as "video ready for {racer
-   *  first name}" so the parent knows whose video this is. */
+   *  first name}" / "FastTrax e-ticket for your racer" so the parent
+   *  knows whose race this is. */
   recipient: "racer" | "guardian";
   /** Display name of the WHO (used for greeting in the email/SMS) */
   contactFirstName?: string;
@@ -179,13 +186,16 @@ export interface VideoContactCandidate {
   email: string | null;
 }
 
+/** Back-compat alias — older code referenced this by the video-only name. */
+export type VideoContactCandidate = ContactCandidate;
+
 /** Internal: compute one candidate set from a contact-bearing record. */
 function evaluateContact(
   c: { email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean },
   who: "racer" | "guardian",
   firstName?: string,
   lastName?: string,
-): VideoContactCandidate {
+): ContactCandidate {
   const rawPhone = c.mobilePhone || c.homePhone || c.phone || null;
   const phoneOk = c.acceptSmsCommercial !== false; // absent -> eligible (legacy)
   const phone = phoneOk ? canonicalizePhone(rawPhone) : null;
@@ -203,22 +213,20 @@ function evaluateContact(
 }
 
 /**
- * Decide who to notify for a video-ready event:
+ * Decide who to notify for a video / e-ticket event:
  *   1. If the racer has any usable contact (SMS-eligible phone OR email),
  *      use the racer.
  *   2. Else if a guardian is on file with usable contact, use the
- *      guardian — caller must reframe the SMS/email body to "Video
- *      ready for {racer first name}" so the parent knows it's their
- *      kid's video.
+ *      guardian — caller must reframe the SMS/email body so the
+ *      parent knows it's their kid's race.
  *   3. Else null (no one to notify).
  *
  * Returns the candidate (or null). Callers separately render the body
- * based on `recipient` and the racer's name (which they always know
- * from the match record).
+ * based on `recipient` and the racer's name.
  */
-export function pickVideoContact(
-  racer: Participant | { firstName?: string; lastName?: string; email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean; guardian?: GuardianContact | null },
-): VideoContactCandidate | null {
+export function pickContactWithGuardianFallback(
+  racer: Participant | { personId?: string | number; firstName?: string; lastName?: string; email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean; guardian?: GuardianContact | null },
+): ContactCandidate | null {
   // Treat placeholder personIds (e.g. "DRIVER 1 PLACEHOLDER") as no-contact
   // — same gate as pickContactChannel for the regular cron paths.
   if ("personId" in racer && racer.personId != null && PLACEHOLDER_PERSON_IDS.has(String(racer.personId))) {
@@ -235,3 +243,6 @@ export function pickVideoContact(
   }
   return null;
 }
+
+/** Back-compat alias — older code referenced this by the video-only name. */
+export const pickVideoContact = pickContactWithGuardianFallback;

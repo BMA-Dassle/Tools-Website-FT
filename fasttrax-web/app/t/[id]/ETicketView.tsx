@@ -88,6 +88,13 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
         <div className="text-center mb-5">
           <p className="text-white/30 text-xs uppercase tracking-[0.3em] mb-1">FastTrax Entertainment</p>
           <p className="text-white/60 text-sm font-semibold">E-Ticket</p>
+          {ticket.viaGuardian && (
+            <p className="text-amber-300/80 text-[11px] mt-2 inline-block px-2 py-0.5 rounded-full border border-amber-300/30 bg-amber-500/10">
+              {ticket.guardianFirstName
+                ? <>Sent to <strong className="text-amber-200">{ticket.guardianFirstName}</strong> (parent)</>
+                : <>Sent to your guardian</>}
+            </p>
+          )}
         </div>
 
         {!onSession && !isPast ? (

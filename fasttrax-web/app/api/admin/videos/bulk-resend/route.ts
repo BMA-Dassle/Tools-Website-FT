@@ -3,7 +3,7 @@ import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
 import { listMatchesInRange, updateVideoMatch, type VideoMatch } from "@/lib/video-match";
 import { voxSend } from "@/lib/sms-retry";
-import { pickVideoContact, type Participant } from "@/lib/participant-contact";
+import { pickContactWithGuardianFallback, type Participant } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import { quotaEnqueue } from "@/lib/sms-quota";
 
@@ -66,7 +66,7 @@ function buildSmsBody(
   ].join("\n");
 }
 
-/** Cast match → minimal Participant so pickVideoContact's racer→guardian
+/** Cast match → minimal Participant so pickContactWithGuardianFallback's racer→guardian
  *  fallback runs against this single object. */
 function matchAsParticipant(m: VideoMatch): Participant {
   return {
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
 
   // Filter to candidates we'd actually re-fire SMS for. Reasons we skip
   // surface in the response so staff can see what was touched vs. not.
-  // Note: we don't pre-skip on "no phone" anymore — pickVideoContact
+  // Note: we don't pre-skip on "no phone" anymore — pickContactWithGuardianFallback
   // can fall back to the guardian for minor racers, so a record with
   // no racer phone may still be eligible if guardian.mobilePhone is on
   // file. We resolve the contact per-record below and skip there.
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     // Pick recipient (racer-first, guardian-fallback). When no contact
     // is available on either, this is just a no-op skip — counts as
     // "failed" with reason "no contact".
-    const candidate = pickVideoContact(matchAsParticipant(match));
+    const candidate = pickContactWithGuardianFallback(matchAsParticipant(match));
     if (!candidate || !candidate.phone) {
       failed++;
       continue;
@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
       // Push the rest straight to the queue without trying.
       const rest = candidates.slice(candidates.indexOf(match) + 1);
       for (const m of rest) {
-        const c = pickVideoContact(matchAsParticipant(m));
+        const c = pickContactWithGuardianFallback(matchAsParticipant(m));
         if (!c || !c.phone) { failed++; continue; }
         const sUrl = await shortenForSms(m.customerUrl);
         const sBody = buildSmsBody({ firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl }, c.recipient);

@@ -392,6 +392,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
                         <span className="text-emerald-400">
                           sent
                           {e.failedOver && <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>}
+                          {e.viaGuardian && <span className="text-purple-300/80 ml-1" title="Routed to guardian — minor racer with no usable own contact">↻ guardian</span>}
                         </span>
                       )
                       : noConsent
@@ -473,6 +474,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
                               sent
                               {e.failedOver && (
                                 <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>
+                              )}
+                              {e.viaGuardian && (
+                                <span className="text-purple-300/80 ml-1" title="Routed to guardian — minor racer with no usable own contact">↻ guardian</span>
                               )}
                             </span>
                           )

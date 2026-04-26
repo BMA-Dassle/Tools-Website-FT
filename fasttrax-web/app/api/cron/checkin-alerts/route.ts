@@ -11,7 +11,9 @@ import {
   canonicalizePhone,
   hasSmsConsent,
   pickContactChannel,
+  pickContactWithGuardianFallback,
   pickPhone,
+  type ContactCandidate,
   type Participant,
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
@@ -56,6 +58,9 @@ interface Candidate {
   race: CurrentRace;
   trackDisplay: string;
   participant: Participant;
+  /** Picker's verdict — racer's own contact, or guardian fallback for
+   *  minors. null when neither is reachable (silent skip). */
+  resolved?: ContactCandidate | null;
 }
 
 async function fetchCurrentRaces(): Promise<CurrentRaces> {
@@ -276,6 +281,9 @@ interface SmsAudit {
   personIds: (string | number)[];
   memberCount: number;
   shortCode?: string;
+  /** True when this SMS was routed via guardian fallback. Surfaces
+   *  on the SMS log entry so admin can render the via-guardian badge. */
+  viaGuardian?: boolean;
 }
 
 async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boolean> {
@@ -412,6 +420,46 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
   return lines.join("\n");
 }
 
+/**
+ * Guardian-flavored single-racer check-in SMS — heat just got called,
+ * the parent needs to know whose race is up + send their kid to
+ * Karting NOW. Action first, then per-kid line.
+ */
+function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
+  return [
+    `FastTrax · NOW CHECKING IN`,
+    ``,
+    `Your racer's heat is up — head to Karting · 1st Floor NOW`,
+    ``,
+    `- ${racerLabel(member)} — ${member.track} Heat ${member.heatNumber} · ${timeET(member.scheduledStart)}`,
+    ``,
+    `E-ticket: ${shortUrl}`,
+  ].join("\n");
+}
+
+/**
+ * Guardian-flavored multi-racer check-in SMS — only fires when
+ * multiple kids' heats are called in the same cron tick (rare but
+ * possible across tracks). Same urgency framing.
+ */
+function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: string): string {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+  );
+  const lines: string[] = [
+    `FastTrax · NOW CHECKING IN`,
+    ``,
+    `Your racers are up — head to Karting · 1st Floor NOW`,
+    ``,
+  ];
+  for (const m of sorted) {
+    lines.push(`- ${racerLabel(m)} — ${m.track} Heat ${m.heatNumber} · ${timeET(m.scheduledStart)}`);
+  }
+  lines.push(``);
+  lines.push(`E-tickets: ${shortUrl}`);
+  return lines.join("\n");
+}
+
 function buildEmailHtml(race: CurrentRace, firstName: string, shortUrl: string): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
@@ -429,6 +477,56 @@ function buildEmailHtml(race: CurrentRace, firstName: string, shortUrl: string):
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View Your E-Ticket</a>
           </p>
           <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">No paper ticket is needed. Show your e-ticket screen at check-in.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
+/**
+ * Grouped check-in email — used when 2+ racers share a destination
+ * email (guardian fallback OR shared family inbox). Same urgent tone
+ * as the single-recipient email, but lists all kids at once.
+ */
+function buildGroupEmailHtml(
+  members: GroupTicketMember[],
+  shortUrl: string,
+  recipient: "racer" | "guardian",
+): string {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+  );
+  const heading = recipient === "guardian"
+    ? `🏁 Your Racers Are Checking In`
+    : `🏁 Your Heats Are Checking In`;
+  const intro = recipient === "guardian"
+    ? `Heads up — your racers' heats are now checking in.`
+    : `Heads up — your heats are now checking in.`;
+  const rows = sorted.map((m) => {
+    return `<tr><td style="padding:6px 0;border-bottom:1px solid #eee;">
+      <strong style="color:#1a1a1a">${racerLabel(m)}</strong>
+      <span style="color:#555"> — ${m.track} ${m.raceType} Heat ${m.heatNumber}</span>
+      <span style="color:#888"> · ${timeET(m.scheduledStart)}</span>
+    </td></tr>`;
+  }).join("");
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden">
+        <tr><td style="background:#10b981;padding:22px 28px;color:#fff;text-align:center">
+          <p style="margin:0 0 4px 0;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;opacity:0.9">FastTrax Entertainment</p>
+          <h1 style="margin:0;font-size:26px;letter-spacing:-0.5px">${heading}</h1>
+        </td></tr>
+        <tr><td style="padding:26px 28px">
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">${intro}</p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Head straight to the <strong>Karting counter on the 1st Floor</strong>. Skip guest services if you've already checked in.</p>
+          <p style="text-align:center;margin:24px 0">
+            <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View E-Tickets</a>
+          </p>
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">Show the e-ticket screen at check-in. No paper ticket needed.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -546,120 +644,75 @@ export async function GET(req: NextRequest) {
       sessionResults.push({ track: trackKey, sessionId });
     }
 
-    // Bucket fresh SMS candidates by canonical phone; collect email separately.
+    // Resolve each candidate via the new picker (racer first, guardian
+    // fallback for minors). Bucket SMS by destination phone, email by
+    // destination email. No-consent racers (own phone opted out, no
+    // guardian fallback) get logged separately for admin "needs verbal
+    // OK" visibility.
+    //
+    // NOTE on cadence: this cron only sees racers in CURRENTLY-CALLED
+    // heats per `/races-current`. Multi-member buckets only form when
+    // multiple kids' heats land in the same minute-tick, which means
+    // the grouped message is naturally same-call (not a delayed
+    // collapse of heats called minutes apart). See the plan file's
+    // "Check-in vs. pre-race grouping cadence" section.
     const freshSmsByPhone = new Map<string, Candidate[]>();
     const allByPhone = new Map<string, Candidate[]>();
-    const emailCandidates: Candidate[] = [];
+    const freshEmailByEmail = new Map<string, Candidate[]>();
+    const allByEmail = new Map<string, Candidate[]>();
+    const noConsentByPhone = new Map<string, Candidate[]>();
 
     for (const c of candidates) {
-      const channel = pickContactChannel(c.participant);
-      if (channel.channel === "none") {
-        skipped++;
-        continue;
-      }
-      if (channel.channel === "email") {
-        emailCandidates.push(c);
-        continue;
-      }
-      const phone = channel.phone;
-      if (!allByPhone.has(phone)) allByPhone.set(phone, []);
-      allByPhone.get(phone)!.push(c);
+      const resolved = pickContactWithGuardianFallback(c.participant);
+      c.resolved = resolved ?? null;
 
-      const already = !dryRun && (await redis.get(personDedupKey(c)));
-      if (already) {
+      if (!resolved) {
+        const racerPhone = canonicalizePhone(pickPhone(c.participant));
+        if (racerPhone && !hasSmsConsent(c.participant)) {
+          if (!noConsentByPhone.has(racerPhone)) noConsentByPhone.set(racerPhone, []);
+          noConsentByPhone.get(racerPhone)!.push(c);
+        }
         skipped++;
         continue;
       }
-      if (!freshSmsByPhone.has(phone)) freshSmsByPhone.set(phone, []);
-      freshSmsByPhone.get(phone)!.push(c);
+
+      if (resolved.phone) {
+        const phone = resolved.phone;
+        if (!allByPhone.has(phone)) allByPhone.set(phone, []);
+        allByPhone.get(phone)!.push(c);
+
+        const already = !dryRun && (await redis.get(personDedupKey(c)));
+        if (already) {
+          skipped++;
+          continue;
+        }
+        if (!freshSmsByPhone.has(phone)) freshSmsByPhone.set(phone, []);
+        freshSmsByPhone.get(phone)!.push(c);
+      } else if (resolved.email) {
+        const emailKey = resolved.email.trim().toLowerCase();
+        if (!allByEmail.has(emailKey)) allByEmail.set(emailKey, []);
+        allByEmail.get(emailKey)!.push(c);
+
+        const already = !dryRun && (await redis.get(personDedupKey(c)));
+        if (already) {
+          skipped++;
+          continue;
+        }
+        if (!freshEmailByEmail.has(emailKey)) freshEmailByEmail.set(emailKey, []);
+        freshEmailByEmail.get(emailKey)!.push(c);
+      } else {
+        skipped++;
+      }
     }
 
     // Session-level locks to set after successful grouped/single sends per session.
     const sessionsWithSends = new Set<number>();
 
-    // SMS path — single vs grouped.
+    // SMS path — single vs grouped, racer- vs guardian-flavored.
     for (const [phone, fresh] of freshSmsByPhone) {
       const all = allByPhone.get(phone) || fresh;
-
-      // Phone-level consent gate: skip only if EVERY member at this phone has
-      // explicitly opted out. One consenting family member covers opted-out
-      // racers on the same line.
-      const householdConsented = all.some((c) => hasSmsConsent(c.participant));
-      if (!householdConsented) {
-        // No-consent path: build ticket + body so the admin UI shows it
-        // and staff can manually resend after getting verbal consent.
-        // See pre-race-tickets/route.ts for the full rationale — same
-        // 30-min dedup + ticket-as-resend-surface pattern.
-        const consentSkipKey = `consent-skip:checkin:${phone}`;
-        const already = !dryRun && (await redis.get(consentSkipKey));
-        if (already) {
-          skipped += fresh.length;
-          continue;
-        }
-
-        if (dryRun) {
-          skipped += fresh.length;
-          continue;
-        }
-
-        try {
-          let body: string;
-          let shortCode: string;
-          const sessionIds = Array.from(new Set(all.map((c) => c.race.sessionId)));
-          const personIds = all.map((c) => c.participant.personId);
-
-          if (all.length === 1) {
-            const c = all[0];
-            const ticket: RaceTicket = {
-              sessionId: c.race.sessionId,
-              locationId: FASTTRAX_LOCATION_ID,
-              personId: c.participant.personId,
-              firstName: c.participant.firstName || "Racer",
-              lastName: c.participant.lastName || "",
-              email: c.participant.email || undefined,
-              phone: pickPhone(c.participant) || undefined,
-              scheduledStart: c.race.scheduledStart,
-              track: c.trackDisplay,
-              raceType: c.race.raceType,
-              heatNumber: c.race.heatNumber,
-            };
-            const ticketId = await upsertRaceTicket(ticket);
-            const shortened = await shortenUrl(`${BASE}/t/${ticketId}`);
-            shortCode = shortened.code;
-            body = buildSingleSmsBody(c.race, memberFromCandidate(c), shortened.url);
-          } else {
-            const members: GroupTicketMember[] = all.map(memberFromCandidate);
-            const groupId = await upsertGroupTicket({
-              phone,
-              locationId: FASTTRAX_LOCATION_ID,
-              members,
-            });
-            const shortened = await shortenUrl(`${BASE}/g/${groupId}`);
-            shortCode = shortened.code;
-            body = buildGroupSmsBody(members, shortened.url);
-          }
-
-          await logSms({
-            ts: new Date().toISOString(),
-            phone,
-            source: "checkin-cron",
-            status: null,
-            ok: false,
-            error: "SMS not opted in",
-            body,
-            sessionIds,
-            personIds,
-            memberCount: all.length,
-            shortCode,
-          });
-          await redis.set(consentSkipKey, "1", "EX", 30 * 60);
-        } catch (err) {
-          console.error(`[checkin-alerts] consent-skip log error for phone=${phone}:`, err);
-        }
-
-        skipped += fresh.length;
-        continue;
-      }
+      const isGuardianFlavored = all.some((c) => c.resolved?.recipient === "guardian");
+      const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved?.contactFirstName;
 
       if (all.length === 1) {
         const c = fresh[0];
@@ -675,11 +728,13 @@ export async function GET(req: NextRequest) {
           track: c.trackDisplay,
           raceType: c.race.raceType,
           heatNumber: c.race.heatNumber,
+          viaGuardian: isGuardianFlavored || undefined,
+          guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
         };
 
         if (dryRun) {
           console.log(
-            `[checkin-alerts DRY] would sms ${phone} (1 racer: ${c.participant.firstName} ${c.participant.lastName}, session=${c.race.sessionId})`,
+            `[checkin-alerts DRY] would sms ${phone} (1 racer: ${c.participant.firstName} ${c.participant.lastName}, session=${c.race.sessionId}${isGuardianFlavored ? ", via guardian" : ""})`,
           );
           continue;
         }
@@ -687,14 +742,19 @@ export async function GET(req: NextRequest) {
         try {
           const ticketId = await upsertRaceTicket(ticket);
           const { code, url } = await shortenUrl(`${BASE}/t/${ticketId}`);
+          const member = memberFromCandidate(c);
+          const body = isGuardianFlavored
+            ? buildGuardianSingleSmsBody(member, url)
+            : buildSingleSmsBody(c.race, member, url);
           const ok = await sendSms(
             phone,
-            buildSingleSmsBody(c.race, memberFromCandidate(c), url),
+            body,
             {
               sessionIds: [c.race.sessionId],
               personIds: [c.participant.personId],
               memberCount: 1,
               shortCode: code,
+              viaGuardian: isGuardianFlavored,
             },
           );
           if (ok) {
@@ -712,12 +772,14 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Grouped
+      // Grouped — only fires when multiple racers' heats are CALLED IN
+      // THE SAME TICK on this destination phone (e.g., parent-of-2-kids
+      // whose heats happen to start on different tracks at once).
       const members: GroupTicketMember[] = all.map(memberFromCandidate);
       if (dryRun) {
         const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
         console.log(
-          `[checkin-alerts DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length})`,
+          `[checkin-alerts DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`,
         );
         continue;
       }
@@ -727,13 +789,19 @@ export async function GET(req: NextRequest) {
           phone,
           locationId: FASTTRAX_LOCATION_ID,
           members,
+          recipient: isGuardianFlavored ? "guardian" : "racer",
+          guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
         });
         const { code, url } = await shortenUrl(`${BASE}/g/${groupId}`);
-        const ok = await sendSms(phone, buildGroupSmsBody(members, url), {
+        const body = isGuardianFlavored
+          ? buildGuardianGroupSmsBody(members, url)
+          : buildGroupSmsBody(members, url);
+        const ok = await sendSms(phone, body, {
           sessionIds: Array.from(new Set(members.map((m) => m.sessionId))),
           personIds: members.map((m) => m.personId),
           memberCount: members.length,
           shortCode: code,
+          viaGuardian: isGuardianFlavored,
         });
         if (ok) {
           for (const c of fresh) {
@@ -751,56 +819,168 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Email path — one per person.
-    for (const c of emailCandidates) {
-      const key = personDedupKey(c);
-      if (!dryRun && (await redis.get(key))) {
-        skipped++;
+    // No-consent path — racers whose own phone is opted out AND who
+    // had no guardian fallback. Log "needs verbal OK" with 30-min
+    // dedup so the admin board can surface them for manual resend.
+    for (const [phone, members] of noConsentByPhone) {
+      const consentSkipKey = `consent-skip:checkin:${phone}`;
+      const already = !dryRun && (await redis.get(consentSkipKey));
+      if (already) {
+        skipped += members.length;
         continue;
       }
-      const channel = pickContactChannel(c.participant);
-      if (channel.channel !== "email") continue;
-
-      const ticket: RaceTicket = {
-        sessionId: c.race.sessionId,
-        locationId: FASTTRAX_LOCATION_ID,
-        personId: c.participant.personId,
-        firstName: c.participant.firstName || "Racer",
-        lastName: c.participant.lastName || "",
-        email: c.participant.email || undefined,
-        phone: pickPhone(c.participant) || undefined,
-        scheduledStart: c.race.scheduledStart,
-        track: c.trackDisplay,
-        raceType: c.race.raceType,
-        heatNumber: c.race.heatNumber,
-      };
-
       if (dryRun) {
-        console.log(
-          `[checkin-alerts DRY] would email ${channel.email} (${c.participant.firstName} ${c.participant.lastName}, session=${c.race.sessionId})`,
-        );
+        skipped += members.length;
+        continue;
+      }
+      try {
+        const sessionIds = Array.from(new Set(members.map((c) => c.race.sessionId)));
+        const personIds = members.map((c) => c.participant.personId);
+        let body: string;
+        let shortCode: string;
+        if (members.length === 1) {
+          const c = members[0];
+          const ticket: RaceTicket = {
+            sessionId: c.race.sessionId,
+            locationId: FASTTRAX_LOCATION_ID,
+            personId: c.participant.personId,
+            firstName: c.participant.firstName || "Racer",
+            lastName: c.participant.lastName || "",
+            email: c.participant.email || undefined,
+            phone: pickPhone(c.participant) || undefined,
+            scheduledStart: c.race.scheduledStart,
+            track: c.trackDisplay,
+            raceType: c.race.raceType,
+            heatNumber: c.race.heatNumber,
+          };
+          const ticketId = await upsertRaceTicket(ticket);
+          const shortened = await shortenUrl(`${BASE}/t/${ticketId}`);
+          shortCode = shortened.code;
+          body = buildSingleSmsBody(c.race, memberFromCandidate(c), shortened.url);
+        } else {
+          const groupMembers: GroupTicketMember[] = members.map(memberFromCandidate);
+          const groupId = await upsertGroupTicket({
+            phone,
+            locationId: FASTTRAX_LOCATION_ID,
+            members: groupMembers,
+          });
+          const shortened = await shortenUrl(`${BASE}/g/${groupId}`);
+          shortCode = shortened.code;
+          body = buildGroupSmsBody(groupMembers, shortened.url);
+        }
+        await logSms({
+          ts: new Date().toISOString(),
+          phone,
+          source: "checkin-cron",
+          status: null,
+          ok: false,
+          error: "SMS not opted in",
+          body,
+          sessionIds,
+          personIds,
+          memberCount: members.length,
+          shortCode,
+        });
+        await redis.set(consentSkipKey, "1", "EX", 30 * 60);
+      } catch (err) {
+        console.error(`[checkin-alerts] consent-skip log error for phone=${phone}:`, err);
+      }
+      skipped += members.length;
+    }
+
+    // Email path — bucket by destination email. Multiple racers (guardian
+    // fallback OR shared family inbox) collapse into ONE combined email.
+    for (const [emailKey, fresh] of freshEmailByEmail) {
+      const all = allByEmail.get(emailKey) || fresh;
+      const isGuardianFlavored = all.some((c) => c.resolved?.recipient === "guardian");
+      const displayEmail = fresh[0].resolved?.email || emailKey;
+
+      if (all.length === 1) {
+        const c = fresh[0];
+        const ticket: RaceTicket = {
+          sessionId: c.race.sessionId,
+          locationId: FASTTRAX_LOCATION_ID,
+          personId: c.participant.personId,
+          firstName: c.participant.firstName || "Racer",
+          lastName: c.participant.lastName || "",
+          email: c.participant.email || undefined,
+          phone: pickPhone(c.participant) || undefined,
+          scheduledStart: c.race.scheduledStart,
+          track: c.trackDisplay,
+          raceType: c.race.raceType,
+          heatNumber: c.race.heatNumber,
+          viaGuardian: isGuardianFlavored || undefined,
+          guardianFirstName: isGuardianFlavored ? c.resolved?.contactFirstName : undefined,
+        };
+
+        if (dryRun) {
+          console.log(
+            `[checkin-alerts DRY] would email ${displayEmail} (${c.participant.firstName} ${c.participant.lastName}, session=${c.race.sessionId}${isGuardianFlavored ? ", via guardian" : ""})`,
+          );
+          continue;
+        }
+
+        try {
+          const ticketId = await upsertRaceTicket(ticket);
+          const { url } = await shortenUrl(`${BASE}/t/${ticketId}`);
+          const subject = isGuardianFlavored
+            ? `Your racer's heat is checking in — head to Karting 1st Floor`
+            : `Your heat is checking in — head to Karting 1st Floor`;
+          const html = isGuardianFlavored
+            ? buildGroupEmailHtml([memberFromCandidate(c)], url, "guardian")
+            : buildEmailHtml(c.race, c.participant.firstName || "Racer", url);
+          const ok = await sendEmail(displayEmail, subject, html);
+          if (ok) {
+            await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
+            sent++;
+            emailSends++;
+            sessionsWithSends.add(c.race.sessionId);
+          } else {
+            errors++;
+          }
+        } catch (err) {
+          console.error(`[checkin-alerts] email error for personId=${c.participant.personId}:`, err);
+          errors++;
+        }
+        continue;
+      }
+
+      // Multiple racers share this destination email — combined email.
+      const members: GroupTicketMember[] = all.map(memberFromCandidate);
+      if (dryRun) {
+        const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
+        console.log(`[checkin-alerts DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`);
         continue;
       }
 
       try {
-        const ticketId = await upsertRaceTicket(ticket);
-        const { url } = await shortenUrl(`${BASE}/t/${ticketId}`);
-        const ok = await sendEmail(
-          channel.email,
-          "Your heat is checking in — head to Karting 1st Floor",
-          buildEmailHtml(c.race, c.participant.firstName || "Racer", url),
-        );
+        const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved?.contactFirstName;
+        const groupId = await upsertGroupTicket({
+          phone: "", // email-bucketed group has no phone
+          locationId: FASTTRAX_LOCATION_ID,
+          members,
+          recipient: isGuardianFlavored ? "guardian" : "racer",
+          guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
+        });
+        const { url } = await shortenUrl(`${BASE}/g/${groupId}`);
+        const subject = isGuardianFlavored
+          ? `Your racers' heats are checking in — head to Karting 1st Floor`
+          : `Your heats are checking in — head to Karting 1st Floor`;
+        const html = buildGroupEmailHtml(members, url, isGuardianFlavored ? "guardian" : "racer");
+        const ok = await sendEmail(displayEmail, subject, html);
         if (ok) {
-          await redis.set(key, "1", "EX", DEDUP_TTL);
-          sent++;
+          for (const c of fresh) {
+            await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
+            sessionsWithSends.add(c.race.sessionId);
+          }
+          sent += fresh.length;
           emailSends++;
-          sessionsWithSends.add(c.race.sessionId);
         } else {
-          errors++;
+          errors += fresh.length;
         }
       } catch (err) {
-        console.error(`[checkin-alerts] email error for personId=${c.participant.personId}:`, err);
-        errors++;
+        console.error(`[checkin-alerts] grouped-email error for ${emailKey}:`, err);
+        errors += fresh.length;
       }
     }
 

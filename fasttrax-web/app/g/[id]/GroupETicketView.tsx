@@ -158,9 +158,19 @@ export default function GroupETicketView({ group, initial }: Props) {
         <div className="text-center mb-6">
           <p className="text-white/30 text-xs uppercase tracking-[0.3em] mb-1">FastTrax Entertainment</p>
           <p className="text-white/60 text-sm font-semibold">
-            {racerCount} Racers · {distinctHeats} Heat{distinctHeats === 1 ? "" : "s"}
+            {group.recipient === "guardian" ? "Your Racers' E-Tickets" : "E-Tickets"}
+          </p>
+          <p className="text-white/40 text-xs mt-0.5">
+            {racerCount} Racer{racerCount === 1 ? "" : "s"} · {distinctHeats} Heat{distinctHeats === 1 ? "" : "s"}
           </p>
           {dateLabel && <p className="text-white/30 text-xs mt-1">{dateLabel}</p>}
+          {group.recipient === "guardian" && (
+            <p className="text-amber-300/80 text-[11px] mt-2 inline-block px-2 py-0.5 rounded-full border border-amber-300/30 bg-amber-500/10">
+              {group.guardianFirstName
+                ? <>Sent to <strong className="text-amber-200">{group.guardianFirstName}</strong> (parent)</>
+                : <>Sent to your guardian</>}
+            </p>
+          )}
         </div>
 
         <div className="space-y-5">

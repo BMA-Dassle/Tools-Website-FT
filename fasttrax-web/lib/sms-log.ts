@@ -42,6 +42,11 @@ export interface SmsLogEntry {
   /** True when Vox returned a quota error and Twilio picked up the send.
    *  Lets the admin tool surface "Vox→Twilio failover" rows. */
   failedOver?: boolean;
+  /** True when this SMS was routed to a guardian's contact (minor
+   *  racer with no usable own contact). The admin board surfaces a
+   *  "↻ via guardian" badge so staff can audit fallback rate. The
+   *  `phone` field holds the actual destination (guardian's). */
+  viaGuardian?: boolean;
 }
 
 const LOG_TTL = 60 * 60 * 24 * 90; // 90 days

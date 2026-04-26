@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
 import { voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
-import { canonicalizePhone, hasSmsConsent, pickPhone, pickVideoContact, type Participant } from "@/lib/participant-contact";
+import { canonicalizePhone, hasSmsConsent, pickPhone, pickContactWithGuardianFallback, type Participant } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import type { VideoMatch } from "@/lib/video-match";
 import type { CameraHistoryEntry } from "@/lib/camera-assign";
@@ -294,7 +294,7 @@ export async function notifyVideoReady(
   // "guardian", we reframe the bodies as "video ready for {racer}"
   // so the parent immediately knows whose video this is.
   const participant = entryAsParticipant(entry);
-  const candidate = pickVideoContact(participant);
+  const candidate = pickContactWithGuardianFallback(participant);
 
   if (!candidate) {
     // No usable contact on racer OR guardian. Log so admin can see
