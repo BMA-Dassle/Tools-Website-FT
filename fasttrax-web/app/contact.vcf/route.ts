@@ -17,15 +17,14 @@ import { NextResponse } from "next/server";
 const vcard = [
   "BEGIN:VCARD",
   "VERSION:3.0",
-  "FN:HeadPinz Family Entertainment",
-  "ORG:HeadPinz Family Entertainment",
+  "FN:FastTrax Fort Myers",
+  "ORG:FastTrax Fort Myers",
   // ADR fields: PO-Box;Extended;Street;Locality;Region;Postal;Country
   "ADR;TYPE=WORK:;;14501 Global Parkway;Fort Myers;FL;33913;USA",
   "TEL;TYPE=WORK,VOICE:+12394819666",
   "EMAIL;TYPE=WORK,INTERNET:guestservices@headpinz.com",
-  "URL:https://headpinz.com",
   "URL:https://fasttraxent.com",
-  "UID:headpinz-fasttrax-fortmyers",
+  "UID:fasttrax-fortmyers",
   "REV:2026-04-25T00:00:00Z",
   "END:VCARD",
   "",
