@@ -1,6 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listMatchesInRange, updateVideoMatch, type VideoMatch } from "@/lib/video-match";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
+import type { GuardianContact, Participant } from "@/lib/participant-contact";
+
+const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
+const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+
+/**
+ * Re-fetch the live participant roster for a sessionId from Pandora
+ * via our existing proxy route, return a Map keyed by personId so the
+ * caller can graft guardian onto old VideoMatch records that were
+ * saved before the cron started snapshotting it.
+ *
+ * We use the existing /api/pandora/session-participants endpoint
+ * (which is auth-gated by SWAGGER_ADMIN_KEY at the proxy layer) so
+ * we don't have to duplicate Pandora's auth handling here.
+ */
+async function fetchGuardiansForSession(
+  sessionId: string | number,
+): Promise<Map<string, GuardianContact>> {
+  const out = new Map<string, GuardianContact>();
+  try {
+    const url = `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=true&excludeUnpaid=false`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return out;
+    const json = await res.json();
+    const data: Participant[] = Array.isArray(json?.data) ? json.data : [];
+    for (const p of data) {
+      const g = p.guardian;
+      if (g && (g.mobilePhone || g.homePhone || g.email)) {
+        out.set(String(p.personId), g);
+      }
+    }
+  } catch (err) {
+    console.warn("[backfill-guardian] Pandora re-fetch failed for session", sessionId, err);
+  }
+  return out;
+}
 
 /**
  * POST /api/admin/videos/backfill-guardian
@@ -93,29 +129,50 @@ export async function POST(req: NextRequest) {
   }
 
   if (dryRun) {
+    // Pre-fetch fresh guardian data so the preview shows what the
+    // real run would actually find (otherwise old match records
+    // without guardian look hopeless even when Pandora has the
+    // parent contact on file now).
+    const drySessionsToFetch = new Set<string>();
+    for (const m of candidates) {
+      const has = !!m.guardian && (!!m.guardian.mobilePhone || !!m.guardian.homePhone || !!m.guardian.email);
+      if (!has && m.sessionId !== "manual") drySessionsToFetch.add(String(m.sessionId));
+    }
+    const dryGuardianMap = new Map<string, GuardianContact>();
+    await Promise.all(
+      [...drySessionsToFetch].map(async (sid) => {
+        const map = await fetchGuardiansForSession(sid);
+        for (const [pid, g] of map) dryGuardianMap.set(`${sid}:${pid}`, g);
+      }),
+    );
     return NextResponse.json({
       dryRun: true,
       windowStart: new Date(startMs).toISOString(),
       windowEnd: new Date(endMs).toISOString(),
       total: matches.length,
       candidates: candidates.length,
+      enrichableFromPandora: dryGuardianMap.size,
       skipped: skipped.length,
       skipReasons: skipped.reduce((acc, s) => {
         acc[s.reason] = (acc[s.reason] || 0) + 1;
         return acc;
       }, {} as Record<string, number>),
-      candidateSample: candidates.slice(0, 50).map((m) => ({
-        videoCode: m.videoCode,
-        firstName: m.firstName,
-        lastName: m.lastName,
-        racerPhone: m.mobilePhone || m.homePhone || m.phone || null,
-        racerEmail: m.email || null,
-        guardianFirstName: m.guardian?.firstName || null,
-        guardianPhone: m.guardian?.mobilePhone || m.guardian?.homePhone || null,
-        guardianEmail: m.guardian?.email || null,
-        priorSmsError: m.notifySmsError || null,
-        priorEmailError: m.notifyEmailError || null,
-      })),
+      candidateSample: candidates.slice(0, 50).map((m) => {
+        const livedGuardian = m.guardian || dryGuardianMap.get(`${m.sessionId}:${m.personId}`) || null;
+        return {
+          videoCode: m.videoCode,
+          firstName: m.firstName,
+          lastName: m.lastName,
+          racerPhone: m.mobilePhone || m.homePhone || m.phone || null,
+          racerEmail: m.email || null,
+          guardianFirstName: livedGuardian?.firstName || null,
+          guardianPhone: livedGuardian?.mobilePhone || livedGuardian?.homePhone || null,
+          guardianEmail: livedGuardian?.email || null,
+          guardianSource: m.guardian ? "match-record" : (livedGuardian ? "pandora-refetch" : "none"),
+          priorSmsError: m.notifySmsError || null,
+          priorEmailError: m.notifyEmailError || null,
+        };
+      }),
     });
   }
 
@@ -124,12 +181,54 @@ export async function POST(req: NextRequest) {
   let viaGuardian = 0;
   let stillNoContact = 0;
   let errored = 0;
+  let enrichedFromPandora = 0;
+
+  // Pre-pass: candidates saved BEFORE the guardian-snapshot deploy
+  // (commit 20a121d) carry no guardian on their match record, even
+  // though Pandora has the data live now. Group by sessionId, fetch
+  // each session's participants once, build a personId → guardian
+  // map, and graft any guardian we find onto the match record before
+  // we hand it to notifyVideoReady. Patched records are persisted so
+  // future operations don't need to re-fetch.
+  const sessionsToFetch = new Set<string>();
+  for (const m of candidates) {
+    const hasGuardian = !!m.guardian && (
+      !!m.guardian.mobilePhone ||
+      !!m.guardian.homePhone ||
+      !!m.guardian.email
+    );
+    if (!hasGuardian && m.sessionId !== "manual") {
+      sessionsToFetch.add(String(m.sessionId));
+    }
+  }
+  const guardianBySessionPerson = new Map<string, GuardianContact>();
+  await Promise.all(
+    [...sessionsToFetch].map(async (sid) => {
+      const map = await fetchGuardiansForSession(sid);
+      for (const [pid, g] of map) {
+        guardianBySessionPerson.set(`${sid}:${pid}`, g);
+      }
+    }),
+  );
 
   for (const match of candidates) {
     try {
+      // Graft fresh guardian data onto stale match records so the
+      // notify path's pickVideoContact has something to fall back to.
+      const hasGuardianAlready = !!match.guardian && (
+        !!match.guardian.mobilePhone ||
+        !!match.guardian.homePhone ||
+        !!match.guardian.email
+      );
+      if (!hasGuardianAlready) {
+        const g = guardianBySessionPerson.get(`${match.sessionId}:${match.personId}`);
+        if (g) {
+          match.guardian = g;
+          enrichedFromPandora++;
+        }
+      }
+
       const entry = cameraHistoryEntryFromMatch(match);
-      // Snapshot pre-state to detect whether this fire actually
-      // delivered anything new (vs. e.g. skipping silently again).
       const hadGuardian = !!match.guardian && (
         !!match.guardian.mobilePhone ||
         !!match.guardian.homePhone ||
@@ -184,6 +283,7 @@ export async function POST(req: NextRequest) {
     windowEnd: new Date(endMs).toISOString(),
     total: matches.length,
     candidates: candidates.length,
+    enrichedFromPandora,
     smsSent,
     emailSent,
     viaGuardian,
