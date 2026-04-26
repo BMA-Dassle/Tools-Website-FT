@@ -36,6 +36,19 @@ type BlockInfo = {
   blockedBy?: string;
 };
 
+type GuardianContact = {
+  personId?: string | number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  mobilePhone?: string;
+  homePhone?: string;
+  acceptMailCommercial?: boolean;
+  acceptMailScores?: boolean;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+};
+
 type Participant = {
   personId: string | number;
   firstName: string;
@@ -52,6 +65,10 @@ type Participant = {
   phone?: string;
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
+  /** Optional guardian / parent contact for minors. Forwarded to the
+   *  /assign endpoint so the video-notify path can fall back to the
+   *  guardian when the racer has no usable contact of their own. */
+  guardian?: GuardianContact | null;
   /** Effective block state for this racer (session-level inherited, or
    *  person-level override). Populated by the server from one MGET. */
   block?: BlockInfo;
@@ -992,6 +1009,10 @@ export default function CameraAssignClient({ token, track: initialTrack, version
           phone: p.phone,
           acceptSmsCommercial: p.acceptSmsCommercial,
           acceptSmsScores: p.acceptSmsScores,
+          // Guardian fallback for minors (videos-only at the moment).
+          // Pass it through whenever Pandora gave us one — server
+          // tolerates undefined so this is safe pre-rollout.
+          guardian: p.guardian ?? null,
         }),
       });
       if (!res.ok) {

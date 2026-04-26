@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
 import { voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
-import { canonicalizePhone, hasSmsConsent, pickPhone, type Participant } from "@/lib/participant-contact";
+import { canonicalizePhone, hasSmsConsent, pickPhone, pickVideoContact, type Participant } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import type { VideoMatch } from "@/lib/video-match";
 import type { CameraHistoryEntry } from "@/lib/camera-assign";
@@ -38,15 +38,30 @@ async function shortenForSms(fullUrl: string): Promise<{ code: string; url: stri
   return { code, url: `${BASE}/s/${code}` };
 }
 
-/** Build the SMS body. Mirrors the pre-race cron's terse style. */
-function buildVideoSmsBody(entry: CameraHistoryEntry, shortUrl: string): string {
+/** Build the SMS body. Mirrors the pre-race cron's terse style.
+ *  When `recipient === "guardian"` the framing changes to "video
+ *  ready for {racerFirstName}" so the parent immediately knows
+ *  whose video this is. */
+function buildVideoSmsBody(
+  entry: CameraHistoryEntry,
+  shortUrl: string,
+  recipient: "racer" | "guardian" = "racer",
+): string {
   const lines: string[] = [];
-  lines.push(`FastTrax — your race video is ready!`);
-  lines.push(``);
-  const who = entry.firstName ? `${entry.firstName}, your ` : "Your ";
+  const racerFirst = (entry.firstName || "").trim();
   const trackLabel = entry.track ? `${entry.track.replace(" Track", "")} Track` : "race";
   const heatLabel = entry.heatNumber ? ` Heat ${entry.heatNumber}` : "";
-  lines.push(`${who}${trackLabel}${heatLabel} video is live.`);
+  if (recipient === "guardian") {
+    const racerName = racerFirst || "your racer";
+    lines.push(`FastTrax — race video ready for ${racerName}!`);
+    lines.push(``);
+    lines.push(`${racerName}'s ${trackLabel}${heatLabel} video is live.`);
+  } else {
+    lines.push(`FastTrax — your race video is ready!`);
+    lines.push(``);
+    const who = racerFirst ? `${racerFirst}, your ` : "Your ";
+    lines.push(`${who}${trackLabel}${heatLabel} video is live.`);
+  }
   lines.push(``);
   lines.push(`Watch + share: ${shortUrl}`);
   return lines.join("\n");
@@ -59,12 +74,36 @@ function buildVideoSmsBody(entry: CameraHistoryEntry, shortUrl: string): string 
  * links. Keeps the FastTrax email family visually consistent so racers
  * recognize it the same as their race-day + confirmation emails.
  */
-function buildVideoEmailHtml(entry: CameraHistoryEntry, videoUrl: string, thumbnailUrl?: string): string {
+function buildVideoEmailHtml(
+  entry: CameraHistoryEntry,
+  videoUrl: string,
+  thumbnailUrl?: string,
+  recipient: "racer" | "guardian" = "racer",
+  guardianFirstName?: string,
+): string {
   const safe = (s: string) => s.replace(/[<>]/g, "");
-  const firstName = safe(entry.firstName || "Racer");
+  const racerFirstName = safe(entry.firstName || "Racer");
   const trackLabel = entry.track ? safe(entry.track.replace(" Track", "")) : "race";
   const heatLabel = entry.heatNumber ? ` Heat ${entry.heatNumber}` : "";
   const raceTypeLabel = entry.raceType ? ` ${safe(entry.raceType)}` : "";
+  // Pick the greeting + body framing. Guardian variant says "Race
+  // video ready for {racer}" up top + "{Racer}'s ... is ready" body
+  // so the parent gets context the moment they open the email.
+  const isGuardian = recipient === "guardian";
+  const headlineEyebrow = isGuardian ? "Race Video Ready" : "Your Race Video";
+  const headline = isGuardian
+    ? `Race video ready for ${racerFirstName}!`
+    : `Hey ${racerFirstName}!`;
+  const subheadOwner = isGuardian
+    ? `${racerFirstName}'s`
+    : `Your`;
+  // Greeting line included only on guardian variant — addresses the
+  // parent by name when we have it, falls back to a generic salutation
+  // ("Hey there!") when Pandora gave us a guardian record without a
+  // first name.
+  const guardianSalute = isGuardian
+    ? (guardianFirstName ? `<p style="margin:0 0 10px 0;font-size:14px;color:#444;">Hey ${safe(guardianFirstName)},</p>` : "")
+    : "";
 
   const thumb = thumbnailUrl
     ? `<tr>
@@ -106,13 +145,14 @@ function buildVideoEmailHtml(entry: CameraHistoryEntry, videoUrl: string, thumbn
       <tr>
         <td align="center" style="padding:28px 40px 8px 40px;font-family:Arial,sans-serif;">
           <p style="margin:0 0 10px 0;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#004AAD;font-weight:bold;">
-            Your Race Video
+            ${headlineEyebrow}
           </p>
+          ${guardianSalute}
           <h1 style="margin:0 0 6px 0;font-size:24px;color:#1A1A1A;letter-spacing:1px;text-transform:uppercase;">
-            Hey ${firstName}!
+            ${headline}
           </h1>
           <p style="margin:0;font-size:15px;color:#555;line-height:1.6;">
-            Your <strong style="color:#1A1A1A;">${trackLabel}${heatLabel}${raceTypeLabel}</strong> is ready to watch.
+            ${subheadOwner} <strong style="color:#1A1A1A;">${trackLabel}${heatLabel}${raceTypeLabel}</strong> is ready to watch.
           </p>
         </td>
       </tr>
@@ -205,12 +245,14 @@ export function cameraHistoryEntryFromMatch(m: VideoMatch): CameraHistoryEntry {
     homePhone: m.homePhone,
     phone: m.phone,
     acceptSmsCommercial: m.acceptSmsCommercial,
+    guardian: m.guardian ?? undefined,
   };
 }
 
 /** Build a minimal Participant-ish object so the existing
  *  `pickPhone` / `hasSmsConsent` helpers work without us reimplementing
- *  the field-preference logic. */
+ *  the field-preference logic. Includes guardian so `pickVideoContact`
+ *  can run its racer→guardian fallback against this single object. */
 function entryAsParticipant(entry: CameraHistoryEntry): Participant {
   return {
     personId: entry.personId,
@@ -222,6 +264,7 @@ function entryAsParticipant(entry: CameraHistoryEntry): Participant {
     phone: entry.phone ?? null,
     acceptSmsCommercial: entry.acceptSmsCommercial,
     acceptSmsScores: entry.acceptSmsScores,
+    guardian: entry.guardian ?? null,
   } as Participant;
 }
 
@@ -245,16 +288,49 @@ export async function notifyVideoReady(
     email: { attempted: false },
   };
 
-  // ── SMS ────────────────────────────────────────────────────────────
+  // ── Pick recipient: racer first, guardian fallback for minors ─────
+  // pickVideoContact runs the racer-vs-guardian decision in one
+  // place so SMS + email both target the same person. When it picks
+  // "guardian", we reframe the bodies as "video ready for {racer}"
+  // so the parent immediately knows whose video this is.
   const participant = entryAsParticipant(entry);
-  const rawPhone = pickPhone(participant);
-  const consent = hasSmsConsent(participant);
-  const phone = rawPhone ? canonicalizePhone(rawPhone) : "";
+  const candidate = pickVideoContact(participant);
 
-  if (consent && phone) {
+  if (!candidate) {
+    // No usable contact on racer OR guardian. Log so admin can see
+    // why nothing fired — mirrors the consent-skip pattern below.
+    const ts = new Date().toISOString();
+    const racerRawPhone = pickPhone(participant);
+    const racerCanonPhone = racerRawPhone ? canonicalizePhone(racerRawPhone) : "";
+    if (racerCanonPhone && !hasSmsConsent(participant)) {
+      await logSms({
+        ts,
+        phone: racerCanonPhone,
+        source: "video-match",
+        status: null,
+        ok: false,
+        error: "SMS not opted in",
+        body: `(would-be video notification for ${entry.firstName || "racer"})`,
+        sessionIds: [match.sessionId],
+        personIds: [match.personId],
+        memberCount: 1,
+        shortCode: match.videoCode,
+      });
+    }
+    // No email either — silent skip is fine; the videos board's
+    // "(no contact)" state on the chip explains this implicitly.
+    return result;
+  }
+
+  const recipient = candidate.recipient;
+  const guardianFirstName = recipient === "guardian" ? candidate.contactFirstName : undefined;
+
+  // ── SMS ────────────────────────────────────────────────────────────
+  const phone = candidate.phone;
+  if (phone) {
     result.sms.attempted = true;
     const { url: shortUrl } = await shortenForSms(match.customerUrl);
-    const body = buildVideoSmsBody(entry, shortUrl);
+    const body = buildVideoSmsBody(entry, shortUrl, recipient);
     const ts = new Date().toISOString();
     try {
       const send = await voxSend(phone, body);
@@ -298,7 +374,9 @@ export async function notifyVideoReady(
           ? undefined
           : isQuotaQueued
             ? result.sms.error
-            : (send.error || "").slice(0, 500),
+            // Tag guardian-recipient sends so admin can audit the
+            // fallback rate without a separate column.
+            : `${recipient === "guardian" ? "[guardian] " : ""}${(send.error || "").slice(0, 500)}`,
         body,
         sessionIds: [match.sessionId],
         personIds: [match.personId],
@@ -324,35 +402,24 @@ export async function notifyVideoReady(
         shortCode: match.videoCode,
       });
     }
-  } else if (!consent && phone) {
-    // Consent gate. Log once so staff can see it in the SMS admin and
-    // manually resend after getting verbal OK (same UX as eTickets).
-    const ts = new Date().toISOString();
-    await logSms({
-      ts,
-      phone,
-      source: "video-match",
-      status: null,
-      ok: false,
-      error: "SMS not opted in",
-      body: `(would-be video notification for ${entry.firstName || "racer"})`,
-      sessionIds: [match.sessionId],
-      personIds: [match.personId],
-      memberCount: 1,
-      shortCode: match.videoCode,
-    });
   }
 
   // ── Email ──────────────────────────────────────────────────────────
-  const to = (entry.email || "").trim();
+  const to = candidate.email || "";
   if (to) {
     result.email.attempted = true;
-    const subject = `Your FastTrax race video is ready`;
-    const html = buildVideoEmailHtml(entry, match.customerUrl, match.thumbnailUrl);
+    const subject = recipient === "guardian"
+      ? `Race video ready for ${entry.firstName || "your racer"}`
+      : `Your FastTrax race video is ready`;
+    const html = buildVideoEmailHtml(entry, match.customerUrl, match.thumbnailUrl, recipient, guardianFirstName);
+    // toName: who we're addressing — guardian when fallback, racer otherwise
+    const toName = recipient === "guardian"
+      ? `${guardianFirstName ?? ""} ${candidate.contactLastName ?? ""}`.trim() || undefined
+      : `${entry.firstName || ""} ${entry.lastName || ""}`.trim() || undefined;
     try {
       const send = await sendGridEmail({
         to,
-        toName: `${entry.firstName || ""} ${entry.lastName || ""}`.trim() || undefined,
+        toName,
         subject,
         html,
         // BCC the vendor audit inbox — matches the booking-confirmation

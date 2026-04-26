@@ -17,6 +17,30 @@
  * Pandora has any endpoint that still returns the old shape.
  */
 
+/**
+ * Guardian / parent contact attached to a minor's participant record.
+ * Pandora is rolling this out; field stays optional for the
+ * transition window. Used by the video-notification path as a
+ * fallback when the racer themselves has no usable / opted-in
+ * contact (typical for under-13s).
+ *
+ * Same opt-in semantics as the racer record — `acceptSmsCommercial`
+ * defaulting to undefined means "consent not on file"; we treat
+ * that as eligible (legacy behavior) per `hasSmsConsent`.
+ */
+export interface GuardianContact {
+  personId?: string | number;
+  firstName?: string;
+  lastName?: string;
+  email?: string | null;
+  homePhone?: string | null;
+  mobilePhone?: string | null;
+  acceptMailCommercial?: boolean;
+  acceptMailScores?: boolean;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+}
+
 export interface Participant {
   personId: string | number;
   firstName: string;
@@ -41,6 +65,13 @@ export interface Participant {
    *  proxy filters unpaid by default via `excludeUnpaid=true`; pass
    *  `excludeUnpaid=false` to see this field populated. */
   paid?: boolean;
+
+  /** Optional guardian / parent contact. Only used when the racer
+   *  themselves has no usable contact (no email, no phone, or
+   *  explicit opt-out). See `pickVideoContact` for the fallback
+   *  logic — currently scoped to the video-notification path only;
+   *  pre-race + check-in e-tickets are still racer-only. */
+  guardian?: GuardianContact | null;
 
   // Legacy — may still appear briefly
   phone?: string | null;
@@ -125,4 +156,82 @@ export function pickContactChannel(p: Participant): ContactChannel {
  */
 export function hasSmsConsent(p: Participant): boolean {
   return p.acceptSmsCommercial !== false;
+}
+
+// ── Video-notification contact picker (with guardian fallback) ─────────
+
+/**
+ * Compact view of "who, on what channel, with what consent" — the same
+ * shape `pickVideoContact` produces for both racer and guardian, so
+ * downstream consumers don't have to repeat the field-preference logic.
+ */
+export interface VideoContactCandidate {
+  /** Whose contact we're using — drives the SMS/email body framing.
+   *  When "guardian" the body is reframed as "video ready for {racer
+   *  first name}" so the parent knows whose video this is. */
+  recipient: "racer" | "guardian";
+  /** Display name of the WHO (used for greeting in the email/SMS) */
+  contactFirstName?: string;
+  contactLastName?: string;
+  /** E.164 phone iff usable (canonicalized + not opted out), else null */
+  phone: string | null;
+  /** Email iff present (consent-aware), else null */
+  email: string | null;
+}
+
+/** Internal: compute one candidate set from a contact-bearing record. */
+function evaluateContact(
+  c: { email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean },
+  who: "racer" | "guardian",
+  firstName?: string,
+  lastName?: string,
+): VideoContactCandidate {
+  const rawPhone = c.mobilePhone || c.homePhone || c.phone || null;
+  const phoneOk = c.acceptSmsCommercial !== false; // absent -> eligible (legacy)
+  const phone = phoneOk ? canonicalizePhone(rawPhone) : null;
+
+  const emailOk = c.acceptMailCommercial !== false;
+  const email = emailOk && c.email ? String(c.email).trim() || null : null;
+
+  return {
+    recipient: who,
+    contactFirstName: firstName,
+    contactLastName: lastName,
+    phone,
+    email,
+  };
+}
+
+/**
+ * Decide who to notify for a video-ready event:
+ *   1. If the racer has any usable contact (SMS-eligible phone OR email),
+ *      use the racer.
+ *   2. Else if a guardian is on file with usable contact, use the
+ *      guardian — caller must reframe the SMS/email body to "Video
+ *      ready for {racer first name}" so the parent knows it's their
+ *      kid's video.
+ *   3. Else null (no one to notify).
+ *
+ * Returns the candidate (or null). Callers separately render the body
+ * based on `recipient` and the racer's name (which they always know
+ * from the match record).
+ */
+export function pickVideoContact(
+  racer: Participant | { firstName?: string; lastName?: string; email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean; guardian?: GuardianContact | null },
+): VideoContactCandidate | null {
+  // Treat placeholder personIds (e.g. "DRIVER 1 PLACEHOLDER") as no-contact
+  // — same gate as pickContactChannel for the regular cron paths.
+  if ("personId" in racer && racer.personId != null && PLACEHOLDER_PERSON_IDS.has(String(racer.personId))) {
+    return null;
+  }
+
+  const racerCand = evaluateContact(racer, "racer", racer.firstName, racer.lastName);
+  if (racerCand.phone || racerCand.email) return racerCand;
+
+  const g = racer.guardian;
+  if (g && (g.mobilePhone || g.homePhone || g.email)) {
+    const gCand = evaluateContact(g, "guardian", g.firstName, g.lastName);
+    if (gCand.phone || gCand.email) return gCand;
+  }
+  return null;
 }

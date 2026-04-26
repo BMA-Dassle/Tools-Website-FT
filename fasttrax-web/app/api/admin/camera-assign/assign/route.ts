@@ -73,6 +73,10 @@ export async function POST(req: NextRequest) {
     phone: body.phone,
     acceptSmsCommercial: body.acceptSmsCommercial,
     acceptSmsScores: body.acceptSmsScores,
+    // Guardian fallback for minors — forwarded by the client from
+    // the session endpoint's Pandora payload. Used by the video-
+    // notify path only (e-tickets stay racer-only for now).
+    guardian: body.guardian,
   };
 
   await upsertCameraAssignment(record);

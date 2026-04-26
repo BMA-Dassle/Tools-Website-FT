@@ -3,7 +3,7 @@ import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
 import { listMatchesInRange, updateVideoMatch, type VideoMatch } from "@/lib/video-match";
 import { voxSend } from "@/lib/sms-retry";
-import { canonicalizePhone } from "@/lib/participant-contact";
+import { pickVideoContact, type Participant } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import { quotaEnqueue } from "@/lib/sms-quota";
 
@@ -39,11 +39,24 @@ async function shortenForSms(fullUrl: string): Promise<string> {
   return `${BASE}/s/${code}`;
 }
 
-function buildSmsBody(m: { firstName?: string; track?: string; heatNumber?: number; shortUrl: string }): string {
-  const first = (m.firstName || "").trim();
-  const greeting = first ? `${first}, your ` : "Your ";
+function buildSmsBody(
+  m: { firstName?: string; track?: string; heatNumber?: number; shortUrl: string },
+  recipient: "racer" | "guardian" = "racer",
+): string {
+  const racerFirst = (m.firstName || "").trim();
   const trackLabel = m.track ? `${m.track.replace(" Track", "")} Track` : "race";
   const heatLabel = m.heatNumber ? ` Heat ${m.heatNumber}` : "";
+  if (recipient === "guardian") {
+    const racerName = racerFirst || "your racer";
+    return [
+      `FastTrax — race video ready for ${racerName}!`,
+      "",
+      `${racerName}'s ${trackLabel}${heatLabel} video is live.`,
+      "",
+      `Watch + share: ${m.shortUrl}`,
+    ].join("\n");
+  }
+  const greeting = racerFirst ? `${racerFirst}, your ` : "Your ";
   return [
     "FastTrax — your race video is ready!",
     "",
@@ -51,6 +64,22 @@ function buildSmsBody(m: { firstName?: string; track?: string; heatNumber?: numb
     "",
     `Watch + share: ${m.shortUrl}`,
   ].join("\n");
+}
+
+/** Cast match → minimal Participant so pickVideoContact's racer→guardian
+ *  fallback runs against this single object. */
+function matchAsParticipant(m: VideoMatch): Participant {
+  return {
+    personId: m.personId,
+    firstName: m.firstName || "",
+    lastName: m.lastName || "",
+    email: m.email ?? null,
+    mobilePhone: m.mobilePhone ?? null,
+    homePhone: m.homePhone ?? null,
+    phone: m.phone ?? null,
+    acceptSmsCommercial: m.acceptSmsCommercial,
+    guardian: m.guardian ?? null,
+  } as Participant;
 }
 
 interface BulkBody {
@@ -73,6 +102,10 @@ export async function POST(req: NextRequest) {
 
   // Filter to candidates we'd actually re-fire SMS for. Reasons we skip
   // surface in the response so staff can see what was touched vs. not.
+  // Note: we don't pre-skip on "no phone" anymore — pickVideoContact
+  // can fall back to the guardian for minor racers, so a record with
+  // no racer phone may still be eligible if guardian.mobilePhone is on
+  // file. We resolve the contact per-record below and skip there.
   const candidates: VideoMatch[] = [];
   const skipped: { match: VideoMatch; reason: string }[] = [];
   for (const m of matches) {
@@ -82,15 +115,6 @@ export async function POST(req: NextRequest) {
     }
     if (m.pendingNotify) {
       skipped.push({ match: m, reason: "pending VT3 upload" });
-      continue;
-    }
-    const rawPhone = (m.phone || m.mobilePhone || m.homePhone || "").trim();
-    if (!rawPhone) {
-      skipped.push({ match: m, reason: "no phone on file" });
-      continue;
-    }
-    if (m.notifySmsError === "SMS not opted in") {
-      skipped.push({ match: m, reason: "no SMS consent" });
       continue;
     }
     candidates.push(m);
@@ -125,9 +149,16 @@ export async function POST(req: NextRequest) {
   let stoppedOnQuota = false;
 
   for (const match of candidates) {
-    const rawPhone = (match.phone || match.mobilePhone || match.homePhone || "").trim();
-    const phone = canonicalizePhone(rawPhone);
-    if (!phone) { failed++; continue; }
+    // Pick recipient (racer-first, guardian-fallback). When no contact
+    // is available on either, this is just a no-op skip — counts as
+    // "failed" with reason "no contact".
+    const candidate = pickVideoContact(matchAsParticipant(match));
+    if (!candidate || !candidate.phone) {
+      failed++;
+      continue;
+    }
+    const phone = candidate.phone;
+    const recipient = candidate.recipient;
 
     const shortUrl = await shortenForSms(match.customerUrl);
     const smsBody = buildSmsBody({
@@ -135,7 +166,7 @@ export async function POST(req: NextRequest) {
       track: match.track,
       heatNumber: match.heatNumber,
       shortUrl,
-    });
+    }, recipient);
     const ts = new Date().toISOString();
     const send = await voxSend(phone, smsBody);
 
@@ -197,21 +228,20 @@ export async function POST(req: NextRequest) {
       // Push the rest straight to the queue without trying.
       const rest = candidates.slice(candidates.indexOf(match) + 1);
       for (const m of rest) {
-        const rawP = (m.phone || m.mobilePhone || m.homePhone || "").trim();
-        const p = canonicalizePhone(rawP);
-        if (!p) { failed++; continue; }
+        const c = pickVideoContact(matchAsParticipant(m));
+        if (!c || !c.phone) { failed++; continue; }
         const sUrl = await shortenForSms(m.customerUrl);
-        const sBody = buildSmsBody({ firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl });
+        const sBody = buildSmsBody({ firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl }, c.recipient);
         const tts = new Date().toISOString();
         await quotaEnqueue({
-          phone: p, body: sBody, source: "admin-resend", queuedAt: tts,
+          phone: c.phone, body: sBody, source: "admin-resend", queuedAt: tts,
           shortCode: m.videoCode,
           audit: { sessionIds: [m.sessionId], personIds: [m.personId], memberCount: 1 },
         });
         queued++;
         m.notifySmsOk = false;
         m.notifySmsError = "[quota] queued for next reset window";
-        m.notifySmsSentTo = p;
+        m.notifySmsSentTo = c.phone;
         m.notifySmsSentAt = tts;
         await updateVideoMatch(m).catch(() => void 0);
       }

@@ -38,6 +38,19 @@ interface PandoraSession {
   heatNumber: number;
 }
 
+interface PandoraGuardian {
+  personId?: string | number;
+  firstName?: string;
+  lastName?: string;
+  email?: string | null;
+  homePhone?: string | null;
+  mobilePhone?: string | null;
+  acceptMailCommercial?: boolean;
+  acceptMailScores?: boolean;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+}
+
 interface Participant {
   personId: string | number;
   firstName: string;
@@ -50,6 +63,11 @@ interface Participant {
   phone?: string | null;
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
+  /** Guardian / parent contact for minors. Pandora is rolling this
+   *  out — undefined for old records. Forwarded to the camera-assign
+   *  client so it can attach to the assignment + video-notify can
+   *  fall back to it when the racer has no usable contact. */
+  guardian?: PandoraGuardian | null;
   /** Kart number assigned by SMS-Timing. Populated during/after the
    *  race; null/undefined on upcoming sessions (karts are assigned
    *  close to race time). Passed through so the camera-assign UI can
@@ -254,6 +272,10 @@ export async function GET(req: NextRequest) {
       phone: p.phone || undefined,
       acceptSmsCommercial: p.acceptSmsCommercial,
       acceptSmsScores: p.acceptSmsScores,
+      // Pass guardian through verbatim — camera-assign client forwards
+      // it to /assign which snapshots it onto the assignment record so
+      // the video-match cron has it without re-hitting Pandora.
+      guardian: p.guardian ?? undefined,
       kartNumber: p.kartNumber ?? undefined,
       paid: p.paid,
       systemNumber: byPid.get(String(p.personId))?.systemNumber,

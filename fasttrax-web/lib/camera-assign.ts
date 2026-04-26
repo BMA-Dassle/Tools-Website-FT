@@ -1,4 +1,5 @@
 import redis from "@/lib/redis";
+import type { GuardianContact } from "@/lib/participant-contact";
 
 /**
  * Camera → racer assignments for a given race session.
@@ -54,6 +55,11 @@ export interface CameraAssignment {
   phone?: string;
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
+  /** Optional guardian / parent contact snapshot. Used by the
+   *  video-match cron + notify path to fall back when a minor racer
+   *  has no usable contact of their own. Pandora-rolled-out field —
+   *  may be undefined for older assignments. */
+  guardian?: GuardianContact | null;
 }
 
 function assignKey(sessionId: string | number, personId: string | number): string {
@@ -121,6 +127,7 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
     phone: a.phone,
     acceptSmsCommercial: a.acceptSmsCommercial,
     acceptSmsScores: a.acceptSmsScores,
+    guardian: a.guardian,
   });
   const historyScore = new Date(a.assignedAt).getTime();
 
@@ -164,6 +171,11 @@ export interface CameraHistoryEntry {
   phone?: string;
   acceptSmsCommercial?: boolean;
   acceptSmsScores?: boolean;
+  /** Guardian contact for minors — populated when Pandora's
+   *  participant record carries a guardian object. The video-notify
+   *  path falls back to this when the racer's own contact is missing
+   *  or opted out. */
+  guardian?: GuardianContact | null;
 }
 
 export async function getAssignmentAtTime(

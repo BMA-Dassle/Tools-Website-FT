@@ -160,6 +160,40 @@ export default function VideoAdminClient({ token }: { token: string }) {
    * show a success toast reflecting it.
    */
   /**
+   * One-time guardian backfill — sweeps today's matches and re-fires
+   * the notify path for any racer who never reached SMS or email.
+   * The notify path now does racer→guardian fallback automatically,
+   * so minors with parent contact on file will land via guardian.
+   */
+  const guardianBackfill = useCallback(async () => {
+    if (!confirm("Run guardian backfill for today?\n\nFor every match without a successful SMS or email, the system will retry — racer first, then guardian (when on file). Body says 'video ready for {racer}' on guardian sends. Safe to run, but only re-fires when prior attempts FAILED.")) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch(`/api/admin/videos/backfill-guardian?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `backfill failed (${res.status})`);
+      const bits: string[] = [];
+      bits.push(`${data.candidates} candidates`);
+      if (data.smsSent) bits.push(`${data.smsSent} SMS sent`);
+      if (data.emailSent) bits.push(`${data.emailSent} email sent`);
+      if (data.viaGuardian) bits.push(`${data.viaGuardian} via guardian`);
+      if (data.stillNoContact) bits.push(`${data.stillNoContact} still no contact`);
+      if (data.errored) bits.push(`${data.errored} errored`);
+      setBulkMsg(bits.join(" · "));
+      await load();
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : "backfill failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [token, load]);
+
+  /**
    * Bulk-resend video SMS for the last N minutes. Called from the
    * "Resend last hour" button. Confirms with the staff first so a
    * mistap doesn't fire a hundred SMS.
@@ -260,6 +294,15 @@ export default function VideoAdminClient({ token }: { token: string }) {
                 title="Re-fire video SMS for the last 3 hours"
               >
                 Last 3h
+              </button>
+              <button
+                type="button"
+                onClick={guardianBackfill}
+                disabled={bulkBusy}
+                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-purple-500/80 text-white hover:bg-purple-400 disabled:opacity-50"
+                title="One-time: sweep today's matches and try guardian for any minor without SMS/email delivery"
+              >
+                Guardian backfill (today)
               </button>
             </div>
             {bulkMsg && <p className="text-emerald-300 text-xs max-w-xs text-right">{bulkMsg}</p>}

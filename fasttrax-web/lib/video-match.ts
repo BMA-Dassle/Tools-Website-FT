@@ -1,4 +1,5 @@
 import redis from "@/lib/redis";
+import type { GuardianContact } from "@/lib/participant-contact";
 
 /**
  * Racer → video links produced by the video-match cron.
@@ -55,6 +56,13 @@ export interface VideoMatch {
   mobilePhone?: string;
   homePhone?: string;
   acceptSmsCommercial?: boolean;
+  /** Guardian / parent contact — populated for minor racers by
+   *  Pandora's participant payload. The video-notify path falls
+   *  back to this when the racer themselves has no usable contact;
+   *  body is reframed as "Video ready for {racerFirstName}" so the
+   *  guardian knows whose video this is. Shape matches the canonical
+   *  GuardianContact in lib/participant-contact.ts. */
+  guardian?: GuardianContact | null;
   /** Notification status set by the cron after SMS/email attempts. */
   notifySmsOk?: boolean;
   notifySmsError?: string;

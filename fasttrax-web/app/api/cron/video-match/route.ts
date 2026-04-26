@@ -487,6 +487,10 @@ export async function GET(req: NextRequest) {
           mobilePhone: assignment.mobilePhone,
           homePhone: assignment.homePhone,
           acceptSmsCommercial: assignment.acceptSmsCommercial,
+          // Guardian fallback for minors — snapshotted from the
+          // camera-history entry. Used by notifyVideoReady when the
+          // racer's own contact is missing / opted out.
+          guardian: assignment.guardian ?? undefined,
           // Blocked matches are NOT pendingNotify — we never intend to
           // notify until they're explicitly unblocked. Keeps the admin
           // UI's "pending upload" chip honest.
