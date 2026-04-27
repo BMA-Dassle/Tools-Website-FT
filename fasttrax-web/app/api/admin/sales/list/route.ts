@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readSalesRange, type SaleEntry, type BookingType } from "@/lib/sales-log";
+import { readSalesRange, readDailyTotals, type SaleEntry, type BookingType } from "@/lib/sales-log";
 
 /**
  * GET /api/admin/sales/list
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "to must be >= from" }, { status: 400 });
     }
 
-    const all = await readSalesRange(from, to, { limitPerDay: 5000 });
+    const all = await readSalesRange(from, to, { limit: 5000 });
 
     // ── Totals ──────────────────────────────────────────────────────
     const totals = {
@@ -140,19 +140,10 @@ export async function GET(req: NextRequest) {
       topAddOns: topByName(all.flatMap((e) => e.addOnNames || []), 10),
     };
 
-    // ── Per-day breakdown for chart-ish rendering ──────────────────
-    const byDay = new Map<string, { ymd: string; reservations: number; racers: number }>();
-    for (const e of all) {
-      const ymd = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/New_York",
-        year: "numeric", month: "2-digit", day: "2-digit",
-      }).format(new Date(e.ts));
-      const slot = byDay.get(ymd) || { ymd, reservations: 0, racers: 0 };
-      slot.reservations += 1;
-      slot.racers += e.participantCount ?? 0;
-      byDay.set(ymd, slot);
-    }
-    const days = Array.from(byDay.values()).sort((a, b) => a.ymd.localeCompare(b.ymd));
+    // ── Per-day breakdown for chart rendering ─────────────────────
+    // SQL-native bucketing; lives in lib/sales-log.ts so the cast
+    // to ET calendar day stays in one place.
+    const days = await readDailyTotals(from, to);
 
     // ── Page out raw entries newest-first ──────────────────────────
     const entries = all.slice(0, limit);

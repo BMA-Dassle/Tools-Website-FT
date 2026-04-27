@@ -11,6 +11,7 @@
     "lint:a11y": "node scripts/a11y-gate.mjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^2.3.2",
     "@vercel/speed-insights": "^2.0.0",
