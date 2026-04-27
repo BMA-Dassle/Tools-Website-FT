@@ -176,6 +176,75 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, duplicate: true });
     }
 
+    // Sales-log capture — every confirmed reservation gets one entry
+    // for the /admin/{token}/sales dashboard. Fired once per bill,
+    // gated by the same notif-dedup so a refresh of the confirmation
+    // page doesn't double-log. Best-effort: errors here never break
+    // confirmation send.
+    //
+    // Bookings shapes vary widely (racing, attractions, race-pack,
+    // mixed) so we derive the booking type + flags by scanning the
+    // product name list rather than asking the page to telegraph
+    // every detail. Names from BMI are stable enough for this.
+    try {
+      const { logSale } = await import("@/lib/sales-log");
+      const allNames = [...products, ...scheduled.map((s) => s.name)];
+      const lower = (n: string) => (n || "").toLowerCase();
+      const hasRacing = allNames.some((n) => lower(n).includes("race") || lower(n).includes("kart") || /(blue|red|mega).*track/i.test(n));
+      const hasRacePack = allNames.some((n) => /race\s*pack|pack/i.test(n));
+      const hasAttraction = allNames.some((n) => {
+        const x = lower(n);
+        return x.includes("gel") || x.includes("laser") || x.includes("shuffly") || x.includes("bowl") || x.includes("duck pin");
+      });
+      let bookingType: "racing" | "racing-pack" | "attractions" | "mixed" | "other" = "other";
+      if (hasRacing && hasAttraction) bookingType = "mixed";
+      else if (hasRacePack) bookingType = "racing-pack";
+      else if (hasRacing) bookingType = "racing";
+      else if (hasAttraction) bookingType = "attractions";
+
+      const raceNames = allNames.filter((n) => {
+        const x = lower(n);
+        return x.includes("race") || x.includes("kart") || /(blue|red|mega).*track/i.test(n) || /pack/i.test(n);
+      });
+      const addOnNames = allNames.filter((n) => {
+        const x = lower(n);
+        return x.includes("gel") || x.includes("laser") || x.includes("shuffly") || x.includes("bowl") || x.includes("duck pin");
+      });
+      const hasLicense = allNames.some((n) => lower(n).includes("license"));
+      const hasPov = allNames.some((n) => /pov/i.test(n)) || codes.length > 0;
+
+      // Best-effort participant count — number of scheduled racing
+      // line items, or fall back to the count of distinct race-product
+      // names. Not always exact (group bookings collapse) but useful
+      // for dashboard averages.
+      const participantCount = scheduled.filter((s) => {
+        const x = lower(s.name);
+        return x.includes("race") || x.includes("kart") || /(blue|red|mega).*track/i.test(s.name);
+      }).length || raceNames.length || undefined;
+
+      await logSale({
+        ts: new Date().toISOString(),
+        billId,
+        reservationNumber,
+        brand: brand === "headpinz" ? "headpinz" : "fasttrax",
+        location: location === "naples" ? "naples" : "fortmyers",
+        bookingType,
+        participantCount,
+        isNewRacer: !!isNewRacer,
+        rookiePack: isRookiePack,
+        povPurchased: hasPov,
+        povQty: codes.length || (hasPov ? participantCount : 0) || undefined,
+        licensePurchased: hasLicense || undefined,
+        expressLane: isExpressLane,
+        raceProductNames: raceNames.length > 0 ? raceNames : undefined,
+        addOnNames: addOnNames.length > 0 ? addOnNames : undefined,
+        email,
+        phone,
+      });
+    } catch (err) {
+      console.error("[booking-confirmation] sales-log write failed:", err);
+    }
+
     const results: { email: boolean; sms: boolean | null } = { email: false, sms: null };
 
     // Determine check-in location from FIRST scheduled item
