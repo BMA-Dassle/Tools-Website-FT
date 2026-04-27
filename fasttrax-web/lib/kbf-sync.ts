@@ -35,6 +35,16 @@ import { sql, isDbConfigured } from "@/lib/db";
 const KBF_BASE = "https://kidsbowlfree.com";
 const KBF_REPORT_PATH = "/center-report.php";
 
+/**
+ * Allowlist of KBF centers to actually sync. Our login covers a
+ * third center (Lehigh Lanes) that we don't operate — its rows are
+ * dropped at parse time and any pre-existing rows are pruned on
+ * each sync (`pruneExcludedCenters` below). Update this list if we
+ * take on additional centers.
+ */
+const INCLUDED_CENTERS = ["HeadPinz Fort Myers", "HeadPinz Naples"] as const;
+const INCLUDED_CENTERS_SET: ReadonlySet<string> = new Set(INCLUDED_CENTERS);
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface KbfPass {
@@ -222,9 +232,14 @@ export function parseKbfCsv(csv: string): ParsedRow[] {
     const email = get("email").toLowerCase();
     if (!email) continue;
 
+    const centerName = get("center_name").trim();
+    // Allowlist filter — drop centers we don't operate (currently
+    // Lehigh Lanes). See INCLUDED_CENTERS at top of file.
+    if (!INCLUDED_CENTERS_SET.has(centerName)) continue;
+
     const pass: KbfPass = {
       email,
-      centerName: get("center_name").trim(),
+      centerName,
       firstName: get("first_name"),
       lastName: get("last_name"),
       address: get("address"),
@@ -341,7 +356,28 @@ export interface SyncResult {
   rowsParsed: number;
   passesUpserted: number;
   membersInserted: number;
+  /** Rows pruned because their center is not in INCLUDED_CENTERS.
+   *  Self-healing — the parser drops them too, so this just cleans
+   *  up anything inserted before the allowlist existed (or before
+   *  a center was removed from it). */
+  centersPruned: number;
   durationMs: number;
+}
+
+/**
+ * Delete any kbf_passes rows whose center is no longer in the
+ * allowlist. Members cascade via the FK. Idempotent — returns 0
+ * rows once steady-state is reached.
+ */
+async function pruneExcludedCenters(): Promise<number> {
+  const q = sql();
+  const allowed = [...INCLUDED_CENTERS] as string[];
+  const deleted = (await q`
+    DELETE FROM kbf_passes
+    WHERE center_name <> ALL(${allowed}::text[])
+    RETURNING id
+  `) as { id: number }[];
+  return deleted.length;
 }
 
 /**
@@ -356,9 +392,13 @@ export async function syncKbfFromCsv(csv: string): Promise<SyncResult> {
     throw new Error("DATABASE_URL not configured — cannot sync");
   }
   await ensureKbfSchema();
+  // Prune any rows from centers no longer on the allowlist BEFORE
+  // upserting today's parse — keeps the cleanup tied to a real sync
+  // run, not just any time the schema is touched.
+  const centersPruned = await pruneExcludedCenters();
   const parsed = parseKbfCsv(csv);
   if (parsed.length === 0) {
-    return { rowsParsed: 0, passesUpserted: 0, membersInserted: 0, durationMs: Date.now() - t0 };
+    return { rowsParsed: 0, passesUpserted: 0, membersInserted: 0, centersPruned, durationMs: Date.now() - t0 };
   }
   const q = sql();
 
@@ -480,6 +520,7 @@ export async function syncKbfFromCsv(csv: string): Promise<SyncResult> {
     rowsParsed: parsed.length,
     passesUpserted: upserted.length,
     membersInserted,
+    centersPruned,
     durationMs: Date.now() - t0,
   };
 }
