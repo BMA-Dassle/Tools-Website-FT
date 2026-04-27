@@ -28,17 +28,34 @@ type SortField = "points" | "bestLap" | "races";
 /* ── League config ──
  *
  * The Apr–Jul 2026 season runs Blue + Red leagues that are scored as
- * a single combined standings table — Pandora's /standings/{location}
- * endpoint takes a comma-separated `scoreGroupName` and returns the
- * merged driver set in one shot. Both score-group names are listed
- * here so the proxy passes them through verbatim.
+ * a single combined standings table. The combined Pandora endpoint
+ * (/standings/{location}) is great for the top-line driver list but
+ * only emits per-session points for one of the score groups; to get
+ * full session detail with points across BOTH leagues we fetch each
+ * league separately via the per-(track, scoreGroup) summary
+ * endpoint and merge by persId.
  */
 
+type LeagueLeg = {
+  track: string;
+  scoreGroup: string;
+  /** Legacy name used during a Pandora rename window. Tried as a
+   *  soft fallback when the canonical name returns no rows. */
+  scoreGroupFallback?: string;
+};
+
 const LEAGUE = {
-  scoreGroups: [
-    "Red League (April to July 2026)",
-    "Blue League (April to July 2026)",
-  ] as const,
+  leagues: [
+    {
+      track: "Blue Track",
+      scoreGroup: "Blue League (April to July 2026)",
+      scoreGroupFallback: "Blue League (4/1/26-7/8/26)",
+    },
+    {
+      track: "Red Track",
+      scoreGroup: "Red League (April to July 2026)",
+    },
+  ] as readonly LeagueLeg[],
   label: "FastTrax League",
   dates: "April – July 2026",
   startDate: "2026-01-01T00:00:00",
@@ -182,6 +199,7 @@ function DriverRow({
   leaderBestLap,
   sortField,
   allSessions,
+  onHeatClick,
 }: {
   driver: Driver;
   rank: number;
@@ -190,6 +208,9 @@ function DriverRow({
   sortField: SortField;
   /** Full sessions including practice (for expanded view) */
   allSessions?: Driver["sessions"];
+  /** Click handler — fired when the user taps a session row in the
+   *  expanded breakdown. Opens the per-heat standings modal. */
+  onHeatClick?: (s: Session) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const bestLap = driverBestLap(driver);
@@ -399,21 +420,31 @@ function DriverRow({
                           </td>
                         </tr>
                         {sessions.map((s) => {
-                      const gp = isGrandPrix(s.sessionName);
+                      // Visual emphasis: any session that scored
+                      // points OR is named like a grandprix gets the
+                      // bold + cyan treatment. Points display follows
+                      // s.points strictly so Red League "Scored"
+                      // sessions show their actual value.
+                      const hasPoints = s.points > 0;
+                      const emphasized = hasPoints || isGrandPrix(s.sessionName);
                       return (
                         <tr
                           key={s.sessionId}
+                          onClick={() => onHeatClick?.(s)}
                           style={{
                             borderBottom: "1px solid rgba(255,255,255,0.04)",
+                            cursor: onHeatClick ? "pointer" : "default",
                           }}
+                          className={onHeatClick ? "hover:bg-white/[0.03] transition-colors" : ""}
+                          title={onHeatClick ? "Click to view this heat's full standings" : undefined}
                         >
                           <td className="px-4 py-2">
                             <span
                               className="font-body"
                               style={{
                                 fontSize: "13px",
-                                fontWeight: gp ? 600 : 400,
-                                color: gp ? "rgba(245,236,238,0.9)" : "rgba(245,236,238,0.5)",
+                                fontWeight: emphasized ? 600 : 400,
+                                color: emphasized ? "rgba(245,236,238,0.9)" : "rgba(245,236,238,0.5)",
                               }}
                             >
                               {s.sessionName}
@@ -440,9 +471,9 @@ function DriverRow({
                           <td className="px-4 py-2">
                             <span
                               className="font-body font-semibold"
-                              style={{ fontSize: "13px", color: gp ? "#00E2E5" : "rgba(255,255,255,0.3)" }}
+                              style={{ fontSize: "13px", color: hasPoints ? "#00E2E5" : "rgba(255,255,255,0.3)" }}
                             >
-                              {gp ? s.points : "—"}
+                              {hasPoints ? s.points : "—"}
                             </span>
                           </td>
                           <td className="px-4 py-2">
@@ -511,36 +542,110 @@ export default function LeagueStandingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sortField, setSortField] = useState<SortField>("points");
+  /** Session the user has tapped to drill into. null = modal closed.
+   *  Click a session row in any driver expand panel → fetches that
+   *  session's full standings and shows the modal. */
+  const [heatTarget, setHeatTarget] = useState<Session | null>(null);
 
   useEffect(() => {
-    async function fetchStandings() {
-      const groups = LEAGUE.scoreGroups.join(",");
-      const makeParams = (excl: string) =>
-        new URLSearchParams({
-          action: "standings",
-          scoreGroups: groups,
+    /**
+     * Pandora's combined /standings/{location} endpoint returns the
+     * driver list + total points but only emits per-session points
+     * for ONE of the score groups (the other shows up with point=0
+     * even when the racer scored). To get the full per-session
+     * detail across both leagues, fetch each league separately via
+     * the per-(track, scoreGroup) summary endpoint and merge by
+     * persId.
+     */
+    async function fetchOneLeague(
+      cfg: LeagueLeg,
+      excl: "true" | "false",
+    ): Promise<Driver[]> {
+      const tryFetch = async (sg: string) => {
+        const params = new URLSearchParams({
+          action: "summary",
+          track: cfg.track,
+          scoreGroup: sg,
           startDate: LEAGUE.startDate,
           endDate: LEAGUE.endDate,
           excludePractice: excl,
         });
+        const res = await fetch(`/api/leagues?${params.toString()}`);
+        if (!res.ok) return null;
+        const json = await res.json();
+        if (!json?.success) return null;
+        return (json.data as Driver[]) || [];
+      };
 
-      try {
-        const res = await fetch(`/api/leagues?${makeParams("true")}`);
-        const json = res.ok ? await res.json() : null;
-        if (!json?.success) {
-          throw new Error(json?.error || "API error");
-        }
-        setDrivers(json.data || []);
+      // Canonical name first; legacy fallback only fires when the
+      // canonical name comes back empty AND a fallback is configured.
+      let drivers = await tryFetch(cfg.scoreGroup);
+      if ((drivers === null || drivers.length === 0) && cfg.scoreGroupFallback) {
+        const legacy = await tryFetch(cfg.scoreGroupFallback);
+        if (legacy && legacy.length > 0) drivers = legacy;
+      }
+      return drivers || [];
+    }
 
-        // Practice-included pull — non-fatal if it fails, just means
-        // the per-driver detail panels show points-eligible sessions
-        // only instead of the full set.
-        try {
-          const fullRes = await fetch(`/api/leagues?${makeParams("false")}`);
-          if (fullRes.ok) {
-            const fullJson = await fullRes.json();
-            if (fullJson.success) setFullDrivers(fullJson.data || []);
+    /**
+     * Union drivers across N leagues — same persId merges sessions +
+     * SUMS totalPoints. Per-league summary calls return totals scoped
+     * to that score group only, so summing across leagues is the
+     * correct combined-season total.
+     *
+     * Sanity check on totals math: if Pandora's combined /standings/
+     * call shows Ethan with 118 pts (58 from Blue GPs + 60 from Red
+     * scored), and the per-league summary calls return Blue=58,
+     * Red=60, this function produces 118. ✓
+     *
+     * Sessions are de-duped by sessionId — defensive against the
+     * unlikely case where the same session was tagged with both
+     * score groups upstream.
+     */
+    function mergeDrivers(...lists: Driver[][]): Driver[] {
+      const byId = new Map<number, Driver>();
+      for (const list of lists) {
+        for (const d of list) {
+          const existing = byId.get(d.persId);
+          if (!existing) {
+            // Clone to avoid sharing the sessions array reference.
+            byId.set(d.persId, { ...d, sessions: [...d.sessions] });
+            continue;
           }
+          existing.totalPoints += d.totalPoints;
+          const seenIds = new Set(existing.sessions.map((s) => s.sessionId));
+          for (const s of d.sessions) {
+            if (!seenIds.has(s.sessionId)) {
+              existing.sessions.push(s);
+              seenIds.add(s.sessionId);
+            }
+          }
+        }
+      }
+      return Array.from(byId.values());
+    }
+
+    async function fetchStandings() {
+      try {
+        // Fetch every league in parallel for the points-only standings.
+        const pointsResults = await Promise.all(
+          LEAGUE.leagues.map((cfg) => fetchOneLeague(cfg, "true")),
+        );
+        const merged = mergeDrivers(...pointsResults);
+        if (merged.length === 0) {
+          throw new Error("No standings returned");
+        }
+        setDrivers(merged);
+
+        // Practice-included parallel pull for the per-driver detail
+        // panels. Non-fatal — if it fails, panels just fall back to
+        // the points-only set.
+        try {
+          const fullResults = await Promise.all(
+            LEAGUE.leagues.map((cfg) => fetchOneLeague(cfg, "false")),
+          );
+          const fullMerged = mergeDrivers(...fullResults);
+          if (fullMerged.length > 0) setFullDrivers(fullMerged);
         } catch {
           /* non-fatal */
         }
@@ -700,6 +805,7 @@ export default function LeagueStandingsPage() {
                         leaderBestLap={sortField === "bestLap" ? driverBestLap(sorted[0]) : leaderBestLap}
                         sortField={sortField}
                         allSessions={fullDriver?.sessions}
+                        onHeatClick={setHeatTarget}
                       />
                       );
                     })}
@@ -712,12 +818,195 @@ export default function LeagueStandingsPage() {
                 className="font-body text-center mt-6"
                 style={{ fontSize: "13px", color: "rgba(245,236,238,0.35)" }}
               >
-                Tap any driver to view session breakdown. Standings update after each race night.
+                Tap any driver to view session breakdown. Tap a session to see that heat&apos;s standings.
               </p>
             </>
           )}
         </div>
       </section>
+
+      {heatTarget && (
+        <HeatStandingsModal heat={heatTarget} onClose={() => setHeatTarget(null)} />
+      )}
     </>
+  );
+}
+
+/* ── Heat standings modal ── */
+
+/**
+ * Per-session driver row coming back from the scores endpoint. We
+ * deliberately allow alternate field names since Pandora has been
+ * known to vary between `firstName`/`lastName` and a single `name`.
+ */
+type HeatRow = {
+  persId?: number;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  position?: number;
+  points?: number;
+  bestLap?: number;
+  laps?: number;
+};
+
+function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => void }) {
+  const [rows, setRows] = useState<HeatRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const params = new URLSearchParams({
+          action: "scores",
+          sessionId: String(heat.sessionId),
+        });
+        const res = await fetch(`/api/leagues?${params.toString()}`);
+        const json = res.ok ? await res.json() : null;
+        if (cancelled) return;
+        if (!json?.success) throw new Error(json?.error || "API error");
+        const data: HeatRow[] = Array.isArray(json.data) ? json.data : [];
+        // Sort by position ascending (P1 first); push 0 / undefined to end.
+        data.sort((a, b) => {
+          const ap = a.position && a.position > 0 ? a.position : Number.MAX_SAFE_INTEGER;
+          const bp = b.position && b.position > 0 ? b.position : Number.MAX_SAFE_INTEGER;
+          return ap - bp;
+        });
+        setRows(data);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load heat");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [heat.sessionId]);
+
+  // Close on backdrop click + ESC.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function rowName(r: HeatRow): string {
+    if (r.name && r.name.trim()) return properName(r.name);
+    const parts = [r.firstName, r.lastName].filter(Boolean).join(" ").trim();
+    return parts ? properName(parts) : "(unknown)";
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-3"
+      style={{ height: "100dvh", backgroundColor: "rgba(0,0,0,0.8)" }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="relative w-full max-w-xl rounded-xl"
+        style={{
+          backgroundColor: "#0a1128",
+          border: "1.78px solid rgba(255,255,255,0.1)",
+          maxHeight: "calc(100dvh - 1.5rem)",
+          overflowY: "auto",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close heat standings"
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+          style={{ fontSize: "20px", lineHeight: 1 }}
+        >
+          &times;
+        </button>
+        <div className="p-5 sm:p-6">
+          <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest mb-1">Heat Standings</p>
+          <h3 className="font-display text-white text-xl uppercase tracking-wide pr-10 mb-1">
+            {heat.sessionName}
+          </h3>
+          <p className="text-white/40 text-xs mb-5">
+            {(() => {
+              try {
+                return new Intl.DateTimeFormat("en-US", {
+                  timeZone: "America/New_York",
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                }).format(new Date(heat.scheduledStart));
+              } catch { return ""; }
+            })()}
+          </p>
+
+          {loading ? (
+            <div className="py-10 text-center text-white/50 text-sm">Loading heat…</div>
+          ) : error ? (
+            <div className="py-10 text-center text-red-400 text-sm">{error}</div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center text-white/50 text-sm">No data for this heat.</div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                  {["#", "Driver", "Pts", "Best Lap", "Laps"].map((h) => (
+                    <th
+                      key={h}
+                      className="font-body text-left px-3 py-2"
+                      style={{
+                        fontSize: "11px",
+                        color: "rgba(255,255,255,0.35)",
+                        fontWeight: 500,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const pos = r.position && r.position > 0 ? r.position : i + 1;
+                  const podium = pos === 1 ? "#FFD700" : pos === 2 ? "#C0C0C0" : pos === 3 ? "#CD7F32" : "rgba(245,236,238,0.6)";
+                  return (
+                    <tr
+                      key={r.persId ?? i}
+                      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                    >
+                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: podium, fontWeight: 600 }}>
+                        P{pos}
+                      </td>
+                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: "rgba(245,236,238,0.9)" }}>
+                        {rowName(r)}
+                      </td>
+                      <td className="px-3 py-2 font-body font-semibold" style={{ fontSize: "13px", color: r.points && r.points > 0 ? "#00E2E5" : "rgba(255,255,255,0.3)" }}>
+                        {r.points && r.points > 0 ? r.points : "—"}
+                      </td>
+                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: "rgba(245,236,238,0.6)" }}>
+                        {r.bestLap && r.bestLap > 0 ? formatLapTime(r.bestLap) : "--"}
+                      </td>
+                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: "rgba(245,236,238,0.45)" }}>
+                        {r.laps ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
