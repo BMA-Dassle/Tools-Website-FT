@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import SubpageHero from "@/components/SubpageHero";
 
 /* ── Types ── */
@@ -71,6 +71,31 @@ function driverBestLap(d: Driver): number {
 
 function isGrandPrix(sessionName: string): boolean {
   return /grandprix|grand\s*prix/i.test(sessionName);
+}
+
+/**
+ * Render a YYYY-MM-DD (ET) bucket key as a human date header used in
+ * the per-driver expand panel. Falls through to the raw key on bad
+ * input so we never crash the row over a parser hiccup.
+ */
+function formatDateHeader(dateKey: string): string {
+  if (dateKey === "unknown") return "Date unknown";
+  try {
+    const [y, m, d] = dateKey.split("-").map(Number);
+    if (!y || !m || !d) return dateKey;
+    // Build at noon ET to avoid DST-edge mis-rendering as the prior
+    // day in earlier UTC zones — we just want the date string.
+    const dt = new Date(Date.UTC(y, m - 1, d, 17, 0, 0));
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(dt);
+  } catch {
+    return dateKey;
+  }
 }
 
 
@@ -188,13 +213,39 @@ function DriverRow({
 
   // Use allSessions (includes practice) for the expanded breakdown, fall back to driver.sessions
   const sessionsForDetail = allSessions || driver.sessions;
-  const sortedSessions = useMemo(
-    () =>
-      [...sessionsForDetail].sort(
-        (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
-      ),
-    [sessionsForDetail],
-  );
+
+  // Group by race-night date. Pandora's `scheduledStart` is UTC ISO;
+  // we bucket by ET calendar day so a session at 11:30 PM doesn't get
+  // shoved into "tomorrow" for staff working a Florida-time clock.
+  const dateGroups = useMemo(() => {
+    const buckets = new Map<string, Session[]>(); // key = YYYY-MM-DD ET
+    const sorted = [...sessionsForDetail].sort(
+      (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+    );
+    for (const s of sorted) {
+      let key = "unknown";
+      try {
+        const d = new Date(s.scheduledStart);
+        if (!isNaN(d.getTime())) {
+          key = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(d);
+        }
+      } catch { /* fall through to "unknown" bucket */ }
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(s);
+    }
+    // Map -> array, preserving insertion order (sorted oldest first
+    // already so date headers descend chronologically).
+    return Array.from(buckets.entries()).map(([dateKey, sessions]) => ({
+      dateKey,
+      label: formatDateHeader(dateKey),
+      sessions,
+    }));
+  }, [sessionsForDetail]);
 
   return (
     <>
@@ -324,7 +375,30 @@ function DriverRow({
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedSessions.map((s) => {
+                    {dateGroups.map(({ dateKey, label, sessions }) => (
+                      <Fragment key={dateKey}>
+                        {/* Date header — one row per race night so
+                             staff can see what session belongs to which
+                             night without parsing prefixes. */}
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="font-body"
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              color: "rgba(0,226,229,0.85)",
+                              textTransform: "uppercase",
+                              letterSpacing: "1.4px",
+                              padding: "12px 16px 6px 16px",
+                              borderTop: "1px solid rgba(0,226,229,0.12)",
+                              backgroundColor: "rgba(0,226,229,0.04)",
+                            }}
+                          >
+                            {label}
+                          </td>
+                        </tr>
+                        {sessions.map((s) => {
                       const gp = isGrandPrix(s.sessionName);
                       return (
                         <tr
@@ -390,6 +464,8 @@ function DriverRow({
                         </tr>
                       );
                     })}
+                      </Fragment>
+                    ))}
                   </tbody>
                 </table>
               </div>
