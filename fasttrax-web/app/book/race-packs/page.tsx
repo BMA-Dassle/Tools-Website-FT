@@ -217,19 +217,6 @@ export default function RacePacksPage() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // Scroll the WINDOW to the very top on step change. Earlier
-  // version used `contentRef.scrollIntoView({ block: "start" })`
-  // which aligned the form to viewport top — but the fixed nav
-  // covers the upper ~100px, so the step heading ("Who is this pack
-  // for?") got hidden behind the nav. Plain top-of-page keeps the
-  // compact pack header visible underneath the nav with the form
-  // immediately below.
-  useEffect(() => {
-    if (step !== "select" && typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  }, [step]);
-
   function handleBackToSelect() {
     setSelectedPack(null);
     setPerson(null);
@@ -429,6 +416,10 @@ export default function RacePacksPage() {
   async function handleCodeVerify() {
     const code = codeInput.trim();
     if (!code) return;
+    // Clear stale error from a prior failed attempt — without this
+    // the "Code not recognized" banner survives across retries until
+    // a verify either fully succeeds or navigates away.
+    setError("");
     setLooking(true);
     try {
       const res = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(code)}&max=1`);
@@ -895,7 +886,7 @@ export default function RacePacksPage() {
                       <input
                         type="tel"
                         value={phoneInput}
-                        onChange={e => setPhoneInput(formatPhoneInput(e.target.value))}
+                        onChange={e => { setPhoneInput(formatPhoneInput(e.target.value)); if (error) setError(""); }}
                         onKeyDown={e => e.key === "Enter" && handlePhoneSearch()}
                         placeholder="(239) 555-1234"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 placeholder:tracking-normal focus:border-[#00E2E5]/50 focus:outline-none"
@@ -945,7 +936,7 @@ export default function RacePacksPage() {
                         ref={emailRef}
                         type="email"
                         value={emailInput}
-                        onChange={e => setEmailInput(e.target.value)}
+                        onChange={e => { setEmailInput(e.target.value); if (error) setError(""); }}
                         onKeyDown={e => e.key === "Enter" && handleEmailSearch()}
                         placeholder="racer@email.com"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
@@ -990,7 +981,7 @@ export default function RacePacksPage() {
                       <input
                         type="text"
                         value={codeInput}
-                        onChange={e => setCodeInput(e.target.value)}
+                        onChange={e => { setCodeInput(e.target.value); if (error) setError(""); }}
                         onKeyDown={e => e.key === "Enter" && handleCodeVerify()}
                         placeholder="Login code"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
