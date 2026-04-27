@@ -199,7 +199,6 @@ function DriverRow({
   leaderPoints,
   leaderBestLap,
   sortField,
-  allSessions,
   onHeatClick,
 }: {
   driver: Driver;
@@ -207,8 +206,6 @@ function DriverRow({
   leaderPoints: number;
   leaderBestLap: number;
   sortField: SortField;
-  /** Full sessions including practice (for expanded view) */
-  allSessions?: Driver["sessions"];
   /** Click handler — fired when the user taps a session row in the
    *  expanded breakdown. Opens the per-heat standings modal. */
   onHeatClick?: (s: Session) => void;
@@ -233,8 +230,14 @@ function DriverRow({
   const rankColor = rankColors[rank] || "rgba(255,255,255,0.4)";
   const rowBg = rankBg[rank] || (rank % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent");
 
-  // Use allSessions (includes practice) for the expanded breakdown, fall back to driver.sessions
-  const sessionsForDetail = allSessions || driver.sessions;
+  // Filter out practice sessions defensively — the cron / Pandora
+  // already excludes them at the source (excludePractice=true), but
+  // double-checking here means the expand panel never accidentally
+  // renders one if a future schema change leaks them through.
+  const sessionsForDetail = useMemo(
+    () => driver.sessions.filter((s) => !/practice/i.test(s.sessionName)),
+    [driver.sessions],
+  );
 
   // Group by race-night date. Pandora's `scheduledStart` is UTC ISO;
   // we bucket by ET calendar day so a session at 11:30 PM doesn't get
@@ -534,12 +537,10 @@ function Spinner() {
 /* ── Page ── */
 
 export default function LeagueStandingsPage() {
-  /** Combined standings — drivers from every score group merged by
-   *  Pandora's /standings/{location} endpoint into a single list. */
+  /** Combined standings — drivers from every league merged by persId.
+   *  Practice sessions are filtered out (excludePractice=true) since
+   *  the per-driver expand panel only shows scored heats now. */
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  /** Practice-inclusive fetch used only by the expandable per-driver
-   *  detail view. Best-effort. */
-  const [fullDrivers, setFullDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sortField, setSortField] = useState<SortField>("points");
@@ -628,28 +629,19 @@ export default function LeagueStandingsPage() {
 
     async function fetchStandings() {
       try {
-        // Fetch every league in parallel for the points-only standings.
-        const pointsResults = await Promise.all(
+        // Fetch every league in parallel (excludePractice=true so
+        // the response is already practice-free). Practice sessions
+        // aren't shown anywhere on this page, so a single fetch per
+        // league covers both the standings table and the per-driver
+        // expand panel.
+        const results = await Promise.all(
           LEAGUE.leagues.map((cfg) => fetchOneLeague(cfg, "true")),
         );
-        const merged = mergeDrivers(...pointsResults);
+        const merged = mergeDrivers(...results);
         if (merged.length === 0) {
           throw new Error("No standings returned");
         }
         setDrivers(merged);
-
-        // Practice-included parallel pull for the per-driver detail
-        // panels. Non-fatal — if it fails, panels just fall back to
-        // the points-only set.
-        try {
-          const fullResults = await Promise.all(
-            LEAGUE.leagues.map((cfg) => fetchOneLeague(cfg, "false")),
-          );
-          const fullMerged = mergeDrivers(...fullResults);
-          if (fullMerged.length > 0) setFullDrivers(fullMerged);
-        } catch {
-          /* non-fatal */
-        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load standings");
       } finally {
@@ -795,9 +787,7 @@ export default function LeagueStandingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sorted.map((driver, i) => {
-                      const fullDriver = fullDrivers.find(d => d.persId === driver.persId);
-                      return (
+                    {sorted.map((driver, i) => (
                       <DriverRow
                         key={driver.persId}
                         driver={driver}
@@ -805,11 +795,9 @@ export default function LeagueStandingsPage() {
                         leaderPoints={leader.totalPoints}
                         leaderBestLap={sortField === "bestLap" ? driverBestLap(sorted[0]) : leaderBestLap}
                         sortField={sortField}
-                        allSessions={fullDriver?.sessions}
                         onHeatClick={setHeatTarget}
                       />
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>
