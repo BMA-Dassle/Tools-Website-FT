@@ -79,6 +79,36 @@ async function fetchParticipants(sessionId: number): Promise<Participant[]> {
   return Array.isArray(data?.data) ? (data.data as Participant[]) : [];
 }
 
+/**
+ * Pull the personIds that Pandora knows about for this session in
+ * ANY state — registered, removed, unpaid. Used purely to dedup
+ * express-lane racers below: if Pandora has any record of them at
+ * all (even "removed"), we trust Pandora's roster and skip the
+ * express-lane path so a scratched racer doesn't get SMS'd via
+ * the fastLane shortcut.
+ *
+ * Without this, a returning racer who:
+ *   1. booked /book/race with a valid waiver (got `fastLane: true`
+ *      stamped on their bookingrecord),
+ *   2. checked in,
+ *   3. was scratched by staff,
+ * would disappear from the filtered participants list (correctly,
+ * because excludeRemoved=true is the proxy default) but stay in
+ * the `bookingrecord:express:session:*` index — and the existing
+ * dedup (`!pandoraPids.has(pid)`) wouldn't catch them because
+ * `pandoraPids` only saw the active list.
+ */
+async function fetchPandoraPidsAnyState(sessionId: number): Promise<Set<string>> {
+  const res = await fetch(
+    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=false&excludeUnpaid=false`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) return new Set();
+  const data = await res.json();
+  const list = Array.isArray(data?.data) ? (data.data as { personId: string | number }[]) : [];
+  return new Set(list.map((p) => String(p.personId)));
+}
+
 interface ExpressBookingRacer {
   personId?: string | number;
   racerName?: string;
@@ -623,8 +653,9 @@ export async function GET(req: NextRequest) {
         sessionResults.push({ track: trackKey, sessionId, note: `express-backfill: +${backfill.added}` } as typeof sessionResults[number] & { note: string });
       }
 
-      const [participants, expressHolders] = await Promise.all([
+      const [participants, allPandoraPids, expressHolders] = await Promise.all([
         fetchParticipants(sessionId),
+        fetchPandoraPidsAnyState(sessionId),
         fetchExpressParticipants(sessionId),
       ]);
 
@@ -633,10 +664,15 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Dedupe express holders against the Pandora roster — if someone is
-      // already scheduled into the session in Pandora, don't double-process.
-      const pandoraPids = new Set(participants.map((p) => String(p.personId)));
-      const freshExpress = expressHolders.filter((e) => !pandoraPids.has(String(e.personId)));
+      // Dedup express holders against the FULL Pandora roster (all
+      // states, including removed). Two cases this catches:
+      //   1. Racer is currently registered → already covered by the
+      //      `participants` list, no need for the express path.
+      //   2. Racer was registered AND THEN scratched by staff →
+      //      filtered out of `participants` (correct), but still in
+      //      our fastLane Redis index. The all-state set still
+      //      contains their pid, so we skip — no stale check-in SMS.
+      const freshExpress = expressHolders.filter((e) => !allPandoraPids.has(String(e.personId)));
 
       const trackDisplay = trackFromName(race.trackName)?.display || race.trackName;
       for (const p of participants) {
