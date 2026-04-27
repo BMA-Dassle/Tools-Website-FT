@@ -25,18 +25,56 @@ type Driver = {
 
 type SortField = "points" | "bestLap" | "races";
 
-/* ── League config (hardcoded for now) ── */
+/* ── League config ──
+ *
+ * The Apr–Jul 2026 season runs both Blue + Red leagues concurrently.
+ * Pandora returns each league's standings via the per-league summary
+ * endpoint (used here as two parallel fetches). The standings page
+ * tabs between them.
+ */
 
-const LEAGUE = {
-  track: "Blue Track",
-  // New name coming: "Blue League (April to July 2026)" — fallback to old name with slashes
-  scoreGroup: "Blue League (April to July 2026)",
-  scoreGroupFallback: "Blue League (4/1/26-7/8/26)",
-  label: "Blue League",
-  dates: "April - July 2026",
-  startDate: "2026-01-01",
-  endDate: "2026-12-31",
+type LeagueConfig = {
+  key: "blue" | "red";
+  track: string;
+  scoreGroup: string;
+  /** Optional legacy name to fall back to during the schema-rename window. */
+  scoreGroupFallback?: string;
+  label: string;
+  dates: string;
+  startDate: string;
+  endDate: string;
+  accent: string; // brand color for the active tab + badge
 };
+
+const LEAGUES: readonly LeagueConfig[] = [
+  {
+    key: "blue",
+    track: "Blue Track",
+    scoreGroup: "Blue League (April to July 2026)",
+    scoreGroupFallback: "Blue League (4/1/26-7/8/26)",
+    label: "Blue League",
+    dates: "April – July 2026",
+    startDate: "2026-01-01",
+    endDate: "2026-12-31",
+    accent: "#00E2E5",
+  },
+  {
+    key: "red",
+    track: "Red Track",
+    scoreGroup: "Red League (April to July 2026)",
+    label: "Red League",
+    dates: "April – July 2026",
+    startDate: "2026-01-01",
+    endDate: "2026-12-31",
+    accent: "#E41C1D",
+  },
+] as const;
+
+type LeagueKey = (typeof LEAGUES)[number]["key"];
+
+/** Per-league cache buckets so tab switches don't re-fetch. */
+type LeagueData = { drivers: Driver[]; fullDrivers: Driver[] };
+const emptyLeagueData = (): LeagueData => ({ drivers: [], fullDrivers: [] });
 
 /* ── Helpers ── */
 
@@ -419,51 +457,86 @@ function Spinner() {
 /* ── Page ── */
 
 export default function LeagueStandingsPage() {
-  /** Standings data: excludePractice=true for points ranking */
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  /** Full data with practice sessions for expandable detail view */
-  const [fullDrivers, setFullDrivers] = useState<Driver[]>([]);
+  /** Per-league cached standings — one bucket per league, swapped on
+   *  tab switch without refetching. */
+  const [leagueData, setLeagueData] = useState<Record<LeagueKey, LeagueData>>({
+    blue: emptyLeagueData(),
+    red: emptyLeagueData(),
+  });
+  const [activeKey, setActiveKey] = useState<LeagueKey>("blue");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sortField, setSortField] = useState<SortField>("points");
 
   useEffect(() => {
-    async function fetchStandings() {
-      try {
-        // Try new name first, fallback to old name with slashes
-        let scoreGroup = LEAGUE.scoreGroup;
-        const makeParams = (sg: string, excl: string) => new URLSearchParams({
-          action: "summary", track: LEAGUE.track, scoreGroup: sg,
-          startDate: LEAGUE.startDate, endDate: LEAGUE.endDate, excludePractice: excl,
+    async function fetchOneLeague(cfg: LeagueConfig): Promise<LeagueData> {
+      const makeParams = (sg: string, excl: string) =>
+        new URLSearchParams({
+          action: "summary",
+          track: cfg.track,
+          scoreGroup: sg,
+          startDate: cfg.startDate,
+          endDate: cfg.endDate,
+          excludePractice: excl,
         });
 
-        let standingsRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "true")}`);
-        let standingsJson = standingsRes.ok ? await standingsRes.json() : null;
+      // Try canonical name first, fall back to legacy name during the
+      // Pandora rename window.
+      let scoreGroup = cfg.scoreGroup;
+      let standingsRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "true")}`);
+      let standingsJson = standingsRes.ok ? await standingsRes.json() : null;
+      if (!standingsJson?.success && cfg.scoreGroupFallback) {
+        scoreGroup = cfg.scoreGroupFallback;
+        standingsRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "true")}`);
+        standingsJson = standingsRes.ok ? await standingsRes.json() : null;
+      }
+      if (!standingsJson?.success) {
+        throw new Error(standingsJson?.error || `API error (${cfg.label})`);
+      }
 
-        // Fallback to old name if new name fails
-        if (!standingsJson?.success && LEAGUE.scoreGroupFallback) {
-          scoreGroup = LEAGUE.scoreGroupFallback;
-          standingsRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "true")}`);
-          standingsJson = standingsRes.ok ? await standingsRes.json() : null;
-        }
-
-        if (!standingsJson?.success) throw new Error(standingsJson?.error || "API error");
-        setDrivers(standingsJson.data || []);
-
-        // Fetch full data with practice for detail view
+      // Practice-included pull is best-effort — used only by the
+      // expandable per-driver detail view.
+      let fullDrivers: Driver[] = [];
+      try {
         const fullRes = await fetch(`/api/leagues?${makeParams(scoreGroup, "false")}`);
         if (fullRes.ok) {
           const fullJson = await fullRes.json();
-          if (fullJson.success) setFullDrivers(fullJson.data || []);
+          if (fullJson.success) fullDrivers = fullJson.data || [];
         }
+      } catch {
+        /* non-fatal — detail view falls back to the points-only set */
+      }
+
+      return { drivers: standingsJson.data || [], fullDrivers };
+    }
+
+    async function fetchAll() {
+      try {
+        // Fetch every league in parallel — tab switches stay snappy
+        // and the spinner lifts once both have come back.
+        const results = await Promise.all(
+          LEAGUES.map(async (cfg) => [cfg.key, await fetchOneLeague(cfg)] as const),
+        );
+        setLeagueData((prev) => {
+          const next = { ...prev };
+          for (const [key, data] of results) next[key] = data;
+          return next;
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load standings");
       } finally {
         setLoading(false);
       }
     }
-    fetchStandings();
+    fetchAll();
   }, []);
+
+  const activeLeague = useMemo(
+    () => LEAGUES.find((l) => l.key === activeKey) ?? LEAGUES[0],
+    [activeKey],
+  );
+  const drivers = leagueData[activeKey].drivers;
+  const fullDrivers = leagueData[activeKey].fullDrivers;
 
   /* Sorted drivers */
   const sorted = useMemo(() => {
@@ -503,23 +576,63 @@ export default function LeagueStandingsPage() {
       {/* ── Main Content ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(48px, 8vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-5xl mx-auto">
-          {/* League badge */}
+          {/* League tab switcher — one tab per active league */}
+          <div className="flex justify-center mb-4">
+            <div
+              className="inline-flex rounded-full p-1"
+              style={{
+                backgroundColor: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+              role="tablist"
+              aria-label="League"
+            >
+              {LEAGUES.map((cfg) => {
+                const isActive = cfg.key === activeKey;
+                return (
+                  <button
+                    key={cfg.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setActiveKey(cfg.key)}
+                    className="font-body transition-colors"
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      padding: "8px 22px",
+                      borderRadius: "100px",
+                      letterSpacing: "0.3px",
+                      backgroundColor: isActive ? cfg.accent : "transparent",
+                      color: isActive ? "#000418" : "rgba(245,236,238,0.7)",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Active league dates */}
           <div className="flex justify-center mb-8">
             <div
               className="font-body inline-flex items-center gap-2"
               style={{
-                fontSize: "14px",
-                fontWeight: 600,
-                color: "#00E2E5",
-                padding: "8px 20px",
+                fontSize: "13px",
+                fontWeight: 500,
+                color: activeLeague.accent,
+                padding: "6px 16px",
                 borderRadius: "100px",
-                border: "1px solid rgba(0,226,229,0.3)",
-                backgroundColor: "rgba(0,226,229,0.08)",
+                border: `1px solid ${activeLeague.accent}33`,
+                backgroundColor: `${activeLeague.accent}14`,
                 letterSpacing: "0.3px",
               }}
             >
-              <span style={{ fontSize: "13px" }}>&#9679;</span>
-              {LEAGUE.label} &middot; {LEAGUE.dates}
+              <span style={{ fontSize: "12px" }}>&#9679;</span>
+              {activeLeague.dates}
             </div>
           </div>
 
