@@ -29,6 +29,41 @@ const PACKS: RacePack[] = [
 
 const PAGE_ID = "42960253";
 
+// ── Square + Pandora-deposit workaround ─────────────────────────────────────
+//
+// BMI's pack `booking/sell` flow has been broken since the April 9
+// product-ID switchover (credits get applied at the wrong stage). While
+// they fix that, we route around it: charge via Square against this
+// shared catalog item (custom name override per variant), then credit
+// the customer's BMI deposit balance directly through the Pandora
+// workaround endpoints.
+//
+// Feature-flagged so we can drop back to the BMI flow instantly if
+// anything goes sideways. Default ON unless the env var is the literal
+// string "false". When OFF the existing BMI booking/sell flow runs
+// unchanged.
+const RACE_PACK_VIA_DEPOSIT =
+  (process.env.NEXT_PUBLIC_RACE_PACK_VIA_DEPOSIT || "true").toLowerCase() !== "false";
+
+// Single Square catalog product, shared by every pack variant. We
+// override the line-item name on each order so receipts read e.g.
+// "5-Race Pack (Mon-Thu)" instead of the generic catalog name.
+const SQUARE_RACE_PACK_CATALOG_ID = "YYOV5QCHQSJKZS7DDIALGU7Z";
+
+// Pandora deposit-kind ids for race credits — see lib/pandora-deposits.ts
+// for the full catalogue + how these map to BMI's T_DEPOSIT rows.
+const RACE_PACK_DEPOSIT_KIND: Record<RacePack["type"], string> = {
+  weekday: "12744867", // Race-credit Mon-Thu
+  anytime: "12744871", // Race-credit any day
+};
+
+function syntheticBillId(): string {
+  // No real BMI bill exists for via-deposit packs, so we mint a
+  // unique-enough id locally for sales-log + booking-store keying.
+  // Prefix makes it instantly recognizable in admin tooling.
+  return `pack-${Date.now()}-${Math.floor(Math.random() * 1_000_000).toString(36)}`;
+}
+
 // ── Person lookup types ─────────────────────────────────────────────────────
 
 interface FoundPerson {
@@ -76,6 +111,11 @@ export default function RacePacksPage() {
   const [checkoutBillId, setCheckoutBillId] = useState("");
   const [checkoutTotal, setCheckoutTotal] = useState(0);
   const [payingStatus, setPayingStatus] = useState("");
+  // Captured at handleCheckout time so PaymentForm props don't go
+  // stale if `person` re-renders mid-flow. Only meaningful when
+  // RACE_PACK_VIA_DEPOSIT is on.
+  const [checkoutPersonId, setCheckoutPersonId] = useState("");
+  const [checkoutIsNewRacer, setCheckoutIsNewRacer] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
 
   function handleBuyNow(pack: RacePack) {
@@ -358,8 +398,12 @@ export default function RacePacksPage() {
       const lastName = person.fullName.split(" ").slice(1).join(" ") || "";
       const phone = person.phone || newPerson.phone || "";
       let linkedPersonId = person.personId;
+      const isNewRacer = !linkedPersonId;
 
-      // For new customers, create person via Pandora (BMI Firebird) first
+      // For new customers, create person via Pandora (BMI Firebird).
+      // Required regardless of via-deposit vs. legacy BMI flow — we
+      // need a personId to credit deposits to (or to attach to the
+      // BMI bill, depending on path).
       if (!linkedPersonId) {
         setPayingStatus("Creating your racer account...");
         const createRes = await fetch("/api/pandora", {
@@ -370,23 +414,83 @@ export default function RacePacksPage() {
         const createData = await createRes.json();
         if (createData.personId) {
           linkedPersonId = createData.personId;
-          // Wait for person to sync from Firebird to BMI cloud (poll up to 30s)
-          setPayingStatus("Setting up your account...");
-          for (let i = 0; i < 6; i++) {
-            await new Promise(r => setTimeout(r, 5000));
-            // Test if person is synced by attempting a sell
-            const testSell = await fetch("/api/bmi?endpoint=booking%2Fsell", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: `{"ProductId":${selectedPack.productId},"PageId":${PAGE_ID},"Quantity":1,"PersonId":${linkedPersonId}}`,
-            });
-            const testText = await testSell.text();
-            const testBillMatch = testText.match(/"orderId"\s*:\s*(\d+)/);
-            if (testBillMatch) {
-              // Person synced — cancel this test bill, we'll create the real one below
-              await fetch(`/api/bmi?endpoint=bill/${testBillMatch[1]}/cancel`, { method: "DELETE" });
-              break;
-            }
+        }
+      }
+
+      // ── Path A: Square + Pandora-deposit workaround (default) ────────
+      //
+      // Skip BMI entirely: Square charges, then /api/square/pay calls
+      // addDeposit server-side as a postPaymentAction. Whole flow is
+      // server-atomic so a tab close between charge + credit can't
+      // strand the customer.
+      if (RACE_PACK_VIA_DEPOSIT) {
+        if (!linkedPersonId) {
+          // Pandora person create failed — without a personId we have
+          // nothing to credit. Surface to the customer instead of
+          // silently charging.
+          throw new Error("Could not set up your racer account. Please try again or contact support.");
+        }
+
+        setPayingStatus("Preparing your race pack...");
+
+        const billId = syntheticBillId();
+        const total = calculateTotal(selectedPack.price);
+        const packLabel = `${selectedPack.name} (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`;
+
+        // Stash booking details so the confirmation page can read
+        // them. `viaDeposit: true` tells the confirmation page to
+        // skip the BMI payment/confirm call (no real BMI bill exists).
+        const bookingDetails = {
+          billId,
+          amount: total.toFixed(2),
+          race: packLabel,
+          name: person.fullName,
+          email: person.email,
+          qty: String(selectedPack.raceCount),
+          isCreditOrder: "false",
+          type: "race-pack",
+          loginCode: person.loginCode || "",
+          viaDeposit: "true",
+          personId: String(linkedPersonId),
+          depositKindId: RACE_PACK_DEPOSIT_KIND[selectedPack.type],
+          raceCount: String(selectedPack.raceCount),
+        };
+        await fetch("/api/booking-store", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(bookingDetails),
+        });
+        localStorage.setItem(`booking_${billId}`, JSON.stringify(bookingDetails));
+
+        setCheckoutBillId(billId);
+        setCheckoutTotal(total);
+        setCheckoutPersonId(String(linkedPersonId));
+        setCheckoutIsNewRacer(isNewRacer);
+        trackBookingStep("Race Pack Payment", { pack: selectedPack.name, amount: total, viaDeposit: "true" });
+        setPaying(false);
+        setModalPhase("card-form");
+        return;
+      }
+
+      // ── Path B: Legacy BMI booking/sell flow ─────────────────────────
+      //
+      // Polls up to 30s for the new person to sync from Firebird to
+      // BMI cloud. Only relevant on this path — the via-deposit path
+      // hits Pandora directly and doesn't care about cloud sync.
+      if (isNewRacer && linkedPersonId) {
+        setPayingStatus("Setting up your account...");
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          const testSell = await fetch("/api/bmi?endpoint=booking%2Fsell", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: `{"ProductId":${selectedPack.productId},"PageId":${PAGE_ID},"Quantity":1,"PersonId":${linkedPersonId}}`,
+          });
+          const testText = await testSell.text();
+          const testBillMatch = testText.match(/"orderId"\s*:\s*(\d+)/);
+          if (testBillMatch) {
+            await fetch(`/api/bmi?endpoint=bill/${testBillMatch[1]}/cancel`, { method: "DELETE" });
+            break;
           }
         }
       }
@@ -495,27 +599,31 @@ export default function RacePacksPage() {
         </div>
       </div>
 
-      {/* Temporarily unavailable banner */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6 mt-4">
-        <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-5 flex items-start gap-3">
-          <svg className="w-6 h-6 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <div>
-            <p className="text-red-400 font-bold text-base">Online Race Packs Temporarily Unavailable</p>
-            <p className="text-white/60 text-sm mt-1">
-              Race pack purchases are temporarily unavailable online due to a technical issue. Please see an on-site team member for assistance.
-            </p>
-            <p className="text-amber-400 text-sm font-semibold mt-2">
-              3-packs are now available through{" "}
-              <a href="/book/race" className="underline hover:text-amber-300">normal race booking</a>
-              {" "}— pick your 3 heats up front at checkout.
-            </p>
+      {/* Temporarily unavailable banner — only shown when the
+          Square+deposit workaround is OFF. With the flag ON, packs
+          sell normally via Square + direct Pandora deposit credit. */}
+      {!RACE_PACK_VIA_DEPOSIT && (
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6 mt-4">
+          <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-5 flex items-start gap-3">
+            <svg className="w-6 h-6 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <div>
+              <p className="text-red-400 font-bold text-base">Online Race Packs Temporarily Unavailable</p>
+              <p className="text-white/60 text-sm mt-1">
+                Race pack purchases are temporarily unavailable online due to a technical issue. Please see an on-site team member for assistance.
+              </p>
+              <p className="text-amber-400 text-sm font-semibold mt-2">
+                3-packs are now available through{" "}
+                <a href="/book/race" className="underline hover:text-amber-300">normal race booking</a>
+                {" "}— pick your 3 heats up front at checkout.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Pack grid — disabled while unavailable */}
+      {/* Pack grid */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16">
         {/* Column headers */}
         <div className="grid grid-cols-2 gap-4 mb-3">
@@ -523,14 +631,15 @@ export default function RacePacksPage() {
           <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">Anytime</p>
         </div>
 
-        {/* Pack rows */}
+        {/* Pack rows — disabled only when the via-deposit workaround
+            is off (BMI sell flow remains broken upstream). */}
         {[3, 5, 10].map(count => {
           const weekday = PACKS.find(p => p.raceCount === count && p.type === "weekday")!;
           const anytime = PACKS.find(p => p.raceCount === count && p.type === "anytime")!;
           return (
             <div key={count} className="grid grid-cols-2 gap-4 mb-4">
-              <PackCard pack={weekday} onBuy={handleBuyNow} disabled />
-              <PackCard pack={anytime} onBuy={handleBuyNow} disabled />
+              <PackCard pack={weekday} onBuy={handleBuyNow} disabled={!RACE_PACK_VIA_DEPOSIT} />
+              <PackCard pack={anytime} onBuy={handleBuyNow} disabled={!RACE_PACK_VIA_DEPOSIT} />
             </div>
           );
         })}
@@ -582,33 +691,58 @@ export default function RacePacksPage() {
             )}
 
             {/* Inline payment form */}
-            {modalPhase === "card-form" && person && selectedPack && (
-              <PaymentForm
-                amount={checkoutTotal}
-                itemName={`${selectedPack.raceCount}-Race Pack (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`}
-                billId={checkoutBillId}
-                contact={{
-                  firstName: person.fullName.split(" ")[0] || "",
-                  lastName: person.fullName.split(" ").slice(1).join(" ") || "",
-                  email: person.email,
-                  phone: person.phone || newPerson.phone || "",
-                }}
-                onSuccess={(result: PaymentResult) => {
-                  sessionStorage.setItem(`payment_${checkoutBillId}`, JSON.stringify({
-                    cardBrand: result.cardBrand,
-                    cardLast4: result.cardLast4,
-                    amount: result.amount,
-                    paymentId: result.paymentId,
-                  }));
-                  window.location.href = `/book/race-packs/confirmation?billId=${checkoutBillId}`;
-                }}
-                onError={(msg) => {
-                  setError(msg);
-                  setModalPhase("summary");
-                }}
-                onCancel={() => setModalPhase("summary")}
-              />
-            )}
+            {modalPhase === "card-form" && person && selectedPack && (() => {
+              const packLabel = `${selectedPack.raceCount}-Race Pack (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`;
+              return (
+                <PaymentForm
+                  amount={checkoutTotal}
+                  itemName={packLabel}
+                  billId={checkoutBillId}
+                  contact={{
+                    firstName: person.fullName.split(" ")[0] || "",
+                    lastName: person.fullName.split(" ").slice(1).join(" ") || "",
+                    email: person.email,
+                    phone: person.phone || newPerson.phone || "",
+                  }}
+                  // Via-deposit path: attach the shared race-pack
+                  // catalog id with a custom name override per variant,
+                  // and let the server credit the Pandora deposit
+                  // atomically with the charge. Both undefined when
+                  // RACE_PACK_VIA_DEPOSIT is off → /api/square/pay
+                  // falls back to the legacy "Deposit" line item.
+                  lineItem={RACE_PACK_VIA_DEPOSIT ? {
+                    catalogObjectId: SQUARE_RACE_PACK_CATALOG_ID,
+                    name: packLabel,
+                  } : undefined}
+                  postPaymentAction={RACE_PACK_VIA_DEPOSIT && checkoutPersonId ? {
+                    kind: "addDeposit",
+                    personId: checkoutPersonId,
+                    depositKindId: RACE_PACK_DEPOSIT_KIND[selectedPack.type],
+                    amount: selectedPack.raceCount,
+                    packLabel,
+                    raceCount: selectedPack.raceCount,
+                    isNewRacer: checkoutIsNewRacer,
+                  } : undefined}
+                  onSuccess={(result: PaymentResult) => {
+                    sessionStorage.setItem(`payment_${checkoutBillId}`, JSON.stringify({
+                      cardBrand: result.cardBrand,
+                      cardLast4: result.cardLast4,
+                      amount: result.amount,
+                      paymentId: result.paymentId,
+                      depositId: result.depositId,
+                      depositCreditFailed: result.depositCreditFailed,
+                      depositError: result.depositError,
+                    }));
+                    window.location.href = `/book/race-packs/confirmation?billId=${checkoutBillId}`;
+                  }}
+                  onError={(msg) => {
+                    setError(msg);
+                    setModalPhase("summary");
+                  }}
+                  onCancel={() => setModalPhase("summary")}
+                />
+              );
+            })()}
 
             {/* Lookup phase */}
             {modalPhase === "lookup" && (

@@ -39,6 +39,38 @@ export interface PaymentResult {
   amount: number;
   receiptUrl: string | null;
   savedCardId: string | null;
+  /** Pandora deposit row id, when the server-side post-payment
+   *  hook ran addDeposit successfully. */
+  depositId?: string;
+  /** True when Square charged but the post-payment addDeposit
+   *  failed — caller should show "charged, credit pending" UI. */
+  depositCreditFailed?: boolean;
+  /** Server-side error string when depositCreditFailed. */
+  depositError?: string;
+}
+
+/** Optional Square catalog reference for the order line item. Lets
+ *  the caller use a custom-name override against a shared catalog
+ *  product (e.g. all race-pack variants share one Square SKU). */
+export interface PaymentLineItem {
+  /** Display name shown on the order line + receipt. */
+  name?: string;
+  /** Square catalog item or variation id. */
+  catalogObjectId?: string;
+}
+
+/** Optional post-payment server-side action. Currently only
+ *  `addDeposit` — used by the race-packs workaround. The /api/square/pay
+ *  endpoint runs the action atomically with the charge so a tab
+ *  close between the two can't strand the customer. */
+export interface PostPaymentAction {
+  kind: "addDeposit";
+  personId: string | number;
+  depositKindId: string;
+  amount: number;
+  packLabel?: string;
+  raceCount?: number;
+  isNewRacer?: boolean;
 }
 
 interface PaymentFormProps {
@@ -55,6 +87,12 @@ interface PaymentFormProps {
   squareCustomerId?: string;
   savedCards?: SavedCard[];
   allowSaveCard?: boolean;  // Only true for OTP-verified returning racers
+  /** Optional Square catalog reference for the line item — lets
+   *  callers point at a real catalog product with a custom name
+   *  override (e.g. race packs share `YYOV5QCHQSJKZS7DDIALGU7Z`). */
+  lineItem?: PaymentLineItem;
+  /** Optional server-side hook fired AFTER Square charges. */
+  postPaymentAction?: PostPaymentAction;
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -105,6 +143,8 @@ export default function PaymentForm({
   squareCustomerId,
   savedCards = [],
   allowSaveCard = false,
+  lineItem,
+  postPaymentAction,
 }: PaymentFormProps) {
   const squareLocationId = detectSquareLocationId(locationIdProp);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">("loading");
@@ -236,6 +276,8 @@ export default function PaymentForm({
         saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
         squareCustomerId,
         locationId: locationIdProp || (typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax"),
+        lineItem,
+        postPaymentAction,
       }),
     });
 
@@ -252,6 +294,9 @@ export default function PaymentForm({
         amount: data.amount,
         receiptUrl: data.receiptUrl,
         savedCardId: data.savedCardId,
+        depositId: data.depositId,
+        depositCreditFailed: data.depositCreditFailed,
+        depositError: data.depositError,
       });
     }, 1500);
   }

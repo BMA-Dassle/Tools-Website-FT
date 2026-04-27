@@ -4,6 +4,12 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { trackBookingComplete } from "@/lib/analytics";
 
+interface DepositRow {
+  OUT_DPK_ID: number;
+  OUT_DPK_NAME: string;
+  OUT_DPS_AMOUNT: number;
+}
+
 export default function RacePackConfirmation() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -12,6 +18,12 @@ export default function RacePackConfirmation() {
   const [amount, setAmount] = useState("");
   const [resNumber, setResNumber] = useState("");
   const [loginCode, setLoginCode] = useState("");
+  // Via-deposit flow: balance + credit-pending state. Both no-op
+  // when the legacy BMI flow runs.
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  const [creditKindName, setCreditKindName] = useState("");
+  const [creditPending, setCreditPending] = useState(false);
+  const [creditPendingMsg, setCreditPendingMsg] = useState("");
   const confirmStarted = useRef(false);
 
   useEffect(() => {
@@ -47,7 +59,64 @@ export default function RacePackConfirmation() {
           if (details.loginCode) setLoginCode(details.loginCode);
         }
 
-        // Confirm payment with BMI
+        const isViaDeposit = details?.viaDeposit === "true";
+
+        if (isViaDeposit) {
+          // Square + Pandora-deposit path: no BMI bill exists, so
+          // we skip the /payment/confirm roundtrip entirely. The
+          // credit was applied server-side by /api/square/pay's
+          // postPaymentAction. Read sessionStorage to learn whether
+          // the credit landed; read the live balance from Pandora
+          // to show "current credit: X".
+
+          // Pull the synthetic billId as the reservation reference.
+          setResNumber(billId!);
+
+          // Surface "charged but credit pending" if the server-side
+          // addDeposit failed. PaymentForm stashes this in
+          // sessionStorage before redirecting.
+          try {
+            const payRaw = sessionStorage.getItem(`payment_${billId}`);
+            if (payRaw) {
+              const pay = JSON.parse(payRaw) as { depositCreditFailed?: boolean; depositError?: string };
+              if (pay.depositCreditFailed) {
+                setCreditPending(true);
+                setCreditPendingMsg(pay.depositError || "Credit hasn't landed yet — our team has been notified and will reconcile it.");
+              }
+            }
+          } catch { /* sessionStorage unavailable / non-JSON */ }
+
+          // Read live balance for the deposit kind we just credited.
+          // No-op gracefully if Pandora is flaky — we still show
+          // "credits added" copy from the booking row.
+          if (details?.personId && details?.depositKindId) {
+            try {
+              const balRes = await fetch(`/api/pandora/deposits/${encodeURIComponent(details.personId)}`, { cache: "no-store" });
+              if (balRes.ok) {
+                const balJson = await balRes.json();
+                const rows: DepositRow[] = Array.isArray(balJson?.data) ? balJson.data : [];
+                const row = rows.find(r => String(r.OUT_DPK_ID) === String(details!.depositKindId));
+                if (row) {
+                  setCreditBalance(row.OUT_DPS_AMOUNT);
+                  setCreditKindName(row.OUT_DPK_NAME);
+                }
+              }
+            } catch { /* show without balance — booking row still describes the pack */ }
+          }
+
+          trackBookingComplete(billId!);
+          // Keep the localStorage row around briefly in case the
+          // user refreshes — confirmation only flushes on hard nav.
+          // Existing behavior already removes it; preserve that.
+          localStorage.removeItem(`booking_${billId}`);
+          if (!window.location.hostname.includes("localhost")) {
+            window.history.replaceState({}, "", "/book/race-packs/confirmation");
+          }
+          return;
+        }
+
+        // Legacy BMI booking/sell flow: confirm the payment with BMI
+        // so it commits the order and assigns credits.
         const amt = details?.amount ? parseFloat(details.amount) : 0;
         const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amt},"orderId":${billId},"depositKind":0}`;
         const qs = new URLSearchParams({ endpoint: "payment/confirm" });
@@ -97,20 +166,38 @@ export default function RacePackConfirmation() {
           <div className="space-y-6 text-center">
             {/* Success */}
             <div className="space-y-3">
-              <div className="w-20 h-20 rounded-full bg-green-500/20 border-2 border-green-500/50 flex items-center justify-center mx-auto">
-                <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+              <div className={`w-20 h-20 rounded-full ${creditPending ? "bg-amber-500/20 border-amber-500/50" : "bg-green-500/20 border-green-500/50"} border-2 flex items-center justify-center mx-auto`}>
+                {creditPending ? (
+                  <svg className="w-10 h-10 text-amber-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
               </div>
               <h1 className="text-3xl font-display uppercase tracking-widest text-white">
-                Credits Loaded!
+                {creditPending ? "Payment Received" : "Credits Loaded!"}
               </h1>
-              {personName && (
+              {creditPending ? (
+                <p className="text-white/60 text-sm">
+                  Your card was charged successfully. Credits will be applied shortly — our team has been notified.
+                </p>
+              ) : personName && (
                 <p className="text-white/60 text-sm">
                   {packName} credits have been added to <strong className="text-white">{personName}</strong>&apos;s account.
                 </p>
               )}
             </div>
+
+            {/* Pending-credit banner — only when via-deposit credit step failed */}
+            {creditPending && creditPendingMsg && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-left">
+                <p className="text-amber-400 font-bold text-xs uppercase tracking-wider mb-1">Credits Pending</p>
+                <p className="text-white/70 text-xs">{creditPendingMsg}</p>
+              </div>
+            )}
 
             {/* Details */}
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-3 text-left">
@@ -124,6 +211,14 @@ export default function RacePackConfirmation() {
                 <div className="flex justify-between">
                   <span className="text-white/40 text-sm">Racer</span>
                   <span className="text-white text-sm">{personName}</span>
+                </div>
+              )}
+              {creditBalance !== null && (
+                <div className="flex justify-between">
+                  <span className="text-white/40 text-sm">Current Balance</span>
+                  <span className="text-[#00E2E5] font-bold text-sm">
+                    {creditBalance} {creditKindName ? <span className="text-white/40 font-normal text-xs">({creditKindName})</span> : null}
+                  </span>
                 </div>
               )}
               {amount && parseFloat(amount) > 0 && (

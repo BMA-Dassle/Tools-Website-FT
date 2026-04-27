@@ -91,6 +91,29 @@ export interface SaleEntry {
    *  marketing / outreach from this surface. */
   email?: string;
   phone?: string;
+  /** True when the bill was sold via the Square-charge +
+   *  Pandora-deposit workaround (race packs, while BMI's
+   *  booking/sell flow for packs is broken). When true, the BMI
+   *  bill is synthetic — no `booking/sell` row exists upstream. */
+  viaDeposit?: boolean;
+  /** Pandora T_DEPOSIT row id returned by addDeposit (only set
+   *  for `viaDeposit: true` rows, AFTER credit succeeded). */
+  depositId?: string;
+  /** True when Square charged successfully but the addDeposit call
+   *  failed — admin needs to retry from the sales board. Only ever
+   *  true on `viaDeposit` rows. */
+  depositCreditPending?: boolean;
+  /** Person ID the deposit credit landed on (or should land on,
+   *  if pending). Lets admin re-run addDeposit without
+   *  re-collecting context. Only meaningful when `viaDeposit`. */
+  depositPersonId?: string;
+  /** Deposit kind id the credit was applied to — see DEPOSIT_KIND
+   *  in lib/pandora-deposits.ts. */
+  depositKindId?: string;
+  /** Number of race credits added (the "amount" passed to
+   *  addDeposit). Stored separately from raceCount on the
+   *  product so admin can audit deposit math vs. pack purchased. */
+  depositAmount?: number;
 }
 
 /**
@@ -129,6 +152,19 @@ async function ensureSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS sales_log_ts_idx ON sales_log(ts DESC)`;
   await q`CREATE INDEX IF NOT EXISTS sales_log_bill_idx ON sales_log(bill_id) WHERE bill_id IS NOT NULL`;
   await q`CREATE INDEX IF NOT EXISTS sales_log_booking_type_idx ON sales_log(booking_type)`;
+  // Forward-compatible additions for the race-pack Square+deposit
+  // workaround. ALTER ADD COLUMN IF NOT EXISTS is idempotent —
+  // safe to run on every cold start.
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS via_deposit BOOLEAN`;
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_id TEXT`;
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_credit_pending BOOLEAN`;
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_person_id TEXT`;
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_kind_id TEXT`;
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_amount INTEGER`;
+  // Partial index: admin board's "needs reconcile" filter scans
+  // only the small subset where Square charged but addDeposit
+  // didn't land. Predicate keeps the index tiny.
+  await q`CREATE INDEX IF NOT EXISTS sales_log_pending_credit_idx ON sales_log(ts DESC) WHERE deposit_credit_pending IS TRUE`;
   schemaReady = true;
 }
 
@@ -152,7 +188,9 @@ export async function logSale(entry: SaleEntry): Promise<void> {
         ts, bill_id, reservation_number, brand, location, booking_type,
         participant_count, is_new_racer, rookie_pack, pov_purchased, pov_qty,
         license_purchased, express_lane, race_product_names, add_on_names,
-        total_usd, email, phone
+        total_usd, email, phone,
+        via_deposit, deposit_id, deposit_credit_pending,
+        deposit_person_id, deposit_kind_id, deposit_amount
       ) VALUES (
         ${entry.ts},
         ${entry.billId ?? null},
@@ -171,7 +209,13 @@ export async function logSale(entry: SaleEntry): Promise<void> {
         ${entry.addOnNames ?? null},
         ${entry.totalUsd ?? null},
         ${entry.email ?? null},
-        ${entry.phone ?? null}
+        ${entry.phone ?? null},
+        ${entry.viaDeposit ?? null},
+        ${entry.depositId ?? null},
+        ${entry.depositCreditPending ?? null},
+        ${entry.depositPersonId ?? null},
+        ${entry.depositKindId ?? null},
+        ${entry.depositAmount ?? null}
       )
     `;
   } catch (err) {
@@ -200,6 +244,12 @@ interface SalesLogRow {
   total_usd: string | null;
   email: string | null;
   phone: string | null;
+  via_deposit: boolean | null;
+  deposit_id: string | null;
+  deposit_credit_pending: boolean | null;
+  deposit_person_id: string | null;
+  deposit_kind_id: string | null;
+  deposit_amount: number | null;
 }
 
 function rowToEntry(r: SalesLogRow): SaleEntry {
@@ -222,7 +272,39 @@ function rowToEntry(r: SalesLogRow): SaleEntry {
     totalUsd: r.total_usd != null ? parseFloat(r.total_usd) : undefined,
     email: r.email ?? undefined,
     phone: r.phone ?? undefined,
+    viaDeposit: r.via_deposit ?? undefined,
+    depositId: r.deposit_id ?? undefined,
+    depositCreditPending: r.deposit_credit_pending ?? undefined,
+    depositPersonId: r.deposit_person_id ?? undefined,
+    depositKindId: r.deposit_kind_id ?? undefined,
+    depositAmount: r.deposit_amount ?? undefined,
   };
+}
+
+/**
+ * Flip a sales_log row from "pending credit" → "credit landed" once
+ * an admin retry succeeds. Idempotent — a no-op if the row already
+ * has a depositId.
+ *
+ * Identified by `billId` (synthetic for via-deposit rows, but
+ * unique per attempt).
+ */
+export async function markDepositCredited(billId: string, depositId: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const q = sql();
+    await q`
+      UPDATE sales_log
+      SET deposit_id = ${depositId},
+          deposit_credit_pending = FALSE
+      WHERE bill_id = ${billId}
+        AND via_deposit IS TRUE
+        AND (deposit_id IS NULL OR deposit_credit_pending IS TRUE)
+    `;
+  } catch (err) {
+    console.error("[sales-log] markDepositCredited failed:", err);
+  }
 }
 
 /**
@@ -249,7 +331,9 @@ export async function readSalesRange(
       ts, bill_id, reservation_number, brand, location, booking_type,
       participant_count, is_new_racer, rookie_pack, pov_purchased, pov_qty,
       license_purchased, express_lane, race_product_names, add_on_names,
-      total_usd, email, phone
+      total_usd, email, phone,
+      via_deposit, deposit_id, deposit_credit_pending,
+      deposit_person_id, deposit_kind_id, deposit_amount
     FROM sales_log
     WHERE ts >= ${startTs}::timestamptz
       AND ts <= ${endTs}::timestamptz
