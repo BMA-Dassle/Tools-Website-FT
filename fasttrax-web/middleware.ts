@@ -50,6 +50,27 @@ export function middleware(request: NextRequest) {
     } else {
       token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
     }
+
+    // Legacy-token redirect — staff bookmarked the e-ticket admin
+    // under the old ADMIN_ETICKETS_TOKEN before we collapsed gates.
+    // If the URL token matches the legacy env var, 308 to the same
+    // path with the canonical ADMIN_CAMERA_TOKEN. 308 preserves
+    // method (so any in-flight POST keeps working) and tells the
+    // browser to update bookmarks. Skip when ADMIN_ETICKETS_TOKEN
+    // env is unset (rotation already cleaned up).
+    const legacyToken = process.env.ADMIN_ETICKETS_TOKEN || "";
+    if (
+      legacyToken &&
+      expected &&
+      pathname.startsWith("/admin/") &&
+      token === legacyToken &&
+      legacyToken !== expected
+    ) {
+      const url = request.nextUrl.clone();
+      url.pathname = pathname.replace(`/admin/${legacyToken}`, `/admin/${expected}`);
+      return NextResponse.redirect(url, 308);
+    }
+
     const tokenOk = !!expected && token.length === expected.length && token === expected;
 
     let ipOk = true;
