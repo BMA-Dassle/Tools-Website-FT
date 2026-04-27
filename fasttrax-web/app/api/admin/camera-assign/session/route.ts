@@ -189,7 +189,24 @@ export async function GET(req: NextRequest) {
     // if today is a closed day. Also look back 1 day so an in-progress
     // session (started <1h ago) still shows up.
     const { startDate, endDate } = rangeETForDays(1, 8);
-    const allSessions = await fetchSessionsInWindow(resources, startDate, endDate);
+
+    // ── Latency optimization ────────────────────────────────────────
+    //
+    // Both Pandora calls (sessions list + participants) take ~1-2s
+    // each. When the client passes `sessionId` (the common case for
+    // camera-assign — the heat picker on the page already knows the
+    // id), we have everything we need to start the participants /
+    // assignments fetches immediately, in parallel with the
+    // sessions-list lookup we still need for metadata + validation.
+    //
+    // This roughly halves perceived load time when an operator picks
+    // a heat: was sessions→participants→blocks (~2-3s serial), now
+    // max(sessions, participants)→blocks (~1-2s).
+    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate);
+    const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam) : null;
+    const earlyAssignmentsPromise = sessionIdParam ? listAssignmentsForSession(sessionIdParam) : null;
+
+    const allSessions = await sessionsPromise;
 
     // Pick the session to surface — either explicitly requested, or the
     // next upcoming one.
@@ -199,7 +216,9 @@ export async function GET(req: NextRequest) {
       if (!picked) {
         // Fall back to a broader search (last 30 days) — past sessions
         // selected from the test picker may be older than the live
-        // window.
+        // window. The early participants fetch we kicked off is still
+        // valid for past sessions; Pandora's session-participants
+        // endpoint isn't time-bounded.
         const wide = rangeETForDays(30, 0);
         const widerSessions = await fetchSessionsInWindow(
           TRACK_RESOURCES as readonly string[],
@@ -234,9 +253,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Use the early-fired promises when the client gave us sessionId;
+    // otherwise fire them now against the resolved "next upcoming".
     const [participants, assignments] = await Promise.all([
-      fetchParticipants(picked.sessionId),
-      listAssignmentsForSession(picked.sessionId),
+      earlyParticipantsPromise ?? fetchParticipants(picked.sessionId),
+      earlyAssignmentsPromise ?? listAssignmentsForSession(picked.sessionId),
     ]);
 
     // Map assignments by personId for fast merge in the client.
