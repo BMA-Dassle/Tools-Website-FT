@@ -981,80 +981,42 @@ export default function ConfirmationPage() {
 
           {/* POV Camera Codes
               The codes below are the actual unlock keys for the
-              race video on ViewPoint — the racer enters them to
-              redeem regardless of category. The on-page banners
-              just clarify the notification cadence:
+              race video on ViewPoint — the racer (or their guardian
+              for minors) enters them to redeem.
 
-              - Adult races: ViewPoint sends an "your video is ready"
-                email + SMS heads-up about 5-10 min after the race.
-                Racer then comes here (or follows the link in the
-                heads-up) and enters the codes.
-              - Junior races: NO auto-notification — racer needs to
-                wait 15-30 min for upload, then come back and enter
-                the codes to redeem.
+              Notification cadence is now identical for adult and
+              junior: ViewPoint sends a "your video is ready" email
+              + SMS heads-up about 5-10 min after the race. For
+              minors the heads-up routes to the parent's contact
+              via guardian fallback. Old "junior needs to come back
+              and check manually" framing is obsolete now. */}
+          {povCodes.length > 0 && (
+            <div className="lg:col-span-2 mt-6 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-6 sm:p-8">
+              <h3 className="font-display text-white text-xl uppercase tracking-widest mb-4">Your ViewPoint POV Camera Codes</h3>
 
-              We detect the mix from the booking's race line names
-              (BMI products embed "Junior" in the name). */}
-          {povCodes.length > 0 && (() => {
-            const allOvLines = order?.lines || storedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-            const raceLines = allOvLines.filter((l: OrderLine) => l.productGroup === "Karting");
-            const hasJunior = raceLines.some((l: OrderLine) => l.name.toLowerCase().includes("junior"));
-            const hasAdult = raceLines.some((l: OrderLine) => !l.name.toLowerCase().includes("junior"));
-            return (
-              <div className="lg:col-span-2 mt-6 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-6 sm:p-8">
-                <h3 className="font-display text-white text-xl uppercase tracking-widest mb-4">Your ViewPoint POV Camera Codes</h3>
-
-                {/* Adult delivery banner */}
-                {hasAdult && (
-                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 mb-3 flex items-start gap-3">
-                    <span aria-hidden="true" className="text-xl leading-none">📨</span>
-                    <div>
-                      <p className="text-emerald-300 text-sm font-semibold mb-0.5">
-                        Adult races — heads-up sent automatically
-                      </p>
-                      <p className="text-white/60 text-xs leading-relaxed">
-                        About 5–10 minutes after your race, you&apos;ll get an <strong className="text-white/80">email and text</strong> letting you know your video is ready.
-                        Use the codes below to redeem it — no slip needed.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Junior — no auto-notification; racer comes back to redeem */}
-                {hasJunior && (
-                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 mb-3 flex items-start gap-3">
-                    <span aria-hidden="true" className="text-xl leading-none">⏱️</span>
-                    <div>
-                      <p className="text-amber-300 text-sm font-semibold mb-0.5">
-                        Junior races — no auto-notification
-                      </p>
-                      <p className="text-white/60 text-xs leading-relaxed">
-                        We won&apos;t auto-text or email you about the video. Give it
-                        <strong className="text-white/80"> 15–30 minutes</strong> after your race to upload, then come back
-                        here and use the codes below to redeem.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Fallback (no race-line info available) */}
-                {!hasAdult && !hasJunior && (
-                  <p className="text-white/50 text-sm leading-relaxed mb-4">
-                    Use the codes below to redeem your race video. Videos take 5–30 minutes to upload after your race.
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 mb-3 flex items-start gap-3">
+                <span aria-hidden="true" className="text-xl leading-none">📨</span>
+                <div>
+                  <p className="text-emerald-300 text-sm font-semibold mb-0.5">
+                    Heads-up sent automatically
                   </p>
-                )}
-
-                <div className="flex flex-wrap gap-4 mt-4">
-                  {povCodes.map((code, i) => (
-                    <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-5 py-3">
-                      <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-1">Code {i + 1}</p>
-                      <p className="text-white font-mono text-xl font-bold tracking-wider">{code}</p>
-                    </div>
-                  ))}
+                  <p className="text-white/60 text-xs leading-relaxed">
+                    About 5–10 minutes after your race, you&apos;ll get an <strong className="text-white/80">email and text</strong> letting you know your video is ready.
+                    Use the codes below to redeem it.
+                  </p>
                 </div>
               </div>
-            );
-          })()}
+
+              <div className="flex flex-wrap gap-4 mt-4">
+                {povCodes.map((code, i) => (
+                  <div key={i} className="bg-white/10 border border-purple-500/30 rounded-lg px-5 py-3">
+                    <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-1">Code {i + 1}</p>
+                    <p className="text-white font-mono text-xl font-bold tracking-wider">{code}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Additional Attractions for express lane bookings with mixed items */}
           {expressLane && (() => {
