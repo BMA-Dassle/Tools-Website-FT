@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import TrackStatus from "@/components/home/TrackStatus";
 import {
@@ -60,87 +61,81 @@ export default function GroupETicketView({ group, initial }: Props) {
   // state transitions to watch for.
   const allPast = group.members.every((m) => minutesUntil(m.scheduledStart) < -90);
 
-  useEffect(() => {
-    if (allPast) return;
-    let cancelled = false;
-
-    const distinctSessions = Array.from(new Set(group.members.map((m) => String(m.sessionId))));
-
-    async function poll() {
-      try {
-        const stateFetches = distinctSessions.map((sid) =>
-          fetch(`/api/race-session-state?sessionId=${encodeURIComponent(sid)}`, { cache: "no-store" }),
-        );
-        const [currentRes, ...rest] = await Promise.all([
-          fetch("/api/pandora/races-current", { cache: "no-store" }),
-          ...distinctSessions.map((sid) =>
-            fetch(
-              `/api/pandora/session-participants?locationId=${encodeURIComponent(group.locationId)}&sessionId=${encodeURIComponent(sid)}`,
-              { cache: "no-store" },
-            ),
+  // Polling is paused while the tab is hidden — see
+  // lib/use-visible-interval.ts. Long-lived background tabs were
+  // racking up fetches until Edge killed the renderer.
+  const distinctSessions = Array.from(new Set(group.members.map((m) => String(m.sessionId))));
+  async function poll(signal: AbortSignal) {
+    try {
+      const stateFetches = distinctSessions.map((sid) =>
+        fetch(`/api/race-session-state?sessionId=${encodeURIComponent(sid)}`, { cache: "no-store", signal }),
+      );
+      const [currentRes, ...rest] = await Promise.all([
+        fetch("/api/pandora/races-current", { cache: "no-store", signal }),
+        ...distinctSessions.map((sid) =>
+          fetch(
+            `/api/pandora/session-participants?locationId=${encodeURIComponent(group.locationId)}&sessionId=${encodeURIComponent(sid)}`,
+            { cache: "no-store", signal },
           ),
-          ...stateFetches,
-        ]);
-        const partResponses = rest.slice(0, distinctSessions.length);
-        const stateResponses = rest.slice(distinctSessions.length);
+        ),
+        ...stateFetches,
+      ]);
+      if (signal.aborted) return;
+      const partResponses = rest.slice(0, distinctSessions.length);
+      const stateResponses = rest.slice(distinctSessions.length);
 
-        let current: { blue?: { sessionId?: number | string } | null; red?: { sessionId?: number | string } | null; mega?: { sessionId?: number | string } | null } = {};
-        if (currentRes.ok) current = await currentRes.json();
+      let current: { blue?: { sessionId?: number | string } | null; red?: { sessionId?: number | string } | null; mega?: { sessionId?: number | string } | null } = {};
+      if (currentRes.ok) current = await currentRes.json();
 
-        const rosterBySession = new Map<string, Set<string>>();
-        for (let i = 0; i < distinctSessions.length; i++) {
-          const sid = distinctSessions[i];
-          const res = partResponses[i];
-          if (!res.ok) continue;
-          const data = await res.json();
-          const list = Array.isArray(data?.data) ? data.data : [];
-          if (list.length === 0) continue; // trust prior state on empty
-          rosterBySession.set(sid, new Set(list.map((p: { personId: string | number }) => String(p.personId))));
-        }
+      const rosterBySession = new Map<string, Set<string>>();
+      for (let i = 0; i < distinctSessions.length; i++) {
+        const sid = distinctSessions[i];
+        const res = partResponses[i];
+        if (!res.ok) continue;
+        const data = await res.json();
+        const list = Array.isArray(data?.data) ? data.data : [];
+        if (list.length === 0) continue; // trust prior state on empty
+        rosterBySession.set(sid, new Set(list.map((p: { personId: string | number }) => String(p.personId))));
+      }
 
-        const calledBySession = new Map<string, boolean>();
-        for (let i = 0; i < distinctSessions.length; i++) {
-          const sid = distinctSessions[i];
-          const res = stateResponses[i];
-          if (!res.ok) continue;
-          try {
-            const d = await res.json();
-            if (d?.wasCalled) calledBySession.set(sid, true);
-          } catch { /* skip */ }
-        }
+      const calledBySession = new Map<string, boolean>();
+      for (let i = 0; i < distinctSessions.length; i++) {
+        const sid = distinctSessions[i];
+        const res = stateResponses[i];
+        if (!res.ok) continue;
+        try {
+          const d = await res.json();
+          if (d?.wasCalled) calledBySession.set(sid, true);
+        } catch { /* skip */ }
+      }
 
-        if (cancelled) return;
-
-        setState((prev) => {
-          const next: Record<string, MemberState> = { ...prev };
-          for (const m of group.members) {
-            const key = memberKey(m);
-            const trackKey = m.track.toLowerCase() as "blue" | "red" | "mega";
-            const checkingIn = String(current?.[trackKey]?.sessionId ?? "") === String(m.sessionId ?? "");
-            const roster = rosterBySession.get(String(m.sessionId));
-            let onSession = prev[key]?.onSession ?? true;
-            if (roster) {
-              const scheduled = new Date(m.scheduledStart).getTime();
-              if (!isNaN(scheduled) && scheduled < Date.now() - 45 * 60_000) {
-                onSession = true;
-              } else {
-                onSession = roster.has(String(m.personId));
-              }
+      setState((prev) => {
+        const next: Record<string, MemberState> = { ...prev };
+        for (const m of group.members) {
+          const key = memberKey(m);
+          const trackKey = m.track.toLowerCase() as "blue" | "red" | "mega";
+          const checkingIn = String(current?.[trackKey]?.sessionId ?? "") === String(m.sessionId ?? "");
+          const roster = rosterBySession.get(String(m.sessionId));
+          let onSession = prev[key]?.onSession ?? true;
+          if (roster) {
+            const scheduled = new Date(m.scheduledStart).getTime();
+            if (!isNaN(scheduled) && scheduled < Date.now() - 45 * 60_000) {
+              onSession = true;
+            } else {
+              onSession = roster.has(String(m.personId));
             }
-            const wasCalled =
-              (prev[key]?.wasCalled ?? false) ||
-              checkingIn ||
-              (calledBySession.get(String(m.sessionId)) ?? false);
-            next[key] = { checkingIn, onSession, wasCalled };
           }
-          return next;
-        });
-      } catch { /* silent */ }
-    }
-
-    const id = setInterval(poll, 20_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [group.locationId, group.members, allPast]);
+          const wasCalled =
+            (prev[key]?.wasCalled ?? false) ||
+            checkingIn ||
+            (calledBySession.get(String(m.sessionId)) ?? false);
+          next[key] = { checkingIn, onSession, wasCalled };
+        }
+        return next;
+      });
+    } catch { /* aborts + transient network errors land here — silent */ }
+  }
+  useVisibleInterval(poll, 20_000, !allPast);
 
   const racerCount = group.members.length;
   const distinctHeats = new Set(group.members.map((m) => String(m.sessionId))).size;
