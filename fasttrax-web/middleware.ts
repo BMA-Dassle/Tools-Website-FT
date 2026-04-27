@@ -26,20 +26,14 @@ export function middleware(request: NextRequest) {
   //   /admin/{token}/e-tickets
   //   /api/admin/*    (camera-assign, videos, e-tickets, sms-quota)
   //
-  // One token to rotate, one URL pattern to bookmark. Previously
-  // e-tickets had its own ADMIN_ETICKETS_TOKEN + always-on IP gate;
-  // collapsed since staff use the same workflow + the IP allowlist
-  // was forcing front-desk-only access even when staff needed to
-  // hit it from phones / external networks.
-  //
-  // IP restriction is OPT-IN via ADMIN_CAMERA_REQUIRE_IP=1.
-  // Off by default; the legacy ADMIN_ALLOWED_IPS list is honored
-  // when the flag is on.
+  // Token-only auth — no IP allowlist. Staff hit these tools from
+  // various devices (front-desk PCs, phones, external networks) and
+  // the IP gate was creating more support load than security value.
+  // The 32-byte token in the URL is the auth.
   //
   // Fail closed → 404 so the URL is indistinguishable from a typo.
   if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
     const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-    const requireIp = process.env.ADMIN_CAMERA_REQUIRE_IP === "1";
 
     // Token extraction: for /admin/{token}/..., token is the 2nd
     // path segment. For /api/admin/..., we accept header
@@ -73,18 +67,7 @@ export function middleware(request: NextRequest) {
 
     const tokenOk = !!expected && token.length === expected.length && token === expected;
 
-    let ipOk = true;
-    if (requireIp) {
-      const allowedIps = new Set(
-        (process.env.ADMIN_ALLOWED_IPS || "")
-          .split(",").map((s) => s.trim()).filter(Boolean),
-      );
-      const xff = request.headers.get("x-forwarded-for") || "";
-      const ip = xff.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
-      ipOk = allowedIps.size > 0 && !!ip && allowedIps.has(ip);
-    }
-
-    if (!tokenOk || !ipOk) {
+    if (!tokenOk) {
       if (pathname.startsWith("/api/")) {
         return new NextResponse(
           JSON.stringify({ error: "Not found" }),
