@@ -216,7 +216,9 @@ const IMPORTANT_INFO = [
   ``,
   `The time on your ticket is your CHECK-IN CUT-OFF. Arrive at the Karting check-in desk on the 1st Floor at least 5 min early. Miss check-in and we may not be able to reschedule — missed races are non-refundable.`,
   ``,
-  `Allow ~30 min from check-in to race time for briefing, helmet fitting, and prep. Lockers are in the briefing rooms. NO LOOSE ITEMS on the track.`,
+  `Have your e-ticket OPEN and ready at check-in — staff scans the screen, no paper ticket needed.`,
+  ``,
+  `Allow ~30 min from check-in to race time for briefing, helmet fitting, and prep. Lockers are available in the briefing rooms. NO LOOSE ITEMS on the track.`,
   ``,
   `This is live racing — yellow flags or track conditions may cause delays. We'll announce upcoming races.`,
 ].join("\n");

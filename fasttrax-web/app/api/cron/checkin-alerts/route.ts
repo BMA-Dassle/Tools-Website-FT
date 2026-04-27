@@ -385,12 +385,13 @@ function buildSingleSmsBody(race: CurrentRace, member: GroupTicketMember, shortU
   return [
     `FastTrax · NOW CHECKING IN`,
     ``,
-    `Have your e-ticket ready: ${shortUrl}`,
-    ``,
     raceHeader(race),
     racerLabel(member),
     ``,
-    `Head to Karting · 1st Floor NOW`,
+    `Head to Karting · 1st Floor NOW.`,
+    `Have your e-ticket OPEN and ready: ${shortUrl}`,
+    ``,
+    `Lockers are in the briefing room — no loose items on the track.`,
   ].join("\n");
 }
 
@@ -404,11 +405,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     if (!bySession.has(k)) bySession.set(k, []);
     bySession.get(k)!.push(m);
   }
-  const lines: string[] = [
-    `FastTrax · NOW CHECKING IN`,
-    ``,
-    `Have your e-tickets ready: ${shortUrl}`,
-  ];
+  const lines: string[] = [`FastTrax · NOW CHECKING IN`];
   for (const group of bySession.values()) {
     const first = group[0];
     lines.push(``);
@@ -416,7 +413,10 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
   lines.push(``);
-  lines.push(`Head to Karting · 1st Floor NOW`);
+  lines.push(`Head to Karting · 1st Floor NOW.`);
+  lines.push(`Have your e-tickets OPEN and ready: ${shortUrl}`);
+  lines.push(``);
+  lines.push(`Lockers are in the briefing room — no loose items on the track.`);
   return lines.join("\n");
 }
 
@@ -433,7 +433,9 @@ function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string)
     ``,
     `- ${racerLabel(member)} — ${member.track} Heat ${member.heatNumber} · ${timeET(member.scheduledStart)}`,
     ``,
-    `E-ticket: ${shortUrl}`,
+    `Have the e-ticket OPEN and ready: ${shortUrl}`,
+    ``,
+    `Lockers are in the briefing room — no loose items on the track.`,
   ].join("\n");
 }
 
@@ -456,7 +458,9 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
     lines.push(`- ${racerLabel(m)} — ${m.track} Heat ${m.heatNumber} · ${timeET(m.scheduledStart)}`);
   }
   lines.push(``);
-  lines.push(`E-tickets: ${shortUrl}`);
+  lines.push(`Have the e-tickets OPEN and ready: ${shortUrl}`);
+  lines.push(``);
+  lines.push(`Lockers are in the briefing room — no loose items on the track.`);
   return lines.join("\n");
 }
 
