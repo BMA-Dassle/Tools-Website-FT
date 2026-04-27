@@ -119,8 +119,6 @@ export default function VideoAdminClient({ token }: { token: string }) {
   // Tracks which videoCode is currently being block-toggled so we can
   // disable its button and prevent double-clicks.
   const [blockBusy, setBlockBusy] = useState<string | null>(null);
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,73 +161,6 @@ export default function VideoAdminClient({ token }: { token: string }) {
    * notify, VT3 ready), the server fires the notify inline and we
    * show a success toast reflecting it.
    */
-  /**
-   * One-time guardian backfill — sweeps today's matches and re-fires
-   * the notify path for any racer who never reached SMS or email.
-   * The notify path now does racer→guardian fallback automatically,
-   * so minors with parent contact on file will land via guardian.
-   */
-  const guardianBackfill = useCallback(async () => {
-    if (!confirm("Run guardian backfill for today?\n\nFor every match without a successful SMS or email, the system will retry — racer first, then guardian (when on file). Body says 'video ready for {racer}' on guardian sends. Safe to run, but only re-fires when prior attempts FAILED.")) return;
-    setBulkBusy(true);
-    setBulkMsg(null);
-    try {
-      const res = await fetch(`/api/admin/videos/backfill-guardian?token=${token}`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `backfill failed (${res.status})`);
-      const bits: string[] = [];
-      bits.push(`${data.candidates} candidates`);
-      if (data.smsSent) bits.push(`${data.smsSent} SMS sent`);
-      if (data.emailSent) bits.push(`${data.emailSent} email sent`);
-      if (data.viaGuardian) bits.push(`${data.viaGuardian} via guardian`);
-      if (data.stillNoContact) bits.push(`${data.stillNoContact} still no contact`);
-      if (data.errored) bits.push(`${data.errored} errored`);
-      setBulkMsg(bits.join(" · "));
-      await load();
-    } catch (err) {
-      setBulkMsg(err instanceof Error ? err.message : "backfill failed");
-    } finally {
-      setBulkBusy(false);
-    }
-  }, [token, load]);
-
-  /**
-   * Bulk-resend video SMS for the last N minutes. Called from the
-   * "Resend last hour" button. Confirms with the staff first so a
-   * mistap doesn't fire a hundred SMS.
-   */
-  const bulkResend = useCallback(async (minutes: number) => {
-    if (!confirm(`Re-fire video SMS for matches in the last ${minutes} min?\n\nQueued sends are also retried; quota errors auto-route to the queue. This is what you want when Vox was down and matches went out without delivery.`)) return;
-    setBulkBusy(true);
-    setBulkMsg(null);
-    try {
-      const res = await fetch(`/api/admin/videos/bulk-resend?token=${token}`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({ minutes }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `bulk-resend failed (${res.status})`);
-      const bits: string[] = [];
-      bits.push(`${data.candidates} candidates`);
-      if (data.sent) bits.push(`${data.sent} sent`);
-      if (data.queued) bits.push(`${data.queued} queued (quota)`);
-      if (data.failed) bits.push(`${data.failed} failed`);
-      if (data.skipped) bits.push(`${data.skipped} skipped`);
-      setBulkMsg(bits.join(" · "));
-      // Reload immediately so chips update.
-      await load();
-    } catch (err) {
-      setBulkMsg(err instanceof Error ? err.message : "bulk-resend failed");
-    } finally {
-      setBulkBusy(false);
-    }
-  }, [token, load]);
-
   const toggleBlock = useCallback(async (row: VideoRow) => {
     const nowBlocked = !row.blocked;
     let reason: string | undefined;
@@ -269,48 +200,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
-        <header className="mb-3 sm:mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Video Admin</h1>
-            <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
-              Matched race videos from vt3.io. Resend via SMS, email, or both with optional overrides.
-            </p>
-          </div>
-          {/* Bulk-resend buttons — useful after Vox/Twilio outage to
-              re-fire video SMS that didn't actually deliver. Quota
-              errors auto-funnel to the queue. */}
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <button
-                type="button"
-                onClick={() => bulkResend(60)}
-                disabled={bulkBusy}
-                className="px-3 py-1.5 rounded-lg font-bold text-xs bg-amber-500/90 text-[#000418] hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Re-fire video SMS for the last 60 minutes"
-              >
-                {bulkBusy ? "Sending…" : "Resend last 1h"}
-              </button>
-              <button
-                type="button"
-                onClick={() => bulkResend(180)}
-                disabled={bulkBusy}
-                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-white/10 text-white hover:bg-white/20 disabled:opacity-50"
-                title="Re-fire video SMS for the last 3 hours"
-              >
-                Last 3h
-              </button>
-              <button
-                type="button"
-                onClick={guardianBackfill}
-                disabled={bulkBusy}
-                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-purple-500/80 text-white hover:bg-purple-400 disabled:opacity-50"
-                title="One-time: sweep today's matches and try guardian for any minor without SMS/email delivery"
-              >
-                Guardian backfill (today)
-              </button>
-            </div>
-            {bulkMsg && <p className="text-emerald-300 text-xs max-w-xs text-right">{bulkMsg}</p>}
-          </div>
+        <header className="mb-3 sm:mb-5">
+          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Video Admin</h1>
+          <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
+            Matched race videos from vt3.io. Resend via SMS or email with optional overrides.
+          </p>
         </header>
 
         {/* Filter bar */}
@@ -757,18 +651,32 @@ function ResendModal({
   // the manual-send flow which only needs videoCode + contact info.
   const isUnmatched = !entry.matched || !entry.sessionId || !entry.personId;
 
-  // Sensible default: if neither send has succeeded, try both; if one
-  // already succeeded, default to the other. Staff can override.
-  // For unmatched: default to "both" so staff can fill in either and
-  // fire at least one channel.
-  const defaultChannel: "sms" | "email" | "both" = useMemo(() => {
-    if (isUnmatched) return "both";
+  // Default channel: if one channel already succeeded, default to
+  // the OTHER one (admin is presumably resending because the prior
+  // channel got the wrong recipient). Otherwise default SMS — text
+  // is the higher-confidence delivery medium for race notifications.
+  const defaultChannel: "sms" | "email" = useMemo(() => {
     if (entry.notifySmsOk && !entry.notifyEmailOk) return "email";
     if (entry.notifyEmailOk && !entry.notifySmsOk) return "sms";
-    return "both";
-  }, [entry, isUnmatched]);
+    return "sms";
+  }, [entry]);
 
-  const [channel, setChannel] = useState<"sms" | "email" | "both">(defaultChannel);
+  const [channel, setChannel] = useState<"sms" | "email">(defaultChannel);
+  const defaultPhone = entry.phone || entry.mobilePhone || entry.homePhone || "";
+  const defaultEmail = entry.email || "";
+
+  // Same/Different radio mode per channel — mirrors the e-ticket
+  // resend modal. Forced to "new" when there's no default to reuse
+  // (unmatched videos OR matches without that contact field).
+  const hasOriginalPhone = !!defaultPhone;
+  const hasOriginalEmail = !!defaultEmail;
+  const [phoneMode, setPhoneMode] = useState<"same" | "new">(
+    !hasOriginalPhone || isUnmatched ? "new" : "same",
+  );
+  const [emailMode, setEmailMode] = useState<"same" | "new">(
+    !hasOriginalEmail || isUnmatched ? "new" : "same",
+  );
+
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState(isUnmatched ? "" : entry.firstName);
@@ -776,26 +684,55 @@ function ResendModal({
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const defaultPhone = entry.phone || entry.mobilePhone || entry.homePhone || "";
-  const defaultEmail = entry.email || "";
-
   async function submit() {
     setSending(true);
     setErr(null);
     try {
-      const tp = phone.trim();
-      const te = email.trim();
+      // Resolve destination based on the radio mode for the active
+      // channel. "Same" reuses the default; "Different" pulls from
+      // the typed input. Validation is inline so the user gets a
+      // clear message instead of an opaque server 400.
+      let destPhone = "";
+      let destEmail = "";
+      if (channel === "sms") {
+        if (phoneMode === "same") {
+          destPhone = defaultPhone;
+          if (!destPhone) {
+            throw new Error("No phone on file. Switch to 'Different number' and enter one.");
+          }
+        } else {
+          destPhone = phone.trim();
+          if (!destPhone) {
+            throw new Error("Enter a phone number.");
+          }
+          // Validate: 10 digits, or 11 starting with 1. Server's
+          // canonicalizePhone applies the same rule and rejects
+          // anything else with a 400, but doing it here gives a
+          // clearer inline message.
+          const digits = destPhone.replace(/\D/g, "");
+          const valid = digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+          if (!valid) {
+            throw new Error("Enter 10 digits, or 11 starting with 1.");
+          }
+        }
+      } else {
+        if (emailMode === "same") {
+          destEmail = defaultEmail;
+          if (!destEmail) {
+            throw new Error("No email on file. Switch to 'Different email' and enter one.");
+          }
+        } else {
+          destEmail = email.trim();
+          if (!destEmail) {
+            throw new Error("Enter an email address.");
+          }
+        }
+      }
 
       const payload: Record<string, unknown> = { channel };
       if (isUnmatched) {
         // Manual send on an unmatched video — server expects videoCode
         // + raw fields + the contact staff is typing into the form.
-        if ((channel === "sms" || channel === "both") && !tp) {
-          throw new Error("Phone is required for SMS");
-        }
-        if ((channel === "email" || channel === "both") && !te) {
-          throw new Error("Email is required for email send");
-        }
         payload.videoCode = entry.videoCode;
         payload.systemNumber = entry.systemNumber;
         payload.cameraNumber = entry.cameraNumber;
@@ -805,8 +742,8 @@ function ResendModal({
         payload.duration = entry.duration;
         payload.firstName = firstName.trim() || undefined;
         payload.lastName = lastName.trim() || undefined;
-        if (tp) payload.overridePhone = tp;
-        if (te) payload.overrideEmail = te;
+        if (destPhone) payload.overridePhone = destPhone;
+        if (destEmail) payload.overrideEmail = destEmail;
       } else {
         // Matched resend.
         payload.sessionId = entry.sessionId;
@@ -822,8 +759,11 @@ function ResendModal({
         payload.thumbnailUrl = entry.thumbnailUrl;
         payload.capturedAt = entry.capturedAt;
         payload.duration = entry.duration;
-        if (tp && tp !== defaultPhone) payload.overridePhone = tp;
-        if (te && te !== defaultEmail) payload.overrideEmail = te;
+        // Always send the override explicitly — keeps "Same number"
+        // working even when the match record's phone field has
+        // drifted (e.g., trimmed from the match log).
+        if (destPhone) payload.overridePhone = destPhone;
+        if (destEmail) payload.overrideEmail = destEmail;
       }
 
       const res = await fetch("/api/admin/videos/resend", {
@@ -936,11 +876,12 @@ function ResendModal({
             </div>
           )}
 
-          {/* Channel picker — radio-style chips */}
+          {/* Channel picker — SMS or Email (no "Both"). Sending one
+              at a time keeps the destination semantics clear. */}
           <div className="mb-3">
             <div className="text-xs text-white/60 mb-1">Channel</div>
             <div className="flex gap-2">
-              {(["sms", "email", "both"] as const).map((c) => (
+              {(["sms", "email"] as const).map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -951,40 +892,100 @@ function ResendModal({
                       : "border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10"
                   }`}
                 >
-                  {c === "both" ? "SMS + Email" : c.toUpperCase()}
+                  {c.toUpperCase()}
                 </button>
               ))}
             </div>
           </div>
 
-          {(channel === "sms" || channel === "both") && (
-            <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-              {isUnmatched
-                ? "Phone (required for SMS)"
-                : `Phone (leave blank to reuse ${defaultPhone || "none"})`}
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white font-mono"
-                placeholder="+12395551234"
-              />
-            </label>
+          {channel === "sms" && (
+            <fieldset className="mb-3">
+              <legend className="text-xs text-white/60 mb-1.5">Send to</legend>
+              <div className="flex flex-col gap-2">
+                {hasOriginalPhone && !isUnmatched && (
+                  <label className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="phoneMode"
+                      value="same"
+                      checked={phoneMode === "same"}
+                      onChange={() => setPhoneMode("same")}
+                      className="accent-[#00E2E5]"
+                    />
+                    <span>Same number <span className="font-mono text-white/60">{defaultPhone}</span></span>
+                  </label>
+                )}
+                <label className="flex flex-col gap-1.5">
+                  <span className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="phoneMode"
+                      value="new"
+                      checked={phoneMode === "new"}
+                      onChange={() => setPhoneMode("new")}
+                      className="accent-[#00E2E5]"
+                    />
+                    Different number
+                  </span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    onFocus={() => setPhoneMode("new")}
+                    disabled={phoneMode !== "new"}
+                    className="ml-6 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white font-mono disabled:opacity-40 disabled:cursor-not-allowed"
+                    placeholder="2395551234"
+                  />
+                  {phoneMode === "new" && (
+                    <span className="ml-6 text-[11px] text-white/40">10 digits, or 11 starting with 1</span>
+                  )}
+                </label>
+              </div>
+            </fieldset>
           )}
 
-          {(channel === "email" || channel === "both") && (
-            <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-              {isUnmatched
-                ? "Email (required for email send)"
-                : `Email (leave blank to reuse ${defaultEmail || "none"})`}
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                placeholder="racer@example.com"
-              />
-            </label>
+          {channel === "email" && (
+            <fieldset className="mb-3">
+              <legend className="text-xs text-white/60 mb-1.5">Send to</legend>
+              <div className="flex flex-col gap-2">
+                {hasOriginalEmail && !isUnmatched && (
+                  <label className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="emailMode"
+                      value="same"
+                      checked={emailMode === "same"}
+                      onChange={() => setEmailMode("same")}
+                      className="accent-[#00E2E5]"
+                    />
+                    <span>Same email <span className="text-white/60">{defaultEmail}</span></span>
+                  </label>
+                )}
+                <label className="flex flex-col gap-1.5">
+                  <span className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="emailMode"
+                      value="new"
+                      checked={emailMode === "new"}
+                      onChange={() => setEmailMode("new")}
+                      className="accent-[#00E2E5]"
+                    />
+                    Different email
+                  </span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onFocus={() => setEmailMode("new")}
+                    disabled={emailMode !== "new"}
+                    className="ml-6 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                    placeholder="racer@example.com"
+                  />
+                </label>
+              </div>
+            </fieldset>
           )}
 
           <div className="text-xs text-white/60 mb-1">Preview</div>
