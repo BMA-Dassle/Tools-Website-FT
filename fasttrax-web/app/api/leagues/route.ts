@@ -28,7 +28,14 @@ function pandoraGet(path: string): Promise<{ status: number; body: string }> {
 /**
  * League standings API proxy.
  *
- * GET ?action=summary&location=LAB52GY480CJF&track=Blue+Track&scoreGroup=Blue+League+(4/1/26-7/8/26)&startDate=2026-01-01&endDate=2026-12-31
+ * GET ?action=standings&location=...&scoreGroups=A,B&startDate=...&endDate=...&excludePractice=true
+ *     New combined endpoint — one call returns drivers from ALL listed
+ *     score groups merged. Used by the public /leagues page.
+ *
+ * GET ?action=summary&location=LAB52GY480CJF&track=Blue+Track&scoreGroup=...&startDate=...&endDate=...
+ *     Legacy per-(track, scoreGroup) endpoint. Kept for any caller that
+ *     still relies on it; consider removing after callers migrate.
+ *
  * GET ?action=sessions&location=...&track=...&scoreGroup=...&startDate=...&endDate=...
  * GET ?action=scores&location=...&sessionId=12345
  */
@@ -38,6 +45,36 @@ export async function GET(req: NextRequest) {
   const locationId = searchParams.get("location") || "LAB52GY480CJF";
 
   try {
+    if (action === "standings") {
+      // Combined-leagues endpoint:
+      //   /v2/bmi/records/standings/{locationId}
+      //     ?startDate=...&endDate=...&excludePractice=...
+      //     &scoreGroupName={comma-separated, URI-encoded}
+      const scoreGroupsRaw = searchParams.get("scoreGroups") || "";
+      const startDate = searchParams.get("startDate") || "2026-01-01T00:00:00";
+      const endDate = searchParams.get("endDate") || "2026-12-31T23:59:59";
+      const excludePractice = searchParams.get("excludePractice") || "false";
+      if (!scoreGroupsRaw) return NextResponse.json({ error: "scoreGroups required" }, { status: 400 });
+
+      // The user-supplied list is already comma-separated league names.
+      // Pandora wants them URI-encoded as a single value (commas
+      // preserved as %2C). encodeURIComponent on the whole string does
+      // that correctly.
+      const encodedGroups = encodeURIComponent(scoreGroupsRaw);
+      const encodedStart = encodeURIComponent(startDate);
+      const encodedEnd = encodeURIComponent(endDate);
+
+      const path = `/v2/bmi/records/standings/${locationId}?startDate=${encodedStart}&endDate=${encodedEnd}&excludePractice=${excludePractice}&scoreGroupName=${encodedGroups}`;
+      const res = await pandoraGet(path);
+      if (res.status >= 400) {
+        return NextResponse.json(
+          { error: "Failed to fetch standings", details: res.body.substring(0, 200) },
+          { status: res.status },
+        );
+      }
+      return NextResponse.json(JSON.parse(res.body));
+    }
+
     if (action === "summary") {
       const track = searchParams.get("track") || "Blue Track";
       const scoreGroup = searchParams.get("scoreGroup") || "";
