@@ -335,18 +335,28 @@ export default function ConfirmationPage() {
           // Build notification payload (deferred send until waiver URL resolved)
           notificationPayload = (() => {
             const primaryRes = allConfirmations[0];
+            // Prefer BMI's live overview, but fall back to whatever
+            // the booking flow stored in `details.overviews` (racing
+            // OrderSummary + attractions [attraction]/page both
+            // persist this now). Without the fallback, attraction
+            // bookings whose order is converted before the email
+            // fires lose all their date/time/schedule fields — the
+            // user reported a HeadPinz Naples gel-blaster booking
+            // arriving with empty Date / Time / Schedule rows.
+            const sourceLines: OrderLine[] =
+              (overview?.lines && overview.lines.length > 0)
+                ? overview.lines
+                : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
             const scheduleLines: string[] = [];
-            if (overview?.lines) {
-              for (const line of overview.lines) {
-                const sched = line.scheduledTime || (line.schedules?.[0] ? { start: line.schedules[0].start, stop: line.schedules[0].stop } : null);
-                if (sched?.start) {
-                  const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
-                  scheduleLines.push(`${line.name}${qty} · ${formatTime(sched.start)}${sched.stop ? ` - ${formatTime(sched.stop)}` : ""}`);
-                }
+            for (const line of sourceLines) {
+              const sched = line.scheduledTime || (line.schedules?.[0] ? { start: line.schedules[0].start, stop: line.schedules[0].stop } : null);
+              if (sched?.start) {
+                const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
+                scheduleLines.push(`${line.name}${qty} · ${formatTime(sched.start)}${sched.stop ? ` - ${formatTime(sched.stop)}` : ""}`);
               }
             }
-            const firstHeat = overview?.lines?.find(l => l.scheduledTime?.start)?.scheduledTime?.start
-              || overview?.lines?.[0]?.schedules?.[0]?.start || "";
+            const firstHeat = sourceLines.find(l => l.scheduledTime?.start)?.scheduledTime?.start
+              || sourceLines[0]?.schedules?.[0]?.start || "";
             return {
               email: details?.email || "",
               phone: details?.phone || "",
@@ -359,11 +369,11 @@ export default function ConfirmationPage() {
               reservationSchedule: scheduleLines.join("<br/>"),
               reservationCode: primaryRes.resCode || "",
               billId: id || "",
-              productNames: overview?.lines?.map(l => l.name) || [],
-              scheduledItems: overview?.lines
-                ?.filter(l => l.scheduledTime?.start)
+              productNames: sourceLines.map(l => l.name),
+              scheduledItems: sourceLines
+                .filter(l => l.scheduledTime?.start)
                 .map(l => ({ name: l.name, start: l.scheduledTime!.start }))
-                .sort((a, b) => a.start.localeCompare(b.start)) || [],
+                .sort((a, b) => a.start.localeCompare(b.start)),
             };
           })();
         }
@@ -566,6 +576,19 @@ export default function ConfirmationPage() {
         const notifKey = `notif_sent_${id}`;
         if (notificationPayload && !sessionStorage.getItem(notifKey)) {
           sessionStorage.setItem(notifKey, "1");
+          // Resolve location for venue/address picking + brand. The
+          // booking-store wins because the user might have crossed
+          // domains between booking and confirmation (e.g. Naples
+          // booking that lands them on fasttraxent.com); the old
+          // hostname-only check broke HeadPinz Naples emails.
+          const storedLoc = (typeof window !== "undefined")
+            ? sessionStorage.getItem("bookingLocation")
+            : null;
+          const resolvedLocation =
+            (details?.location as string | undefined) ||
+            storedLoc ||
+            (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
+          const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
           fetch("/api/notifications/booking-confirmation", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -574,7 +597,8 @@ export default function ConfirmationPage() {
               waiverUrl: !isReturning ? resolvedWaiverUrl : "",
               isNewRacer: !isReturning,
               povCodes: claimedPovCodes,
-              brand: window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax",
+              brand: isHpLoc ? "headpinz" : "fasttrax",
+              location: resolvedLocation,
               expressLane: allWaiversValid,
               // Rookie Pack flag — adds a "free appetizer at Nemo's"
               // line to the SMS + email pointing to the confirmation

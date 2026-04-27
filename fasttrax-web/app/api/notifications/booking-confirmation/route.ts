@@ -36,11 +36,15 @@ function normalizePhone(phone: string): string {
 
 const HMAC_SECRET = process.env.BOOKING_HMAC_SECRET || process.env.SENDGRID_API_KEY || "fasttrax-booking-secret";
 
-/** Create a signed confirmation URL so billId can't be guessed/tampered */
+/** Create a signed confirmation URL so billId can't be guessed/tampered.
+ *  Points at the shared /book/confirmation page. (Older
+ *  /book/race/confirmation is still served as a redirect for legacy
+ *  links — see app/book/race/confirmation/page.tsx — but new emails
+ *  go direct.) */
 function signedConfirmationUrl(billId: string): string {
   const sig = createHmac("sha256", HMAC_SECRET).update(billId).digest("hex").slice(0, 16);
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-  return `${base}/book/race/confirmation?billId=${encodeURIComponent(billId)}&sig=${sig}`;
+  return `${base}/book/confirmation?billId=${encodeURIComponent(billId)}&sig=${sig}`;
 }
 
 /** Verify a signed billId (for the confirmation page to validate) */
@@ -247,8 +251,11 @@ export async function POST(req: NextRequest) {
 
     const results: { email: boolean; sms: boolean | null } = { email: false, sms: null };
 
-    // Determine check-in location from FIRST scheduled item
-    function getLocation(name: string): "headpinz" | "fasttrax" {
+    // Determine which venue each line item checks in at. Racing
+    // lives at FastTrax; gel-blasters / laser tag / shuffleboard
+    // (when at HP Fort Myers) live at HeadPinz. Within HeadPinz the
+    // `location` param disambiguates Naples vs Fort Myers.
+    function getVenue(name: string): "headpinz" | "fasttrax" {
       const n = name.toLowerCase();
       if (n.includes("gel")) return "headpinz";
       if (n.includes("laser")) return "headpinz";
@@ -256,15 +263,40 @@ export async function POST(req: NextRequest) {
       return "fasttrax";
     }
     const firstItem = scheduled[0]?.name || products[0] || "";
-    const firstLocation = getLocation(firstItem);
-    const allLocations = new Set((scheduled.length > 0 ? scheduled.map((s: { name: string }) => getLocation(s.name)) : products.map(getLocation)));
-    const hasBoth = allLocations.has("headpinz") && allLocations.has("fasttrax");
+    const allVenues = new Set((scheduled.length > 0 ? scheduled.map((s: { name: string }) => getVenue(s.name)) : products.map(getVenue)));
+    const hasBoth = allVenues.has("headpinz") && allVenues.has("fasttrax");
+    const firstVenue = getVenue(firstItem);
+
+    // ── Venue address mapping ──────────────────────────────────────
+    //
+    // Honor `location` (passed by the booking flow) when picking the
+    // HP address. Without this, HeadPinz Naples bookings used to fall
+    // back to "14513 Global Parkway, Fort Myers" because the route
+    // only had a product-name signal.
+    const isNaples = location === "naples";
+    const HP_ADDRESS = isNaples
+      ? "8525 Radio Lane, Naples"
+      : "14513 Global Parkway, Fort Myers";
+    const HP_VENUE_NAME = isNaples ? "HeadPinz Naples" : "HeadPinz";
+    const FT_ADDRESS = "14501 Global Parkway, Fort Myers";
+
     // Check-in location is based on first scheduled product
-    const isHeadPinz = firstLocation === "headpinz";
-    const showFastTrax = firstLocation === "fasttrax";
-    // Brand is based on which website they booked from
-    const isHeadPinzBrand = brand === "headpinz" || (!brand && isHeadPinz);
+    const isHeadPinz = firstVenue === "headpinz";
+    const showFastTrax = firstVenue === "fasttrax";
+    // Brand drives the email subject + sender name. Trust the
+    // explicit `brand` param from the booking page; fall back to the
+    // first venue if it wasn't provided. If the booking is at Naples
+    // it's always HeadPinz (no FT location there).
+    const isHeadPinzBrand = brand === "headpinz" || isNaples || (!brand && isHeadPinz);
     const brandName = isHeadPinzBrand ? "HeadPinz" : "FastTrax";
+
+    // Crude booking-type detection — drives the racing-specific
+    // footer in the SMS body. Don't include the racer's-journey
+    // link on a HeadPinz Naples gel-blaster confirmation.
+    const isRacingBooking = (() => {
+      const all = [...products, ...scheduled.map((s: { name: string }) => s.name)];
+      return all.some((n) => /race|kart|(blue|red|mega).*track/i.test(String(n)));
+    })();
 
     // ── Send email ────────────────────────────────────────────────────────
     try {
@@ -312,7 +344,7 @@ export async function POST(req: NextRequest) {
             </p>
             <p style="margin: 0 0 4px 0; font-size: 14px; color: #333;">1st Floor — Arrive 5 minutes before your race time.</p>
             <p style="margin: 0 0 8px 0; font-size: 13px; color: #059669; font-weight: bold;">Have your express pass open and ready on your phone.</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${FT_ADDRESS}</p>
             ${emailConfirmUrl ? `<p style="margin: 14px 0 0 0; text-align: center;"><a href="${emailConfirmUrl}" style="display:inline-block;padding:14px 28px;background-color:#059669;color:#ffffff;text-decoration:none;border-radius:555px;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase;">View Your Express Pass</a></p>` : ""}
           </td></tr></table>
           <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #FFF0F0; border: 2px solid #D71C1C; border-radius: 6px; margin-top: 10px;">
@@ -326,9 +358,9 @@ export async function POST(req: NextRequest) {
         checkInHtml += `
           <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #FFF5F5; border: 1px solid #FFCDD2; border-radius: 6px;">
           <tr><td style="font-family: Arial, sans-serif;">
-            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; Check In at HeadPinz</p>
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #C62828;">&#127923; Check In at ${HP_VENUE_NAME}</p>
             <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early. Check in at Guest Services.</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14513 Global Parkway, Fort Myers</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${HP_ADDRESS}</p>
           </td></tr></table>`;
       } else if (showFastTrax && !isHeadPinz) {
         checkInHtml += `
@@ -336,24 +368,30 @@ export async function POST(req: NextRequest) {
           <tr><td style="font-family: Arial, sans-serif;">
             <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: #00838F;">&#127937; Check In at FastTrax</p>
             <p style="margin: 0 0 4px 0; font-size: 13px; color: #333;">Please arrive 30 minutes early. Check in at Guest Services, 2nd Floor.</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; 14501 Global Parkway, Fort Myers</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${FT_ADDRESS}</p>
           </td></tr></table>`;
       } else if (hasBoth) {
-        // Both locations — highlight which is first
-        const firstLabel = isHeadPinz ? "HeadPinz" : "FastTrax";
+        // Both venues on the same bill (FT racing + HP attractions).
+        // This combination is only possible at Fort Myers — Naples
+        // doesn't have a FastTrax — so HP_ADDRESS resolves correctly
+        // for the FortMyers case here.
+        const firstLabel = isHeadPinz ? HP_VENUE_NAME : "FastTrax";
+        const firstAddr = isHeadPinz ? HP_ADDRESS : `${FT_ADDRESS} &mdash; Guest Services, 2nd Floor`;
+        const secondLabel = isHeadPinz ? "FastTrax" : HP_VENUE_NAME;
+        const secondAddr = isHeadPinz ? `${FT_ADDRESS} &mdash; Guest Services, 2nd Floor` : HP_ADDRESS;
         checkInHtml += `
           <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0 0 14px 0; text-align: center;">
             Your first attraction is at <strong style="color:#1A1A1A;">${firstLabel}</strong>. Please arrive 30 minutes early.
           </p>
           <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: ${isHeadPinz ? "#FFF5F5; border: 2px solid #FFCDD2" : "#E8F8F8; border: 2px solid #B2DFDB"}; border-radius: 6px; margin-bottom: 10px;">
           <tr><td style="font-family: Arial, sans-serif;">
-            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: ${isHeadPinz ? "#C62828" : "#00838F"};">&#10148; Check in here first: ${isHeadPinz ? "HeadPinz" : "FastTrax"}</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${isHeadPinz ? "14513 Global Parkway, Fort Myers" : "14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor"}</p>
+            <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: bold; color: ${isHeadPinz ? "#C62828" : "#00838F"};">&#10148; Check in here first: ${firstLabel}</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${firstAddr}</p>
           </td></tr></table>
           <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: ${isHeadPinz ? "#E8F8F8; border: 1px solid #B2DFDB" : "#FFF5F5; border: 1px solid #FFCDD2"}; border-radius: 6px;">
           <tr><td style="font-family: Arial, sans-serif;">
-            <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: ${isHeadPinz ? "#00838F" : "#C62828"};">${isHeadPinz ? "FastTrax" : "HeadPinz"} (later)</p>
-            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${isHeadPinz ? "14501 Global Parkway, Fort Myers &mdash; Guest Services, 2nd Floor" : "14513 Global Parkway, Fort Myers"}</p>
+            <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: ${isHeadPinz ? "#00838F" : "#C62828"};">${secondLabel} (later)</p>
+            <p style="margin: 0; font-size: 12px; color: #888;">&#128205; ${secondAddr}</p>
           </td></tr></table>`;
       }
       // Add "View Your Confirmation" button for all emails
@@ -485,12 +523,12 @@ ${schedule}
 ${reservationDate || ""}
 ${reservationTime || ""}
 
-${isExpressLane ? "EXPRESS CHECK-IN\n\nSkip Guest Services.\nSkip Event Check-In.\nHead straight to Karting! 1st Floor.\n\nArrive 5 min before your race.\nHave your express pass ready on your phone.\n14501 Global Parkway, Fort Myers\n\nIMPORTANT: If you have other attractions booked, Guest Services check-in is still required for those." : ""}${!isExpressLane && showFastTrax && !hasBoth ? "Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n14501 Global Parkway, Fort Myers" : ""}${!isExpressLane && isHeadPinz && !hasBoth ? "Arrive 30 minutes early to check in at HeadPinz.\nGuest Services\n14513 Global Parkway, Fort Myers" : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? "HeadPinz\n14513 Global Parkway, Fort Myers" : "FastTrax — Guest Services, 2nd Floor\n14501 Global Parkway, Fort Myers"}.` : ""}
+${isExpressLane ? `EXPRESS CHECK-IN\n\nSkip Guest Services.\nSkip Event Check-In.\nHead straight to Karting! 1st Floor.\n\nArrive 5 min before your race.\nHave your express pass ready on your phone.\n${FT_ADDRESS}\n\nIMPORTANT: If you have other attractions booked, Guest Services check-in is still required for those.` : ""}${!isExpressLane && showFastTrax && !hasBoth ? `Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n${FT_ADDRESS}` : ""}${!isExpressLane && isHeadPinz && !hasBoth ? `Arrive 30 minutes early to check in at ${HP_VENUE_NAME}.\nGuest Services\n${HP_ADDRESS}` : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? `${HP_VENUE_NAME}\n${HP_ADDRESS}` : `FastTrax — Guest Services, 2nd Floor\n${FT_ADDRESS}`}.` : ""}
 ${waiverSection}
 ${confirmSection}
-${isRookiePack ? "\n🍴 Free appetizer at Nemo's (one per group, race day only) — join us upstairs before or after your race. Coupon code is on your confirmation link above.\n" : ""}
+${isRookiePack ? "\n🍴 Free appetizer at Nemo's (one per group, race day only) — join us upstairs before or after your race. Coupon code is on your confirmation link above.\n" : ""}${isRacingBooking ? `
 Important information about your race check-in:
-https://fasttraxent.com/racing#racers-journey`;
+https://fasttraxent.com/racing#racers-journey` : ""}`;
 
           const povFooter = codes.length > 0
             ? `\n\n\nYour POV Camera Codes — collect your camera slip after your race to redeem. Videos take 15-30 min to upload. POV Codes below:`

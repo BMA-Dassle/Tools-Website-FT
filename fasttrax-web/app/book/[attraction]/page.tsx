@@ -792,17 +792,38 @@ function ReviewStep({
     try {
       const { orderId, total, subtotal, tax, lines, creditsApplied } = state;
 
-      // Store booking details in Redis for confirmation page
+      // Store booking details in Redis for confirmation page.
+      //
+      // `location` rides along so the confirmation email picks the
+      // right venue + address (HP Naples vs HP Fort Myers vs FT) —
+      // the email render path used to fall back on a product-name
+      // heuristic that couldn't tell Naples apart from Fort Myers.
+      //
+      // `overviews` stashes the line data in the same shape the
+      // confirmation page already understands (mirrors the racing
+      // OrderSummary pattern). Without this, BMI's order overview
+      // is unreachable post-payment-confirm, so the email's
+      // Date/Time/Schedule fields ended up blank for attractions.
+      const overviewsForStore = [{
+        lines: lines.map((l) => ({
+          name: l.name,
+          quantity: l.quantity,
+          scheduledTime: l.time ? { start: l.time, stop: "" } : undefined,
+          productGroup: "Attractions",
+        })),
+      }];
       const bookingDetails = {
         billId: orderId,
         amount: total.toFixed(2),
         attraction: config.slug,
+        location: booking.location || "fasttrax",
         name: `${contact.firstName} ${contact.lastName}`,
         email: contact.email,
         phone: contact.phone,
         date: booking.date,
         isCreditOrder: "false",
         smsOptIn: contact.smsOptIn ? "true" : "false",
+        overviews: JSON.stringify(overviewsForStore),
       };
       await fetch("/api/booking-store", {
         method: "POST",
