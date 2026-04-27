@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState, useMemo } from "react";
 import SubpageHero from "@/components/SubpageHero";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /* ── Types ── */
 
@@ -885,15 +886,6 @@ function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => v
     return () => { cancelled = true; };
   }, [heat.sessionId]);
 
-  // Close on backdrop click + ESC.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   function rowName(r: HeatRow): string {
     if (r.name && r.name.trim()) return properName(r.name);
     const parts = [r.firstName, r.lastName].filter(Boolean).join(" ").trim();
@@ -904,9 +896,7 @@ function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => v
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center p-3"
       style={{ height: "100dvh", backgroundColor: "rgba(0,0,0,0.8)" }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
+      {...modalBackdropProps(onClose)}
     >
       <div
         className="relative w-full max-w-xl rounded-xl"
@@ -916,7 +906,6 @@ function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => v
           maxHeight: "calc(100dvh - 1.5rem)",
           overflowY: "auto",
         }}
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
