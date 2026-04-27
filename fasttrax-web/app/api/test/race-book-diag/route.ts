@@ -17,10 +17,6 @@ import { randomUUID } from "crypto";
  *   clientKey    (defaults "headpinzftmyers")
  *   heatIndex    (default 0; picks the Nth available time block)
  *   doConfirm    (default 1; set 0 to stop after booking/book)
- *   time         (default "15:00"; HH:MM UTC — dayplanner picks slots
- *                 from this time forward on the given date. Default
- *                 15:00 UTC = 11 AM ET which covers most weekend
- *                 opens. Passing "T00:00:00Z" returns zero proposals.)
  *   confirmDepositKind (default 2) — value to pass in payment/confirm.
  *                 Production uses 2 (Credit). Workaround test for the
  *                 check-in double-deduct bug uses 0 (Money) — theory
@@ -68,7 +64,6 @@ export async function GET(req: NextRequest) {
     const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
     const heatIndex = parseInt(searchParams.get("heatIndex") || "0", 10);
     const doConfirm = searchParams.get("doConfirm") !== "0";
-    const timeStr = searchParams.get("time") || "15:00"; // HH:MM UTC
     const confirmDepositKindRaw = searchParams.get("confirmDepositKind");
     const confirmDepositKind = confirmDepositKindRaw !== null
       ? parseInt(confirmDepositKindRaw, 10)
@@ -89,7 +84,7 @@ export async function GET(req: NextRequest) {
         probe: true,
         inputShape: {
           personId, productId, pageId, date, clientKey, heatIndex,
-          doConfirm, confirmDepositKind, time: timeStr,
+          doConfirm, confirmDepositKind,
         },
         message: "Probe only — no BMI call. Drop probe=1 to actually run.",
       });
@@ -107,19 +102,9 @@ export async function GET(req: NextRequest) {
     console.log(`[race-book-diag] CREATING BILL for person ${personId} on ${date} (NO auto-cancel)`);
 
     const base = baseUrl(req);
-    const sms = async (endpoint: string, init: RequestInit = {}) => {
-      const url = `${base}/api/sms?endpoint=${encodeURIComponent(endpoint)}`;
-      const res = await fetch(url, {
-        ...init,
-        headers: { "content-type": "application/json", ...(init.headers || {}) },
-      });
-      const text = await res.text();
-      let parsed: unknown = text;
-      try { parsed = JSON.parse(text); } catch { /* keep raw */ }
-      return { status: res.status, body: parsed, raw: text };
-    };
-    const bmi = async (endpoint: string, init: RequestInit = {}) => {
-      const url = `${base}/api/bmi?endpoint=${encodeURIComponent(endpoint)}&clientKey=${clientKey}`;
+    const bmi = async (endpoint: string, init: RequestInit = {}, extraQuery?: Record<string, string>) => {
+      const qs = new URLSearchParams({ endpoint, clientKey, ...(extraQuery || {}) });
+      const url = `${base}/api/bmi?${qs.toString()}`;
       const res = await fetch(url, {
         ...init,
         headers: { "content-type": "application/json", ...(init.headers || {}) },
@@ -138,22 +123,25 @@ export async function GET(req: NextRequest) {
     // 1. Snapshot deposits BEFORE
     trace.depositsBefore = await depositSnapshot(base, personId);
 
-    // 2. Dayplanner — fetch available heat blocks for the date.
-    //    Matches HeatPicker.fetchHeatsFrom: date as UTC midnight for
-    //    the requested day so BMI returns that day's slots.
-    const dayplannerBody = JSON.stringify({
-      productId: Number(productId),
-      pageId: Number(pageId),
-      quantity: 1,
-      dynamicLines: null,
-      date: `${date}T${timeStr}:00.000Z`,
+    // 2. Availability — fetch every heat block for the date in one
+    //    call. BMI's /public-booking/{ck}/availability now returns
+    //    the full day correctly (verified 2026-04-27); previously we
+    //    fell back to SMS-Timing's dayplanner because BMI ignored
+    //    time offsets and capped at ~4 sessions.
+    const availBody = JSON.stringify({
+      ProductId: Number(productId),
+      PageId: Number(pageId),
+      Quantity: 1,
+      OrderId: null,
+      PersonId: null,
+      DynamicLines: [],
     });
-    const dpResp = await sms("dayplanner/dayplanner", { method: "POST", body: dayplannerBody });
-    trace.dayplanner = { status: dpResp.status, proposalCount: Array.isArray((dpResp.body as { proposals?: unknown[] })?.proposals) ? (dpResp.body as { proposals: unknown[] }).proposals.length : 0 };
+    const avResp = await bmi("availability", { method: "POST", body: availBody }, { date });
+    trace.availability = { status: avResp.status, proposalCount: Array.isArray((avResp.body as { proposals?: unknown[] })?.proposals) ? (avResp.body as { proposals: unknown[] }).proposals.length : 0 };
 
-    const proposals = (dpResp.body as { proposals?: Array<{ blocks: Array<{ block: { resourceId: number; start: string } }>; productLineId?: unknown }> })?.proposals || [];
+    const proposals = (avResp.body as { proposals?: Array<{ blocks: Array<{ block: { resourceId: number; start: string } }>; productLineId?: unknown }> })?.proposals || [];
     if (proposals.length === 0) {
-      return NextResponse.json({ ok: false, stoppedAt: "dayplanner-empty", trace }, { status: 200 });
+      return NextResponse.json({ ok: false, stoppedAt: "availability-empty", trace }, { status: 200 });
     }
 
     const chosen = proposals[Math.min(heatIndex, proposals.length - 1)];

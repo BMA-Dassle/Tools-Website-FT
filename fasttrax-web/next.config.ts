@@ -21,6 +21,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Old `/book/racing` flow was retired in favor of `/book/race` (BMI
+  // Public API). Keep the URLs alive for any old bookmarks / external
+  // links / Square redirect URLs that might still point here.
+  redirects: async () => [
+    { source: "/book/racing", destination: "/book/race", permanent: true },
+    { source: "/book/racing/:path*", destination: "/book/race", permanent: true },
+  ],
   headers: async () => [
     {
       source: "/(.*)",

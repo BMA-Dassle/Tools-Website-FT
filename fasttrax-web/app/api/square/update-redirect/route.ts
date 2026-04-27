@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       const providerKind = existingUrl.searchParams.get("providerKind");
       const data = existingUrl.searchParams.get("data");
 
-      const base = confirmationBaseUrl || `${existingUrl.protocol}//${existingUrl.host}/book/racing/confirmation`;
+      const base = confirmationBaseUrl || `${existingUrl.protocol}//${existingUrl.host}/book/race/confirmation`;
       const params = new URLSearchParams({ billId });
       if (providerKind) params.set("providerKind", providerKind);
       if (data) params.set("data", data);
