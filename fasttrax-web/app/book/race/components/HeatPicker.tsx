@@ -58,57 +58,41 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     }
   }, [selectedIdx]);
 
-  // Use SMS-Timing dayplanner directly for heats (BMI availability ignores time offsets)
-  async function fetchHeatsFrom(startTime: string): Promise<BmiProposal[]> {
-    const utcTime = startTime.endsWith("Z") ? startTime : `${startTime}.000Z`;
-    const res = await fetch("/api/sms?endpoint=dayplanner%2Fdayplanner", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        productId: race.productId,
-        pageId: race.pageId,
-        quantity: 1, // Always fetch per-unit price; booking/book handles quantity
-        dynamicLines: null,
-        date: utcTime,
-      }),
-    });
-    if (!res.ok) throw new Error("Failed to fetch time slots");
-    const data = await res.json();
-    return data.proposals || [];
-  }
-
+  // BMI's /public-booking/{ck}/availability endpoint returns the
+  // full day's heats in a single call (verified 2026-04-27 against
+  // SMS-Timing dayplanner — identical 27-slot weekday + 25-slot
+  // Tuesday Mega lists). Earlier this endpoint was capped at ~4
+  // sessions and ignored time offsets; we worked around it by
+  // looping SMS-Timing dayplanner across 8–9 hourly start times
+  // and deduping by block.start. Now obsolete — one POST gets
+  // the lot.
   const fetchSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
     setSelectedIdx(null);
     try {
       const dateOnly = date.split("T")[0];
-      const allProposals: BmiProposal[] = [];
-      const seen = new Set<string>();
+      const data = await bmiPost(
+        "availability",
+        {
+          // PascalCase per BMI's PublicSellInfo schema, even though
+          // the response comes back camelCase. Mirrored from the
+          // existing booking/sell + booking/book payloads.
+          ProductId: Number(race.productId),
+          PageId: Number(race.pageId),
+          Quantity: 1, // Per-unit price; booking/book handles real quantity
+          OrderId: null,
+          PersonId: null,
+          DynamicLines: [],
+        },
+        { date: dateOnly },
+      );
+      const proposals: BmiProposal[] = data.proposals || [];
 
-      // Fetch in ~1-hour jumps to ensure no heats are missed
-      // Parse date parts manually to avoid UTC timezone shift (new Date("YYYY-MM-DD") is UTC midnight,
-      // which becomes previous day in US timezones)
-      const [y, m, d] = dateOnly.split("-").map(Number);
-      const dayOfWeek = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
-      const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
-        ? [11, 13, 15, 17, 19, 20, 21, 22, 23]
-        : [15, 17, 18, 19, 20, 21, 22, 23];
-      for (const hour of startHours) {
-        const h = String(hour).padStart(2, "0");
-        const batch = await fetchHeatsFrom(`${dateOnly}T${h}:00:00`);
-
-        for (const p of batch) {
-          const key = p.blocks?.[0]?.block?.start;
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            allProposals.push(p);
-          }
-        }
-      }
-
-      // Sort by start time
-      allProposals.sort((a, b) => {
+      // BMI returns proposals in chronological order, but we sort
+      // anyway as belt-and-suspenders against any future order
+      // change upstream.
+      proposals.sort((a, b) => {
         const aStart = a.blocks?.[0]?.block?.start || "";
         const bStart = b.blocks?.[0]?.block?.start || "";
         return aStart.localeCompare(bStart);
@@ -117,11 +101,11 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
       // Filter out heats that are too soon (new racers need 1hr 15min lead time)
       const cutoff = minAdvanceMinutes > 0 ? Date.now() + minAdvanceMinutes * 60_000 : 0;
       const filtered = cutoff > 0
-        ? allProposals.filter(p => {
+        ? proposals.filter(p => {
             const start = p.blocks?.[0]?.block?.start;
             return start ? parseLocal(start).getTime() >= cutoff : true;
           })
-        : allProposals;
+        : proposals;
 
       setProposals(filtered);
     } catch {
@@ -129,7 +113,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     } finally {
       setLoading(false);
     }
-  }, [race.productId, race.pageId, date, quantity]);
+  }, [race.productId, race.pageId, date, minAdvanceMinutes]);
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
