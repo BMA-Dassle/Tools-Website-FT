@@ -1005,11 +1005,11 @@ export default function ConfirmationPage() {
                     <span aria-hidden="true" className="text-xl leading-none">📨</span>
                     <div>
                       <p className="text-emerald-300 text-sm font-semibold mb-0.5">
-                        Adult races — video sent automatically
+                        Adult races — heads-up sent automatically
                       </p>
                       <p className="text-white/60 text-xs leading-relaxed">
-                        Your race video will be <strong className="text-white/80">emailed and texted</strong> to you about
-                        5–10 minutes after your race. No slip needed. Codes below are kept here as a backup.
+                        About 5–10 minutes after your race, you&apos;ll get an <strong className="text-white/80">email and text</strong> letting you know your video is ready.
+                        Use the codes below to redeem it — no slip needed.
                       </p>
                     </div>
                   </div>
@@ -1035,8 +1035,7 @@ export default function ConfirmationPage() {
                 {/* Fallback (no race-line info available) */}
                 {!hasAdult && !hasJunior && (
                   <p className="text-white/50 text-sm leading-relaxed mb-4">
-                    After your race, be sure to collect your POV camera slip. Scan the QR code on the slip
-                    and enter the codes below to redeem your video. Videos take 15–30 minutes to upload.
+                    Use the codes below to redeem your race video. Videos take 5–30 minutes to upload after your race.
                   </p>
                 )}
 
