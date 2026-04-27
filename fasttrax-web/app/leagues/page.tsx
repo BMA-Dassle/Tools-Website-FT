@@ -223,6 +223,7 @@ function DriverRow({
   leaderBestLap,
   sortField,
   onHeatClick,
+  labelForHeat,
 }: {
   driver: Driver;
   rank: number;
@@ -232,6 +233,9 @@ function DriverRow({
   /** Click handler — fired when the user taps a session row in the
    *  expanded breakdown. Opens the per-heat standings modal. */
   onHeatClick?: (s: Session) => void;
+  /** Page-level resolver — turns a session into its display label
+   *  ("Race 1", "Race 2", ...) sequenced per race-night. */
+  labelForHeat: (s: Session) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const bestLap = driverBestLap(driver);
@@ -474,7 +478,7 @@ function DriverRow({
                                 color: emphasized ? "rgba(245,236,238,0.9)" : "rgba(245,236,238,0.5)",
                               }}
                             >
-                              {simplifySessionName(s.sessionName)}
+                              {labelForHeat(s)}
                             </span>
                           </td>
                           <td className="px-4 py-2">
@@ -706,6 +710,58 @@ export default function LeagueStandingsPage() {
   const leaderBestLap = leader ? driverBestLap(leader) : Infinity;
 
   /**
+   * Map every distinct race-night session to a sequential "Race N"
+   * label per ET calendar day. Heats are ordered by scheduledStart
+   * within each day so Race 1 = the first race of the night.
+   *
+   * This lets the same heat slot read identically week to week —
+   * racers see "Race 1" for the first race every Wednesday whether
+   * Pandora named it "GrandPrix 1" or "Scored". Falls back to the
+   * simplified Pandora name for any session not captured in this
+   * derivation (defensive — modal could in theory load a heat that
+   * isn't in any driver's sessions).
+   */
+  const raceLabelByHeatId = useMemo(() => {
+    const seen = new Map<number, Session>();
+    for (const d of drivers) {
+      for (const s of d.sessions) {
+        if (/practice/i.test(s.sessionName)) continue;
+        if (!seen.has(s.sessionId)) seen.set(s.sessionId, s);
+      }
+    }
+    const byDate = new Map<string, Session[]>();
+    for (const s of seen.values()) {
+      let key = "unknown";
+      try {
+        const d = new Date(s.scheduledStart);
+        if (!isNaN(d.getTime())) {
+          key = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(d);
+        }
+      } catch { /* "unknown" bucket */ }
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key)!.push(s);
+    }
+    const labels = new Map<number, string>();
+    for (const sessions of byDate.values()) {
+      sessions.sort(
+        (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+      );
+      sessions.forEach((s, i) => labels.set(s.sessionId, `Race ${i + 1}`));
+    }
+    return labels;
+  }, [drivers]);
+
+  /** Resolve a session to its display name. Race-N when we have it,
+   *  simplified Pandora name as a defensive fallback. */
+  const labelForHeat = (s: Session): string =>
+    raceLabelByHeatId.get(s.sessionId) ?? simplifySessionName(s.sessionName);
+
+  /**
    * Union of every distinct race-night session across all drivers,
    * grouped by ET calendar day. Powers the Heat Standings tab —
    * racers click a heat to drill into that night's standings.
@@ -900,7 +956,7 @@ export default function LeagueStandingsPage() {
                             }}
                           >
                             <span style={{ fontSize: "14px", fontWeight: 600 }}>
-                              {simplifySessionName(s.sessionName)}
+                              {labelForHeat(s)}
                             </span>
                             <span style={{ color: "rgba(0,226,229,0.5)", fontSize: "14px" }}>&rsaquo;</span>
                           </button>
@@ -975,6 +1031,7 @@ export default function LeagueStandingsPage() {
                         leaderBestLap={sortField === "bestLap" ? driverBestLap(sorted[0]) : leaderBestLap}
                         sortField={sortField}
                         onHeatClick={setHeatTarget}
+                        labelForHeat={labelForHeat}
                       />
                     ))}
                   </tbody>
@@ -994,7 +1051,11 @@ export default function LeagueStandingsPage() {
       </section>
 
       {heatTarget && (
-        <HeatStandingsModal heat={heatTarget} onClose={() => setHeatTarget(null)} />
+        <HeatStandingsModal
+          heat={heatTarget}
+          label={labelForHeat(heatTarget)}
+          onClose={() => setHeatTarget(null)}
+        />
       )}
     </>
   );
@@ -1018,7 +1079,16 @@ type HeatRow = {
   laps?: number;
 };
 
-function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => void }) {
+function HeatStandingsModal({
+  heat,
+  label,
+  onClose,
+}: {
+  heat: Session;
+  /** Pre-resolved Race-N label from the page. */
+  label: string;
+  onClose: () => void;
+}) {
   const [rows, setRows] = useState<HeatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1093,7 +1163,7 @@ function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => v
         <div className="p-5 sm:p-6">
           <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest mb-1">Heat Standings</p>
           <h3 className="font-display text-white text-xl uppercase tracking-wide pr-10 mb-1">
-            {simplifySessionName(heat.sessionName)}
+            {label}
           </h3>
           <p className="text-white/40 text-xs mb-5">
             {(() => {
