@@ -980,14 +980,19 @@ export default function ConfirmationPage() {
           </div>
 
           {/* POV Camera Codes
-              Delivery rules differ by race category:
-              - Adult races: video is automatically emailed + texted
-                ~5-10 minutes after the race finishes. Codes are still
-                shown as a backup but the racer doesn't need to do
-                anything.
-              - Junior races: ViewPoint can't auto-deliver these yet;
-                the racer must collect the QR slip when they turn the
-                camera in and scan/enter codes manually.
+              The codes below are the actual unlock keys for the
+              race video on ViewPoint — the racer enters them to
+              redeem regardless of category. The on-page banners
+              just clarify the notification cadence:
+
+              - Adult races: ViewPoint sends an "your video is ready"
+                email + SMS heads-up about 5-10 min after the race.
+                Racer then comes here (or follows the link in the
+                heads-up) and enters the codes.
+              - Junior races: NO auto-notification — racer needs to
+                wait 15-30 min for upload, then come back and enter
+                the codes to redeem.
+
               We detect the mix from the booking's race line names
               (BMI products embed "Junior" in the name). */}
           {povCodes.length > 0 && (() => {
@@ -1015,18 +1020,18 @@ export default function ConfirmationPage() {
                   </div>
                 )}
 
-                {/* Junior slip reminder */}
+                {/* Junior — no auto-notification; racer comes back to redeem */}
                 {hasJunior && (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 mb-3 flex items-start gap-3">
-                    <span aria-hidden="true" className="text-xl leading-none">🎫</span>
+                    <span aria-hidden="true" className="text-xl leading-none">⏱️</span>
                     <div>
                       <p className="text-amber-300 text-sm font-semibold mb-0.5">
-                        Junior races — grab your QR slip
+                        Junior races — no auto-notification
                       </p>
                       <p className="text-white/60 text-xs leading-relaxed">
-                        When you turn in your camera, <strong className="text-white/80">be sure to collect your QR slip</strong>.
-                        Without it you won&apos;t be able to retrieve the video. Scan the QR or enter the code below
-                        to redeem. Videos take 15–30 minutes to upload.
+                        We won&apos;t auto-text or email you about the video. Give it
+                        <strong className="text-white/80"> 15–30 minutes</strong> after your race to upload, then come back
+                        here and use the codes below to redeem.
                       </p>
                     </div>
                   </div>
