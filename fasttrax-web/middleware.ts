@@ -19,25 +19,33 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
-  // ── Camera + video gate ──────────────────────────────────────────────────
-  // Shared ADMIN_CAMERA_TOKEN covers both the scan-in tool
-  // (/admin/{token}/camera-assign) and the video admin
-  // (/admin/{token}/videos). They're the same workflow — staff binds
-  // a camera to a racer, then manages the resulting video records —
-  // and a shared token keeps the URL set short.
+  // ── Unified admin gate ───────────────────────────────────────────────────
+  // Single ADMIN_CAMERA_TOKEN covers ALL front-desk admin tools:
+  //   /admin/{token}/camera-assign
+  //   /admin/{token}/videos
+  //   /admin/{token}/e-tickets
+  //   /api/admin/*    (camera-assign, videos, e-tickets, sms-quota)
   //
-  // IP restriction is OFF until ADMIN_CAMERA_REQUIRE_IP=1 is set
-  // (flipped once staff finishes rollout).
-  const isCameraAssignPage = /^\/admin\/[^/]+\/camera-assign(\/|$)/.test(pathname);
-  const isCameraAssignApi = pathname.startsWith("/api/admin/camera-assign/") || pathname === "/api/admin/camera-assign";
-  const isVideosPage = /^\/admin\/[^/]+\/videos(\/|$)/.test(pathname);
-  const isVideosApi = pathname.startsWith("/api/admin/videos/") || pathname === "/api/admin/videos";
-  if (isCameraAssignPage || isCameraAssignApi || isVideosPage || isVideosApi) {
+  // One token to rotate, one URL pattern to bookmark. Previously
+  // e-tickets had its own ADMIN_ETICKETS_TOKEN + always-on IP gate;
+  // collapsed since staff use the same workflow + the IP allowlist
+  // was forcing front-desk-only access even when staff needed to
+  // hit it from phones / external networks.
+  //
+  // IP restriction is OPT-IN via ADMIN_CAMERA_REQUIRE_IP=1.
+  // Off by default; the legacy ADMIN_ALLOWED_IPS list is honored
+  // when the flag is on.
+  //
+  // Fail closed → 404 so the URL is indistinguishable from a typo.
+  if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
     const expected = process.env.ADMIN_CAMERA_TOKEN || "";
     const requireIp = process.env.ADMIN_CAMERA_REQUIRE_IP === "1";
 
+    // Token extraction: for /admin/{token}/..., token is the 2nd
+    // path segment. For /api/admin/..., we accept header
+    // `x-admin-token` OR query `?token=...`.
     let token = "";
-    if (isCameraAssignPage || isVideosPage) {
+    if (pathname.startsWith("/admin/")) {
       token = pathname.split("/")[2] || "";
     } else {
       token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
@@ -56,49 +64,6 @@ export function middleware(request: NextRequest) {
     }
 
     if (!tokenOk || !ipOk) {
-      if (pathname.startsWith("/api/")) {
-        return new NextResponse(
-          JSON.stringify({ error: "Not found" }),
-          { status: 404, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
-    }
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-admin-route", "1");
-    return NextResponse.next({ request: { headers: requestHeaders } });
-  }
-
-  // ── Admin gate (e-tickets) ──────────────────────────────────────────────
-  // Path shape: /admin/{token}/...  AND  /api/admin/...
-  // Both gates applied: token in path (for the page) or header/query (for
-  // the API), plus origin IP in ADMIN_ALLOWED_IPS. Fail → 404 so the URL
-  // is indistinguishable from a missing page.
-  if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
-    const expected = process.env.ADMIN_ETICKETS_TOKEN || "";
-    const allowedIps = new Set(
-      (process.env.ADMIN_ALLOWED_IPS || "")
-        .split(",").map((s) => s.trim()).filter(Boolean),
-    );
-    // IP check first — we fail closed with no leakage
-    const xff = request.headers.get("x-forwarded-for") || "";
-    const ip = xff.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
-    const ipOk = allowedIps.size > 0 && !!ip && allowedIps.has(ip);
-
-    // Token extraction: for /admin/{token}/..., token is the 2nd path
-    // segment. For /api/admin/..., we accept header `x-admin-token` OR
-    // query `?token=...`.
-    let token = "";
-    if (pathname.startsWith("/admin/")) {
-      token = pathname.split("/")[2] || "";
-    } else {
-      token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
-    }
-    const tokenOk = !!expected && token.length === expected.length && token === expected;
-
-    if (!ipOk || !tokenOk) {
-      // 404 so the path is indistinguishable from a missing page. For API
-      // routes we return JSON so fetch()'s don't choke on empty bodies.
       if (pathname.startsWith("/api/")) {
         return new NextResponse(
           JSON.stringify({ error: "Not found" }),
