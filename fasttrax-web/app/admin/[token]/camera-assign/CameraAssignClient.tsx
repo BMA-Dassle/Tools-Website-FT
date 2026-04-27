@@ -606,15 +606,13 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     return () => clearTimeout(id);
   }, [daySessions, heatModalOpen]);
 
-  /** Auto-close the heat-picker modal once the heat the user tapped
-   *  has finished loading. We track which sessionId they picked and
-   *  watch for the loaded `session` to match. Keeps the modal +
-   *  spinner visible during the fetch instead of closing immediately
-   *  and leaving the screen blank while loading. */
+  /** Clear the picking flag once the chosen heat has loaded — drives
+   *  the inline "Loading Heat N…" copy in the participants panel
+   *  back to the normal roster render. The modal itself was already
+   *  closed at click time so no modal handling here. */
   useEffect(() => {
     if (!pickingSid) return;
     if (session && String(session.sessionId) === pickingSid) {
-      setHeatModalOpen(false);
       setPickingSid(null);
     }
   }, [session, pickingSid]);
@@ -1624,11 +1622,14 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                     setHeatModalOpen(false);
                     return;
                   }
-                  // Track the pick so the modal can render an inline
-                  // spinner on this row + auto-close once the loaded
-                  // session matches. Modal stays open during the fetch
-                  // so the user gets a clear loading affordance instead
-                  // of a blank screen.
+                  // Close the modal immediately — the participants
+                  // panel underneath swaps to a "Loading Heat N…"
+                  // state driven by `loading && pickingSid` while
+                  // the fetch is in flight, so the operator gets
+                  // clear feedback without the modal sitting on
+                  // top of it. `pickingSid` clears once the new
+                  // session lands (see useEffect above).
+                  setHeatModalOpen(false);
                   setPickingSid(String(s.sessionId));
                   setOverrideSessionId(String(s.sessionId));
                   void loadSession(String(s.sessionId));
@@ -1930,17 +1931,28 @@ export default function CameraAssignClient({ token, track: initialTrack, version
               </div>
             </div>
           )}
-          {track && loading && participants.length === 0 && (
+          {track && loading && participants.length === 0 && (() => {
+            // Resolve the heat the operator just tapped so the
+            // loading copy reads "Loading Heat 12…" instead of a
+            // generic spinner. Falls back to a plain "Loading
+            // heat…" label if pickingSid isn't a known session
+            // (initial load, manual reload, etc.).
+            const pickingHeat = pickingSid
+              ? daySessions.find((s) => String(s.sessionId) === pickingSid)?.heatNumber
+              : null;
+            const loadingLabel = pickingHeat ? `Loading Heat ${pickingHeat}…` : "Loading heat…";
+            return (
             <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center py-10">
               <div className="inline-flex items-center gap-2 text-[#00E2E5] text-sm">
                 <span
                   aria-hidden="true"
                   className="inline-block w-4 h-4 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
                 />
-                Loading roster…
+                {loadingLabel}
               </div>
             </div>
-          )}
+            );
+          })()}
           {track && participants.length === 0 && !loading && (
             <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
               No participants.
