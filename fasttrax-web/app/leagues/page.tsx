@@ -92,6 +92,29 @@ function isGrandPrix(sessionName: string): boolean {
 }
 
 /**
+ * Strip Pandora session-name noise so the same race format reads
+ * identically week to week:
+ *
+ *   "1 - Blue League - GrandPrix 1"    → "GrandPrix 1"
+ *   "2 - Blue League - GrandPrix 1"    → "GrandPrix 1"   (now matches!)
+ *   "1 - Red League - Scored"          → "Scored"
+ *   "1 - Red League - Scored (Invert)" → "Scored (Invert)"
+ *
+ * Leaves the raw `sessionName` on the underlying data untouched —
+ * only the display string is cleaned.
+ */
+function simplifySessionName(name: string): string {
+  let s = (name || "").trim();
+  // Strip leading "N - " (session ordinal — already grouped by date
+  // header, so the number is redundant here).
+  s = s.replace(/^\d+\s*-\s*/, "");
+  // Strip "{Color} League - " tag (page is already scoped to the
+  // combined FastTrax League season — per-league tagging is noise).
+  s = s.replace(/^(blue|red|mega)\s+league\s*-\s*/i, "");
+  return s.trim() || name;
+}
+
+/**
  * Render a YYYY-MM-DD (ET) bucket key as a human date header used in
  * the per-driver expand panel. Falls through to the raw key on bad
  * input so we never crash the row over a parser hiccup.
@@ -451,7 +474,7 @@ function DriverRow({
                                 color: emphasized ? "rgba(245,236,238,0.9)" : "rgba(245,236,238,0.5)",
                               }}
                             >
-                              {s.sessionName}
+                              {simplifySessionName(s.sessionName)}
                             </span>
                           </td>
                           <td className="px-4 py-2">
@@ -548,6 +571,9 @@ export default function LeagueStandingsPage() {
    *  Click a session row in any driver expand panel → fetches that
    *  session's full standings and shows the modal. */
   const [heatTarget, setHeatTarget] = useState<Session | null>(null);
+  /** Top-level tab — overall standings by driver, or browse-all-heats
+   *  view for clicking into individual race results. */
+  const [view, setView] = useState<"standings" | "heats">("standings");
 
   useEffect(() => {
     /**
@@ -679,6 +705,52 @@ export default function LeagueStandingsPage() {
   }, [drivers]);
   const leaderBestLap = leader ? driverBestLap(leader) : Infinity;
 
+  /**
+   * Union of every distinct race-night session across all drivers,
+   * grouped by ET calendar day. Powers the Heat Standings tab —
+   * racers click a heat to drill into that night's standings.
+   * De-duped by sessionId since the same session shows up on every
+   * driver who ran it.
+   */
+  const heatsByDate = useMemo(() => {
+    const seen = new Map<number, Session>();
+    for (const d of drivers) {
+      for (const s of d.sessions) {
+        if (/practice/i.test(s.sessionName)) continue;
+        if (!seen.has(s.sessionId)) seen.set(s.sessionId, s);
+      }
+    }
+    const sortedHeats = Array.from(seen.values()).sort(
+      (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+    );
+    const buckets = new Map<string, Session[]>();
+    for (const s of sortedHeats) {
+      let key = "unknown";
+      try {
+        const d = new Date(s.scheduledStart);
+        if (!isNaN(d.getTime())) {
+          key = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(d);
+        }
+      } catch { /* "unknown" bucket */ }
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(s);
+    }
+    // Newest week first (descending) so the most recent night is at
+    // the top — staff/racers usually want to see what just happened.
+    return Array.from(buckets.entries())
+      .map(([dateKey, sessions]) => ({
+        dateKey,
+        label: formatDateHeader(dateKey),
+        sessions,
+      }))
+      .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+  }, [drivers]);
+
   return (
     <>
       <SubpageHero
@@ -690,7 +762,7 @@ export default function LeagueStandingsPage() {
       <section className="bg-[#000418]" style={{ padding: "clamp(48px, 8vw, 100px) clamp(16px, 4vw, 32px)" }}>
         <div className="max-w-5xl mx-auto">
           {/* League badge */}
-          <div className="flex justify-center mb-8">
+          <div className="flex justify-center mb-4">
             <div
               className="font-body inline-flex items-center gap-2"
               style={{
@@ -706,6 +778,47 @@ export default function LeagueStandingsPage() {
             >
               <span style={{ fontSize: "13px" }}>&#9679;</span>
               {LEAGUE.label} &middot; {LEAGUE.dates}
+            </div>
+          </div>
+
+          {/* Tab switcher — overall standings vs. browse-by-heat */}
+          <div className="flex justify-center mb-8" role="tablist" aria-label="View">
+            <div
+              className="inline-flex rounded-full p-1"
+              style={{
+                backgroundColor: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              {([
+                { key: "standings", label: "Standings" },
+                { key: "heats", label: "Heat Standings" },
+              ] as const).map((t) => {
+                const isActive = view === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setView(t.key)}
+                    className="font-body transition-colors"
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      padding: "8px 22px",
+                      borderRadius: "100px",
+                      letterSpacing: "0.3px",
+                      backgroundColor: isActive ? "#00E2E5" : "transparent",
+                      color: isActive ? "#000418" : "rgba(245,236,238,0.7)",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -738,6 +851,72 @@ export default function LeagueStandingsPage() {
                 No standings data available yet. Races start soon!
               </p>
             </div>
+          ) : view === "heats" ? (
+            /* ── Heat Standings tab ──
+               Browse every race night across the season. Click any
+               heat to see that race's full standings (re-uses the
+               same modal driven from the per-driver expand path). */
+            <>
+              {heatsByDate.length === 0 ? (
+                <div className="text-center py-20">
+                  <p className="font-body" style={{ color: "rgba(245,236,238,0.5)", fontSize: "16px" }}>
+                    No heats have run yet.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {heatsByDate.map(({ dateKey, label, sessions }) => (
+                    <div key={dateKey}>
+                      <h2
+                        className="font-body mb-3"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          color: "rgba(0,226,229,0.85)",
+                          textTransform: "uppercase",
+                          letterSpacing: "1.4px",
+                        }}
+                      >
+                        {label}
+                      </h2>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {sessions.map((s) => (
+                          <button
+                            key={s.sessionId}
+                            type="button"
+                            onClick={() => setHeatTarget(s)}
+                            className="font-body text-left transition-colors hover:bg-white/[0.05]"
+                            style={{
+                              padding: "14px 16px",
+                              borderRadius: "8px",
+                              border: "1px solid rgba(0,226,229,0.15)",
+                              backgroundColor: "rgba(7,16,39,0.5)",
+                              color: "rgba(245,236,238,0.9)",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                            }}
+                          >
+                            <span style={{ fontSize: "14px", fontWeight: 600 }}>
+                              {simplifySessionName(s.sessionName)}
+                            </span>
+                            <span style={{ color: "rgba(0,226,229,0.5)", fontSize: "14px" }}>&rsaquo;</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p
+                className="font-body text-center mt-8"
+                style={{ fontSize: "13px", color: "rgba(245,236,238,0.35)" }}
+              >
+                Tap any heat to see the standings for that race.
+              </p>
+            </>
           ) : (
             <>
               {/* Stats Cards */}
@@ -856,7 +1035,14 @@ function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => v
         const json = res.ok ? await res.json() : null;
         if (cancelled) return;
         if (!json?.success) throw new Error(json?.error || "API error");
-        const data: HeatRow[] = Array.isArray(json.data) ? json.data : [];
+        const raw: HeatRow[] = Array.isArray(json.data) ? json.data : [];
+        // Pandora returns a row for every racer who was *registered*
+        // for the heat — including those who never ran a lap (DNS,
+        // dropped, registered-twice duplicates). Strip them: only
+        // racers with at least 1 completed lap belong on the heat
+        // standings. Side benefit: kills the duplicate-name P10/P11
+        // entries the user flagged.
+        const data = raw.filter((r) => (r.laps ?? 0) > 0);
         // Sort by position ascending (P1 first); push 0 / undefined to end.
         data.sort((a, b) => {
           const ap = a.position && a.position > 0 ? a.position : Number.MAX_SAFE_INTEGER;
@@ -907,7 +1093,7 @@ function HeatStandingsModal({ heat, onClose }: { heat: Session; onClose: () => v
         <div className="p-5 sm:p-6">
           <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest mb-1">Heat Standings</p>
           <h3 className="font-display text-white text-xl uppercase tracking-wide pr-10 mb-1">
-            {heat.sessionName}
+            {simplifySessionName(heat.sessionName)}
           </h3>
           <p className="text-white/40 text-xs mb-5">
             {(() => {
