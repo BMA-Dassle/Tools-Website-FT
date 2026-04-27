@@ -146,7 +146,6 @@ export default function RacePacksPage() {
   const [checkoutPersonId, setCheckoutPersonId] = useState("");
   const [checkoutIsNewRacer, setCheckoutIsNewRacer] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
 
   /** Update step state AND push to URL. Mirrors /book/race's
    *  changeStep so browser back/forward works on refresh. */
@@ -218,11 +217,16 @@ export default function RacePacksPage() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // Scroll to top of step content on step change so each new step
-  // starts visible (especially on mobile after a long form).
+  // Scroll the WINDOW to the very top on step change. Earlier
+  // version used `contentRef.scrollIntoView({ block: "start" })`
+  // which aligned the form to viewport top — but the fixed nav
+  // covers the upper ~100px, so the step heading ("Who is this pack
+  // for?") got hidden behind the nav. Plain top-of-page keeps the
+  // compact pack header visible underneath the nav with the form
+  // immediately below.
   useEffect(() => {
-    if (step !== "select") {
-      contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (step !== "select" && typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [step]);
 
@@ -813,7 +817,7 @@ export default function RacePacksPage() {
           containment but lives on the page so accidental taps
           can't dismiss it. */}
       {step !== "select" && selectedPack && (
-        <div ref={contentRef} className="max-w-md mx-auto px-4 sm:px-6 pb-16">
+        <div className="max-w-md mx-auto px-4 sm:px-6 pb-16">
           {error && (
             <div className="rounded-xl bg-red-400/10 border border-red-400/30 px-4 py-3 mb-4">
               <p className="text-red-400 text-xs">{error}</p>
