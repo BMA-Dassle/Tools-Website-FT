@@ -148,6 +148,8 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
               selected={selected}
               onSelect={onSelect}
               onOpenTrackModal={setTrackModalItems}
+              racerType={racerType}
+              racerCount={adults}
             />
           ))}
         </Section>
@@ -163,6 +165,8 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
               selected={selected}
               onSelect={onSelect}
               onOpenTrackModal={setTrackModalItems}
+              racerType={racerType}
+              racerCount={juniors}
             />
           ))}
         </Section>
@@ -195,11 +199,13 @@ function Section({ title, subtitle, children }: { title?: string; subtitle?: str
   );
 }
 
-function ProductGroup({ items, selected, onSelect, onOpenTrackModal }: {
+function ProductGroup({ items, selected, onSelect, onOpenTrackModal, racerType, racerCount }: {
   items: ClassifiedProduct[];
   selected: ClassifiedProduct | null;
   onSelect: (p: ClassifiedProduct) => void;
   onOpenTrackModal: (items: ClassifiedProduct[]) => void;
+  racerType: RacerType;
+  racerCount: number;
 }) {
   const hasMultipleTracks = items.length > 1 && items.some(i => i.track === "Red") && items.some(i => i.track === "Blue");
 
@@ -207,7 +213,7 @@ function ProductGroup({ items, selected, onSelect, onOpenTrackModal }: {
   if (!hasMultipleTracks) {
     const product = items[0];
     const isSelected = selected?.productId === product.productId;
-    return <ProductCard product={product} isSelected={isSelected} onSelect={onSelect} />;
+    return <ProductCard product={product} isSelected={isSelected} onSelect={onSelect} racerType={racerType} racerCount={racerCount} />;
   }
 
   // Multi-track → render ONE merged card (same visual as all other
@@ -223,6 +229,8 @@ function ProductGroup({ items, selected, onSelect, onOpenTrackModal }: {
       product={merged}
       isSelected={!!selectedTrackProduct}
       onSelect={() => onOpenTrackModal(items)}
+      racerType={racerType}
+      racerCount={racerCount}
     />
   );
 }
@@ -570,14 +578,30 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   );
 }
 
-function ProductCard({ product, isSelected, onSelect }: {
+function ProductCard({ product, isSelected, onSelect, racerType, racerCount = 1 }: {
   product: ClassifiedProduct;
   isSelected: boolean;
   onSelect: (p: ClassifiedProduct) => void;
+  racerType?: RacerType;
+  racerCount?: number;
 }) {
   const c = TIER_COLOR[product.tier];
   const tierLabel = TIER_LABELS[product.tier];
   const isPack = product.packType !== "none";
+  const racers = Math.max(1, racerCount);
+
+  // For new racers picking a single race, the bill auto-adds a
+  // $4.99 license per racer at checkout. The card breaks the math
+  // out so the headline price reflects what they'll actually be
+  // charged — not just the raw race price (which previously read
+  // surprisingly cheap because we never multiplied by racer count
+  // or surfaced the license fee).
+  const isSinglePerPersonRace = !isPack && product.price > 0;
+  const showNewRacerBreakdown = isSinglePerPersonRace && racerType === "new";
+  const racePerRacer = product.price;
+  const licensePerRacer = showNewRacerBreakdown ? LICENSE_PRICE : 0;
+  const perRacerTotal = racePerRacer + licensePerRacer;
+  const groupTotal = perRacerTotal * racers;
 
   return (
     <button
@@ -602,15 +626,36 @@ function ProductCard({ product, isSelected, onSelect }: {
             </span>
           )}
         </div>
-        {product.price > 0 && (
+        {/* Single per-person race for new racers: show race + license
+            broken out + the group total. Otherwise fall back to the
+            simple per-unit price so packs and returning-racer cards
+            stay visually unchanged. */}
+        {showNewRacerBreakdown ? (
+          <div className="text-right shrink-0">
+            <span className={`${c.text} font-bold text-base block leading-none`}>
+              ${groupTotal.toFixed(2)}
+            </span>
+            {racers > 1 && (
+              <span className="text-white/30 text-[11px]">
+                ${perRacerTotal.toFixed(2)} × {racers}
+              </span>
+            )}
+          </div>
+        ) : product.price > 0 ? (
           <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
-        )}
+        ) : null}
       </div>
 
       <p className="text-white/40 text-xs mt-1 leading-relaxed">{TIER_DESCRIPTIONS[product.tier]}</p>
 
       {product.track && (
         <p className="text-white/30 text-xs mt-1">{product.track} Track</p>
+      )}
+
+      {showNewRacerBreakdown && (
+        <p className="text-white/40 text-[11px] mt-2">
+          ${racePerRacer.toFixed(2)} race + ${licensePerRacer.toFixed(2)} license per racer · added at checkout
+        </p>
       )}
 
       {isPack && product.price > 0 && (
