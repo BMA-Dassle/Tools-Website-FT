@@ -260,14 +260,26 @@ export default function BookRacePage() {
     // license/POV/individual-race lines that the package owns.
     // The per-booking race lines were already filtered out at the
     // top of this effect (see packageOwnsRaces guard there).
+    //
+    // Pricing pulls from each booking's `blockPrice` (the LIVE BMI
+    // availability price, captured at handlePackageHeatsConfirm
+    // time) plus the license/POV constants for the auto-add line
+    // items. This keeps the cart total in lockstep with what BMI
+    // actually charges — registry-static math used to drift by
+    // $1-$4/racer when BMI's catalog price didn't match our
+    // hardcoded fallback.
     if (packageOwnsRaces && selectedPackage) {
       const racerCount = quantity || 1;
+      const racePerRacer = bookings.reduce((acc, b) => acc + (b.blockPrice ?? b.product.price), 0);
+      const licensePerRacer = selectedPackage.includesLicense ? 4.99 : 0;
+      const povPerRacer = selectedPackage.includesPov ? 5 : 0;
+      const perRacer = racePerRacer + licensePerRacer + povPerRacer;
       racingItems.push({
         attraction: "racing",
         attractionName: "Racing",
         product: {
           name: selectedPackage.name,
-          price: packagePerRacerPrice(selectedPackage),
+          price: perRacer,
           bookingMode: "per-person",
         },
         date: baseDate,
@@ -713,12 +725,21 @@ export default function BookRacePage() {
         };
         const result = await bookRaceHeat(race, quantity, pick.proposal, billId);
         if (!billId) billId = result.rawOrderId;
+        // Pull the LIVE per-unit cash price from BMI's availability
+        // proposal so the cart total matches what BMI actually
+        // charges. The registry's static `pick.component.price` is
+        // a fallback only — BMI's catalog can drift (e.g. Mega races
+        // priced at $19.99 in BMI vs $20.99 in our registry caused a
+        // $4-per-racer mismatch on Ultimate Qualifier).
+        const livePrice =
+          pick.proposal.blocks?.[0]?.block?.prices?.find((p) => p.depositKind === 0)?.amount
+          ?? pick.component.price;
         newBookings.push({
           product: race,
           quantity,
           proposal: pick.proposal,
           block: pick.block,
-          blockPrice: pick.component.price,
+          blockPrice: livePrice,
           billLineIds: result.billLineId
             ? [{ billId: result.rawOrderId, lineId: result.billLineId }]
             : undefined,
