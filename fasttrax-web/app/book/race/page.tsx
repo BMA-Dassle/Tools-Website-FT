@@ -19,7 +19,7 @@ interface RacerBill {
 }
 
 /** A completed race booking for one category (adult or junior) */
-interface Booking {
+export interface Booking {
   product: ClassifiedProduct;
   quantity: number;
   proposal: BmiProposal;
@@ -45,6 +45,7 @@ import HeatPicker from "./components/HeatPicker";
 import PackHeatPicker from "./components/PackHeatPicker";
 import PackageHeatPicker from "./components/PackageHeatPicker";
 import type { PackagePick } from "./components/PackageHeatPicker";
+import PriorBookingsBanner from "./components/PriorBookingsBanner";
 import type { PackageDefinition } from "@/lib/packages";
 import { eligiblePackages, scheduleForDate, packagePerRacerPrice } from "@/lib/packages";
 import ContactForm from "./components/ContactForm";
@@ -1744,6 +1745,18 @@ export default function BookRacePage() {
           </div>
         )}
 
+        {/* Prior-bookings banner — when the customer has already
+            booked the OTHER category (e.g. adults done, now picking
+            juniors), surface those bookings as pills above the heat
+            picker so they don't lose sight of what's already
+            reserved. Renders once for any heat-picker variant
+            (single race / 3-pack / package). */}
+        {step === "heat" && bookings.length > 0 && (
+          <div className="max-w-3xl mx-auto mb-4">
+            <PriorBookingsBanner bookings={bookings} currentCategory={bookingCategory} />
+          </div>
+        )}
+
         {/* STEP 5a: Package heat picker — multi-component sequential
             picker for packages with bundled races (Ultimate Qualifier).
             Renders ahead of the single-race HeatPicker because
@@ -2013,7 +2026,11 @@ export default function BookRacePage() {
         {/* STEP 6: POV Camera upsell */}
         {step === "pov" && (
           <PovUpsell
-            racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
+            // Sum bookings + packResult — 3-pack bookings live in
+            // `packResult` (NOT in `bookings[]`), so the prior calc
+            // returned 0 racers for the returning-racer + 3-pack
+            // path and the upsell defaulted to "× 0" everywhere.
+            racerCount={bookings.reduce((s, b) => s + b.quantity, 0) + (packResult?.quantity ?? 0)}
             initial={selectedPov}
             racerType={racerType}
             onContinue={async (pov) => {
@@ -2095,7 +2112,10 @@ export default function BookRacePage() {
         {/* STEP 7: Activity add-ons */}
         {step === "addons" && (
           <AddOnsPage
-            racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
+            // Same fix as the POV step above — pack bookings live in
+            // packResult so the bare bookings.reduce was returning
+            // 0 for 3-pack racers.
+            racerCount={bookings.reduce((s, b) => s + b.quantity, 0) + (packResult?.quantity ?? 0)}
             date={selectedDate || ""}
             bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track, tier: b.product.tier, label: b.product.name }))}
             initialAddOns={selectedAddOns}

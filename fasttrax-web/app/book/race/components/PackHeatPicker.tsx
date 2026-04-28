@@ -404,7 +404,7 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       // so ops staff see it immediately on the reservation, but wrapped
       // so a memo failure doesn't block the booking handoff.
       await attachPackMemo(rawOrderId, race);
-      onComplete({ billId: rawOrderId, schedules });
+      onComplete({ billId: rawOrderId, schedules, quantity });
     } catch (err) {
       // Partial failure — cancel whatever was created so we don't leave orphaned bills.
       if (rawOrderId) {

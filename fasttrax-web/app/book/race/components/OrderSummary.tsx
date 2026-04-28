@@ -16,6 +16,14 @@ import PaymentForm from "@/components/square/PaymentForm";
 export interface PackBookingResult {
   billId: string; // this is the orderId
   schedules: PackSchedule[];
+  /** Number of racers the pack reserved seats for (matches the
+   *  PackHeatPicker `quantity` prop). Single-racer packs are 1; the
+   *  shared-heats multi-racer flow (party books one pack covering
+   *  all racers) bumps this to N. Used by the POV / AddOns upsells
+   *  on the next step so they default to the correct racer count
+   *  — pack bookings live in `packResult` (NOT `bookings`) so the
+   *  upsells previously read 0 racers for this path. */
+  quantity: number;
 }
 
 export interface BookingItem {
