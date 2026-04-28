@@ -43,6 +43,8 @@ export type PackageId =
   | "rookie-pack-weekday"
   | "rookie-pack-weekend"
   | "ultimate-qualifier-mega"
+  | "ultimate-qualifier-weekday-red"
+  | "ultimate-qualifier-weekday-blue"
   | "rookie-pack"; // legacy alias kept for confirmation-page back-compat
 export type Schedule = "weekday" | "weekend" | "mega";
 
@@ -150,6 +152,26 @@ const ROOKIE_PACK_ENABLED =
   (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED || "true").toLowerCase() !== "false";
 const ULTIMATE_QUALIFIER_ENABLED =
   (process.env.NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED || "true").toLowerCase() !== "false";
+
+// Shared Ultimate Qualifier copy — the per-track / per-schedule
+// variants only differ in their race component productIds, so the
+// long description, disclaimer body, and bill memo are factored out
+// here. Update once and every variant inherits it.
+const UQ_LONG =
+  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (one per group, dine-in only). This ultimate pack also includes your license.";
+
+const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
+  title: "Heads Up — Ultimate Qualifier",
+  body:
+    "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don't qualify, no problem — but please read carefully before continuing:",
+  acks: [
+    "I understand the Intermediate race is reserved only if I qualify (level up) in my Starter race",
+    "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this package",
+    "I have read and accept these terms",
+  ],
+  billMemo:
+    "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
+};
 
 const ROOKIE_LONG = "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).";
 
@@ -289,8 +311,7 @@ const PACKAGES: PackageDefinition[] = [
     name: "Ultimate Qualifier",
     shortDescription:
       "Starter Mega + Intermediate Mega + license + POV + free appetizer",
-    longDescription:
-      "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (one per group, dine-in only). This ultimate pack also includes your license.",
+    longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     // First-time racers only. A returning racer who's already
     // qualified Intermediate doesn't need the qualifier-+-buffer
@@ -328,18 +349,98 @@ const PACKAGES: PackageDefinition[] = [
     // the components above + license + POV. Update once finalized.
     cartLineKey: "ultimate-qualifier-mega",
     displayOrder: 10,
-    disclaimers: {
-      title: "Heads Up — Ultimate Qualifier",
-      body:
-        "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don't qualify, no problem — but please read carefully before continuing:",
-      acks: [
-        "I understand the Intermediate race is reserved only if I qualify (level up) in my Starter race",
-        "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this package",
-        "I have read and accept these terms",
-      ],
-      billMemo:
-        "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
-    },
+    disclaimers: UQ_DISCLAIMERS,
+  },
+
+  // ── Ultimate Qualifier — Weekday Red ──────────────────────────────────────
+  // New BMI Intermediate Red SKU (45810802) is a package-only product
+  // — distinct from the standalone Intermediate Race Red 24960650 in
+  // RACE_PRODUCTS so it doesn't clutter the regular intermediate
+  // picker. pageId guess: weekday Intermediate page (25850629). Verify
+  // before launch — see the Mega variant comment for the probe pattern.
+  {
+    id: "ultimate-qualifier-weekday-red",
+    name: "Ultimate Qualifier",
+    shortDescription:
+      "Starter Red + Intermediate Red + License + POV + free appetizer",
+    longDescription: UQ_LONG,
+    enabled: ULTIMATE_QUALIFIER_ENABLED,
+    racerType: "new",
+    schedules: ["weekday"],
+    category: "adult",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24960859", // existing Starter Race Red (weekday, new-racer)
+        pageId: "24961568",
+        label: "Starter Race Red",
+        tier: "starter",
+        track: "Red",
+        price: 20.99,
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        productId: "45810802", // NEW — Ultimate-Qualifier-only Intermediate Red (weekday)
+        pageId: "25850629",
+        label: "Intermediate Race Red",
+        tier: "intermediate",
+        track: "Red",
+        price: 20.99,
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "ultimate-qualifier-weekday-red",
+    displayOrder: 10,
+    disclaimers: UQ_DISCLAIMERS,
+  },
+
+  // ── Ultimate Qualifier — Weekday Blue ─────────────────────────────────────
+  // Same shape as the Red variant but on Blue Track. New BMI
+  // Intermediate Blue SKU 45811366 again package-only.
+  {
+    id: "ultimate-qualifier-weekday-blue",
+    name: "Ultimate Qualifier",
+    shortDescription:
+      "Starter Blue + Intermediate Blue + License + POV + free appetizer",
+    longDescription: UQ_LONG,
+    enabled: ULTIMATE_QUALIFIER_ENABLED,
+    racerType: "new",
+    schedules: ["weekday"],
+    category: "adult",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24960393", // existing Starter Race Blue (weekday, new-racer)
+        pageId: "24961568",
+        label: "Starter Race Blue",
+        tier: "starter",
+        track: "Blue",
+        price: 20.99,
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        productId: "45811366", // NEW — Ultimate-Qualifier-only Intermediate Blue (weekday)
+        pageId: "25850629",
+        label: "Intermediate Race Blue",
+        tier: "intermediate",
+        track: "Blue",
+        price: 20.99,
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "ultimate-qualifier-weekday-blue",
+    displayOrder: 10,
+    disclaimers: UQ_DISCLAIMERS,
   },
 ];
 
