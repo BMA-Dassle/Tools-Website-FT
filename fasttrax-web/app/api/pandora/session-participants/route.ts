@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import redis from "@/lib/redis";
 
 /**
  * Proxy for Pandora's session-participants endpoint.
@@ -31,10 +32,23 @@ import { NextRequest, NextResponse } from "next/server";
  * to show unpaid racers so staff can still bind a camera) pass
  * `excludeUnpaid=false` explicitly.
  *
- * No caching — rosters change in real time as racers are added/removed, and
- * stale cache was causing the pre-race cron to miss fresh participants and
- * send single-ticket SMS where a grouped one was correct.
+ * ── Caching ─────────────────────────────────────────────────────────────────
+ * Live calls hit Pandora directly — rosters change in real time and a
+ * stale roster causes the pre-race cron to miss fresh participants.
+ *
+ * BUT: when Pandora is degraded (the proxy hits its 6s timeout), the
+ * staff camera-assign page would see an EMPTY roster and lose the
+ * ability to bind cameras while Pandora recovers. So every successful
+ * response writes-through to Redis with a 10-minute TTL, and the
+ * timeout / error branch falls back to that cache. Stale-but-real
+ * data is strictly better than empty for staff workflows. The
+ * response carries `stale: true` so consumers know.
  */
+const CACHE_TTL_SECONDS = 600; // 10 minutes — long enough to weather a Pandora outage, short enough to stay fresh
+function cacheKey(locationId: string, sessionId: string, excludeRemoved: boolean, excludeUnpaid: boolean): string {
+  // Per-filter-combo key — different excludeRemoved/excludeUnpaid yield different rosters.
+  return `pandora:participants:${locationId}:${sessionId}:${excludeRemoved ? 1 : 0}${excludeUnpaid ? 1 : 0}`;
+}
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -99,13 +113,23 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId);
     if (!res.ok) {
       console.error(`[session-participants] Pandora ${res.status}: ${await res.text()}`);
-      return NextResponse.json(
-        { data: [], error: `Pandora ${res.status}` },
-        { status: 200, headers: { "Cache-Control": "no-store" } },
-      );
+      // Pandora returned a non-200 (often 401/500). Try the
+      // Redis fallback before giving up — staff would rather see
+      // a 5-minute-old roster than no roster at all.
+      return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, `pandora-${res.status}`);
     }
     const json = await res.json();
     const fullData: Participant[] = Array.isArray(json.data) ? json.data : [];
+
+    // Write-through to Redis on every successful upstream fetch so
+    // the next outage falls back to fresh-ish data. Fire-and-forget
+    // — never block the response on a Redis hiccup.
+    if (fullData.length > 0) {
+      const key = cacheKey(locationId, sessionId, excludeRemoved, excludeUnpaid);
+      redis
+        .set(key, JSON.stringify(fullData), "EX", CACHE_TTL_SECONDS)
+        .catch((err) => console.warn("[session-participants] cache write failed:", err));
+    }
 
     // ── Trust check ───────────────────────────────────────────────
     // Server-side callers (cron, admin) send the internal-secret
@@ -114,12 +138,7 @@ export async function GET(req: NextRequest) {
     // header we strip every PII field and return only the personId
     // so client polling can still answer "am I still on the
     // roster?" without leaking a co-racer's name/email/phone.
-    const internalHeader = req.headers.get("x-pandora-internal");
-    const trusted = !!API_KEY && internalHeader === API_KEY;
-
-    const data = trusted
-      ? fullData
-      : fullData.map((p) => ({ personId: p.personId }));
+    const data = redactIfUntrusted(req, fullData);
 
     return NextResponse.json(
       { data },
@@ -132,13 +151,53 @@ export async function GET(req: NextRequest) {
       `[session-participants] ${isTimeout ? "TIMEOUT (>6s)" : "fetch error"}:`,
       err,
     );
-    // Empty list = "don't invalidate the ticket" — the client-side
-    // `isStillOnSession` is intentionally forgiving on empty/error
-    // reads so a slow Pandora doesn't flip valid tickets to
-    // PreRaceCard's "no longer valid" state.
-    return NextResponse.json(
-      { data: [], error: isTimeout ? "timeout" : "fetch failed" },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, isTimeout ? "timeout" : "fetch-failed");
   }
+}
+
+/** Strip PII unless the caller proved server-side trust via the
+ *  internal-secret header. Lean shape is just `{ personId }`. */
+function redactIfUntrusted(req: NextRequest, full: Participant[]): Participant[] | { personId: string | number }[] {
+  const internalHeader = req.headers.get("x-pandora-internal");
+  const trusted = !!API_KEY && internalHeader === API_KEY;
+  return trusted ? full : full.map((p) => ({ personId: p.personId }));
+}
+
+/** Pandora unreachable / errored — try the Redis cache before
+ *  giving up. If we have a recent roster, return that with
+ *  `stale: true` so consumers know it's not real-time. Empty cache
+ *  miss → empty array (matches the prior forgiving-on-error contract
+ *  the e-ticket client relies on). */
+async function fallbackResponse(
+  req: NextRequest,
+  locationId: string,
+  sessionId: string,
+  excludeRemoved: boolean,
+  excludeUnpaid: boolean,
+  reason: string,
+): Promise<NextResponse> {
+  try {
+    const key = cacheKey(locationId, sessionId, excludeRemoved, excludeUnpaid);
+    const raw = await redis.get(key);
+    if (raw) {
+      const cached = JSON.parse(raw) as Participant[];
+      if (Array.isArray(cached) && cached.length > 0) {
+        const data = redactIfUntrusted(req, cached);
+        return NextResponse.json(
+          { data, stale: true, reason },
+          { headers: { "Cache-Control": "no-store", "X-Cache": `STALE-${reason.toUpperCase()}` } },
+        );
+      }
+    }
+  } catch (err) {
+    console.warn("[session-participants] cache read failed:", err);
+  }
+  // Empty list = "don't invalidate the ticket" — the client-side
+  // `isStillOnSession` is intentionally forgiving on empty/error
+  // reads so a slow Pandora doesn't flip valid tickets to
+  // PreRaceCard's "no longer valid" state.
+  return NextResponse.json(
+    { data: [], error: reason },
+    { headers: { "Cache-Control": "no-store", "X-Cache": `MISS-${reason.toUpperCase()}` } },
+  );
 }
