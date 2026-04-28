@@ -745,11 +745,15 @@ export default function OrderSummary({
                 // the bookings (all share the same quantity since the
                 // multi-racer pattern reserves N seats per heat).
                 const racers = bookings[0]?.quantity || 1;
-                const perRacer = packagePerRacerPrice(selectedPackage);
-                const total = perRacer * racers;
                 const heatLabels = bookings
                   .map((b) => `${b.product.name} · ${formatTime(b.block.start)}`)
                   .join(" → ");
+                // Hero card lists what's included; per-line dollars
+                // are intentionally NOT shown. The BMI bill summary
+                // below this card is the authoritative price total —
+                // showing component math here would duplicate (and
+                // potentially contradict) BMI's actual charge if
+                // their catalog price drifts from the registry.
                 return (
                   <div key="package" className="px-4 py-4 bg-amber-500/[0.06]">
                     <div className="flex items-start justify-between gap-3 mb-2">
@@ -780,23 +784,23 @@ export default function OrderSummary({
                     {heatLabels && (
                       <p className="text-white/50 text-[11px] mb-2">{heatLabels}</p>
                     )}
-                    <ul className="space-y-1 text-xs text-white/70 mb-2">
+                    <ul className="space-y-1 text-xs text-white/70">
                       {selectedPackage.races.map((r) => (
                         <li key={r.ref} className="flex items-baseline justify-between gap-2">
-                          <span><span className="text-emerald-400">✓</span> {r.label} × {racers}</span>
-                          <span className="text-white/50">${(r.price * racers).toFixed(2)}</span>
+                          <span><span className="text-emerald-400">✓</span> {r.label}{racers > 1 ? <span className="text-white/40"> × {racers}</span> : null}</span>
+                          <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       ))}
                       {selectedPackage.includesLicense && (
                         <li className="flex items-baseline justify-between gap-2">
-                          <span><span className="text-emerald-400">✓</span> Racing License × {racers}</span>
-                          <span className="text-white/50">${(LICENSE_PRICE * racers).toFixed(2)}</span>
+                          <span><span className="text-emerald-400">✓</span> Racing License{racers > 1 ? <span className="text-white/40"> × {racers}</span> : null}</span>
+                          <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       )}
                       {selectedPackage.includesPov && (
                         <li className="flex items-baseline justify-between gap-2">
-                          <span><span className="text-emerald-400">✓</span> POV Race Video × {racers}</span>
-                          <span className="text-white/50">${(POV_PRICE * racers).toFixed(2)}</span>
+                          <span><span className="text-emerald-400">✓</span> POV Race Video{racers > 1 ? <span className="text-white/40"> × {racers}</span> : null}</span>
+                          <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       )}
                       {selectedPackage.appetizerCode && (
@@ -805,14 +809,10 @@ export default function OrderSummary({
                             <span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s
                             <span className="text-white/40"> (1 per group · race day only)</span>
                           </span>
-                          <span className="text-emerald-300 font-semibold">FREE</span>
+                          <span className="text-emerald-300 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       )}
                     </ul>
-                    <div className="flex items-baseline justify-between text-xs pt-2 border-t border-white/[0.06]">
-                      <span className="text-amber-400 font-bold">{selectedPackage.name} total</span>
-                      <span className="text-white">${total.toFixed(2)}</span>
-                    </div>
                   </div>
                 );
               }

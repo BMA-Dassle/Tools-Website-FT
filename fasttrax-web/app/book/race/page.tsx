@@ -744,7 +744,12 @@ export default function BookRacePage() {
     // run in handleConfirmHeat (license) and handleContinue (POV)
     // for the regular-race / PovUpsell flows.
     const totalRacers = quantity || (adults + juniors) || 1;
-    if (selectedPackage.includesLicense && billId && !licenseSoldRef.current) {
+    // NOTE: do NOT guard on `licenseSoldRef.current` here. That ref
+    // is session-scoped (set on any prior license sell attempt) and
+    // would skip the package's bill — a frequent source of the
+    // "picker total doesn't match BMI bill" mismatch. The package
+    // owns its own bill so it always needs its own license line.
+    if (selectedPackage.includesLicense && billId) {
       try {
         const sellBody = `{"ProductId":43473520,"Quantity":${totalRacers},"orderId":${billId}}`;
         const sellQs = new URLSearchParams({ endpoint: "booking/sell" });
@@ -755,6 +760,7 @@ export default function BookRacePage() {
         });
         const sellRaw = await sellRes.text();
         const sellResult = JSON.parse(sellRaw);
+        console.log("[package license sell]", sellRes.status, "result:", sellResult?.success ?? "?", "raw:", sellRaw.slice(0, 200));
         if (sellResult.success !== false) {
           licenseSoldRef.current = true;
           const lineId = String(sellRaw.match(/"orderItemId"\s*:\s*(\d+)/)?.[1] || "");
@@ -779,6 +785,7 @@ export default function BookRacePage() {
           }]),
         });
         const povResult = await povRes.json();
+        console.log("[package POV sell]", povRes.status, "lineId:", povResult?.parentBillLineId);
         const povLineId = povResult?.parentBillLineId ? String(povResult.parentBillLineId) : undefined;
         // Mirror the rookie-pack PovSelection shape so cart-sync,
         // OrderSummary, and the booking-record write all see a
