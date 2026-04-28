@@ -114,6 +114,28 @@ export interface PackageDefinition {
 
   /** Stable key for cart-sync line entries. */
   cartLineKey: string;
+
+  /** Display order on the picker — lower numbers render first.
+   *  Lets us promote a package to the top without reorganizing the
+   *  registry array. Defaults to 100 when omitted; 10 = featured /
+   *  premium, 20 = secondary, etc. Plain races render below all
+   *  packages regardless of value here. */
+  displayOrder?: number;
+
+  /** Optional disclaimer modal shown when the user picks the package
+   *  card. All `acks` checkboxes must be ticked before they can
+   *  continue. Used by Ultimate Qualifier to make clear the
+   *  Intermediate race is conditional on qualifying.
+   *
+   *  `billMemo` is appended to the BMI bill after heats book so
+   *  ops staff sees the acknowledgment trail + any handling rules
+   *  (e.g. "verify level-up before assigning to Intermediate"). */
+  disclaimers?: {
+    title: string;
+    body: string;
+    acks: string[];
+    billMemo: string;
+  };
 }
 
 // ── Registry ────────────────────────────────────────────────────────────────
@@ -162,6 +184,7 @@ const PACKAGES: PackageDefinition[] = [
     includesPov: true,
     appetizerCode: "RACEAPP",
     cartLineKey: "rookie-pack",
+    displayOrder: 20,
   },
   // ── Rookie Pack — Weekday (Mon/Wed/Thu) ───────────────────────────────────
   // Defaults to Blue Track. Customers wanting Red Rookie Pack can pick
@@ -192,6 +215,7 @@ const PACKAGES: PackageDefinition[] = [
     includesPov: true,
     appetizerCode: "RACEAPP",
     cartLineKey: "rookie-pack",
+    displayOrder: 20,
   },
   // ── Rookie Pack — Weekend (Fri/Sat/Sun) ───────────────────────────────────
   {
@@ -219,6 +243,7 @@ const PACKAGES: PackageDefinition[] = [
     includesPov: true,
     appetizerCode: "RACEAPP",
     cartLineKey: "rookie-pack",
+    displayOrder: 20,
   },
   // ── Legacy alias — `rookie-pack` ──────────────────────────────────────────
   // Keeps `getPackageIgnoreFlag("rookie-pack")` returning a working
@@ -302,6 +327,19 @@ const PACKAGES: PackageDefinition[] = [
     // No explicit `price` — let the auto-sum helper compute it from
     // the components above + license + POV. Update once finalized.
     cartLineKey: "ultimate-qualifier-mega",
+    displayOrder: 10,
+    disclaimers: {
+      title: "Heads Up — Ultimate Qualifier",
+      body:
+        "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don't qualify, no problem — but please read carefully before continuing:",
+      acks: [
+        "I understand the Intermediate race is reserved only if I qualify (level up) in my Starter race",
+        "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this package",
+        "I have read and accept these terms",
+      ],
+      billMemo:
+        "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
+    },
   },
 ];
 
@@ -332,7 +370,9 @@ export interface EligibilityContext {
 }
 
 /** Filters the registry to packages bookable in the current context.
- *  Used by the product picker to render its "packages" row. */
+ *  Used by the product picker to render its "packages" row. Sorted
+ *  by `displayOrder` ascending so featured packages float to the
+ *  top of the picker. Ties fall back to registry order. */
 export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
   return PACKAGES.filter((p) => {
     if (!p.enabled) return false;
@@ -340,7 +380,7 @@ export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
     if (ctx.schedule && !p.schedules.includes(ctx.schedule)) return false;
     if (p.category !== "any" && ctx.category && p.category !== ctx.category) return false;
     return true;
-  });
+  }).sort((a, b) => (a.displayOrder ?? 100) - (b.displayOrder ?? 100));
 }
 
 /** Per-racer total for a package. When the package didn't pin an

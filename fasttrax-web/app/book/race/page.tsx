@@ -103,6 +103,13 @@ export default function BookRacePage() {
   // and the booking-record `package` field for downstream features
   // (e.g. the "did they qualify?" cron we'll wire up later).
   const [selectedPackage, setSelectedPackage] = useState<PackageDefinition | null>(null);
+  // Package waiting on its disclaimer-modal acknowledgment. When
+  // set, blocks step-advance until the user ticks every ack
+  // checkbox + confirms (or backs out). See pkg.disclaimers in
+  // lib/packages.ts. Used by Ultimate Qualifier to make the
+  // "Intermediate is conditional on qualifying" trade-off explicit.
+  const [disclaimerPending, setDisclaimerPending] = useState<PackageDefinition | null>(null);
+  const [disclaimerAcks, setDisclaimerAcks] = useState<boolean[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [selectedProposal, setSelectedProposal] = useState<BmiProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
@@ -657,13 +664,27 @@ export default function BookRacePage() {
   /** User picked a package on the product step. Clears any in-flight
    *  single-race state, sets `selectedPackage`, and advances to the
    *  heat step. The PackageHeatPicker takes over from there for any
-   *  package whose `races` array is non-empty. */
+   *  package whose `races` array is non-empty.
+   *
+   *  Packages declaring `disclaimers` (Ultimate Qualifier today) are
+   *  intercepted — the modal renders below and blocks advance until
+   *  the user ticks every ack and confirms. */
   function handleSelectPackage(pkg: PackageDefinition) {
+    if (pkg.disclaimers && pkg.disclaimers.acks.length > 0) {
+      setDisclaimerPending(pkg);
+      setDisclaimerAcks(pkg.disclaimers.acks.map(() => false));
+      return;
+    }
+    commitPackageSelection(pkg);
+  }
+
+  /** Final commit path after a package is selected (post-disclaimer
+   *  for packages that need one, or directly from
+   *  handleSelectPackage for those that don't). */
+  function commitPackageSelection(pkg: PackageDefinition) {
     trackBookingProduct(pkg.name, null, "starter");
     setSelectedProduct(null);
     setSelectedPackage(pkg);
-    // Heats book per-racer × N seats (the package is "all share heats"
-    // multi-racer pattern). Use the total racer count.
     const total = adults + juniors;
     setQuantity(Math.max(1, total));
     setTimeout(() => changeStep("heat"), 300);
@@ -821,6 +842,25 @@ export default function BookRacePage() {
         });
       } catch (err) {
         console.warn("[package POV sell] error (non-fatal):", err);
+      }
+    }
+
+    // Attach the disclaimer memo to the BMI bill so ops staff sees
+    // the acknowledgment trail + handling rules (e.g. "verify
+    // qualification before assigning kart to Intermediate"). Memo
+    // failure is non-fatal — booking still completes.
+    if (selectedPackage.disclaimers?.billMemo && billId) {
+      try {
+        const memo = selectedPackage.disclaimers.billMemo;
+        const memoBody = `{"orderId":${billId},"memo":"${memo.replace(/"/g, '\\"')}"}`;
+        const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
+        await fetch(`/api/bmi?${memoQs.toString()}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: memoBody,
+        });
+      } catch (err) {
+        console.warn("[package memo] error (non-fatal):", err);
       }
     }
 
@@ -1697,6 +1737,82 @@ export default function BookRacePage() {
             />
           )
         )}
+
+        {/* Package disclaimer modal — shown when the user clicks a
+            package card whose registry entry declares
+            `disclaimers`. Mirrors the height/age modal pattern: a
+            list of checkboxes the user must tick before continuing.
+            Cancel routes them back to the picker; Confirm advances
+            to the heat step via commitPackageSelection. */}
+        {disclaimerPending && (() => {
+          const d = disclaimerPending.disclaimers!;
+          const allChecked = disclaimerAcks.length === d.acks.length && disclaimerAcks.every(Boolean);
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+              {...modalBackdropProps(() => setDisclaimerPending(null))}
+            >
+              <div className="bg-[#0a1628] border border-amber-500/40 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+                <div className="text-center">
+                  <p className="text-amber-400 text-[11px] font-bold uppercase tracking-widest mb-1">
+                    {disclaimerPending.name}
+                  </p>
+                  <h3 className="text-white font-display text-xl uppercase tracking-widest">
+                    {d.title}
+                  </h3>
+                  <p className="text-white/60 text-sm mt-3 leading-relaxed">{d.body}</p>
+                </div>
+
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                  <p className="text-amber-400 font-bold text-xs uppercase tracking-wider">
+                    Please acknowledge each
+                  </p>
+                  {d.acks.map((text, i) => (
+                    <label key={i} className="flex items-start gap-3 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={disclaimerAcks[i] || false}
+                        onChange={(e) => {
+                          setDisclaimerAcks((prev) => {
+                            const next = [...prev];
+                            next[i] = e.target.checked;
+                            return next;
+                          });
+                        }}
+                        className="mt-0.5 w-4 h-4 rounded border-white/30 bg-white/5 accent-amber-400 shrink-0"
+                      />
+                      <span className="text-white/70 text-xs leading-relaxed group-hover:text-white/90 transition-colors">
+                        {text}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDisclaimerPending(null)}
+                    className="flex-1 py-3 rounded-xl border border-white/15 text-white/70 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!allChecked}
+                    onClick={() => {
+                      const pkg = disclaimerPending;
+                      setDisclaimerPending(null);
+                      commitPackageSelection(pkg);
+                    }}
+                    className="flex-1 py-3 rounded-xl bg-amber-400 text-[#000418] font-bold text-sm hover:bg-amber-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {allChecked ? "I Accept · Continue" : "Acknowledge each to continue"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Height/age confirmation modal for new racers */}
         {showHeightConfirm && (() => {
