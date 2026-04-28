@@ -1,0 +1,271 @@
+/**
+ * Centralized booking-package registry.
+ *
+ * One source of truth for every "package" the race-booking flow can
+ * sell — Rookie Pack, Ultimate Qualifier, and any future bundle. The
+ * product picker, heat picker, cart sync, review hero card, and
+ * confirmation page all read from here so adding a new package is a
+ * data change, not a UI refactor.
+ *
+ * Core pieces a package describes:
+ *   - which races it bundles (with cross-component heat-gap rules
+ *     for things like "Intermediate must be ≥ 60 min after Starter
+ *     ends")
+ *   - whether it includes the FastTrax license, POV, and/or a free
+ *     appetizer code
+ *   - eligibility (racerType, schedule, category)
+ *   - pricing — explicit total, or fall back to sum-of-components
+ *
+ * Intentionally stateless data — every consumer pulls a definition
+ * by id (`getPackage`) and reads only the fields it cares about.
+ */
+
+// ── Shared component prices ─────────────────────────────────────────────────
+// Stays here so PovUpsell, OrderSummary, the cart sync, and the
+// auto-sum helper agree on a single number.
+
+export const LICENSE_PRICE = 4.99;
+export const POV_PRICE = 5;
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+export type PackageId = "rookie-pack" | "ultimate-qualifier-mega";
+export type Schedule = "weekday" | "weekend" | "mega";
+
+export interface PackageRaceComponent {
+  /** 1-indexed sequence — drives the order in PackageHeatPicker. */
+  sequence: number;
+  /** Stable cross-component reference name (e.g. "starter",
+   *  "intermediate"). Used by `minMinutesAfterEndOf` and the heat
+   *  picker's "what's the previous heat I picked" lookup. */
+  ref: string;
+  /** BMI productId. */
+  productId: string;
+  /** BMI pageId the product is sold from. */
+  pageId: string;
+  /** Display label (cart, review, hero card). */
+  label: string;
+  tier: "starter" | "intermediate" | "pro";
+  track: "Red" | "Blue" | "Mega";
+  /** Per-unit price for the component — used by the auto-sum
+   *  pricing helper when the package omits an explicit `price`. */
+  price: number;
+  /** Heat-gap rule against an earlier component's STOP time.
+   *  e.g. `{ ref: "starter", minutes: 60 }` means "this heat must
+   *  start ≥ 60 min after the starter heat ends". */
+  minMinutesAfterEndOf?: { ref: string; minutes: number };
+}
+
+export interface PackageDefinition {
+  id: PackageId;
+  /** Display name (cart line, hero card, picker). */
+  name: string;
+  /** One-liner shown as the picker-card subtitle. */
+  shortDescription: string;
+  /** Full marketing copy — picker card body, info modal. */
+  longDescription: string;
+  /** Env-flag-aware feature gate. */
+  enabled: boolean;
+  /** Eligibility — `"any"` matches both new and existing racers. */
+  racerType: "new" | "existing" | "any";
+  /** When this package is bookable. Empty array means never. */
+  schedules: Schedule[];
+  /** Category restriction. `"any"` matches both. */
+  category: "adult" | "junior" | "any";
+
+  /** Race components the package bundles. EMPTY array means the
+   *  package wraps whatever Starter race the user separately picks
+   *  on the product picker (Rookie Pack today). NON-EMPTY means the
+   *  package OWNS its race selections — the picker advances straight
+   *  into PackageHeatPicker bypassing the standalone race cards. */
+  races: PackageRaceComponent[];
+  /** Auto-add the FastTrax license at checkout (or treat as already
+   *  included if the racer's flow was going to add one anyway). */
+  includesLicense: boolean;
+  /** Auto-add POV cameras (one per racer) at checkout. */
+  includesPov: boolean;
+  /** Free-appetizer redeem code shown on the confirmation page.
+   *  Same for Rookie Pack and Ultimate Qualifier today (RACEAPP);
+   *  the field exists so future packages can diverge. */
+  appetizerCode?: string;
+
+  /** Per-racer bundle total. Optional — if omitted, the auto-sum
+   *  helper computes it from `races` + license/POV booleans. */
+  price?: number;
+  /** Comparison "retail" total for "you save $X" display. Optional. */
+  retailPrice?: number;
+
+  /** Stable key for cart-sync line entries. */
+  cartLineKey: string;
+}
+
+// ── Registry ────────────────────────────────────────────────────────────────
+
+const ROOKIE_PACK_ENABLED = process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1";
+// Default ON unless explicitly disabled — opposite of rookie pack
+// because we want this rolling out by default at launch.
+const ULTIMATE_QUALIFIER_ENABLED =
+  (process.env.NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED || "true").toLowerCase() !== "false";
+
+const PACKAGES: PackageDefinition[] = [
+  // ── Rookie Pack ───────────────────────────────────────────────────────────
+  // Migrated from the hard-coded chooser in PovUpsell.tsx so the picker
+  // can render it as a top-level card and the POV step can keep
+  // offering it as an upgrade for users who picked a plain Starter.
+  {
+    id: "rookie-pack",
+    name: "Rookie Pack",
+    shortDescription: "Starter race + license + POV + free appetizer",
+    longDescription:
+      "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).",
+    enabled: ROOKIE_PACK_ENABLED,
+    racerType: "new",
+    schedules: ["weekday", "weekend", "mega"],
+    category: "any",
+    // No races array — Rookie Pack bundles whatever Starter race the
+    // user picks separately (legacy behavior preserved).
+    races: [],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    // license + pov; the Starter race itself is priced separately
+    // because the pack rides on top of it.
+    price: LICENSE_PRICE + POV_PRICE,
+    cartLineKey: "rookie-pack",
+  },
+
+  // ── Ultimate Qualifier (Mega) ─────────────────────────────────────────────
+  // Premier package for Mega Tuesdays. Books two heats — Starter
+  // Mega first, then Intermediate Mega ≥ 60 min after the Starter
+  // ends so the racer has time to qualify, watch the included POV
+  // video, and grab their free appetizer.
+  //
+  // Intermediate productId 45810775 is a NEW BMI SKU minted for this
+  // package only — separate from the standalone Intermediate Race
+  // Mega 24965707 in `app/book/race/data.ts`. Pricing on the new SKU
+  // TBD; until confirmed, the auto-sum pricing helper falls back to
+  // standalone Intermediate price ($20.99). Update the `price` here
+  // (or on the `45810775` race component) once finalized.
+  //
+  // pageId for 45810775: best guess is the existing Intermediate Mega
+  // page (25850647). Verify with a /api/bmi?endpoint=availability
+  // probe before launch and update if BMI moved it elsewhere.
+  {
+    id: "ultimate-qualifier-mega",
+    name: "Ultimate Qualifier",
+    shortDescription:
+      "Starter Mega + Intermediate Mega + license + POV + free appetizer",
+    longDescription:
+      "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (one per group, dine-in only). This ultimate pack also includes your license.",
+    enabled: ULTIMATE_QUALIFIER_ENABLED,
+    racerType: "any",
+    schedules: ["mega"],
+    category: "adult",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24965505", // existing Starter Race Mega (new-racer)
+        pageId: "24966930",
+        label: "Starter Race Mega",
+        tier: "starter",
+        track: "Mega",
+        price: 20.99,
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        productId: "45810775", // NEW — Ultimate-Qualifier-only Intermediate Mega
+        pageId: "25850647",     // verify before launch (see comment above)
+        label: "Intermediate Race Mega",
+        tier: "intermediate",
+        track: "Mega",
+        price: 20.99,
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    // No explicit `price` — let the auto-sum helper compute it from
+    // the components above + license + POV. Update once finalized.
+    cartLineKey: "ultimate-qualifier-mega",
+  },
+];
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Lookup a package definition by id. Returns null when the id is
+ *  unknown or the feature flag has it disabled — callers should
+ *  treat both cases as "package unavailable". */
+export function getPackage(id: string | null | undefined): PackageDefinition | null {
+  if (!id) return null;
+  const pkg = PACKAGES.find((p) => p.id === id);
+  if (!pkg || !pkg.enabled) return null;
+  return pkg;
+}
+
+/** Same as `getPackage` but ignores the enabled flag. Useful on the
+ *  confirmation page where we still need to render an old booking
+ *  even if the package was later turned off. */
+export function getPackageIgnoreFlag(id: string | null | undefined): PackageDefinition | null {
+  if (!id) return null;
+  return PACKAGES.find((p) => p.id === id) ?? null;
+}
+
+export interface EligibilityContext {
+  racerType: "new" | "existing" | null | undefined;
+  schedule: Schedule | null | undefined;
+  category?: "adult" | "junior";
+}
+
+/** Filters the registry to packages bookable in the current context.
+ *  Used by the product picker to render its "packages" row. */
+export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
+  return PACKAGES.filter((p) => {
+    if (!p.enabled) return false;
+    if (p.racerType !== "any" && ctx.racerType && p.racerType !== ctx.racerType) return false;
+    if (ctx.schedule && !p.schedules.includes(ctx.schedule)) return false;
+    if (p.category !== "any" && ctx.category && p.category !== ctx.category) return false;
+    return true;
+  });
+}
+
+/** Per-racer total for a package. When the package didn't pin an
+ *  explicit `price`, sums:
+ *   - each race component's `price`
+ *   - $4.99 license if `includesLicense`
+ *   - $5 POV per racer if `includesPov`
+ *  Appetizer code is treated as $0 (free promo).
+ */
+export function packagePerRacerPrice(pkg: PackageDefinition): number {
+  if (typeof pkg.price === "number") return pkg.price;
+  let sum = pkg.races.reduce((acc, r) => acc + (r.price || 0), 0);
+  if (pkg.includesLicense) sum += LICENSE_PRICE;
+  if (pkg.includesPov) sum += POV_PRICE;
+  return sum;
+}
+
+/** Total price for a group of N racers. Heats are shared across
+ *  racers (multi-racer "all share heats" pattern) but every racer
+ *  needs their own license + POV, so this is straightforward
+ *  per-racer-times-N math. */
+export function packageBundleTotal(pkg: PackageDefinition, racerCount: number): number {
+  return packagePerRacerPrice(pkg) * Math.max(1, racerCount);
+}
+
+/** Pull the gap rule for a component, if any. */
+export function packageHeatGapMinutes(component: PackageRaceComponent): { ref: string; minutes: number } | null {
+  return component.minMinutesAfterEndOf ?? null;
+}
+
+/** Derive the current schedule slot from a date. Tuesday = "mega",
+ *  Mon/Wed/Thu = "weekday", Fri/Sat/Sun = "weekend". Mirrors the
+ *  classification in `app/book/race/data.ts`. */
+export function scheduleForDate(d: Date | string): Schedule {
+  const date = typeof d === "string" ? new Date(d) : d;
+  const day = date.getDay(); // 0 = Sun … 6 = Sat
+  if (day === 2) return "mega";
+  if (day === 0 || day === 5 || day === 6) return "weekend";
+  return "weekday";
+}

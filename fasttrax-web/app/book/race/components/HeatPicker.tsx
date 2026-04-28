@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "../data";
 import { bmiPost } from "../data";
-import { heatsConflict, HEAT_CONFLICT_TOOLTIP } from "@/lib/heat-conflict";
+import { heatsConflict, HEAT_CONFLICT_TOOLTIP, violatesMinGapAfter, packageGapTooltip } from "@/lib/heat-conflict";
 
 interface HeatPickerProps {
   race: ClassifiedProduct;
@@ -21,6 +21,11 @@ interface HeatPickerProps {
   bookedHeats?: { start: string; stop: string; track: string | null }[];
   /** When true, clicking a heat card immediately calls onConfirm (no separate confirm button) */
   immediateConfirm?: boolean;
+  /** Package gap rule — used by Ultimate Qualifier so the Intermediate
+   *  heat must start ≥ N minutes after a previously-picked component
+   *  (e.g. the Starter heat) finishes. Heats that violate the gap
+   *  show as conflicting with a package-specific tooltip. */
+  minutesAfterEnd?: { stop: string; minutes: number; refLabel: string };
 }
 
 function parseLocal(iso: string): Date {
@@ -42,7 +47,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0 }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,24 +180,39 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                 return heatsConflict(bhStart, bh.track, blockStart, race.track);
               });
 
+              // Package gap rule (Ultimate Qualifier etc.) — heats
+              // that start before `prevStop + minutes` are blocked
+              // with a package-specific tooltip distinct from the
+              // standard same/cross-track conflict messaging.
+              const isGapViolation = minutesAfterEnd
+                ? violatesMinGapAfter(minutesAfterEnd.stop, block.start, minutesAfterEnd.minutes)
+                : false;
+
               // Distinguish "not enough spots" from "too close to picked
               // heat" — both disable the card but the label needs to
               // tell the guest why. Previously both collapsed into the
               // spots message, so conflict heats silently showed
               // "Need 1, only N left" even when N > 0.
               const isLowCap = block.freeSpots < quantity;
-              const isFull = isLowCap || isConflict;
+              const isFull = isLowCap || isConflict || isGapViolation;
               const isSelected = selectedIdx === idx;
-              const statusLabel = isConflict
-                ? "Too close to picked heat"
-                : isLowCap
-                  ? `Need ${quantity}, only ${block.freeSpots} left`
-                  : spotsLabel(block.freeSpots, block.capacity).label;
-              const statusClass = isConflict
+              const statusLabel = isGapViolation
+                ? `Available ${minutesAfterEnd!.minutes} min after ${minutesAfterEnd!.refLabel}`
+                : isConflict
+                  ? "Too close to picked heat"
+                  : isLowCap
+                    ? `Need ${quantity}, only ${block.freeSpots} left`
+                    : spotsLabel(block.freeSpots, block.capacity).label;
+              const statusClass = isGapViolation || isConflict
                 ? "text-amber-400"
                 : isLowCap
                   ? "text-red-400"
                   : spotsLabel(block.freeSpots, block.capacity).text;
+              const cardTooltip = isGapViolation
+                ? packageGapTooltip(minutesAfterEnd!.minutes, minutesAfterEnd!.refLabel)
+                : isConflict
+                  ? HEAT_CONFLICT_TOOLTIP
+                  : undefined;
 
               return (
                 <button
@@ -206,7 +226,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                     }
                   }}
                   disabled={isFull}
-                  title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
+                  title={cardTooltip}
                   className={`
                     rounded-xl border p-3 text-left transition-all duration-150
                     ${isSelected
@@ -225,8 +245,8 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   </div>
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : isConflict ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
-                      style={{ width: isConflict ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
+                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                      style={{ width: (isConflict || isGapViolation) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
                     />
                   </div>
                 </button>

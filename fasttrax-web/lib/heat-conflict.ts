@@ -72,3 +72,32 @@ export function heatsConflict(
 /** Short human-readable explainer for a conflict's source, for tooltips. */
 export const HEAT_CONFLICT_TOOLTIP =
   "Pick a different heat — this one's too close. Same-track heats need to skip at least one slot between them, and jumping between tracks needs 30 minutes to walk across and check in.";
+
+/**
+ * Package heat-gap rule: candidate must start at least `minutes` after
+ * a previously-picked component finished. Used by the Ultimate
+ * Qualifier package to enforce "Intermediate must start ≥ 60 min
+ * after Starter ends" (qualifying race + buffer for video review +
+ * appetizer at Nemo's).
+ *
+ * @param prevStop  ISO string or epoch ms of the previous heat's STOP time
+ * @param candStart ISO string or epoch ms of the candidate heat's START
+ * @param minutes   minimum gap in minutes
+ * @returns true when the candidate violates the gap (i.e. is too soon)
+ */
+export function violatesMinGapAfter(
+  prevStop: string | number | Date,
+  candStart: string | number | Date,
+  minutes: number,
+): boolean {
+  const prevMs = typeof prevStop === "string" ? Date.parse(prevStop) : prevStop instanceof Date ? prevStop.getTime() : prevStop;
+  const candMs = typeof candStart === "string" ? Date.parse(candStart) : candStart instanceof Date ? candStart.getTime() : candStart;
+  if (!Number.isFinite(prevMs) || !Number.isFinite(candMs)) return false;
+  return candMs < prevMs + minutes * 60_000;
+}
+
+/** Short tooltip explainer for the package gap rule. The component
+ *  fills in the actual minutes / qualifier label at render time. */
+export function packageGapTooltip(minutes: number, refLabel: string): string {
+  return `Available ${minutes} min after your ${refLabel} ends — gives you time to qualify, review your POV video, and grab your appetizer.`;
+}

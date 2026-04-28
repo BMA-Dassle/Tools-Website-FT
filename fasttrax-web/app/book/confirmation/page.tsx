@@ -179,7 +179,12 @@ export default function ConfirmationPage() {
   const [raceGroups, setRaceGroups] = useState<{ product: string; track: string | null; heatStart: string; heatName: string; racers: string[]; resNumber: string; resCode: string; billId: string }[]>([]);
   /** Rookie Pack opt-in flag from the booking record. When true, we
    *  render the "Free Appetizer at Nemo's — code RACEAPP" card on
-   *  the confirmation page. Set in OrderSummary at booking time. */
+   *  the confirmation page. Set in OrderSummary at booking time.
+   *  Now derived from the centralized package registry —
+   *  `bookingRecord.package` (new) wins, falling back to
+   *  `bookingRecord.rookiePack: true` (legacy field) for old
+   *  records. Either case where the resolved package has an
+   *  `appetizerCode` set flips this to true. */
   const [rookiePack, setRookiePack] = useState(false);
   const confirmStarted = useRef(false);
   const liveStatus = useTrackStatus();
@@ -386,10 +391,32 @@ export default function ConfirmationPage() {
           if (recRes.ok) bookingRecord = await recRes.json();
         } catch { /* non-fatal */ }
 
-        // Pull the Rookie Pack flag if present so we can render the
-        // appetizer-code card below the main booking confirmation.
-        // Older bookings simply lack the field → defaults to false.
-        if (bookingRecord?.rookiePack === true) setRookiePack(true);
+        // Resolve the booking's package (centralized registry — see
+        // lib/packages.ts) so we know whether to render the
+        // appetizer-code card. Two paths:
+        //  1. `bookingRecord.package` (new) — package id, look up
+        //     the definition + read its `appetizerCode`.
+        //  2. `bookingRecord.rookiePack: true` (legacy field on
+        //     pre-deploy bookings) — fall back to the rookie-pack
+        //     definition for the appetizer.
+        // Either path flips the local `rookiePack` flag on, which
+        // gates the existing appetizer card render below — keeps the
+        // UX identical for both Rookie Pack and Ultimate Qualifier
+        // until we split per-package copy.
+        try {
+          const { getPackageIgnoreFlag } = await import("@/lib/packages");
+          const pkgId = bookingRecord?.package as string | null | undefined;
+          let appetizerCode: string | undefined;
+          if (pkgId) {
+            appetizerCode = getPackageIgnoreFlag(pkgId)?.appetizerCode;
+          } else if (bookingRecord?.rookiePack === true) {
+            appetizerCode = getPackageIgnoreFlag("rookie-pack")?.appetizerCode;
+          }
+          if (appetizerCode) setRookiePack(true);
+        } catch {
+          // Fall back to legacy behavior on any import / lookup error.
+          if (bookingRecord?.rookiePack === true) setRookiePack(true);
+        }
 
         // Build race groups — group racers by heat for display tiles
         if (bookingRecord?.racers && Array.isArray(bookingRecord.racers) && bookingRecord.racers.length > 0) {

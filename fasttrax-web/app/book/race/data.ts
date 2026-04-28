@@ -565,7 +565,8 @@ export const TIER_LABELS: Record<RaceTier, string> = {
 
 /** Centralized tier descriptions — used on booking page, racing page, and emails */
 export const TIER_DESCRIPTIONS: Record<RaceTier, string> = {
-  starter: "Speed-controlled karts. Everyone starts here — no exceptions. Perfect for first-timers and families.",
+  starter:
+    "Everyone must start at our Starter speed — a fun, exciting race meant for everyone on either track. Being your first visit, you'll also purchase a FastTrax license which includes use of helmets, FastTrax app tracking, head sock, waived booking fees, and more.",
   intermediate: "Higher speed unlock — not for the faint of heart. A real competitive karting experience. Qualified from Starter. Ages 13+.",
   pro: "Our fastest unlocked speed. Maximum performance for racers who've proven their skill.",
 };

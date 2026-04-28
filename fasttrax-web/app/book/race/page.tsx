@@ -43,6 +43,10 @@ import DatePicker from "./components/DatePicker";
 import ProductPicker from "./components/ProductPicker";
 import HeatPicker from "./components/HeatPicker";
 import PackHeatPicker from "./components/PackHeatPicker";
+import PackageHeatPicker from "./components/PackageHeatPicker";
+import type { PackagePick } from "./components/PackageHeatPicker";
+import type { PackageDefinition } from "@/lib/packages";
+import { eligiblePackages, scheduleForDate, packagePerRacerPrice } from "@/lib/packages";
 import ContactForm from "./components/ContactForm";
 import AddOnsPage from "./components/AddOnsPage";
 import type { AddOnItem } from "./components/AddOnsPage";
@@ -93,6 +97,12 @@ export default function BookRacePage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   // Current in-progress selection
   const [selectedProduct, setSelectedProduct] = useState<ClassifiedProduct | null>(null);
+  // When a package was picked instead of a single race. Mutually
+  // exclusive with `selectedProduct` — picking one clears the other.
+  // Drives the PackageHeatPicker render path, the cart line collapse,
+  // and the booking-record `package` field for downstream features
+  // (e.g. the "did they qualify?" cron we'll wire up later).
+  const [selectedPackage, setSelectedPackage] = useState<PackageDefinition | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedProposal, setSelectedProposal] = useState<BmiProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
@@ -235,7 +245,34 @@ export default function BookRacePage() {
     // confirmation page already present the bundle. Otherwise show the
     // separate license / POV lines.
     const baseDate = bookings[0]?.block.start.split("T")[0] || "";
-    const isRookieBundle = !!(selectedPov && selectedPov.quantity > 0 && selectedPov.rookiePack);
+
+    // Package with owned races (Ultimate Qualifier) — render ONE
+    // bundled cart line representing the whole package + skip the
+    // license/POV/individual-race lines that the package owns. The
+    // race lines from `bookings` already show above; the bundle line
+    // sits alongside as the "this is one purchase" indicator.
+    const packageOwnsRaces = !!(selectedPackage && selectedPackage.races.length > 0);
+    if (packageOwnsRaces && selectedPackage) {
+      const racerCount = quantity || 1;
+      racingItems.push({
+        attraction: "racing",
+        attractionName: "Racing",
+        product: {
+          name: selectedPackage.name,
+          price: packagePerRacerPrice(selectedPackage),
+          bookingMode: "per-person",
+        },
+        date: baseDate,
+        time: { block: { start: "" } },
+        quantity: racerCount,
+        // No cart × button — package teardown is multi-step (cancel
+        // bookings + reset state). Done via OrderSummary's hero card.
+        billLineId: null,
+        color: "#F59E0B",
+        racerNames: undefined,
+      });
+    }
+    const isRookieBundle = !packageOwnsRaces && !!(selectedPov && selectedPov.quantity > 0 && selectedPov.rookiePack);
     if (isRookieBundle && selectedPov) {
       const LICENSE_PRICE = 4.99;
       racingItems.push({
@@ -255,7 +292,9 @@ export default function BookRacePage() {
         color: "#F59E0B",
         racerNames: undefined,
       });
-    } else {
+    } else if (!packageOwnsRaces) {
+      // Skip itemized license/POV when an Ultimate-Qualifier-style
+      // package owns them — the bundle line above represents both.
       if (licenseSold) {
         racingItems.push({
           attraction: "racing",
@@ -343,7 +382,7 @@ export default function BookRacePage() {
       sessionStorage.setItem("primaryPersonId", verifiedPerson.personId);
       console.log("[cart sync] saved primaryPersonId:", verifiedPerson.personId);
     }
-  }, [bookings, licenseSold, verifiedRacers, verifiedPerson, packResult, selectedProduct, selectedPov, selectedAddOns]);
+  }, [bookings, licenseSold, verifiedRacers, verifiedPerson, packResult, selectedProduct, selectedPov, selectedAddOns, selectedPackage, quantity]);
 
   // Load product catalog from static registry based on day-of-week and racer type
   const fetchCatalog = useCallback((date: string) => {
@@ -584,6 +623,8 @@ export default function BookRacePage() {
 
   function handleProductSelect(product: ClassifiedProduct) {
     trackBookingProduct(product.name, product.track, product.tier);
+    // Picking a plain race clears any in-flight package selection.
+    setSelectedPackage(null);
     setSelectedProduct(product);
     // Set quantity based on party size for this category
     const q = product.category === "adult" ? adults : juniors;
@@ -591,6 +632,110 @@ export default function BookRacePage() {
     // Auto-advance to heat selection
     setHeatPickerKey(k => k + 1); // Force fresh HeatPicker mount
     setTimeout(() => changeStep("heat"), 300);
+  }
+
+  /** User picked a package on the product step. Clears any in-flight
+   *  single-race state, sets `selectedPackage`, and advances to the
+   *  heat step. The PackageHeatPicker takes over from there for any
+   *  package whose `races` array is non-empty. */
+  function handleSelectPackage(pkg: PackageDefinition) {
+    trackBookingProduct(pkg.name, null, "starter");
+    setSelectedProduct(null);
+    setSelectedPackage(pkg);
+    // Heats book per-racer × N seats (the package is "all share heats"
+    // multi-racer pattern). Use the total racer count.
+    const total = adults + juniors;
+    setQuantity(Math.max(1, total));
+    setTimeout(() => changeStep("heat"), 300);
+  }
+
+  /** Tear down a package selection mid-flow. Cancels any heat lines
+   *  the PackageHeatPicker booked, clears state, and bounces the user
+   *  back to the product picker. Mirrors the rookie-pack cancel
+   *  pattern so customers can change their mind without restarting. */
+  async function handleRemovePackage() {
+    // Remove any BMI bill lines that came from package heats.
+    for (const b of bookings) {
+      if (b.billLineIds && b.billLineIds.length > 0) {
+        for (const ll of b.billLineIds) {
+          try { await removeBookingLine(ll.billId, ll.lineId); } catch { /* non-fatal */ }
+        }
+      }
+    }
+    setBookings([]);
+    setActiveBills([]);
+    setSelectedPackage(null);
+    setSelectedProduct(null);
+    setSelectedProposal(null);
+    setSelectedBlock(null);
+    setSelectedPov(null);
+    changeStep("product");
+  }
+
+  /** All package heats picked. Books each one as a BMI bill line and
+   *  populates `bookings` so the existing downstream flow (POV, add-
+   *  ons, contact, summary) works unchanged. After booking, advances
+   *  past POV when the package already includes it. */
+  async function handlePackageHeatsConfirm({ picks }: { picks: PackagePick[] }) {
+    if (!selectedPackage) return;
+
+    // Book each component sequentially on the same bill so BMI sees
+    // them as one order. Mirrors the PackHeatPicker's same-bill
+    // pattern (re-uses orderId after the first booking).
+    let billId: string | undefined;
+    const newBookings: Booking[] = [];
+    try {
+      for (const pick of picks) {
+        // Synthesize a ClassifiedProduct shape for bookRaceHeat —
+        // mirrors what PackageHeatPicker uses internally.
+        const race: ClassifiedProduct = {
+          productId: pick.component.productId,
+          pageId: pick.component.pageId,
+          name: pick.component.label,
+          tier: pick.component.tier,
+          category: "adult",
+          track: pick.component.track,
+          price: pick.component.price,
+          isCombo: false,
+          packType: "none",
+          raceCount: 1,
+          sessionGroup: "",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          raw: {} as any,
+        };
+        const result = await bookRaceHeat(race, quantity, pick.proposal, billId);
+        if (!billId) billId = result.rawOrderId;
+        newBookings.push({
+          product: race,
+          quantity,
+          proposal: pick.proposal,
+          block: pick.block,
+          blockPrice: pick.component.price,
+          billLineIds: result.billLineId
+            ? [{ billId: result.rawOrderId, lineId: result.billLineId }]
+            : undefined,
+        });
+      }
+    } catch (err) {
+      console.error("[handlePackageHeatsConfirm] booking failed", err);
+      // Bail out — leave state where it was so the user can retry.
+      return;
+    }
+
+    if (billId) {
+      setActiveBills([{ billId, racerName: "Package", category: "adult" as const }]);
+      sessionStorage.setItem("attractionOrderId", billId);
+    }
+    setBookings(newBookings);
+
+    // Skip the POV step when the package already bundles POV — for
+    // both Rookie Pack and Ultimate Qualifier this means jumping
+    // straight to add-ons.
+    if (selectedPackage.includesPov) {
+      changeStep("addons");
+    } else {
+      changeStep("pov");
+    }
   }
 
   function handlePackComplete(result: PackBookingResult) {
@@ -1360,6 +1505,22 @@ export default function BookRacePage() {
                   juniors={juniors}
                   selected={selectedProduct}
                   onSelect={handleProductSelect}
+                  packages={
+                    // V1 scope: only packages that OWN races render on
+                    // the picker (Ultimate Qualifier). The Rookie Pack
+                    // registry entry has races: [] and continues to
+                    // surface via PovUpsell's chooser — Phase 2 will
+                    // migrate it to the picker.
+                    selectedDate
+                      ? eligiblePackages({
+                          racerType,
+                          schedule: scheduleForDate(selectedDate),
+                          category: bookingCategory,
+                        }).filter((p) => p.races.length > 0)
+                      : []
+                  }
+                  racerCount={adults + juniors}
+                  onSelectPackage={handleSelectPackage}
                 />
               </>
             )}
@@ -1367,6 +1528,36 @@ export default function BookRacePage() {
               ← Change date
             </button>
           </div>
+        )}
+
+        {/* STEP 5a: Package heat picker — multi-component sequential
+            picker for packages with bundled races (Ultimate Qualifier).
+            Renders ahead of the single-race HeatPicker because
+            selectedProduct is null when a package is active. */}
+        {step === "heat" && selectedPackage && selectedPackage.races.length > 0 && selectedDate && (
+          <PackageHeatPicker
+            pkg={selectedPackage}
+            date={selectedDate}
+            quantity={quantity}
+            bookedHeats={
+              bookings.map((b) => ({
+                start: b.block.start,
+                stop: b.block.stop,
+                track: b.product.track,
+              }))
+            }
+            minAdvanceMinutes={
+              racerType === "existing" && verifiedRacers.length > 0 &&
+              verifiedRacers.every((r) => r.waiverValid === true)
+                ? 0 : 75
+            }
+            onConfirm={handlePackageHeatsConfirm}
+            onBack={() => {
+              // Bail out of the package — clear state, return to picker.
+              setSelectedPackage(null);
+                        changeStep("product");
+            }}
+          />
         )}
 
         {/* STEP 5: Heat + Quantity */}
@@ -1712,6 +1903,8 @@ export default function BookRacePage() {
             verifiedRacers={verifiedRacers.filter(r => r.personId).map(r => ({ personId: r.personId, fullName: r.fullName }))}
             addOns={selectedAddOns.map(a => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity, perPerson: a.perPerson, proposal: a.proposal, block: a.block, selectedTime: a.selectedTime }))}
             pov={selectedPov}
+            selectedPackage={selectedPackage}
+            onRemovePackage={handleRemovePackage}
             onRemoveBooking={async (index) => {
               const toRemove = bookings[index];
               // Remove this booking's lines from BMI bills

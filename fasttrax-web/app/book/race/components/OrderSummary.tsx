@@ -5,6 +5,8 @@ import type { ClassifiedProduct, BmiProposal, BmiBlock, PackSchedule } from "../
 import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } from "../data";
 import { getBookingClientKey, getBookingLocation } from "@/lib/booking-location";
 import { trackBookingReview, trackBookingPayment } from "@/lib/analytics";
+import type { PackageDefinition } from "@/lib/packages";
+import { packagePerRacerPrice, LICENSE_PRICE, POV_PRICE } from "@/lib/packages";
 import type { ContactInfo } from "./ContactForm";
 import PaymentForm from "@/components/square/PaymentForm";
 
@@ -77,6 +79,16 @@ interface OrderSummaryProps {
    *  License-only or re-add the bundle. Distinct from `onRemovePov`
    *  which is the inline X on a non-bundle POV row (no navigation). */
   onCancelRookiePack?: () => void;
+  /** Currently-selected centralized package definition (Ultimate
+   *  Qualifier etc.). When set with `races.length > 0` the review
+   *  shows a package hero card and writes the `package` /
+   *  `packageHeats` fields onto the booking record so future
+   *  automation (qualifier-detection cron, e-ticket flow) can react. */
+  selectedPackage?: PackageDefinition | null;
+  /** Atomic teardown — cancel all package bookings and bounce back
+   *  to the product picker. Mirrors `onCancelRookiePack` but for
+   *  packages that own their races. */
+  onRemovePackage?: () => void | Promise<void>;
   /** Override confirmation page path (default: /book/race/confirmation) */
   confirmationPath?: string;
 }
@@ -155,6 +167,8 @@ export default function OrderSummary({
   onRemoveAddOn,
   onRemovePov,
   onCancelRookiePack,
+  selectedPackage,
+  onRemovePackage,
   confirmationPath = "/book/race/confirmation",
 }: OrderSummaryProps) {
   const [removingPack, setRemovingPack] = useState(false);
@@ -430,7 +444,24 @@ export default function OrderSummary({
         // chose the pack in PovUpsell. Staged behind
         // NEXT_PUBLIC_ROOKIE_PACK_ENABLED in the upsell component;
         // older bookings simply lack the field.
-        rookiePack: pov?.rookiePack === true,
+        // Stays for back-compat — confirmation page still falls back
+        // to this when the new `package` field is missing.
+        rookiePack: pov?.rookiePack === true || selectedPackage?.id === "rookie-pack",
+        // Centralized package metadata (lib/packages.ts). Lets the
+        // confirmation page render the right appetizer / hero, and
+        // gives the future "did they qualify?" cron the heat
+        // sessionIds / start-stop times it needs to detect a
+        // non-qualifier and offer a refund/swap.
+        package: selectedPackage?.id ?? null,
+        packageHeats: selectedPackage && selectedPackage.races.length > 0
+          ? bookings.map((b) => ({
+              ref: selectedPackage.races.find((r) => r.productId === String(b.product.productId))?.ref ?? null,
+              productId: String(b.product.productId),
+              sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
+              start: b.block.start,
+              stop: b.block.stop,
+            }))
+          : null,
       };
       try {
         await fetch("/api/booking-record", {
@@ -670,13 +701,23 @@ export default function OrderSummary({
       {/* All items — races + add-ons merged, sorted by time, compact rows */}
       {!isPack && (() => {
         type CardItem =
+          | { type: "package" }
           | { type: "race"; time: string; bookingIdx: number }
           | { type: "pov" }
           | { type: "addon"; addOnIdx: number; time: string };
 
+        // True when an Ultimate-Qualifier-style package owns all the
+        // bookings on this order. The package card replaces the
+        // individual race + license + POV cards (they're rolled up).
+        const packageOwnsRaces = !!(selectedPackage && selectedPackage.races.length > 0);
+
         const cards: CardItem[] = [];
-        bookings.forEach((_, i) => cards.push({ type: "race", time: bookings[i].block.start, bookingIdx: i }));
-        if (pov && pov.quantity > 0) cards.push({ type: "pov" });
+        if (packageOwnsRaces) {
+          cards.push({ type: "package" });
+        } else {
+          bookings.forEach((_, i) => cards.push({ type: "race", time: bookings[i].block.start, bookingIdx: i }));
+          if (pov && pov.quantity > 0) cards.push({ type: "pov" });
+        }
         addOns.forEach((a, i) => { if (a.quantity > 0) cards.push({ type: "addon", addOnIdx: i, time: a.selectedTime || "" }); });
 
         cards.sort((a, b) => {
@@ -699,6 +740,83 @@ export default function OrderSummary({
         return (
           <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.06]">
             {cards.map((card) => {
+              if (card.type === "package" && selectedPackage) {
+                // Racer count for the package — pulled from any of
+                // the bookings (all share the same quantity since the
+                // multi-racer pattern reserves N seats per heat).
+                const racers = bookings[0]?.quantity || 1;
+                const perRacer = packagePerRacerPrice(selectedPackage);
+                const total = perRacer * racers;
+                const heatLabels = bookings
+                  .map((b) => `${b.product.name} · ${formatTime(b.block.start)}`)
+                  .join(" → ");
+                return (
+                  <div key="package" className="px-4 py-4 bg-amber-500/[0.06]">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-amber-400 text-[10px] font-bold uppercase tracking-widest shrink-0">
+                            {selectedPackage.name}
+                          </span>
+                          <span className="text-white/20 text-xs shrink-0">
+                            {racers} racer{racers === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        <p className="text-white/70 text-xs">{selectedPackage.shortDescription}</p>
+                      </div>
+                      {onRemovePackage && state.status === "booked" && (
+                        <button
+                          type="button"
+                          aria-label={`Cancel ${selectedPackage.name} and pick a different option`}
+                          onClick={() => { void onRemovePackage(); }}
+                          className="text-red-400/40 hover:text-red-400 transition-colors p-0.5 -mr-1 shrink-0"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    {heatLabels && (
+                      <p className="text-white/50 text-[11px] mb-2">{heatLabels}</p>
+                    )}
+                    <ul className="space-y-1 text-xs text-white/70 mb-2">
+                      {selectedPackage.races.map((r) => (
+                        <li key={r.ref} className="flex items-baseline justify-between gap-2">
+                          <span><span className="text-emerald-400">✓</span> {r.label} × {racers}</span>
+                          <span className="text-white/50">${(r.price * racers).toFixed(2)}</span>
+                        </li>
+                      ))}
+                      {selectedPackage.includesLicense && (
+                        <li className="flex items-baseline justify-between gap-2">
+                          <span><span className="text-emerald-400">✓</span> Racing License × {racers}</span>
+                          <span className="text-white/50">${(LICENSE_PRICE * racers).toFixed(2)}</span>
+                        </li>
+                      )}
+                      {selectedPackage.includesPov && (
+                        <li className="flex items-baseline justify-between gap-2">
+                          <span><span className="text-emerald-400">✓</span> POV Race Video × {racers}</span>
+                          <span className="text-white/50">${(POV_PRICE * racers).toFixed(2)}</span>
+                        </li>
+                      )}
+                      {selectedPackage.appetizerCode && (
+                        <li className="flex items-baseline justify-between gap-2">
+                          <span>
+                            <span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s
+                            <span className="text-white/40"> (1 per group · race day only)</span>
+                          </span>
+                          <span className="text-emerald-300 font-semibold">FREE</span>
+                        </li>
+                      )}
+                    </ul>
+                    <div className="flex items-baseline justify-between text-xs pt-2 border-t border-white/[0.06]">
+                      <span className="text-amber-400 font-bold">{selectedPackage.name} total</span>
+                      <span className="text-white">${total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              }
+
               if (card.type === "race") {
                 const b = bookings[card.bookingIdx];
                 return (
@@ -796,6 +914,7 @@ export default function OrderSummary({
                 );
               }
 
+              if (card.type !== "addon") return null; // narrow for TS — package/race/pov already handled above
               const a = addOns[card.addOnIdx];
               return (
                 <div key={`addon-${a.id}`} className="px-4 py-3 flex items-center justify-between gap-3">
@@ -826,11 +945,15 @@ export default function OrderSummary({
               const isLicense = line.name.toLowerCase().includes("license");
               const isRace = line.productGroup === "Karting";
               const isPov = line.name.toLowerCase().includes("pov");
-              // When the Rookie Pack hero card is showing above, the
-              // license + POV are already represented there. Hide
-              // them here so customers don't see them twice. Subtotal
-              // / tax / total below still reflect the full bill.
+              // When the Rookie Pack OR a package hero card is showing
+              // above, license + POV (and the package races for
+              // owned-races packages) are already represented there.
+              // Hide them here so customers don't see them twice.
+              // Subtotal / tax / total below still reflect the full
+              // bill.
+              const packageOwnsLines = !!(selectedPackage && selectedPackage.races.length > 0);
               if (pov?.rookiePack && (isLicense || isPov)) return null;
+              if (packageOwnsLines && (isLicense || isPov || isRace)) return null;
               // Removable: not a license, not a race (races removed via item cards above)
               const canRemove = !isLicense && !isRace && line.lineId && state.status === "booked";
               return (

@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, TIER_DESCRIPTIONS, groupByTrack } from "../data";
+import type { PackageDefinition } from "@/lib/packages";
+import { packagePerRacerPrice } from "@/lib/packages";
 import { modalBackdropProps } from "@/lib/a11y";
 
 // ── Track info shown in the "Pick your track" modal ─────────────────────────
@@ -49,9 +51,19 @@ interface ProductPickerProps {
   juniors: number;
   selected: ClassifiedProduct | null;
   onSelect: (product: ClassifiedProduct) => void;
+  /** Eligible packages for the current context (date / racer type /
+   *  category). Pre-filtered by the parent so this component doesn't
+   *  need to know about scheduling rules. Empty / undefined → no
+   *  packages row renders. */
+  packages?: PackageDefinition[];
+  /** Total racer count (adults + juniors) — used for per-pack
+   *  pricing display ("× N racers"). */
+  racerCount?: number;
+  /** Click handler for a package card. */
+  onSelectPackage?: (pkg: PackageDefinition) => void;
 }
 
-export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect }: ProductPickerProps) {
+export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect, packages = [], racerCount = 1, onSelectPackage }: ProductPickerProps) {
   /** When a multi-track product is clicked, stash its items here and
    *  render the TrackPickerModal. Keeps single-track + pack + multi-
    *  track cards visually consistent in the grid. */
@@ -74,24 +86,31 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
   return (
     <div className="space-y-6">
-      {/* New racer license notice — placed ABOVE the "Pick Your
-          Starter Race" heading so it clearly reads as a preamble
-          notice and not one of the selectable race options. */}
-      {racerType === "new" && products.length > 0 && (
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <svg className="w-5 h-5 text-blue-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" />
-            </svg>
-            <div className="flex-1 min-w-0">
-              <p className="text-blue-400 font-bold text-sm">
-                FastTrax Racing License — $4.99/person
-                <span className="hidden sm:inline text-white/30 font-normal"> · added at checkout</span>
-              </p>
-              <p className="text-white/40 text-xs mt-0.5 leading-snug">
-                Required for first-time racers. Includes head sock, helmet, and FastTrax app access. Valid 1 year.
-              </p>
-            </div>
+      {/* Packages row — premium bundles up top so they're seen first.
+          Driven by the centralized package registry (lib/packages.ts);
+          parent is responsible for filtering eligibility. The
+          legacy first-time-racer license banner used to live here
+          but it's redundant once packages explicitly call out the
+          license inclusion. */}
+      {packages.length > 0 && onSelectPackage && (
+        <div className="space-y-3">
+          <div className="text-center">
+            <p className="text-amber-400 text-[11px] font-bold uppercase tracking-widest">
+              Premium Packages
+            </p>
+            <p className="text-white/40 text-xs mt-0.5">
+              Bundle the gear and save — fastest way to a complete experience.
+            </p>
+          </div>
+          <div className="grid gap-3">
+            {packages.map((pkg) => (
+              <PackageCard
+                key={pkg.id}
+                pkg={pkg}
+                racerCount={racerCount}
+                onSelect={onSelectPackage}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -321,6 +340,63 @@ function TrackPickerModal({ items, onSelect, onClose }: {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Package card — premium-tier highlight with bundled "what's
+ *  included" chips and a per-racer × N total. Paired with the
+ *  central package registry; visual treatment intentionally
+ *  distinct from individual race cards (gradient border + amber
+ *  premium accent) so packages read as the recommended upsell. */
+function PackageCard({ pkg, racerCount, onSelect }: {
+  pkg: PackageDefinition;
+  racerCount: number;
+  onSelect: (pkg: PackageDefinition) => void;
+}) {
+  const perRacer = packagePerRacerPrice(pkg);
+  const total = perRacer * Math.max(1, racerCount);
+  const includes: string[] = [
+    ...pkg.races.map((r) => r.label),
+    ...(pkg.includesLicense ? ["License"] : []),
+    ...(pkg.includesPov ? ["POV Video"] : []),
+    ...(pkg.appetizerCode ? ["Free Appetizer"] : []),
+  ];
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(pkg)}
+      className="text-left rounded-xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 to-amber-500/5 p-4 transition-all duration-200 hover:border-amber-500/60 hover:from-amber-500/15 hover:to-amber-500/8"
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-bold text-white text-sm">{pkg.name}</span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200 uppercase tracking-wider">
+            Package
+          </span>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-amber-300 font-bold text-sm">${total.toFixed(2)}</p>
+          {racerCount > 1 && (
+            <p className="text-white/40 text-[11px]">${perRacer.toFixed(2)} × {racerCount}</p>
+          )}
+        </div>
+      </div>
+
+      <p className="text-white/60 text-xs leading-relaxed mb-2">{pkg.longDescription}</p>
+
+      {includes.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {includes.map((label, i) => (
+            <span
+              key={i}
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-200/90"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+      )}
+    </button>
   );
 }
 
