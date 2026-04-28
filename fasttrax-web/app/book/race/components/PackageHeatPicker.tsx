@@ -101,27 +101,54 @@ function ProgressDots({ current, total }: { current: number; total: number }) {
   );
 }
 
+/**
+ * Pills showing each filled component's pick, with X to clear.
+ * Mirrors the AddOnsPage "Your Race Schedule" pill row.
+ *
+ * Clicking X clears that pick AND every later-sequence pick — a
+ * Starter swap invalidates any Intermediate already locked in
+ * (gap rule was anchored to the prior Starter's stop time).
+ */
 function SelectedHeats({
   picks,
   components,
+  onClearFrom,
 }: {
   picks: Record<string, PackagePick | null>;
   components: PackageRaceComponent[];
+  onClearFrom: (ref: string) => void;
 }) {
   const filled = components.filter((c) => picks[c.ref] != null);
   if (filled.length === 0) return null;
   return (
-    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-      <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">Heats Selected</p>
-      {filled.map((c) => {
-        const p = picks[c.ref]!;
-        return (
-          <div key={c.ref} className="flex justify-between text-sm text-white/70">
-            <span>{c.label}</span>
-            <span className="text-white/40">{formatTime(p.block.start)}</span>
-          </div>
-        );
-      })}
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+      <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-wider mb-2">
+        Heats Selected
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {filled.map((c) => {
+          const p = picks[c.ref]!;
+          return (
+            <span
+              key={c.ref}
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+            >
+              <span>🏎️ {c.label} · {formatTime(p.block.start)}</span>
+              <button
+                type="button"
+                aria-label={`Clear ${c.label} selection`}
+                onClick={() => onClearFrom(c.ref)}
+                className="text-emerald-300/60 hover:text-red-400 transition-colors text-base leading-none -mr-1"
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      <p className="text-white/30 text-[10px] mt-1.5">
+        Click × on a heat to swap it (later picks reset since the gap rule re-applies).
+      </p>
     </div>
   );
 }
@@ -134,6 +161,7 @@ function HeatGrid({
   quantity,
   bookedHeats,
   cutoff,
+  currentComponent,
 }: {
   proposals: TaggedProposal[];
   components: PackageRaceComponent[];
@@ -142,6 +170,11 @@ function HeatGrid({
   quantity: number;
   bookedHeats: { start: string; stop: string; track: string | null }[];
   cutoff: number;
+  /** The component the user is currently filling. Cards from any
+   *  other component are fully locked (no click, greyed) — to swap
+   *  a prior pick, the user has to X its pill. Null when every
+   *  component is already filled (no further picks accepted). */
+  currentComponent: PackageRaceComponent | null;
 }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -156,19 +189,17 @@ function HeatGrid({
         const myPick = picks[component.ref];
         const isSelected = !!(myPick && myPick.proposal === proposal);
 
+        // Hard lock — only the current step's component is
+        // interactive. To change a prior pick, the user X's its
+        // pill (clears that pick + later slots). Cards outside
+        // the current step show a "Locked" status and can't be
+        // clicked. This stops the previous trick where a Starter
+        // swap mid-flow could leave an Intermediate violating the
+        // gap rule unchecked.
+        const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
+
         // Lead-time cutoff
         const tooSoon = cutoff > 0 && blockStart < cutoff;
-
-        // Sequencing — components must be picked in `sequence`
-        // order (Starter before Intermediate for Ultimate Qualifier).
-        // Any earlier-sequence slot left empty blocks heats in this
-        // component until that prior pick lands. The message points
-        // at the FIRST missing prior component so the customer
-        // knows where to start.
-        const priorMissing = components
-          .filter((c) => c.sequence < component.sequence && !picks[c.ref])
-          .sort((a, b) => a.sequence - b.sequence)[0];
-        const isPriorMissing = !!priorMissing;
 
         // Package gap rule against the referenced component's pick.
         const gapRule = component.minMinutesAfterEndOf;
@@ -194,28 +225,39 @@ function HeatGrid({
           );
 
         const isLowCap = block.freeSpots < quantity;
-        const isFull = !isSelected && (isPriorMissing || isLowCap || isConflict || isGapViolation || tooSoon);
+        // Selected heats stay clickable (the inner toggleHeat is a
+        // no-op for selected = same heat re-clicked, which would
+        // deselect — we don't want that mid-flow either since the
+        // X-pill is the canonical "deselect" path now). Lock all
+        // selected cards too.
+        const isFull = isSelected
+          ? true
+          : (isOtherStep || isLowCap || isConflict || isGapViolation || tooSoon);
 
-        const statusLabel = isPriorMissing
-          ? `Pick your ${priorMissing.label} first`
-          : isGapViolation && gapAnchor
-            ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
-            : isConflict
-              ? "Too close to picked heat"
-              : tooSoon
-                ? "Too soon — needs lead time"
-                : isLowCap
-                  ? `Need ${quantity}, only ${block.freeSpots} left`
-                  : spotsLabel(block.freeSpots, block.capacity).label;
+        const statusLabel = isSelected
+          ? "Selected"
+          : isOtherStep
+            ? "Locked — finish the current step"
+            : isGapViolation && gapAnchor
+              ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+              : isConflict
+                ? "Too close to picked heat"
+                : tooSoon
+                  ? "Too soon — needs lead time"
+                  : isLowCap
+                    ? `Need ${quantity}, only ${block.freeSpots} left`
+                    : spotsLabel(block.freeSpots, block.capacity).label;
 
-        const statusClass = isPriorMissing || isGapViolation || isConflict || tooSoon
-          ? "text-amber-400"
-          : isLowCap
-            ? "text-red-400"
-            : spotsLabel(block.freeSpots, block.capacity).text;
+        const statusClass = isSelected
+          ? "text-emerald-300"
+          : isOtherStep || isGapViolation || isConflict || tooSoon
+            ? "text-amber-400"
+            : isLowCap
+              ? "text-red-400"
+              : spotsLabel(block.freeSpots, block.capacity).text;
 
-        const cardTooltip = isPriorMissing
-          ? `Locked until you pick your ${priorMissing.label}.`
+        const cardTooltip = isOtherStep
+          ? "Locked — clear a heat above (×) to change it"
           : isGapViolation && gapAnchor
             ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
             : isConflict
@@ -251,8 +293,8 @@ function HeatGrid({
             </div>
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
               <div
-                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation || isPriorMissing) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
-                style={{ width: (isConflict || isGapViolation || isPriorMissing) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
+                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation || isOtherStep) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                style={{ width: (isConflict || isGapViolation || isOtherStep) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
               />
             </div>
           </button>
@@ -349,19 +391,39 @@ export default function PackageHeatPicker({
     }
   }, [allPicked]);
 
-  function toggleHeat(proposal: TaggedProposal, block: BmiBlock) {
+  /** Set the pick for the heat's component. Does NOT auto-deselect
+   *  on second click — selected heats are locked in the grid (see
+   *  HeatGrid `isSelected` branch) and the canonical clear path is
+   *  the pill X above the grid (which also clears later picks). */
+  function setHeat(proposal: TaggedProposal, block: BmiBlock) {
     const component = components.find((c) => c.ref === proposal._componentRef);
     if (!component) return;
+    setPicks((prev) => ({ ...prev, [component.ref]: { component, proposal, block } }));
+  }
+
+  /** Clear the pick for `ref` AND every later-sequence component.
+   *  A Starter swap invalidates an Intermediate already locked in
+   *  (the gap rule was anchored on the prior Starter's stop time),
+   *  so we conservatively reset everything from `ref` forward and
+   *  send the user back through the affected steps. */
+  function clearPickAndLater(ref: string) {
+    const target = components.find((c) => c.ref === ref);
+    if (!target) return;
     setPicks((prev) => {
-      // Deselect when clicking the already-picked heat for this
-      // component; otherwise replace the slot's pick.
-      const current = prev[component.ref];
-      if (current && current.proposal === proposal) {
-        return { ...prev, [component.ref]: null };
+      const next: Record<string, PackagePick | null> = { ...prev };
+      for (const c of components) {
+        if (c.sequence >= target.sequence) next[c.ref] = null;
       }
-      return { ...prev, [component.ref]: { component, proposal, block } };
+      return next;
     });
   }
+
+  // The component the user is currently filling — first un-picked
+  // by sequence. Null when every slot is filled.
+  const currentComponent =
+    components
+      .filter((c) => !picks[c.ref])
+      .sort((a, b) => a.sequence - b.sequence)[0] ?? null;
 
   const displayDate = parseLocal(date + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
@@ -385,33 +447,25 @@ export default function PackageHeatPicker({
 
       <ProgressDots current={pickedCount} total={totalComponents} />
 
-      {/* Current-step status banner — names the component the user
-          should pick NEXT (or confirms when all are picked). Pairs
-          with the per-card "Pick your {prior} first" lock so the
-          customer always knows which slot they're filling. */}
-      {(() => {
-        const nextComponent = components
-          .filter((c) => !picks[c.ref])
-          .sort((a, b) => a.sequence - b.sequence)[0];
-        if (nextComponent) {
-          return (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-center">
-              <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
-                Step {nextComponent.sequence} of {totalComponents} · Pick your {nextComponent.label}
-              </p>
-            </div>
-          );
-        }
-        return (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2 text-center">
-            <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest">
-              All heats selected — review and confirm below
-            </p>
-          </div>
-        );
-      })()}
+      {/* Current-step banner — names the slot the user is filling
+          NEXT, or confirms when every slot has a pick. Pairs with
+          the grid's hard lock (only `currentComponent`'s cards are
+          interactive) so the customer always knows what to click. */}
+      {currentComponent ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-center">
+          <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
+            Step {currentComponent.sequence} of {totalComponents} · Pick your {currentComponent.label}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2 text-center">
+          <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest">
+            All heats selected — review and confirm below
+          </p>
+        </div>
+      )}
 
-      <SelectedHeats picks={picks} components={components} />
+      <SelectedHeats picks={picks} components={components} onClearFrom={clearPickAndLater} />
 
       {loading ? (
         <div className="h-48 flex items-center justify-center">
@@ -432,10 +486,11 @@ export default function PackageHeatPicker({
             proposals={proposals}
             components={components}
             picks={picks}
-            onToggle={toggleHeat}
+            onToggle={setHeat}
             quantity={quantity}
             bookedHeats={bookedHeats}
             cutoff={cutoff}
+            currentComponent={currentComponent}
           />
 
           <div
