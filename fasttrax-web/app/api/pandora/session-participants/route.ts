@@ -170,19 +170,21 @@ export async function GET(req: NextRequest) {
   }
 
   // Hard timeout on the upstream Pandora fetch. Without this,
-  // browser polls hung 30+s and stacked up in the renderer until
-  // Edge OOM-killed the tab. Falls through to the Redis fallback
-  // path (last successful response) when Pandora is degraded.
+  // browser polls hang indefinitely and stack up in the renderer
+  // until Edge OOM-kills the tab. Falls through to the Redis
+  // fallback path (last successful response) when Pandora is
+  // degraded.
   //
-  // 12s ceiling: live Pandora outages have shown 7-10s responses
-  // (post-degraded but recoverable), and the crons that warm the
-  // cache only run every 1-2 min so they can't race a too-tight
-  // timeout. 12s is the sweet spot — long enough to capture slow-
-  // but-real responses, well under Vercel's serverless function
-  // limit, and bounded enough that the e-ticket renderer still
-  // can't stack up calls from a 20s polling cadence.
+  // 20s ceiling: heavy heats (large rosters, GF/Pro fields) have
+  // measured ~19s upstream when Pandora is partially degraded, and
+  // the cron at 12s couldn't warm the cache for those sessions —
+  // camera-assign saw an empty roster forever. 20s captures those
+  // outliers while staying safely under Vercel's serverless
+  // function limit. Camera-assign auto-poll uses prefer=cache so
+  // most calls never wait this long; only refresh-button + cron-
+  // warmups pay the upstream cost.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12_000);
+  const timeoutId = setTimeout(() => controller.abort(), 20_000);
 
   try {
     // Always pull the unpaid superset from Pandora — single cache
@@ -241,7 +243,7 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId);
     const isTimeout = err instanceof Error && err.name === "AbortError";
     console.error(
-      `[session-participants] ${isTimeout ? "TIMEOUT (>6s)" : "fetch error"}:`,
+      `[session-participants] ${isTimeout ? "TIMEOUT (>20s)" : "fetch error"}:`,
       err,
     );
     return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, isTimeout ? "timeout" : "fetch-failed");
