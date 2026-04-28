@@ -118,9 +118,14 @@ export interface PackageDefinition {
 
 // ── Registry ────────────────────────────────────────────────────────────────
 
-const ROOKIE_PACK_ENABLED = process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1";
-// Default ON unless explicitly disabled — opposite of rookie pack
-// because we want this rolling out by default at launch.
+// Default ON unless explicitly disabled. The original rookie-pack
+// path (PovUpsell chooser) used `=== "1"` strict opt-in because it
+// was staged behind a feature flag during rollout. Now that
+// Rookie Pack lives on the picker as a first-class card alongside
+// Ultimate Qualifier, default it ON so a missing env var doesn't
+// silently hide the package on production.
+const ROOKIE_PACK_ENABLED =
+  (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED || "true").toLowerCase() !== "false";
 const ULTIMATE_QUALIFIER_ENABLED =
   (process.env.NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED || "true").toLowerCase() !== "false";
 

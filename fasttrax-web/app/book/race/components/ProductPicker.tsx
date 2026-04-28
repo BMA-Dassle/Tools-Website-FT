@@ -626,21 +626,13 @@ function ProductCard({ product, isSelected, onSelect, racerType, racerCount = 1 
             </span>
           )}
         </div>
-        {/* Single per-person race for new racers: show race + license
-            broken out + the group total. Otherwise fall back to the
-            simple per-unit price so packs and returning-racer cards
-            stay visually unchanged. */}
+        {/* Headline price — for new-racer single-race cards this is
+            the GROUP total (race + license, × N). Pack and returning-
+            racer cards keep the simple per-unit price. */}
         {showNewRacerBreakdown ? (
-          <div className="text-right shrink-0">
-            <span className={`${c.text} font-bold text-base block leading-none`}>
-              ${groupTotal.toFixed(2)}
-            </span>
-            {racers > 1 && (
-              <span className="text-white/30 text-[11px]">
-                ${perRacerTotal.toFixed(2)} × {racers}
-              </span>
-            )}
-          </div>
+          <span className={`${c.text} font-bold text-base shrink-0`}>
+            ${groupTotal.toFixed(2)}
+          </span>
         ) : product.price > 0 ? (
           <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
         ) : null}
@@ -652,10 +644,31 @@ function ProductCard({ product, isSelected, onSelect, racerType, racerCount = 1 
         <p className="text-white/30 text-xs mt-1">{product.track} Track</p>
       )}
 
+      {/* Itemized breakdown — race + license (and racer-count
+          multiplier when N > 1) shown line-by-line with a total
+          underneath. Mirrors the package-hero layout so the math
+          is visible and adds up to what BMI charges at checkout. */}
       {showNewRacerBreakdown && (
-        <p className="text-white/40 text-[11px] mt-2">
-          ${racePerRacer.toFixed(2)} race + ${licensePerRacer.toFixed(2)} license per racer · added at checkout
-        </p>
+        <div className="mt-3 space-y-1 text-xs">
+          <div className="flex items-baseline justify-between gap-2 text-white/70">
+            <span>
+              <span className="text-emerald-400">✓</span> {product.name}
+              {racers > 1 && <span className="text-white/40"> × {racers}</span>}
+            </span>
+            <span className="text-white/60">${(racePerRacer * racers).toFixed(2)}</span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2 text-white/70">
+            <span>
+              <span className="text-emerald-400">✓</span> Racing License
+              {racers > 1 && <span className="text-white/40"> × {racers}</span>}
+            </span>
+            <span className="text-white/60">${(licensePerRacer * racers).toFixed(2)}</span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2 pt-1.5 mt-1 border-t border-white/10">
+            <span className="text-white/80 font-bold uppercase tracking-wider text-[11px]">Total</span>
+            <span className={`${c.text} font-bold`}>${groupTotal.toFixed(2)}</span>
+          </div>
+        </div>
       )}
 
       {isPack && product.price > 0 && (
