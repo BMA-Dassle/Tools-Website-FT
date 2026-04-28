@@ -231,8 +231,31 @@ const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string
   },
 ];
 
+/** Tracks that are running today (ET). Tuesday = Mega only;
+ *  every other day = Blue + Red. Filters the chip row so staff
+ *  never sees a track that isn't running, and prevents the page
+ *  from accidentally querying it. */
+function visibleTrackSlugsET(): Array<Exclude<TrackSlug, "">> {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(new Date());
+  return weekday === "Tue" ? ["mega"] : ["blue", "red"];
+}
+
 export default function CameraAssignClient({ token, track: initialTrack, version }: { token: string; track?: string; version?: string }) {
-  const [track, setTrack] = useState<TrackSlug>((initialTrack as TrackSlug) || "");
+  // Only show chips for tracks that are running today.
+  // Tuesday = Mega only; other days = Blue + Red. If the URL was
+  // bookmarked with a now-hidden track (e.g. ?track=blue on a
+  // Tuesday), drop it back to "" so we don't auto-query a track
+  // that has no sessions today.
+  const visibleSlugs = visibleTrackSlugsET();
+  const visibleChips = TRACK_CHIPS.filter((c) => visibleSlugs.includes(c.slug));
+  const initialTrackSafe: TrackSlug =
+    initialTrack && visibleSlugs.includes(initialTrack as Exclude<TrackSlug, "">)
+      ? (initialTrack as TrackSlug)
+      : "";
+  const [track, setTrack] = useState<TrackSlug>(initialTrackSafe);
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [note, setNote] = useState<string | null>(null);
@@ -1438,7 +1461,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
             Earlier + Keyboard compress to icon-only so all five controls
             fit on one line. */}
         <div className="flex items-center gap-1.5 sm:gap-2 mb-2 flex-wrap">
-          {TRACK_CHIPS.map((t) => {
+          {visibleChips.map((t) => {
             const isActive = track === t.slug;
             return (
               <button
