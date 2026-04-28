@@ -19,35 +19,43 @@ import redis from "@/lib/redis";
  * Browsers were getting the full payload, exposing every co-racer's
  * contact data via DevTools.
  *
- * From this commit, the route returns a LEAN response by default —
- * one `{ personId }` per participant, nothing else. Server-side
- * callers that legitimately need the full payload (cron SMS senders,
- * admin camera-assign, guardian backfill) opt in by sending
- * `x-pandora-internal: <SWAGGER_ADMIN_KEY>` — a secret only the
- * server has access to. No browser request can forge it.
- *
- * Defaults match what the SMS crons need — notifications must never fire for
- * unpaid or removed participants — so every existing caller stays safe.
- * Callers that need the un-filtered view (e.g., the camera-assign page wants
- * to show unpaid racers so staff can still bind a camera) pass
- * `excludeUnpaid=false` explicitly.
+ * The route returns a LEAN response by default — one `{ personId }`
+ * per participant, nothing else. Server-side callers that legitimately
+ * need the full payload (cron SMS senders, admin camera-assign,
+ * guardian backfill) opt in by sending `x-pandora-internal:
+ * <SWAGGER_ADMIN_KEY>` — a secret only the server has access to. No
+ * browser request can forge it.
  *
  * ── Caching ─────────────────────────────────────────────────────────────────
- * Live calls hit Pandora directly — rosters change in real time and a
- * stale roster causes the pre-race cron to miss fresh participants.
+ * Live calls hit Pandora directly — refresh-button workflows always
+ * see the latest. The cache is consulted ONLY on Pandora failure
+ * (timeout / non-200 / network error), so a degraded upstream falls
+ * back to stale-but-real data instead of empty. Staff workflows
+ * (camera-assign) keep working through Pandora outages.
  *
- * BUT: when Pandora is degraded (the proxy hits its 6s timeout), the
- * staff camera-assign page would see an EMPTY roster and lose the
- * ability to bind cameras while Pandora recovers. So every successful
- * response writes-through to Redis with a 10-minute TTL, and the
- * timeout / error branch falls back to that cache. Stale-but-real
- * data is strictly better than empty for staff workflows. The
- * response carries `stale: true` so consumers know.
+ * Cache key is per (location, session, excludeRemoved). `excludeUnpaid`
+ * is NOT in the key — we always pull the unpaid-superset upstream and
+ * apply that filter at the proxy on response. So:
+ *
+ *   - the crons (default excludeUnpaid=true) and
+ *   - the camera-assign page (excludeUnpaid=false)
+ *
+ * share ONE cache entry per session. Crons run every 1-2 min and
+ * write-through to that shared key, so during operating hours the
+ * camera-assign page reads cron-warmed data when Pandora is degraded.
+ *
+ * ── Forcing fresh ───────────────────────────────────────────────────────────
+ * Every request hits Pandora live as the FIRST attempt. There is no
+ * cache-first serving — the cache only fires on upstream failure. So
+ * the camera-assign refresh button (and any normal request) always
+ * returns the freshest available data. A `?fresh=1` query param is
+ * accepted as a no-op today (kept so future caching tweaks have a
+ * documented bypass).
  */
-const CACHE_TTL_SECONDS = 600; // 10 minutes — long enough to weather a Pandora outage, short enough to stay fresh
-function cacheKey(locationId: string, sessionId: string, excludeRemoved: boolean, excludeUnpaid: boolean): string {
-  // Per-filter-combo key — different excludeRemoved/excludeUnpaid yield different rosters.
-  return `pandora:participants:${locationId}:${sessionId}:${excludeRemoved ? 1 : 0}${excludeUnpaid ? 1 : 0}`;
+
+const CACHE_TTL_SECONDS = 600; // 10 min — long enough to weather a Pandora outage
+function cacheKey(locationId: string, sessionId: string, excludeRemoved: boolean): string {
+  return `pandora:participants:${locationId}:${sessionId}:R${excludeRemoved ? 1 : 0}`;
 }
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
@@ -63,14 +71,22 @@ const ALLOWED_LOCATIONS = new Set([
 export type { Participant } from "@/lib/participant-contact";
 import type { Participant } from "@/lib/participant-contact";
 
-/** Parse a query-string boolean that defaults to `true`. Accepts
- *  `false`/`0`/`no` (case-insensitive) as false; anything else is true. */
+/** Parse a query-string boolean that defaults to `true`. */
 function boolParam(raw: string | null, defaultValue: boolean): boolean {
   if (raw == null) return defaultValue;
   const v = raw.trim().toLowerCase();
   if (v === "false" || v === "0" || v === "no") return false;
   if (v === "true" || v === "1" || v === "yes") return true;
   return defaultValue;
+}
+
+/** Apply the unpaid filter at the proxy (not at Pandora) so any
+ *  cached superset can serve every caller's filter combo. Pandora's
+ *  `paid` boolean is the single source of truth — undefined / true
+ *  = paid, only an explicit `false` excludes. */
+function applyUnpaidFilter(participants: Participant[], excludeUnpaid: boolean): Participant[] {
+  if (!excludeUnpaid) return participants;
+  return participants.filter((p) => p.paid !== false);
 }
 
 export async function GET(req: NextRequest) {
@@ -87,17 +103,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
 
-  // Hard timeout on the upstream Pandora fetch — same rationale as
-  // the races-current proxy. Pandora has been observed taking 30+s
-  // to respond under load. Without a timeout, browser polls stack
-  // up and the e-ticket renderer eventually OOMs.
+  // Hard timeout on the upstream Pandora fetch — without this,
+  // browser polls hung 30+s and stacked up in the renderer until
+  // Edge OOM-killed the tab. Falls through to the Redis fallback
+  // path (last successful response) when Pandora is degraded.
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 6_000);
 
   try {
+    // Always pull the unpaid superset from Pandora — single cache
+    // entry per (location, session, excludeRemoved) serves every
+    // caller's filter combo. We only let Pandora apply
+    // `excludeRemoved` (it's a server-state filter we can't
+    // reproduce at the proxy without the F_PAR_STATE field).
     const upstreamQs = new URLSearchParams({
       excludeRemoved: String(excludeRemoved),
-      excludeUnpaid: String(excludeUnpaid),
+      excludeUnpaid: "false",
     }).toString();
     const res = await fetch(
       `${PANDORA_URL}/bmi/session/${locationId}/${sessionId}/participants?${upstreamQs}`,
@@ -113,36 +134,29 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId);
     if (!res.ok) {
       console.error(`[session-participants] Pandora ${res.status}: ${await res.text()}`);
-      // Pandora returned a non-200 (often 401/500). Try the
-      // Redis fallback before giving up — staff would rather see
-      // a 5-minute-old roster than no roster at all.
       return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, `pandora-${res.status}`);
     }
     const json = await res.json();
-    const fullData: Participant[] = Array.isArray(json.data) ? json.data : [];
+    const fullSuperset: Participant[] = Array.isArray(json.data) ? json.data : [];
 
-    // Write-through to Redis on every successful upstream fetch so
-    // the next outage falls back to fresh-ish data. Fire-and-forget
-    // — never block the response on a Redis hiccup.
-    if (fullData.length > 0) {
-      const key = cacheKey(locationId, sessionId, excludeRemoved, excludeUnpaid);
+    // Write-through to Redis on every successful upstream fetch
+    // (the unpaid superset, NOT the per-caller filtered slice).
+    // Fire-and-forget — never block the response on a Redis hiccup.
+    if (fullSuperset.length > 0) {
+      const key = cacheKey(locationId, sessionId, excludeRemoved);
       redis
-        .set(key, JSON.stringify(fullData), "EX", CACHE_TTL_SECONDS)
+        .set(key, JSON.stringify(fullSuperset), "EX", CACHE_TTL_SECONDS)
         .catch((err) => console.warn("[session-participants] cache write failed:", err));
     }
 
-    // ── Trust check ───────────────────────────────────────────────
-    // Server-side callers (cron, admin) send the internal-secret
-    // header. Browser requests from the public e-ticket pages can't
-    // forge it (the secret only lives in server env). Without the
-    // header we strip every PII field and return only the personId
-    // so client polling can still answer "am I still on the
-    // roster?" without leaking a co-racer's name/email/phone.
-    const data = redactIfUntrusted(req, fullData);
+    // Apply the unpaid filter at the proxy + redact PII for
+    // untrusted callers (browser).
+    const filtered = applyUnpaidFilter(fullSuperset, excludeUnpaid);
+    const data = redactIfUntrusted(req, filtered);
 
     return NextResponse.json(
       { data },
-      { headers: { "Cache-Control": "no-store" } },
+      { headers: { "Cache-Control": "no-store", "X-Cache": "FRESH" } },
     );
   } catch (err) {
     clearTimeout(timeoutId);
@@ -164,10 +178,11 @@ function redactIfUntrusted(req: NextRequest, full: Participant[]): Participant[]
 }
 
 /** Pandora unreachable / errored — try the Redis cache before
- *  giving up. If we have a recent roster, return that with
- *  `stale: true` so consumers know it's not real-time. Empty cache
- *  miss → empty array (matches the prior forgiving-on-error contract
- *  the e-ticket client relies on). */
+ *  giving up. The cache holds the unpaid SUPERSET; we apply the
+ *  caller's `excludeUnpaid` filter on read so any combo is served
+ *  by the same cache entry. Empty cache miss falls through to an
+ *  empty array (matches the forgiving-on-error contract the e-ticket
+ *  client relies on). */
 async function fallbackResponse(
   req: NextRequest,
   locationId: string,
@@ -177,12 +192,13 @@ async function fallbackResponse(
   reason: string,
 ): Promise<NextResponse> {
   try {
-    const key = cacheKey(locationId, sessionId, excludeRemoved, excludeUnpaid);
+    const key = cacheKey(locationId, sessionId, excludeRemoved);
     const raw = await redis.get(key);
     if (raw) {
       const cached = JSON.parse(raw) as Participant[];
       if (Array.isArray(cached) && cached.length > 0) {
-        const data = redactIfUntrusted(req, cached);
+        const filtered = applyUnpaidFilter(cached, excludeUnpaid);
+        const data = redactIfUntrusted(req, filtered);
         return NextResponse.json(
           { data, stale: true, reason },
           { headers: { "Cache-Control": "no-store", "X-Cache": `STALE-${reason.toUpperCase()}` } },
@@ -192,10 +208,6 @@ async function fallbackResponse(
   } catch (err) {
     console.warn("[session-participants] cache read failed:", err);
   }
-  // Empty list = "don't invalidate the ticket" — the client-side
-  // `isStillOnSession` is intentionally forgiving on empty/error
-  // reads so a slow Pandora doesn't flip valid tickets to
-  // PreRaceCard's "no longer valid" state.
   return NextResponse.json(
     { data: [], error: reason },
     { headers: { "Cache-Control": "no-store", "X-Cache": `MISS-${reason.toUpperCase()}` } },
