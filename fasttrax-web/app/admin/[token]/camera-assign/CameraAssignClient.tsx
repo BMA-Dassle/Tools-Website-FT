@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 
 /**
  * Camera-assignment UI.
@@ -724,7 +725,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  automatically — we flag a note so staff knows a newer session is
    *  queued up. They hit Reload when ready.
    */
-  const refreshSession = useCallback(async () => {
+  const refreshSession = useCallback(async (signal?: AbortSignal) => {
     // No track → nothing to refresh (UI is showing the pick-a-track prompt).
     if (!track) return;
     // Don't refresh while staff is on a test session (overrideSessionId)
@@ -734,7 +735,8 @@ export default function CameraAssignClient({ token, track: initialTrack, version
 
     try {
       const qs = new URLSearchParams({ token, track });
-      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store", signal });
+      if (signal?.aborted) return;
       if (!res.ok) return;
       const json = (await res.json()) as SessionResponse;
       const newSession = json.session;
@@ -802,7 +804,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  round-trip, both state updates applied in the same commit so the
    *  pills arrive as a single visual wave (not prev-first-then-upcoming
    *  staggered over a second). scanBufferRef gate keeps mid-scan safe. */
-  const loadHeats = useCallback(async () => {
+  const loadHeats = useCallback(async (signal?: AbortSignal) => {
     if (!track) {
       setCalledSessions([]); setCalledLoading(false);
       setUpcomingSessions([]); setUpcomingLoading(false);
@@ -813,7 +815,8 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     setUpcomingLoading(true);
     try {
       const qs = new URLSearchParams({ token, track, before: "4", after: "3" });
-      const res = await fetch(`/api/admin/camera-assign/heats?${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/camera-assign/heats?${qs}`, { cache: "no-store", signal });
+      if (signal?.aborted) return;
       if (!res.ok) return;
       const json = await res.json();
       // Both setStates in the same async tick — React 18 batches them
@@ -833,13 +836,14 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  assignedCount from Redis. Drives the new scrollable heat list.
    *  Respects the scanBuffer mid-scan guard so the list doesn't
    *  jostle while staff is entering a camera number. */
-  const loadDay = useCallback(async () => {
+  const loadDay = useCallback(async (signal?: AbortSignal) => {
     if (!track) { setDaySessions([]); setDayLoading(false); return; }
     if (scanBufferRef.current) return;
     setDayLoading(true);
     try {
       const qs = new URLSearchParams({ token, track });
-      const res = await fetch(`/api/admin/camera-assign/day?${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/camera-assign/day?${qs}`, { cache: "no-store", signal });
+      if (signal?.aborted) return;
       if (!res.ok) return;
       const json = await res.json();
       setDaySessions(json.sessions || []);
@@ -914,27 +918,34 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     void loadDay();
   }, [track, loadHeats, loadPast, loadDay]);
 
-  // Two-tier refresh:
-  //  - Roster (refreshSession) every 5s so cross-device assignments
-  //    show up nearly real-time when two staff scan into the same
-  //    heat from separate devices. Cheap call — single Pandora
-  //    session pull + Redis assignment merge.
-  //  - Heat metadata (loadHeats + loadDay) every 30s — these don't
-  //    change minute-to-minute and are heavier (per-track Pandora
-  //    fetches + Redis SCARDs).
-  //  scanBufferRef gate inside refreshSession/loadHeats already
-  //  skips updates while the operator is mid-scan.
-  useEffect(() => {
-    const fastId = setInterval(() => { void refreshSession(); }, 5_000);
-    const slowId = setInterval(() => {
-      void loadHeats();
-      void loadDay();
-    }, 30_000);
-    return () => {
-      clearInterval(fastId);
-      clearInterval(slowId);
-    };
-  }, [refreshSession, loadHeats, loadDay]);
+  // Two-tier refresh — both driven by useVisibleInterval so they:
+  //   1. PAUSE when the tab is hidden — was a bare setInterval that
+  //      kept polling in background tabs, accumulating fetches Edge
+  //      eventually OOM-killed the renderer for.
+  //   2. ABORT in-flight fetches on tab-hide / unmount / next tick —
+  //      old fetches no longer leak Response/JSON allocations after
+  //      the operator switches away.
+  //   3. NO OVERLAP — recursive setTimeout means the next tick only
+  //      schedules AFTER the current one settles. Was the dominant
+  //      problem during Pandora outages: 5s setInterval + 30-60s
+  //      Pandora response = 6-12 stacked in-flight fetches eating
+  //      the connection pool.
+  //
+  // Cadence:
+  //  - Roster (refreshSession) every 5s for near-real-time cross-
+  //    device assignments. Self-throttling under load — a slow
+  //    response naturally pushes the next tick out by however long
+  //    the response took.
+  //  - Heat metadata (loadHeats + loadDay) every 30s. scanBufferRef
+  //    gate inside the callbacks already skips updates while the
+  //    operator is mid-scan.
+  useVisibleInterval(refreshSession, 5_000);
+  useVisibleInterval(
+    useCallback(async (signal: AbortSignal) => {
+      await Promise.all([loadHeats(signal), loadDay(signal)]);
+    }, [loadHeats, loadDay]),
+    30_000,
+  );
 
   // Auto-advance to the next upcoming session once every racer in the
   // current session has a camera. We wait a few seconds so staff sees
