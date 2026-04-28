@@ -131,14 +131,28 @@ export async function GET() {
 
   const operating = isOperatingHoursET();
 
+  // Hard timeout on the upstream Pandora fetch. Pandora has been
+  // observed taking 20-40 SECONDS to respond when their service is
+  // overloaded — without a timeout, every browser polling this
+  // endpoint blocks for that long, fetches stack up in the renderer
+  // tab, and Edge eventually kills it for memory ("This page
+  // couldn't load"). Any request running longer than 5s falls
+  // through to the fallback path below (last cached / Redis last-
+  // known state). Keeps the proxy snappy regardless of upstream
+  // health.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5_000);
+
   try {
     const res = await fetch(
       `${PANDORA_URL}/bmi/races/current/${FASTTRAX_LOCATION_ID}`,
       {
         headers: { Authorization: `Bearer ${API_KEY}`, Accept: "application/json" },
         cache: "no-store",
+        signal: controller.signal,
       },
     );
+    clearTimeout(timeoutId);
 
     const pandora: CurrentRaces = res.ok
       ? ((await res.json()).data ?? { blue: null, red: null, mega: null })
@@ -165,10 +179,34 @@ export async function GET() {
       headers: { "X-Cache": "MISS", "Cache-Control": "no-store" },
     });
   } catch (err) {
-    console.error("[races-current] fetch error:", err);
-    const fallback = cached?.data ?? { blue: null, red: null, mega: null };
-    return NextResponse.json(fallback, {
-      headers: { "X-Cache": "ERROR", "Cache-Control": "no-store" },
-    });
+    clearTimeout(timeoutId);
+    // Distinguish "Pandora was slow" from "Pandora errored" in logs
+    // so we can tell from the dashboard whether the timeout is
+    // firing too aggressively.
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    console.error(
+      `[races-current] ${isTimeout ? "TIMEOUT (>5s)" : "fetch error"}:`,
+      err,
+    );
+
+    // Fall back through layers: in-memory cache → Redis last-known
+    // state per track (during operating hours) → empty.
+    if (cached) {
+      return NextResponse.json(cached.data, {
+        headers: { "X-Cache": isTimeout ? "TIMEOUT" : "ERROR", "Cache-Control": "no-store" },
+      });
+    }
+    if (operating) {
+      const tracks: TrackKey[] = ["blue", "red", "mega"];
+      const merged: CurrentRaces = { blue: null, red: null, mega: null };
+      for (const t of tracks) merged[t] = await loadRace(t);
+      return NextResponse.json(merged, {
+        headers: { "X-Cache": isTimeout ? "TIMEOUT-REDIS" : "ERROR-REDIS", "Cache-Control": "no-store" },
+      });
+    }
+    return NextResponse.json(
+      { blue: null, red: null, mega: null },
+      { headers: { "X-Cache": isTimeout ? "TIMEOUT" : "ERROR", "Cache-Control": "no-store" } },
+    );
   }
 }

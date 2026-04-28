@@ -73,6 +73,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
 
+  // Hard timeout on the upstream Pandora fetch — same rationale as
+  // the races-current proxy. Pandora has been observed taking 30+s
+  // to respond under load. Without a timeout, browser polls stack
+  // up and the e-ticket renderer eventually OOMs.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6_000);
+
   try {
     const upstreamQs = new URLSearchParams({
       excludeRemoved: String(excludeRemoved),
@@ -86,8 +93,10 @@ export async function GET(req: NextRequest) {
           Accept: "application/json",
         },
         cache: "no-store",
+        signal: controller.signal,
       },
     );
+    clearTimeout(timeoutId);
     if (!res.ok) {
       console.error(`[session-participants] Pandora ${res.status}: ${await res.text()}`);
       return NextResponse.json(
@@ -117,9 +126,18 @@ export async function GET(req: NextRequest) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {
-    console.error("[session-participants] fetch error:", err);
+    clearTimeout(timeoutId);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    console.error(
+      `[session-participants] ${isTimeout ? "TIMEOUT (>6s)" : "fetch error"}:`,
+      err,
+    );
+    // Empty list = "don't invalidate the ticket" — the client-side
+    // `isStillOnSession` is intentionally forgiving on empty/error
+    // reads so a slow Pandora doesn't flip valid tickets to
+    // PreRaceCard's "no longer valid" state.
     return NextResponse.json(
-      { data: [], error: "fetch failed" },
+      { data: [], error: isTimeout ? "timeout" : "fetch failed" },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
