@@ -262,16 +262,31 @@ export default function RacePacksPage() {
   }
 
   async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
-    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=200`);
+    // See the matching helper in ReturningRacerLookup.tsx for why max=500
+    // and the per-name scoring exist (frequent-racer phone search returns
+    // hundreds of per-reservation contact-person stubs that crowd out
+    // the real profile, both by rank and by name-collision).
+    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`);
     const results = await searchRes.json();
     if (!Array.isArray(results) || results.length === 0) return [];
 
-    const withMem = (results as { localId: string; description: string }[]).filter(r => r.description.includes("Memberships:"));
-    const byName = new Map<string, { localId: string; description: string }>();
-    for (const r of (withMem.length > 0 ? withMem : results) as { localId: string; description: string }[]) {
+    const scoreDesc = (d: string): number => {
+      let s = 0;
+      if (/\(\d/.test(d)) s += 100;
+      if (d.includes("Memberships:")) s += 50;
+      if (d.includes("zip:")) s += 25;
+      if (d.includes("Last seen:")) s += 10;
+      return s;
+    };
+    const byName = new Map<string, { localId: string; description: string; score: number }>();
+    for (const r of results as { localId: string; description: string }[]) {
       const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
       const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-      if (!byName.has(name)) byName.set(name, r);
+      const score = scoreDesc(r.description);
+      const existing = byName.get(name);
+      if (!existing || score > existing.score) {
+        byName.set(name, { localId: r.localId, description: r.description, score });
+      }
     }
     const uniqueEntries = [...byName.values()].slice(0, 10);
 

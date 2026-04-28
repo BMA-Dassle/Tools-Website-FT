@@ -67,19 +67,52 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoCode]);
 
-  /** Shared search + fetch person details logic for both phone and email */
+  /** Shared search + fetch person details logic for both phone and email.
+   *
+   * Two non-obvious behaviors here:
+   *
+   * 1. `max=500` (was 200). Every reservation registered for a person
+   *    creates a per-bill contact-person row in BMI Office, which all
+   *    show up in phone-keyed search alongside the real person record.
+   *    A frequent racer's real profile can sit at index 200+ once the
+   *    stubs accumulate (Eric Osborn's primary record was at index 227
+   *    on the day this was fixed). Bumping to 500 keeps real records
+   *    in the result set for ~all heavy users; we still dedup down to
+   *    the top 10 distinct names below so the per-record detail
+   *    fetches stay cheap.
+   *
+   * 2. Dedup-by-name picks the highest-SCORED record per name, not the
+   *    first one BMI returned. Stub rows render as
+   *    `Name phone: ... Last seen: ...` with no birthdate paren,
+   *    Memberships, or zip — easy to discriminate from primary records
+   *    that have those fields. Without scoring, when Eric Osborn the
+   *    racer and "Eric Osborn" the contact-person stub collide on
+   *    name, the stub wins (it's earlier in BMI's response) and the
+   *    real account is never surfaced to the user.
+   */
+  function scoreSearchResult(desc: string): number {
+    let s = 0;
+    if (/\(\d/.test(desc)) s += 100;             // birthdate paren — strong primary-record signal
+    if (desc.includes("Memberships:")) s += 50;   // memberships listed
+    if (desc.includes("zip:")) s += 25;           // address present
+    if (desc.includes("Last seen:")) s += 10;     // activity history
+    return s;
+  }
+
   async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
-    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=200`);
+    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`);
     const results = await searchRes.json();
     if (!Array.isArray(results) || results.length === 0) return [];
 
-    const withMemberships = (results as { localId: string; description: string }[])
-      .filter(r => r.description.includes("Memberships:"));
-    const byName = new Map<string, { localId: string; description: string }>();
-    for (const r of (withMemberships.length > 0 ? withMemberships : results) as { localId: string; description: string }[]) {
+    const byName = new Map<string, { localId: string; description: string; score: number }>();
+    for (const r of results as { localId: string; description: string }[]) {
       const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
       const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-      if (!byName.has(name)) byName.set(name, r);
+      const score = scoreSearchResult(r.description);
+      const existing = byName.get(name);
+      if (!existing || score > existing.score) {
+        byName.set(name, { localId: r.localId, description: r.description, score });
+      }
     }
     const uniqueEntries = [...byName.values()].slice(0, 10);
     const detailPromises = uniqueEntries.map(async (r) => {
