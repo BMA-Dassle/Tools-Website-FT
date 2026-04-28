@@ -143,11 +143,12 @@ export async function GET(req: NextRequest) {
    *     cache → empty.
    *  4. Surface upstream body slices in the JSON for debugging.
    */
-  // Two-tier timeout (mirrors the participants proxy):
-  //   - warm=1 → 30s for cron-driven cache warmups (no user waits)
-  //   - default → 6s for user-facing calls (fail-fast keeps the
-  //     camera-assign page snappy when cache misses)
-  const timeoutMs = isWarmCall ? 30_000 : 6_000;
+  // Three-tier timeout (mirrors the participants proxy):
+  //   - warm=1 (cron) → 30s; no user waits, populates cache
+  //   - fresh=1 (manual refresh button) → 30s; staff explicitly
+  //     waiting, give Pandora time to land real data
+  //   - default → 6s; background calls fail-fast
+  const timeoutMs = isWarmCall || forceFresh ? 30_000 : 6_000;
 
   async function fetchOnce(): Promise<{ ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }> {
     const controller = new AbortController();

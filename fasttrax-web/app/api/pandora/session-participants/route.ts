@@ -192,27 +192,23 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Hard timeout on the upstream Pandora fetch. Two tiers:
+  // Hard timeout on the upstream Pandora fetch. Three tiers:
   //
-  //   - `?warm=1` → 30s. Cron-driven cache warmups. They run
-  //     every 1-2 min, no user is waiting on them, so let Pandora
-  //     take its time on heavy rosters (GF/Pro heats with ~19s
-  //     upstream during partial degradation). The longer ceiling
-  //     ensures the cache actually populates instead of every cron
-  //     call timing out.
+  //   - `?warm=1` (cron) → 30s. Cron warmups every 1-2 min, no
+  //     user waits — let Pandora take its time on heavy rosters
+  //     (Heat 41 took 19s, Heat 44 took 23s during the outage).
   //
-  //   - Default → 6s. User-facing requests. Camera-assign auto-
-  //     poll (prefer=cache) returns the warmed cache instantly; a
-  //     cache miss falls through to a quick live attempt and bails
-  //     fast if Pandora is slow. Refresh-button (fresh=1) also
-  //     uses 6s — staff would rather see a quick re-attempt than
-  //     wait 20+ seconds for a single load.
+  //   - `?fresh=1` (manual refresh button) → 30s. Staff explicitly
+  //     tapped Refresh — they're already waiting. Fail-fast at 6s
+  //     was leaving them stuck on cold-cache slow heats; better to
+  //     show a spinner for 20s and land real data.
   //
-  // The cron warmups run independently against `?warm=1`, so even
-  // when user-facing calls fail-fast the cache stays populated for
-  // the next attempt.
+  //   - Default (e-ticket polls, etc.) → 6s. Implicit/background
+  //     calls fail-fast so they don't stack up if Pandora is slow.
+  //     Camera-assign auto-poll uses cacheOnly=1 so it doesn't
+  //     even reach this path.
   const isWarmCall = searchParams.get("warm") === "1";
-  const timeoutMs = isWarmCall ? 30_000 : 6_000;
+  const timeoutMs = isWarmCall || forceFresh ? 30_000 : 6_000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
