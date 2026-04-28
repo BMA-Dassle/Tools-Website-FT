@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
-import { getRaceTicket, type RaceTicket } from "@/lib/race-tickets";
+import { getRaceTicket } from "@/lib/race-tickets";
 import ETicketView from "./ETicketView";
 
 export const dynamic = "force-dynamic";
@@ -31,22 +31,46 @@ export async function generateMetadata({ params }: PageProps) {
   };
 }
 
+/**
+ * Server render path is intentionally Redis-only — no Pandora.
+ *
+ * Earlier we awaited Pandora's `races-current` and
+ * `session-participants` here so the first paint had accurate
+ * `checkingIn` / `onSession` state. Pandora is the slowest dependency
+ * in the stack (typical 1-3s, occasional 5s+ on edge sessions) and
+ * the page couldn't send a single byte until both calls resolved —
+ * the dominant source of "the e-ticket takes forever to open" SMS
+ * tap-to-paint latency.
+ *
+ * The client view (`ETicketView`) already polls those exact two
+ * endpoints every 20s via `useVisibleInterval`, which fires
+ * immediately on mount. So the live state arrives within ~200ms of
+ * hydration anyway. Trade-off accepted: tickets viewed RIGHT after a
+ * race is called or a racer is removed mid-heat may flash
+ * `PreRaceCard` for ~1s before the poll updates them — vs. multi-
+ * second blank screens for everyone else.
+ *
+ * The Redis-only `wasSessionCalled` lookup is kept (it's fast,
+ * ~10-30ms) so recently-finished tickets render `PastCard`
+ * immediately instead of flashing `PreRaceCard` first.
+ */
 export default async function ETicketPage({ params }: PageProps) {
   const { id } = await params;
   const ticket = await getRaceTicket(id);
   if (!ticket) notFound();
 
-  const [initialCheckingIn, stillOnSession, wasCalled] = await Promise.all([
-    isCurrentlyCheckingIn(ticket),
-    isStillOnSession(ticket),
-    wasSessionCalled(ticket.sessionId),
-  ]);
+  const wasCalled = await wasSessionCalled(ticket.sessionId);
 
   return (
     <ETicketView
       ticket={ticket}
-      initialCheckingIn={initialCheckingIn}
-      initialOnSession={stillOnSession}
+      // Optimistic defaults — the client poll flips these to live
+      // Pandora state within ~200ms of hydration. `onSession: true`
+      // matches the historic forgiving behavior (don't flag invalid
+      // on missing data); `checkingIn: false` is the dominant case
+      // (most tickets aren't being actively checked in this second).
+      initialCheckingIn={false}
+      initialOnSession={true}
       initialWasCalled={wasCalled}
     />
   );
@@ -61,58 +85,5 @@ async function wasSessionCalled(sessionId: number | string): Promise<boolean> {
     return !!called || !!alerted;
   } catch {
     return false;
-  }
-}
-
-async function isCurrentlyCheckingIn(ticket: RaceTicket): Promise<boolean> {
-  try {
-    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-    const res = await fetch(`${base}/api/pandora/races-current`, { cache: "no-store" });
-    if (!res.ok) return false;
-    const data = (await res.json()) as {
-      blue?: { sessionId?: number } | null;
-      red?: { sessionId?: number } | null;
-      mega?: { sessionId?: number } | null;
-    };
-    const key = ticket.track.toLowerCase() as "blue" | "red" | "mega";
-    return String(data?.[key]?.sessionId ?? "") === String(ticket.sessionId ?? "");
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Ticket is still valid if the holder is currently in the session's
- * participants list. If staff removes them from the session, this returns
- * false and the ticket page renders the "no longer valid" state.
- *
- * We only check when the session isn't far in the past — once the heat
- * has run we don't care; it's just history at that point.
- */
-async function isStillOnSession(ticket: RaceTicket): Promise<boolean> {
-  try {
-    const scheduled = new Date(ticket.scheduledStart).getTime();
-    // Don't bother checking well-past sessions — past view is shown regardless.
-    if (!isNaN(scheduled) && scheduled < Date.now() - 45 * 60_000) return true;
-
-    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-    const qs = new URLSearchParams({
-      locationId: ticket.locationId,
-      sessionId: String(ticket.sessionId),
-    }).toString();
-    const res = await fetch(`${base}/api/pandora/session-participants?${qs}`, { cache: "no-store" });
-    if (!res.ok) {
-      // Pandora 500s on empty/edge sessions — don't flag as invalid on a bad read.
-      return true;
-    }
-    const data = await res.json();
-    const participants = Array.isArray(data?.data) ? data.data : [];
-    // If Pandora returned zero, it's likely their validator error — trust the
-    // existing ticket rather than invalidating on a potentially spurious empty.
-    if (participants.length === 0) return true;
-    const target = String(ticket.personId);
-    return participants.some((p: { personId: string | number }) => String(p.personId) === target);
-  } catch {
-    return true;
   }
 }
