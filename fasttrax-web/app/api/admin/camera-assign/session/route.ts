@@ -229,7 +229,9 @@ export async function GET(req: NextRequest) {
       // (~8 PM yesterday ET during EDT), dropping today's already-run
       // heats from the "Earlier" modal.
       const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 1);
-      const all = await fetchSessionsInWindow(resources, startDate, endDate, refresh);
+      // Past-mode session list: read cache (cron-warmed). Refresh
+      // button doesn't apply here — past sessions don't change.
+      const all = await fetchSessionsInWindow(resources, startDate, endDate, false);
       const past = all
         .filter((s) => new Date(s.scheduledStart).getTime() <= now)
         .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime());
@@ -269,7 +271,14 @@ export async function GET(req: NextRequest) {
     // This roughly halves perceived load time when an operator picks
     // a heat: was sessions→participants→blocks (~2-3s serial), now
     // max(sessions, participants)→blocks (~1-2s).
-    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, refresh);
+    //
+    // Refresh button only forces fresh on the SPECIFIC heat's
+    // participants — the sessions list (today's heat schedule) is
+    // cron-warmed and rarely changes mid-day, so we always read it
+    // from cache. Otherwise Refresh paid 30s for the sessions list
+    // PLUS 30s for participants on slow heats (~46s total) when
+    // staff just wanted to re-pull one heat's roster.
+    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, false);
     const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam, refresh) : null;
     const earlyAssignmentsPromise = sessionIdParam ? listAssignmentsForSession(sessionIdParam) : null;
 
@@ -291,7 +300,7 @@ export async function GET(req: NextRequest) {
           TRACK_RESOURCES as readonly string[],
           wide.startDate,
           wide.endDate,
-          refresh,
+          false, // sessions list always reads cache — see comment above
         );
         picked = widerSessions.find((s) => String(s.sessionId) === sessionIdParam);
       }
