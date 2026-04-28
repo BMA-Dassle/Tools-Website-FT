@@ -328,12 +328,100 @@ export async function GET(req: NextRequest) {
       earlyAssignmentsPromise ?? listAssignmentsForSession(picked.sessionId),
     ]);
 
-    // Map assignments by personId for fast merge in the client.
-    // We expose the raw Pandora contact fields so the client can pass
-    // them back when scanning — the video-match cron needs them later
-    // to deliver the "your video is ready" SMS + email without a
-    // second Pandora round-trip.
+    // Map assignments by personId for fast merge with participants.
     const byPid = new Map(assignments.map((a) => [String(a.personId), a]));
+
+    // ── Build the merged roster ─────────────────────────────────
+    //
+    // Two sources, in priority order:
+    //   1. Pandora participants (fresh — has live paid status,
+    //      kartNumber, etc.)
+    //   2. Existing camera assignments (snapshot from when the
+    //      assignment was made — has firstName/lastName/contact
+    //      info captured at that time)
+    //
+    // Critical: when Pandora's participants list is EMPTY (cold
+    // cache, cacheOnly=1, or upstream is degraded) but Redis HAS
+    // assignment records for this session, we still render the
+    // roster from the assignments. Without this, races that already
+    // have all cameras assigned would render as an empty page —
+    // staff can't see what they already did. Merge dedupes by
+    // personId so a participant + assignment record for the same
+    // person collapses into one row.
+    const seenPids = new Set<string>();
+    const roster: Array<{
+      personId: string | number;
+      firstName: string;
+      lastName: string;
+      email?: string;
+      mobilePhone?: string;
+      homePhone?: string;
+      phone?: string;
+      acceptSmsCommercial?: boolean;
+      acceptSmsScores?: boolean;
+      guardian?: NonNullable<Participant["guardian"]>;
+      kartNumber?: number | string;
+      paid?: boolean;
+      systemNumber?: string;
+      assignedAt?: string;
+      fromAssignmentOnly?: boolean;
+    }> = [];
+
+    // Pass 1 — every Pandora participant (priority source).
+    for (const p of participants) {
+      const pidStr = String(p.personId);
+      if (!pidStr || pidStr === "null" || pidStr === "undefined") continue;
+      seenPids.add(pidStr);
+      const a = byPid.get(pidStr);
+      roster.push({
+        personId: p.personId,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        email: p.email || undefined,
+        mobilePhone: p.mobilePhone || undefined,
+        homePhone: p.homePhone || undefined,
+        phone: p.phone || undefined,
+        acceptSmsCommercial: p.acceptSmsCommercial,
+        acceptSmsScores: p.acceptSmsScores,
+        // Pass guardian through verbatim — camera-assign client
+        // forwards it to /assign which snapshots it onto the
+        // assignment record.
+        guardian: p.guardian ?? undefined,
+        kartNumber: p.kartNumber ?? undefined,
+        paid: p.paid,
+        systemNumber: a?.systemNumber,
+        assignedAt: a?.assignedAt,
+      });
+    }
+
+    // Pass 2 — assignments whose personId WASN'T in the participant
+    // list. Hydrates the roster from snapshot data when Pandora
+    // didn't return that racer (cold cache or removed-from-roster
+    // post-assignment). Marked `fromAssignmentOnly: true` so the
+    // client can render a subtle indicator if it wants — useful
+    // for spotting "racer was scratched after camera assigned".
+    for (const a of assignments) {
+      const pidStr = String(a.personId);
+      if (!pidStr || seenPids.has(pidStr)) continue;
+      seenPids.add(pidStr);
+      roster.push({
+        personId: a.personId,
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email || undefined,
+        mobilePhone: a.mobilePhone || undefined,
+        homePhone: a.homePhone || undefined,
+        phone: a.phone || undefined,
+        acceptSmsCommercial: a.acceptSmsCommercial,
+        acceptSmsScores: a.acceptSmsScores,
+        guardian: a.guardian ?? undefined,
+        // No paid / kartNumber — those weren't snapshotted on the
+        // assignment record. Client renders these as undefined.
+        systemNumber: a.systemNumber,
+        assignedAt: a.assignedAt,
+        fromAssignmentOnly: true,
+      });
+    }
 
     // Fetch block snapshot in one MGET so the client can paint blocked
     // names red on the first render. Falls back to "no blocks" on any
@@ -345,31 +433,15 @@ export async function GET(req: NextRequest) {
     try {
       blockSnapshot = await getSessionBlockSnapshot({
         sessionId: picked.sessionId,
-        personIds: participants.map((p) => p.personId),
+        personIds: roster.map((r) => r.personId),
       });
     } catch (err) {
       console.error("[camera-assign/session] block snapshot failed:", err);
     }
 
-    const enriched = participants.map((p) => ({
-      personId: p.personId,
-      firstName: p.firstName,
-      lastName: p.lastName,
-      email: p.email || undefined,
-      mobilePhone: p.mobilePhone || undefined,
-      homePhone: p.homePhone || undefined,
-      phone: p.phone || undefined,
-      acceptSmsCommercial: p.acceptSmsCommercial,
-      acceptSmsScores: p.acceptSmsScores,
-      // Pass guardian through verbatim — camera-assign client forwards
-      // it to /assign which snapshots it onto the assignment record so
-      // the video-match cron has it without re-hitting Pandora.
-      guardian: p.guardian ?? undefined,
-      kartNumber: p.kartNumber ?? undefined,
-      paid: p.paid,
-      systemNumber: byPid.get(String(p.personId))?.systemNumber,
-      assignedAt: byPid.get(String(p.personId))?.assignedAt,
-      block: blockSnapshot.personBlocks[String(p.personId)] || { blocked: false },
+    const enriched = roster.map((r) => ({
+      ...r,
+      block: blockSnapshot.personBlocks[String(r.personId)] || { blocked: false },
     }));
 
     return NextResponse.json(

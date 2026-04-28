@@ -174,8 +174,16 @@ export async function GET(req: NextRequest) {
       console.warn("[session-participants] cache-first read failed:", err);
     }
     // Cache miss handling:
-    //   cacheOnly=1 → return empty immediately (no Pandora call)
-    //   prefer=cache → fall through to live Pandora below
+    //   cacheOnly=1 → return empty IMMEDIATELY. NO auto-warmup
+    //     here — was tempting to fire-and-forget but the
+    //     camera-assign day-list calls cacheOnly across 30+ heats
+    //     on every load, and triggering 30 concurrent Pandora
+    //     fetches would saturate Vercel's function pool and hammer
+    //     a slow upstream. The cron handles upcoming heats; for
+    //     cold cache outside the cron's window, callers can opt
+    //     in to a controlled warm via `?warm=1&prefer=cache` (one
+    //     session at a time).
+    //   prefer=cache → fall through to live Pandora below.
     if (cacheOnly) {
       return NextResponse.json(
         { data: [], cached: false, miss: true },
@@ -279,6 +287,7 @@ function redactIfUntrusted(req: NextRequest, full: Participant[]): Participant[]
   const trusted = !!API_KEY && internalHeader === API_KEY;
   return trusted ? full : full.map((p) => ({ personId: p.personId }));
 }
+
 
 /** Pandora unreachable / errored — try the Redis cache before
  *  giving up. The cache holds the unpaid SUPERSET; we apply the
