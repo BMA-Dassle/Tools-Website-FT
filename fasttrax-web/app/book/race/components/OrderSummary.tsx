@@ -6,7 +6,7 @@ import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } fr
 import { getBookingClientKey, getBookingLocation } from "@/lib/booking-location";
 import { trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackageDefinition } from "@/lib/packages";
-import { packagePerRacerPrice, LICENSE_PRICE, POV_PRICE } from "@/lib/packages";
+import { packagePerRacerPrice, LICENSE_PRICE, POV_PRICE, getPackageIgnoreFlag } from "@/lib/packages";
 import type { ContactInfo } from "./ContactForm";
 import PaymentForm from "@/components/square/PaymentForm";
 
@@ -35,6 +35,12 @@ export interface BookingItem {
   blockPrice?: number;
   /** Racer names assigned to this heat (returning racer flow) */
   racerNames?: string[];
+  /** Source package id for bookings that came from a package
+   *  (Ultimate Qualifier / Rookie Pack). Lets the review hero
+   *  group bookings into one card per package. Undefined for
+   *  individual race bookings. Mirrors the shape on `Booking` in
+   *  page.tsx. */
+  packageId?: string;
 }
 
 /** One bill per racer (returning flow) or one bill for the group (new flow) */
@@ -96,7 +102,12 @@ interface OrderSummaryProps {
   /** Atomic teardown — cancel all package bookings and bounce back
    *  to the product picker. Mirrors `onCancelRookiePack` but for
    *  packages that own their races. */
-  onRemovePackage?: () => void | Promise<void>;
+  /** Tear down a single package round. When called with a
+   *  `packageId`, only that package's bookings are cancelled — the
+   *  other category's package stays put. When called without an
+   *  arg, full teardown (legacy behavior for the in-flight first
+   *  round). The hero card always passes its own packageId. */
+  onRemovePackage?: (packageId?: string) => void | Promise<void>;
   /** Override confirmation page path (default: /book/race/confirmation) */
   confirmationPath?: string;
 }
@@ -460,22 +471,65 @@ export default function OrderSummary({
         // gives the future "did they qualify?" cron the heat
         // sessionIds / start-stop times it needs to detect a
         // non-qualifier and offer a refund/swap.
-        package: selectedPackage?.id ?? null,
-        packageHeats: selectedPackage && selectedPackage.races.length > 0
-          ? bookings.map((b) => ({
-              // Walk the registry's per-track productIds to find which
-              // component slot this booking fills. Multi-track components
-              // (weekday/weekend Ultimate Qualifier) have N tracks per
-              // slot — match against any of them.
-              ref: selectedPackage.races.find(
-                (r) => r.tracks.some((t) => t.productId === String(b.product.productId)),
-              )?.ref ?? null,
-              productId: String(b.product.productId),
-              sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
-              start: b.block.start,
-              stop: b.block.stop,
-            }))
-          : null,
+        //
+        // Multi-package booking records:
+        //   - `package`     — first booked packageId (back-compat
+        //                     for confirmation pages that read a
+        //                     scalar)
+        //   - `packages`    — array of every booked packageId so
+        //                     mixed adult+junior flows preserve
+        //                     both rounds
+        //   - `packageHeats` — every package-tagged booking,
+        //                     including its own packageId so a
+        //                     downstream cron can group by package
+        ...(() => {
+          const packageBookingIds = bookings
+            .map((b) => b.packageId)
+            .filter((id): id is string => !!id);
+          const uniquePackageIds = Array.from(new Set(packageBookingIds));
+          // selectedPackage covers the in-flight first-round case
+          // (heats not yet booked but the package is committed).
+          const packagesArr = uniquePackageIds.length > 0
+            ? uniquePackageIds
+            : selectedPackage
+              ? [selectedPackage.id]
+              : [];
+          return {
+            package: packagesArr[0] ?? null,
+            packages: packagesArr,
+          };
+        })(),
+        packageHeats: bookings.some((b) => b.packageId)
+          ? bookings
+              .filter((b) => !!b.packageId)
+              .map((b) => {
+                const pkgDef = b.packageId ? getPackageIgnoreFlag(b.packageId) : null;
+                // Walk THIS booking's package's per-track productIds
+                // to find which component slot it fills.
+                const ref = pkgDef?.races.find(
+                  (r) => r.tracks.some((t) => t.productId === String(b.product.productId)),
+                )?.ref ?? null;
+                return {
+                  packageId: b.packageId ?? null,
+                  ref,
+                  productId: String(b.product.productId),
+                  sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
+                  start: b.block.start,
+                  stop: b.block.stop,
+                };
+              })
+          : selectedPackage && selectedPackage.races.length > 0
+            ? bookings.map((b) => ({
+                packageId: selectedPackage.id,
+                ref: selectedPackage.races.find(
+                  (r) => r.tracks.some((t) => t.productId === String(b.product.productId)),
+                )?.ref ?? null,
+                productId: String(b.product.productId),
+                sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
+                start: b.block.start,
+                stop: b.block.stop,
+              }))
+            : null,
       };
       try {
         await fetch("/api/booking-record", {
@@ -715,28 +769,66 @@ export default function OrderSummary({
       {/* All items — races + add-ons merged, sorted by time, compact rows */}
       {!isPack && (() => {
         type CardItem =
-          | { type: "package" }
+          | { type: "package"; packageId: string; time: string }
           | { type: "race"; time: string; bookingIdx: number }
           | { type: "pov" }
           | { type: "addon"; addOnIdx: number; time: string };
 
-        // True when an Ultimate-Qualifier-style package owns all the
-        // bookings on this order. The package card replaces the
-        // individual race + license + POV cards (they're rolled up).
-        const packageOwnsRaces = !!(selectedPackage && selectedPackage.races.length > 0);
+        // Group bookings by packageId so a mixed adult+junior
+        // package flow renders ONE hero card per package round
+        // (was a single card driven off `selectedPackage`, which
+        // could only hold one package at a time and dropped the
+        // first round on the floor).
+        const packageBuckets = new Map<string, BookingItem[]>();
+        const looseBookings: BookingItem[] = [];
+        bookings.forEach((b) => {
+          if (b.packageId) {
+            const list = packageBuckets.get(b.packageId) ?? [];
+            list.push(b);
+            packageBuckets.set(b.packageId, list);
+          } else {
+            looseBookings.push(b);
+          }
+        });
+
+        // Back-compat: when there are NO packageId-tagged bookings
+        // but `selectedPackage` is set (mid-flow first round), still
+        // render that as a package card. Same behavior as before
+        // for the single-package path.
+        const fallbackToSelectedPackage =
+          packageBuckets.size === 0 && !!(selectedPackage && selectedPackage.races.length > 0);
+        const anyPackage = packageBuckets.size > 0 || fallbackToSelectedPackage;
 
         const cards: CardItem[] = [];
-        if (packageOwnsRaces) {
-          cards.push({ type: "package" });
-        } else {
-          bookings.forEach((_, i) => cards.push({ type: "race", time: bookings[i].block.start, bookingIdx: i }));
-          if (pov && pov.quantity > 0) cards.push({ type: "pov" });
+        for (const [packageId, pkgBookings] of packageBuckets) {
+          const earliest = pkgBookings.map((b) => b.block.start).sort()[0] || "";
+          cards.push({ type: "package", packageId, time: earliest });
         }
+        if (fallbackToSelectedPackage && selectedPackage) {
+          cards.push({ type: "package", packageId: selectedPackage.id, time: bookings[0]?.block.start || "" });
+        }
+        // Race cards ONLY for bookings that aren't part of a package
+        // round — package cards already roll up their own race lines.
+        looseBookings.forEach((b) => {
+          const idx = bookings.indexOf(b);
+          if (idx >= 0) cards.push({ type: "race", time: b.block.start, bookingIdx: idx });
+        });
+        // POV row stays for the non-package POV-only path. When ANY
+        // package is active the bundle line owns the POV display.
+        if (!anyPackage && pov && pov.quantity > 0) cards.push({ type: "pov" });
         addOns.forEach((a, i) => { if (a.quantity > 0) cards.push({ type: "addon", addOnIdx: i, time: a.selectedTime || "" }); });
 
         cards.sort((a, b) => {
-          const tA = a.type === "race" ? a.time : a.type === "addon" ? a.time : "";
-          const tB = b.type === "race" ? b.time : b.type === "addon" ? b.time : "";
+          const tA =
+            a.type === "race" ? a.time
+            : a.type === "addon" ? a.time
+            : a.type === "package" ? a.time
+            : "";
+          const tB =
+            b.type === "race" ? b.time
+            : b.type === "addon" ? b.time
+            : b.type === "package" ? b.time
+            : "";
           if (!tA && !tB) return 0;
           if (!tA) return 1;
           if (!tB) return -1;
@@ -754,14 +846,34 @@ export default function OrderSummary({
         return (
           <div className="rounded-xl border border-white/10 bg-white/5 divide-y divide-white/[0.06]">
             {cards.map((card) => {
-              if (card.type === "package" && selectedPackage) {
-                // Racer count for the package — pulled from any of
-                // the bookings (all share the same quantity since the
-                // multi-racer pattern reserves N seats per heat).
-                const racers = bookings[0]?.quantity || 1;
-                const heatLabels = bookings
+              if (card.type === "package") {
+                // Resolve the package from the registry by its id.
+                // Falls back to `selectedPackage` for the in-flight
+                // case (no packageId-tagged bookings yet but mid-flow
+                // first round).
+                const cardPkg =
+                  getPackageIgnoreFlag(card.packageId) ??
+                  (selectedPackage && selectedPackage.id === card.packageId ? selectedPackage : null);
+                if (!cardPkg) return null;
+                // Bookings belonging to THIS package round.
+                const ownBookings = bookings.filter((b) => b.packageId === card.packageId);
+                const isFallback =
+                  ownBookings.length === 0 &&
+                  selectedPackage?.id === card.packageId;
+                const sourceBookings = isFallback ? bookings : ownBookings;
+                // Racer count = per-booking quantity (all heats in
+                // the all-share-heats pattern reserve the same N).
+                const racers = sourceBookings[0]?.quantity || 1;
+                const heatLabels = sourceBookings
                   .map((b) => `${b.product.name} · ${formatTime(b.block.start)}`)
                   .join(" → ");
+                // Disambiguate when multiple packages of the same
+                // NAME are booked (adult + junior Ultimate Qualifier
+                // share a name across two registry entries).
+                const displayName =
+                  cardPkg.category === "junior" && bookings.some((b) => b.packageId !== card.packageId && getPackageIgnoreFlag(b.packageId)?.name === cardPkg.name)
+                    ? `${cardPkg.name} (Junior)`
+                    : cardPkg.name;
                 // Hero card lists what's included; per-line dollars
                 // are intentionally NOT shown. The BMI bill summary
                 // below this card is the authoritative price total —
@@ -769,24 +881,32 @@ export default function OrderSummary({
                 // potentially contradict) BMI's actual charge if
                 // their catalog price drifts from the registry.
                 return (
-                  <div key="package" className="px-4 py-4 bg-amber-500/[0.06]">
+                  <div key={`package-${card.packageId}`} className="px-4 py-4 bg-amber-500/[0.06]">
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-amber-400 text-[10px] font-bold uppercase tracking-widest shrink-0">
-                            {selectedPackage.name}
+                            {displayName}
                           </span>
                           <span className="text-white/20 text-xs shrink-0">
                             {racers} racer{racers === 1 ? "" : "s"}
                           </span>
                         </div>
-                        <p className="text-white/70 text-xs">{selectedPackage.shortDescription}</p>
+                        <p className="text-white/70 text-xs">{cardPkg.shortDescription}</p>
                       </div>
+                      {/* Remove this specific package round. Passes
+                          the card's own packageId so multi-package
+                          flows (adult + junior) can drop one side
+                          without nuking the other. The handler
+                          (`handleRemovePackage` in page.tsx) cancels
+                          the matching bookings on the BMI bill and
+                          bounces the user back to the picker scoped
+                          to that category. */}
                       {onRemovePackage && state.status === "booked" && (
                         <button
                           type="button"
-                          aria-label={`Cancel ${selectedPackage.name} and pick a different option`}
-                          onClick={() => { void onRemovePackage(); }}
+                          aria-label={`Cancel ${cardPkg.name} and pick a different option`}
+                          onClick={() => { void onRemovePackage(card.packageId); }}
                           className="text-red-400/40 hover:text-red-400 transition-colors p-0.5 -mr-1 shrink-0"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -799,25 +919,25 @@ export default function OrderSummary({
                       <p className="text-white/50 text-[11px] mb-2">{heatLabels}</p>
                     )}
                     <ul className="space-y-1 text-xs text-white/70">
-                      {selectedPackage.races.map((r) => (
+                      {cardPkg.races.map((r) => (
                         <li key={r.ref} className="flex items-baseline justify-between gap-2">
                           <span><span className="text-emerald-400">✓</span> {r.label}{racers > 1 ? <span className="text-white/40"> × {racers}</span> : null}</span>
                           <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       ))}
-                      {selectedPackage.includesLicense && (
+                      {cardPkg.includesLicense && (
                         <li className="flex items-baseline justify-between gap-2">
                           <span><span className="text-emerald-400">✓</span> Racing License{racers > 1 ? <span className="text-white/40"> × {racers}</span> : null}</span>
                           <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       )}
-                      {selectedPackage.includesPov && (
+                      {cardPkg.includesPov && (
                         <li className="flex items-baseline justify-between gap-2">
                           <span><span className="text-emerald-400">✓</span> POV Race Video{racers > 1 ? <span className="text-white/40"> × {racers}</span> : null}</span>
                           <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">Included</span>
                         </li>
                       )}
-                      {selectedPackage.appetizerCode && (
+                      {cardPkg.appetizerCode && (
                         <li className="flex items-baseline justify-between gap-2">
                           <span>
                             <span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s
@@ -965,9 +1085,16 @@ export default function OrderSummary({
               // Hide them here so customers don't see them twice.
               // Subtotal / tax / total below still reflect the full
               // bill.
-              const packageOwnsLines = !!(selectedPackage && selectedPackage.races.length > 0);
+              // Hide license/POV/race rows whenever ANY package
+              // round has booked — bookings tagged with `packageId`
+              // are represented by the hero card(s) above. Was a
+              // single `selectedPackage` check that missed booked-
+              // package rounds (the second-round flow).
+              const anyPackageRound =
+                bookings.some((b) => !!b.packageId) ||
+                !!(selectedPackage && selectedPackage.races.length > 0);
               if (pov?.rookiePack && (isLicense || isPov)) return null;
-              if (packageOwnsLines && (isLicense || isPov || isRace)) return null;
+              if (anyPackageRound && (isLicense || isPov || isRace)) return null;
               // Removable: not a license, not a race (races removed via item cards above)
               const canRemove = !isLicense && !isRace && line.lineId && state.status === "booked";
               return (

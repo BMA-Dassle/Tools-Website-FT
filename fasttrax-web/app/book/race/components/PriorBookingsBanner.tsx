@@ -1,6 +1,7 @@
 "use client";
 
 import type { Booking } from "../page";
+import { getPackageIgnoreFlag } from "@/lib/packages";
 
 /**
  * Context banner shown above the heat picker when the customer has
@@ -52,6 +53,28 @@ export default function PriorBookingsBanner({
   const otherCategory = currentCategory === "adult" ? "junior" : "adult";
   const otherLabel = otherCategory === "adult" ? "Adult" : "Junior";
 
+  // Group prior bookings by packageId so an Ultimate-Qualifier-style
+  // round renders as ONE pill ("Ultimate Qualifier · 6:30 PM") instead
+  // of N pills (one per component race). Loose bookings render as
+  // their own pill, same as before.
+  type PriorEntry =
+    | { kind: "package"; packageId: string; bookings: Booking[] }
+    | { kind: "race"; booking: Booking };
+  const buckets = new Map<string, Booking[]>();
+  const entries: PriorEntry[] = [];
+  for (const b of prior) {
+    if (b.packageId) {
+      const list = buckets.get(b.packageId) ?? [];
+      list.push(b);
+      buckets.set(b.packageId, list);
+    } else {
+      entries.push({ kind: "race", booking: b });
+    }
+  }
+  for (const [packageId, list] of buckets) {
+    entries.push({ kind: "package", packageId, bookings: list });
+  }
+
   return (
     <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -59,7 +82,7 @@ export default function PriorBookingsBanner({
           ✓
         </span>
         <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest">
-          {otherLabel} {prior.length === 1 ? "race" : "races"} already booked
+          {otherLabel}{otherLabel.endsWith("s") ? "" : "s"} already booked
         </p>
       </div>
       <p className="text-white/50 text-[11px] mb-3 leading-relaxed">
@@ -68,14 +91,45 @@ export default function PriorBookingsBanner({
         bill, same date.
       </p>
       <div className="flex flex-wrap gap-2">
-        {prior.map((b, i) => {
+        {entries.map((entry, i) => {
+          if (entry.kind === "package") {
+            const pkg = getPackageIgnoreFlag(entry.packageId);
+            const earliest = entry.bookings.map((b) => b.block.start).sort()[0] || "";
+            const racerCount = entry.bookings[0]?.quantity || 1;
+            const label = pkg
+              ? (pkg.category === "junior" && pkg.name === "Ultimate Qualifier"
+                  ? `${pkg.name} (Junior)`
+                  : pkg.name)
+              : "Package";
+            return (
+              <span
+                key={`pkg-${entry.packageId}-${i}`}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border border-amber-500/40 bg-amber-500/[0.10] text-amber-200"
+              >
+                <span>🏆 {label}</span>
+                {earliest && (
+                  <>
+                    <span className="opacity-70">·</span>
+                    <span className="font-mono">{formatTime(earliest)}</span>
+                  </>
+                )}
+                {racerCount > 1 && (
+                  <>
+                    <span className="opacity-70">·</span>
+                    <span className="opacity-80">× {racerCount}</span>
+                  </>
+                )}
+              </span>
+            );
+          }
+          const b = entry.booking;
           const trackTint = b.product.track ? TRACK_PILL[b.product.track] : null;
           const pillClass = trackTint
             ? `border ${trackTint}`
             : "border border-white/15 bg-white/5 text-white/70";
           return (
             <span
-              key={`${b.product.productId}-${b.block.start}-${i}`}
+              key={`race-${b.product.productId}-${b.block.start}-${i}`}
               className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${pillClass}`}
             >
               <span>🏎️ {b.product.name}</span>

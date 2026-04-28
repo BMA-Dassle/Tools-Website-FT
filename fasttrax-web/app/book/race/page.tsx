@@ -25,6 +25,14 @@ export interface Booking {
   proposal: BmiProposal;
   block: BmiBlock;
   blockPrice?: number;
+  /** When this booking came from a package (Ultimate Qualifier /
+   *  Rookie Pack), the originating package id. Lets the cart sync,
+   *  review hero, and confirmation page group bookings into one
+   *  bundle line per package — critical for mixed adult+junior
+   *  parties where each side may pick a DIFFERENT package and the
+   *  single `selectedPackage` state can no longer represent the full
+   *  cart. Undefined for individual race bookings. */
+  packageId?: string;
   /** BMI bill line ID — used to remove/swap individual races without cancelling the whole order */
   billLineId?: string;
   /** Which bills this booking spans (one per racer) */
@@ -47,7 +55,7 @@ import PackageHeatPicker from "./components/PackageHeatPicker";
 import type { PackagePick } from "./components/PackageHeatPicker";
 import PriorBookingsBanner from "./components/PriorBookingsBanner";
 import type { PackageDefinition } from "@/lib/packages";
-import { eligiblePackages, scheduleForDate, packagePerRacerPrice } from "@/lib/packages";
+import { eligiblePackages, scheduleForDate, packagePerRacerPrice, getPackageIgnoreFlag, LICENSE_PRICE, POV_PRICE } from "@/lib/packages";
 import ContactForm from "./components/ContactForm";
 import AddOnsPage from "./components/AddOnsPage";
 import type { AddOnItem } from "./components/AddOnsPage";
@@ -218,17 +226,30 @@ export default function BookRacePage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nonRacing = existingCart.filter((item: any) => item.attraction !== "racing");
 
-    // When a package owns the races (Ultimate Qualifier-style), the
-    // mini cart should show ONE bundle line (added below) instead of
-    // a separate per-heat row for each component. Without this guard
-    // we'd double-render: race-A, race-B, AND "Ultimate Qualifier".
-    const packageOwnsRaces = !!(selectedPackage && selectedPackage.races.length > 0);
+    // Group bookings by packageId. Each unique packageId becomes
+    // ONE bundle cart line (Ultimate Qualifier × N) regardless of
+    // how many component heats it spans. Bookings without a
+    // packageId render as individual race rows below.
+    //
+    // This replaces the prior single-`selectedPackage` model which
+    // could only represent one package at a time — it broke the
+    // mixed adult+junior package flow because the second round
+    // overwrote the first round's package state.
+    const packageBuckets = new Map<string, Booking[]>();
+    const looseBookings: Booking[] = [];
+    for (const b of bookings) {
+      if (b.packageId) {
+        const list = packageBuckets.get(b.packageId) ?? [];
+        list.push(b);
+        packageBuckets.set(b.packageId, list);
+      } else {
+        looseBookings.push(b);
+      }
+    }
 
     // Add current racing items
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const racingItems: any[] = packageOwnsRaces
-      ? []
-      : bookings.map(b => ({
+    const racingItems: any[] = looseBookings.map(b => ({
       attraction: "racing",
       attractionName: "Racing",
       product: { name: b.product.name, price: b.blockPrice || 0, bookingMode: "per-person" },
@@ -263,34 +284,46 @@ export default function BookRacePage() {
     // separate license / POV lines.
     const baseDate = bookings[0]?.block.start.split("T")[0] || "";
 
-    // Package with owned races (Ultimate Qualifier) — render ONE
-    // bundled cart line representing the whole package + skip the
-    // license/POV/individual-race lines that the package owns.
-    // The per-booking race lines were already filtered out at the
-    // top of this effect (see packageOwnsRaces guard there).
+    // One bundle line per booked package. Pricing pulls from each
+    // booking's `blockPrice` (the LIVE BMI availability price,
+    // captured at handlePackageHeatsConfirm time) plus the
+    // license/POV constants for the auto-add line items. This keeps
+    // the cart total in lockstep with what BMI actually charges —
+    // registry-static math used to drift by $1-$4/racer when BMI's
+    // catalog price didn't match our hardcoded fallback.
     //
-    // Pricing pulls from each booking's `blockPrice` (the LIVE BMI
-    // availability price, captured at handlePackageHeatsConfirm
-    // time) plus the license/POV constants for the auto-add line
-    // items. This keeps the cart total in lockstep with what BMI
-    // actually charges — registry-static math used to drift by
-    // $1-$4/racer when BMI's catalog price didn't match our
-    // hardcoded fallback.
-    if (packageOwnsRaces && selectedPackage) {
-      const racerCount = quantity || 1;
-      const racePerRacer = bookings.reduce((acc, b) => acc + (b.blockPrice ?? b.product.price), 0);
-      const licensePerRacer = selectedPackage.includesLicense ? 4.99 : 0;
-      const povPerRacer = selectedPackage.includesPov ? 5 : 0;
+    // For the cross-category case (adult Ultimate + junior Ultimate)
+    // this loop renders TWO cart lines: one per package round.
+    for (const [packageId, pkgBookings] of packageBuckets) {
+      const pkg = getPackageIgnoreFlag(packageId);
+      if (!pkg) continue;
+      // Heats reserve N seats each in the all-share-heats pattern,
+      // so racer count is the per-booking quantity (same across
+      // bookings in the same package round).
+      const racerCount = pkgBookings[0]?.quantity || 1;
+      const racePerRacer = pkgBookings.reduce(
+        (acc, b) => acc + (b.blockPrice ?? b.product.price),
+        0,
+      );
+      const licensePerRacer = pkg.includesLicense ? LICENSE_PRICE : 0;
+      const povPerRacer = pkg.includesPov ? POV_PRICE : 0;
       const perRacer = racePerRacer + licensePerRacer + povPerRacer;
+      const earliestStart = pkgBookings
+        .map((b) => b.block.start)
+        .sort()[0] || baseDate;
       racingItems.push({
         attraction: "racing",
         attractionName: "Racing",
         product: {
-          name: selectedPackage.name,
+          // Disambiguate when adult + junior packages of the same
+          // name are both booked (Adult Ultimate Qualifier + Junior
+          // Ultimate Qualifier share `name` across two registry
+          // entries). Junior category gets a "(Junior)" suffix.
+          name: pkg.category === "junior" ? `${pkg.name} (Junior)` : pkg.name,
           price: perRacer,
           bookingMode: "per-person",
         },
-        date: baseDate,
+        date: earliestStart.split("T")[0],
         time: { block: { start: "" } },
         quantity: racerCount,
         // No cart × button — package teardown is multi-step (cancel
@@ -300,7 +333,16 @@ export default function BookRacePage() {
         racerNames: undefined,
       });
     }
-    const isRookieBundle = !packageOwnsRaces && !!(selectedPov && selectedPov.quantity > 0 && selectedPov.rookiePack);
+
+    // Are ANY of the current bookings package-driven? Used to skip
+    // the itemized license/POV rows below (the package bundle line
+    // already includes them). Falls back to the legacy
+    // `selectedPackage` flag for the in-flight first-round case.
+    const anyPackageActive =
+      packageBuckets.size > 0 ||
+      !!(selectedPackage && selectedPackage.races.length > 0);
+
+    const isRookieBundle = !anyPackageActive && !!(selectedPov && selectedPov.quantity > 0 && selectedPov.rookiePack);
     if (isRookieBundle && selectedPov) {
       const LICENSE_PRICE = 4.99;
       racingItems.push({
@@ -320,7 +362,7 @@ export default function BookRacePage() {
         color: "#F59E0B",
         racerNames: undefined,
       });
-    } else if (!packageOwnsRaces) {
+    } else if (!anyPackageActive) {
       // Skip itemized license/POV when an Ultimate-Qualifier-style
       // package owns them — the bundle line above represents both.
       if (licenseSold) {
@@ -704,23 +746,59 @@ export default function BookRacePage() {
    *  the PackageHeatPicker booked, clears state, and bounces the user
    *  back to the product picker. Mirrors the rookie-pack cancel
    *  pattern so customers can change their mind without restarting. */
-  async function handleRemovePackage() {
-    // Remove any BMI bill lines that came from package heats.
-    for (const b of bookings) {
+  /** Tear down a package mid-flow OR from the review hero card.
+   *
+   *  When `packageId` is given, only THAT package's bookings get
+   *  cancelled — the other category's package stays put. Used by
+   *  the review hero in mixed adult+junior flows where the customer
+   *  wants to drop just one side.
+   *
+   *  When `packageId` is omitted, falls back to the legacy "remove
+   *  the in-flight package" path — cancels all package-tagged
+   *  bookings (or all bookings if none are tagged, e.g. mid-first-
+   *  round before any heats booked). Preserves the original
+   *  single-package teardown behavior for back-compat. */
+  async function handleRemovePackage(packageId?: string) {
+    // Resolve the booking subset to cancel. Scoped removal targets
+    // exactly the named package's bookings; full removal targets
+    // every package-tagged booking (or every booking, when nothing
+    // is tagged yet — mid-flow first-round case).
+    const targetBookings = packageId
+      ? bookings.filter((b) => b.packageId === packageId)
+      : bookings.some((b) => b.packageId)
+        ? bookings.filter((b) => !!b.packageId)
+        : bookings;
+
+    for (const b of targetBookings) {
       if (b.billLineIds && b.billLineIds.length > 0) {
         for (const ll of b.billLineIds) {
           try { await removeBookingLine(ll.billId, ll.lineId); } catch { /* non-fatal */ }
         }
       }
     }
-    setBookings([]);
-    setActiveBills([]);
-    setSelectedPackage(null);
-    setSelectedProduct(null);
-    setSelectedProposal(null);
-    setSelectedBlock(null);
-    setSelectedPov(null);
-    changeStep("product");
+    if (packageId) {
+      // Scoped — drop only this package's bookings; leave the other
+      // category in place so the review still shows it.
+      setBookings((prev) => prev.filter((b) => b.packageId !== packageId));
+      // Clear the in-flight selection only if it matches the one
+      // we're removing.
+      setSelectedPackage((prev) => (prev?.id === packageId ? null : prev));
+      // If the removed round still has its category to re-pick,
+      // bounce the user back to the picker for that category.
+      const removedCategory = bookings.find((b) => b.packageId === packageId)?.product.category;
+      if (removedCategory) setBookingCategory(removedCategory);
+      changeStep("product");
+    } else {
+      // Legacy full teardown.
+      setBookings([]);
+      setActiveBills([]);
+      setSelectedPackage(null);
+      setSelectedProduct(null);
+      setSelectedProposal(null);
+      setSelectedBlock(null);
+      setSelectedPov(null);
+      changeStep("product");
+    }
   }
 
   /** All package heats picked. Books each one as a BMI bill line and
@@ -800,6 +878,12 @@ export default function BookRacePage() {
           proposal: pick.proposal,
           block: pick.block,
           blockPrice: livePrice,
+          // Tag every package-driven booking with its source package
+          // id. Cart sync + review hero group on this so mixed
+          // adult+junior package flows render correctly (one bundle
+          // line per package vs. the prior single-`selectedPackage`
+          // model that only ever showed the LATEST package).
+          packageId: selectedPackage.id,
           billLineIds: result.billLineId
             ? [{ billId: result.rawOrderId, lineId: result.billLineId }]
             : undefined,
@@ -1733,7 +1817,14 @@ export default function BookRacePage() {
                         }).filter((p) => p.id !== "rookie-pack")
                       : []
                   }
-                  racerCount={adults + juniors}
+                  // Picker price math = ONLY the category currently
+                  // being booked. For 3 adults + 3 juniors the adult
+                  // section shows "× 3" math, not "× 6". When the
+                  // user bounces back for juniors (post adult round)
+                  // bookingCategory has flipped, so the same prop
+                  // resolves to juniors. Was previously
+                  // `adults + juniors` which double-counted.
+                  racerCount={bookingCategory === "junior" ? juniors : adults}
                   onSelectPackage={handleSelectPackage}
                   date={selectedDate}
                 />
