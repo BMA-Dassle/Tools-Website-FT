@@ -72,7 +72,13 @@ async function fetchCurrentRaces(): Promise<CurrentRaces> {
 async function fetchParticipants(sessionId: number): Promise<Participant[]> {
   const res = await fetch(
     `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}`,
-    { cache: "no-store" },
+    {
+      cache: "no-store",
+      // Server-only call — pass the internal trust header so the
+      // proxy returns full PII (needed to address SMS). Public
+      // e-ticket browser calls never include this header.
+      headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+    },
   );
   if (!res.ok) return [];
   const data = await res.json();
@@ -101,7 +107,15 @@ async function fetchParticipants(sessionId: number): Promise<Participant[]> {
 async function fetchPandoraPidsAnyState(sessionId: number): Promise<Set<string>> {
   const res = await fetch(
     `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=false&excludeUnpaid=false`,
-    { cache: "no-store" },
+    {
+      cache: "no-store",
+      // PersonId-only is fine here, but pass the internal header for
+      // consistency with other server callers. Public response would
+      // also work since it returns personIds — but matching the
+      // contract avoids breakage if the lean response shape ever
+      // changes.
+      headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+    },
   );
   if (!res.ok) return new Set();
   const data = await res.json();

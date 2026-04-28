@@ -111,7 +111,15 @@ async function fetchSessions(resourceName: string): Promise<PandoraSession[]> {
 async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
   const res = await fetch(
     `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}`,
-    { cache: "no-store" },
+    {
+      cache: "no-store",
+      // Server-only call — pass the internal trust header so the
+      // proxy returns the FULL participant payload (firstName,
+      // lastName, email, phone) needed to address SMS/email. Browser
+      // calls from the public e-ticket page never include this
+      // header and get a personId-only payload (PII redacted).
+      headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+    },
   );
   if (!res.ok) return [];
   const data = await res.json();

@@ -22,7 +22,14 @@ async function fetchGuardiansForSession(
   const out = new Map<string, GuardianContact>();
   try {
     const url = `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=true&excludeUnpaid=false`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(url, {
+      cache: "no-store",
+      // Server-only admin call — pass internal trust header so the
+      // proxy returns full PII (firstName, guardian contact). Public
+      // e-ticket browser requests don't have this header and get a
+      // redacted personId-only response.
+      headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+    });
     if (!res.ok) return out;
     const json = await res.json();
     const data: Participant[] = Array.isArray(json?.data) ? json.data : [];

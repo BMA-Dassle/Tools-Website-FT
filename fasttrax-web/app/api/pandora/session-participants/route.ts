@@ -9,8 +9,21 @@ import { NextRequest, NextResponse } from "next/server";
  *
  * Upstream: GET /bmi/session/{locationID}/{sessionId}/participants
  *
- * Response: { success, message, data: [{ personId, firstName, lastName, email,
- *            phone, paid, kartNumber, ... }] }
+ * ── PII gating ──────────────────────────────────────────────────────────────
+ * The upstream payload includes full PII (firstName, lastName, email,
+ * mobilePhone, opt-in flags, kart number, etc.) for every racer in the
+ * session. The PUBLIC e-ticket pages (/t/[id], /g/[id]) hit this
+ * endpoint from the browser to check "is the holder still on this
+ * session?" — they only need a personId-membership check, not PII.
+ * Browsers were getting the full payload, exposing every co-racer's
+ * contact data via DevTools.
+ *
+ * From this commit, the route returns a LEAN response by default —
+ * one `{ personId }` per participant, nothing else. Server-side
+ * callers that legitimately need the full payload (cron SMS senders,
+ * admin camera-assign, guardian backfill) opt in by sending
+ * `x-pandora-internal: <SWAGGER_ADMIN_KEY>` — a secret only the
+ * server has access to. No browser request can forge it.
  *
  * Defaults match what the SMS crons need — notifications must never fire for
  * unpaid or removed participants — so every existing caller stays safe.
@@ -83,7 +96,22 @@ export async function GET(req: NextRequest) {
       );
     }
     const json = await res.json();
-    const data: Participant[] = Array.isArray(json.data) ? json.data : [];
+    const fullData: Participant[] = Array.isArray(json.data) ? json.data : [];
+
+    // ── Trust check ───────────────────────────────────────────────
+    // Server-side callers (cron, admin) send the internal-secret
+    // header. Browser requests from the public e-ticket pages can't
+    // forge it (the secret only lives in server env). Without the
+    // header we strip every PII field and return only the personId
+    // so client polling can still answer "am I still on the
+    // roster?" without leaking a co-racer's name/email/phone.
+    const internalHeader = req.headers.get("x-pandora-internal");
+    const trusted = !!API_KEY && internalHeader === API_KEY;
+
+    const data = trusted
+      ? fullData
+      : fullData.map((p) => ({ personId: p.personId }));
+
     return NextResponse.json(
       { data },
       { headers: { "Cache-Control": "no-store" } },

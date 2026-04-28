@@ -135,7 +135,14 @@ async function fetchParticipants(sessionId: string | number): Promise<Participan
   // so scratched racers don't pollute the roster.
   const res = await fetch(
     `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=true&excludeUnpaid=false`,
-    { cache: "no-store" },
+    {
+      cache: "no-store",
+      // Server-only admin call — pass the internal trust header so
+      // the proxy returns full PII (firstName/lastName for the
+      // staff display). Public e-ticket browser calls don't include
+      // this header and get a redacted personId-only response.
+      headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+    },
   );
   if (!res.ok) return [];
   const data = await res.json();
