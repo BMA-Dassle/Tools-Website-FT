@@ -89,6 +89,31 @@ function applyUnpaidFilter(participants: Participant[], excludeUnpaid: boolean):
   return participants.filter((p) => p.paid !== false);
 }
 
+/** Strip placeholder / null-personId entries that Pandora occasionally
+ *  returns. Camera-assign was rendering them as empty "1" rows with no
+ *  name; the SMS crons would skip them via the placeholder gate but
+ *  the camera-assign UI doesn't have that filter. Doing it at the
+ *  proxy means every consumer (e-ticket, camera-assign, crons) gets
+ *  a clean roster.
+ *
+ *  An entry is considered placeholder/garbage when:
+ *    - personId is null/undefined/empty (most common — Pandora returns
+ *      a row with all-null fields), OR
+ *    - personId is the known "DRIVER 1 PLACEHOLDER" id (17750277), the
+ *      unassigned-seat stand-in already gated in
+ *      lib/participant-contact.ts. */
+const PLACEHOLDER_PERSON_IDS: ReadonlySet<string> = new Set(["17750277"]);
+
+function dropNullParticipants(participants: Participant[]): Participant[] {
+  return participants.filter((p) => {
+    if (p.personId == null) return false;
+    const pidStr = String(p.personId).trim();
+    if (!pidStr) return false;
+    if (PLACEHOLDER_PERSON_IDS.has(pidStr)) return false;
+    return true;
+  });
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const locationId = searchParams.get("locationId");
@@ -127,7 +152,10 @@ export async function GET(req: NextRequest) {
       if (raw) {
         const cached = JSON.parse(raw) as Participant[];
         if (Array.isArray(cached) && cached.length > 0) {
-          const filtered = applyUnpaidFilter(cached, excludeUnpaid);
+          // Filter pipeline: drop null/placeholder personId entries
+          // → apply unpaid filter → redact PII for untrusted callers.
+          const cleaned = dropNullParticipants(cached);
+          const filtered = applyUnpaidFilter(cleaned, excludeUnpaid);
           const data = redactIfUntrusted(req, filtered);
           return NextResponse.json(
             { data, cached: true },
@@ -183,11 +211,16 @@ export async function GET(req: NextRequest) {
       return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, `pandora-${res.status}`);
     }
     const json = await res.json();
-    const fullSuperset: Participant[] = Array.isArray(json.data) ? json.data : [];
+    const rawSuperset: Participant[] = Array.isArray(json.data) ? json.data : [];
+
+    // Drop null-personId / placeholder entries BEFORE caching so
+    // every cache reader gets clean data without re-filtering.
+    const fullSuperset = dropNullParticipants(rawSuperset);
 
     // Write-through to Redis on every successful upstream fetch
-    // (the unpaid superset, NOT the per-caller filtered slice).
-    // Fire-and-forget — never block the response on a Redis hiccup.
+    // (the cleaned unpaid superset, NOT the per-caller filtered
+    // slice). Fire-and-forget — never block the response on a
+    // Redis hiccup.
     if (fullSuperset.length > 0) {
       const key = cacheKey(locationId, sessionId, excludeRemoved);
       redis
@@ -243,7 +276,11 @@ async function fallbackResponse(
     if (raw) {
       const cached = JSON.parse(raw) as Participant[];
       if (Array.isArray(cached) && cached.length > 0) {
-        const filtered = applyUnpaidFilter(cached, excludeUnpaid);
+        // Cache write-through filters nulls today, but old cache
+        // entries written before this fix may still carry them —
+        // re-filter on read for safety.
+        const cleaned = dropNullParticipants(cached);
+        const filtered = applyUnpaidFilter(cleaned, excludeUnpaid);
         const data = redactIfUntrusted(req, filtered);
         return NextResponse.json(
           { data, stale: true, reason },

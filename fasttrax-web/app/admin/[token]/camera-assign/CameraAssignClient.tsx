@@ -1488,40 +1488,13 @@ export default function CameraAssignClient({ token, track: initialTrack, version
             );
           })}
           <div className="ml-auto flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setPastModalOpen(true)}
-              disabled={!track || pastLoading || pastSessions.length === 0}
-              title="Browse earlier sessions from today"
-              aria-label="Earlier sessions"
-              className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center gap-1"
-            >
-              {pastLoading ? (
-                <span
-                  aria-hidden="true"
-                  className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
-                />
-              ) : (
-                <span>⏮</span>
-              )}
-              <span className="hidden sm:inline">
-                {pastLoading ? "Loading…" : "Earlier"}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowKeyboard((v) => !v)}
-              title="Toggle the on-screen keyboard when tapping the scan field"
-              aria-label={`On-screen keyboard ${showKeyboard ? "on" : "off"}`}
-              className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
-                showKeyboard
-                  ? "bg-white/15 border-white/30 text-white"
-                  : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
-              }`}
-            >
-              <span>⌨</span>
-              <span className="hidden sm:inline">Kb {showKeyboard ? "on" : "off"}</span>
-            </button>
+            {/* Earlier-sessions and Keyboard toggle removed —
+                superseded by the always-visible scrollable heat list
+                below + the NFC reader's keyboard emulation. The
+                Earlier modal is no longer needed since staff can
+                scroll to any past heat in the day-list, and the
+                on-screen keyboard toggle was unused on the production
+                NFC kiosks. */}
             {nfcSupported && (
               <button
                 type="button"
