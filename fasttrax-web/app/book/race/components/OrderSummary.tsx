@@ -455,7 +455,13 @@ export default function OrderSummary({
         package: selectedPackage?.id ?? null,
         packageHeats: selectedPackage && selectedPackage.races.length > 0
           ? bookings.map((b) => ({
-              ref: selectedPackage.races.find((r) => r.productId === String(b.product.productId))?.ref ?? null,
+              // Walk the registry's per-track productIds to find which
+              // component slot this booking fills. Multi-track components
+              // (weekday/weekend Ultimate Qualifier) have N tracks per
+              // slot — match against any of them.
+              ref: selectedPackage.races.find(
+                (r) => r.tracks.some((t) => t.productId === String(b.product.productId)),
+              )?.ref ?? null,
               productId: String(b.product.productId),
               sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
               start: b.block.start,

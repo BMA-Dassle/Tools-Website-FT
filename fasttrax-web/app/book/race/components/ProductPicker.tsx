@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, TIER_DESCRIPTIONS, groupByTrack } from "../data";
 import type { PackageDefinition, PackageRaceComponent } from "@/lib/packages";
-import { LICENSE_PRICE, POV_PRICE, POV_CHECKIN_PRICE, APPETIZER_RETAIL_VALUE } from "@/lib/packages";
+import { LICENSE_PRICE, POV_PRICE, POV_CHECKIN_PRICE, APPETIZER_RETAIL_VALUE, primaryTrack } from "@/lib/packages";
 import { modalBackdropProps } from "@/lib/a11y";
 
 // ── Track info shown in the "Pick your track" modal ─────────────────────────
@@ -18,15 +18,15 @@ const TRACK_INFO: Record<string, {
 }> = {
   Red: {
     title: "Red Track",
-    stat: "1,013 ft",
-    tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
+    stat: "1,095 ft",
+    tagline: "Technical & clockwise — more turns, more strategy.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
     accent: "red",
   },
   Blue: {
     title: "Blue Track",
-    stat: "1,095 ft",
-    tagline: "Technical & clockwise — more turns, more strategy.",
+    stat: "1,013 ft",
+    tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
     accent: "blue",
   },
@@ -109,6 +109,10 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
       {hasPackages && (
         <div className="grid gap-3">
+          {/* One card per package definition. Multi-track components
+              are handled inside PackageHeatPicker — the customer
+              picks a track per heat (Red Starter, Blue Intermediate,
+              etc.) instead of being asked upfront. */}
           {packages.map((pkg) => (
             <PackageCard
               key={pkg.id}
@@ -372,7 +376,7 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
     // Seed with registry-static fallbacks so the card renders
     // immediately while the live fetch is in flight.
     const seed: Record<string, number> = {};
-    for (const r of pkg.races) seed[r.ref] = r.price;
+    for (const r of pkg.races) seed[r.ref] = primaryTrack(r)?.price ?? 0;
     return seed;
   });
   const [loading, setLoading] = useState(!!date && pkg.races.length > 0);
@@ -390,13 +394,20 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
     Promise.resolve().then(() => { if (!cancelled) setLoading(true); });
 
     async function loadOne(component: PackageRaceComponent): Promise<[string, number] | null> {
+      // Probe the FIRST track for live BMI price. For multi-track
+      // components Red and Blue currently price identically per
+      // schedule so probing one is enough for the picker total. If
+      // BMI ever introduces per-track pricing we'll fan out and
+      // surface a track-specific row in the card.
+      const t = primaryTrack(component);
+      if (!t) return null;
       try {
         const res = await fetch(`/api/bmi?endpoint=availability&date=${dateOnly}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            ProductId: Number(component.productId),
-            PageId: Number(component.pageId),
+            ProductId: Number(t.productId),
+            PageId: Number(t.pageId),
             Quantity: 1,
             OrderId: null,
             PersonId: null,
@@ -424,7 +435,7 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
     Promise.all(pkg.races.map(loadOne)).then((results) => {
       if (cancelled) return;
       const next: Record<string, number> = {};
-      for (const r of pkg.races) next[r.ref] = r.price; // baseline
+      for (const r of pkg.races) next[r.ref] = primaryTrack(r)?.price ?? 0; // baseline
       for (const r of results) if (r) next[r[0]] = r[1]; // overlay live
       setPrices(next);
       setLoading(false);
@@ -455,7 +466,7 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   type Line = { key: string; label: string; perUnit: number | null; quantity: number; lineTotal: number; freeNote?: string };
   const lines: Line[] = [];
   for (const r of pkg.races) {
-    const perUnit = livePrices[r.ref] ?? r.price;
+    const perUnit = livePrices[r.ref] ?? (primaryTrack(r)?.price ?? 0);
     lines.push({
       key: r.ref,
       label: r.label,
@@ -499,7 +510,7 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   // retail (POV at check-in price, appetizer at menu retail).
   const retail = (() => {
     let r = 0;
-    for (const l of pkg.races) r += (livePrices[l.ref] ?? l.price) * racers;
+    for (const l of pkg.races) r += (livePrices[l.ref] ?? (primaryTrack(l)?.price ?? 0)) * racers;
     if (pkg.includesLicense) r += LICENSE_PRICE * racers;
     if (pkg.includesPov) r += POV_CHECKIN_PRICE * racers;
     if (pkg.appetizerCode) r += APPETIZER_RETAIL_VALUE;

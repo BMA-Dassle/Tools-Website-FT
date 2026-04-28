@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { BmiProposal, BmiBlock, BmiProduct } from "../data";
 import { bmiPost } from "../data";
-import type { PackageDefinition, PackageRaceComponent } from "@/lib/packages";
+import type { PackageDefinition, PackageRaceComponent, PackageTrackOption } from "@/lib/packages";
 import {
   heatsConflict,
   HEAT_CONFLICT_TOOLTIP,
   violatesMinGapAfter,
   packageGapTooltip,
 } from "@/lib/heat-conflict";
+import TrackInfoBanner from "./TrackInfoBanner";
 
 /**
  * Multi-component heat picker for packages with more than one race
@@ -33,6 +34,11 @@ import {
 
 export interface PackagePick {
   component: PackageRaceComponent;
+  /** The specific track/product the customer picked at heat
+   *  selection time. For multi-track components (weekday / weekend
+   *  Ultimate Qualifier) this resolves which BMI productId to book
+   *  against — Red Starter vs. Blue Starter live on different SKUs. */
+  trackOption: PackageTrackOption;
   proposal: BmiProposal;
   block: BmiBlock;
 }
@@ -68,9 +74,12 @@ function spotsLabel(free: number, capacity: number): { text: string; label: stri
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-/** Tagged proposal — annotated with the component ref it belongs to
- *  so a single merged grid can route clicks to the right "slot". */
-type TaggedProposal = BmiProposal & { _componentRef: string };
+/** Tagged proposal — annotated with both the component ref it belongs
+ *  to (which "slot") and the track it was fetched for (which BMI
+ *  product it should book against). For single-track components the
+ *  `_track` is just the component's only track; for multi-track
+ *  components it varies per fetched proposal. */
+type TaggedProposal = BmiProposal & { _componentRef: string; _track: "Red" | "Blue" | "Mega" };
 
 /** Color tokens by tier so the badge on each card pops the way the
  *  Red/Blue/Mega track badges do on race-pack cards. */
@@ -79,6 +88,61 @@ const TIER_BADGE: Record<string, { bg: string; text: string }> = {
   intermediate: { bg: "bg-amber-500/20", text: "text-amber-300" },
   pro: { bg: "bg-purple-500/20", text: "text-purple-300" },
 };
+
+/** Track-color tokens — same palette as PackHeatPicker so the merged
+ *  Ultimate Qualifier grid feels visually consistent with mixed-track
+ *  3-pack picking. */
+const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
+  Red:  { bg: "bg-red-500/20",    text: "text-red-300" },
+  Blue: { bg: "bg-blue-500/20",   text: "text-blue-300" },
+  Mega: { bg: "bg-purple-500/20", text: "text-purple-300" },
+};
+
+/** Per-track theming for the WHOLE heat card — border + background
+ *  tint + selected-state ring. Lets the customer scan the grid and
+ *  immediately see which heats are Red vs. Blue without reading
+ *  every badge. Mega keeps a neutral white treatment since single-
+ *  track packages don't render a track badge anyway.
+ *
+ *  Disabled state intentionally DROPS the track tint and falls back
+ *  to a flat dark-grey treatment — earlier we kept a low-opacity
+ *  Red/Blue tint on locked cards and they blended visually with the
+ *  active Red/Blue ones, making it hard to tell at a glance which
+ *  heats were currently pickable. Neutral grey separates "available
+ *  for this step" from "locked" cleanly regardless of track. */
+const TRACK_CARD: Record<string, {
+  base: string;       // unselected, interactive
+  baseHover: string;
+  selected: string;   // currently picked
+}> = {
+  Red: {
+    base:      "border-red-500/60 bg-red-500/[0.14]",
+    baseHover: "hover:border-red-400 hover:bg-red-500/20",
+    selected:  "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
+  },
+  Blue: {
+    base:      "border-blue-500/60 bg-blue-500/[0.14]",
+    baseHover: "hover:border-blue-400 hover:bg-blue-500/20",
+    selected:  "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
+  },
+  Mega: {
+    base:      "border-white/10 bg-white/5",
+    baseHover: "hover:border-white/25 hover:bg-white/10",
+    selected:  "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50",
+  },
+};
+
+/** Shared "locked" treatment — neutral grey, no track hint. Applied
+ *  to any card that's currently uninteractive (other-step lock, gap-
+ *  rule violation, conflict, low capacity, lead-time cutoff). Pairs
+ *  with the per-track `base` palette: track tint = active for THIS
+ *  step, grey = locked or unavailable.
+ *
+ *  Tuned aggressively dark (very low opacity + nearly invisible
+ *  border) so locked cards recede well behind the active Red/Blue
+ *  ones — earlier the locked treatment was still readable enough
+ *  that customers had trouble distinguishing the two states. */
+const DISABLED_CARD = "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
@@ -128,12 +192,17 @@ function SelectedHeats({
       <div className="flex flex-wrap gap-2">
         {filled.map((c) => {
           const p = picks[c.ref]!;
+          // Only show the track suffix on the pill when the
+          // component spans multiple tracks (Red+Blue) — single-
+          // track components (Mega-only or junior Blue-only) skip
+          // the suffix to keep the pill compact.
+          const trackSuffix = c.tracks.length > 1 ? ` ${p.trackOption.track}` : "";
           return (
             <span
               key={c.ref}
               className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
             >
-              <span>🏎️ {c.label} · {formatTime(p.block.start)}</span>
+              <span>🏎️ {c.label}{trackSuffix} · {formatTime(p.block.start)}</span>
               <button
                 type="button"
                 aria-label={`Clear ${c.label} selection`}
@@ -185,6 +254,12 @@ function HeatGrid({
         const component = components.find((c) => c.ref === proposal._componentRef);
         if (!component) return null;
         const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
+        const trackBadge = TRACK_BADGE[proposal._track] ?? { bg: "bg-white/10", text: "text-white/70" };
+        // Multi-track components show the Red/Blue badge in addition
+        // to the tier badge so the customer can tell which track each
+        // heat is on at a glance. Single-track components (Mega-only
+        // or junior Blue-only) skip the badge — it would be redundant.
+        const showTrackBadge = component.tracks.length > 1;
 
         const myPick = picks[component.ref];
         const isSelected = !!(myPick && myPick.proposal === proposal);
@@ -212,16 +287,20 @@ function HeatGrid({
           : false;
 
         // Same/cross-track adjacency vs. EVERY pick from another
-        // component + the external bookedHeats list.
+        // component + the external bookedHeats list. Uses the
+        // proposal's own `_track` (not the component's primary
+        // track) — multi-track components have heats on both Red
+        // and Blue and the conflict math is per individual heat,
+        // not per component slot.
         const otherPicks = Object.entries(picks)
           .filter(([ref, p]) => ref !== component.ref && p != null)
           .map(([, p]) => p as PackagePick);
         const isConflict =
           bookedHeats.some((bh) =>
-            heatsConflict(parseLocal(bh.start).getTime(), bh.track, blockStart, component.track),
+            heatsConflict(parseLocal(bh.start).getTime(), bh.track, blockStart, proposal._track),
           ) ||
           otherPicks.some((p) =>
-            heatsConflict(parseLocal(p.block.start).getTime(), p.component.track, blockStart, component.track),
+            heatsConflict(parseLocal(p.block.start).getTime(), p.trackOption.track, blockStart, proposal._track),
           );
 
         const isLowCap = block.freeSpots < quantity;
@@ -264,6 +343,19 @@ function HeatGrid({
               ? HEAT_CONFLICT_TOOLTIP
               : undefined;
 
+        // Track-themed card colors — lets the customer scan Red vs.
+        // Blue at a glance instead of having to read every badge.
+        // Mega and unknown tracks fall back to the neutral palette.
+        // Disabled cards drop the track tint entirely (see comment
+        // on TRACK_CARD): grey = locked, track-tinted = active for
+        // the current step.
+        const trackTheme = TRACK_CARD[proposal._track] ?? TRACK_CARD.Mega;
+        const cardClass = isSelected
+          ? trackTheme.selected
+          : isFull
+            ? DISABLED_CARD
+            : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
+
         return (
           <button
             key={idx}
@@ -271,22 +363,23 @@ function HeatGrid({
             onClick={() => !isFull && onToggle(proposal, block)}
             disabled={isFull}
             title={cardTooltip}
-            className={`rounded-xl border p-3 text-left transition-all duration-150 ${
-              isSelected
-                ? "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50"
-                : isFull
-                  ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                  : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
-            }`}
+            className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
           >
-            {/* Tier badge — same role the Red/Blue track badge plays
-                on race-pack cards. Tells the customer at a glance
-                whether this heat is the Starter slot or Intermediate. */}
-            <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${tierBadge.bg} ${tierBadge.text}`}>
-              {component.tier}
+            {/* Tier + track badges. Tier tells the customer which
+                slot this heat fills (Starter vs. Intermediate); the
+                track badge (Red/Blue) only renders for multi-track
+                components so the customer can mix tracks freely. */}
+            <div className="flex items-center gap-1 flex-wrap mb-1.5">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}>
+                {component.tier}
+              </span>
+              {showTrackBadge && (
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}>
+                  {proposal._track}
+                </span>
+              )}
             </div>
-            <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
-            <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
+            <div className="text-white font-bold text-base mb-2">{formatTime(block.start)}</div>
             <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
             <div className={`text-[13px] font-medium ${statusClass}`}>
               {statusLabel}
@@ -339,20 +432,31 @@ export default function PackageHeatPicker({
     [],
   );
 
-  // Fetch heats for every component in parallel and merge into ONE
-  // tagged list. Each proposal carries `_componentRef` so the grid
-  // knows which "slot" a click goes to.
+  // Fetch heats for every component AND every track in parallel and
+  // merge into ONE tagged list. Each proposal carries `_componentRef`
+  // (which slot it fills) and `_track` (which BMI productId it should
+  // book against). Multi-track components fan out to two fetches —
+  // one per track — so the customer sees both Red and Blue heats in
+  // a single chronological grid.
   const fetchHeats = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const dateOnly = date.split("T")[0];
-      const fetches = components.map(async (c) => {
+      // Build one fetch task per (component, track). De-dup by
+      // (componentRef, track, start) so overlapping fetches don't
+      // double-count.
+      const fetchTasks: Array<{ component: PackageRaceComponent; track: PackageTrackOption }> = [];
+      for (const c of components) {
+        for (const t of c.tracks) fetchTasks.push({ component: c, track: t });
+      }
+      const seen = new Set<string>();
+      const fetches = fetchTasks.map(async ({ component, track }) => {
         const data = await bmiPost(
           "availability",
           {
-            ProductId: Number(c.productId),
-            PageId: Number(c.pageId),
+            ProductId: Number(track.productId),
+            PageId: Number(track.pageId),
             Quantity: 1,
             OrderId: null,
             PersonId: null,
@@ -361,12 +465,21 @@ export default function PackageHeatPicker({
           { date: dateOnly },
         );
         const props: BmiProposal[] = data?.proposals || [];
-        return props.map((p) => ({ ...p, _componentRef: c.ref } as TaggedProposal));
+        const out: TaggedProposal[] = [];
+        for (const p of props) {
+          const start = p.blocks?.[0]?.block?.start;
+          const key = start ? `${component.ref}|${track.track}|${start}` : "";
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            out.push({ ...p, _componentRef: component.ref, _track: track.track } as TaggedProposal);
+          }
+        }
+        return out;
       });
       const all = (await Promise.all(fetches)).flat();
       // Sort by start time so the grid reads top-to-bottom
-      // chronologically. Tiers are visually distinct via the
-      // badge so mixing them in one grid is clear.
+      // chronologically. Tier + track badges keep cards visually
+      // distinct in the merged grid.
       all.sort((a, b) => {
         const aS = a.blocks?.[0]?.block?.start || "";
         const bS = b.blocks?.[0]?.block?.start || "";
@@ -391,14 +504,24 @@ export default function PackageHeatPicker({
     }
   }, [allPicked]);
 
-  /** Set the pick for the heat's component. Does NOT auto-deselect
-   *  on second click — selected heats are locked in the grid (see
-   *  HeatGrid `isSelected` branch) and the canonical clear path is
-   *  the pill X above the grid (which also clears later picks). */
+  /** Set the pick for the heat's component. Resolves the chosen
+   *  track option from the component's `tracks` list — this is what
+   *  the booking call later uses to pick the right BMI productId
+   *  (Red Starter vs. Blue Starter live on different SKUs).
+   *
+   *  Does NOT auto-deselect on second click — selected heats are
+   *  locked in the grid (see HeatGrid `isSelected` branch) and the
+   *  canonical clear path is the pill X above the grid (which also
+   *  clears later picks). */
   function setHeat(proposal: TaggedProposal, block: BmiBlock) {
     const component = components.find((c) => c.ref === proposal._componentRef);
     if (!component) return;
-    setPicks((prev) => ({ ...prev, [component.ref]: { component, proposal, block } }));
+    const trackOption = component.tracks.find((t) => t.track === proposal._track);
+    if (!trackOption) return;
+    setPicks((prev) => ({
+      ...prev,
+      [component.ref]: { component, trackOption, proposal, block },
+    }));
   }
 
   /** Clear the pick for `ref` AND every later-sequence component.
@@ -465,6 +588,15 @@ export default function PackageHeatPicker({
         </div>
       )}
 
+      {/* Track context — shown only when the current step has both
+          Red and Blue available. Helps the customer understand the
+          color-coded heat cards below ("which one do I want?")
+          before they pick. Single-track components (Mega-only or
+          junior Blue-only) hide this since there's no choice. */}
+      {currentComponent && currentComponent.tracks.length > 1 && (
+        <TrackInfoBanner tracks={currentComponent.tracks.map((t) => t.track)} />
+      )}
+
       <SelectedHeats picks={picks} components={components} onClearFrom={clearPickAndLater} />
 
       {loading ? (
@@ -506,7 +638,11 @@ export default function PackageHeatPicker({
                 <div>
                   <p className="text-white/50 text-xs mb-1">All {totalComponents} heats selected</p>
                   <p className="text-white/70 text-sm">
-                    {components.map((c) => `${c.label} · ${formatTime(picks[c.ref]!.block.start)}`).join(" → ")}
+                    {components.map((c) => {
+                      const pick = picks[c.ref]!;
+                      const trackSuffix = c.tracks.length > 1 ? ` ${pick.trackOption.track}` : "";
+                      return `${c.label}${trackSuffix} · ${formatTime(pick.block.start)}`;
+                    }).join(" → ")}
                   </p>
                 </div>
                 <button

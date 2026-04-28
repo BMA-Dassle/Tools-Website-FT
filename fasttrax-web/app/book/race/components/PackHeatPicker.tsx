@@ -9,6 +9,7 @@ import type {
 import { bookRaceHeat } from "../data";
 import type { PackBookingResult } from "./OrderSummary";
 import { heatsConflict, HEAT_CONFLICT_TOOLTIP } from "@/lib/heat-conflict";
+import TrackInfoBanner from "./TrackInfoBanner";
 
 /**
  * Attach a policy memo to the pack bill so ops staff see it in BMI
@@ -76,6 +77,39 @@ const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
   Mega: { bg: "bg-purple-500/20",  text: "text-purple-300" },
 };
 
+/** Per-track theming for the WHOLE heat card — same scheme as
+ *  PackageHeatPicker. Mixed-track packs (weekday/weekend Intermediate
+ *  3-Pack spans Red + Blue) now color-code each card by its track so
+ *  the customer can scan the grid by color instead of reading every
+ *  badge. Mega packs fall back to the neutral cyan-accent palette. */
+const TRACK_CARD: Record<string, {
+  base: string;
+  baseHover: string;
+  selected: string;
+}> = {
+  Red: {
+    base:      "border-red-500/60 bg-red-500/[0.14]",
+    baseHover: "hover:border-red-400 hover:bg-red-500/20",
+    selected:  "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
+  },
+  Blue: {
+    base:      "border-blue-500/60 bg-blue-500/[0.14]",
+    baseHover: "hover:border-blue-400 hover:bg-blue-500/20",
+    selected:  "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
+  },
+  Mega: {
+    base:      "border-white/10 bg-white/5",
+    baseHover: "hover:border-white/25 hover:bg-white/10",
+    selected:  "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50",
+  },
+};
+
+/** Locked-card treatment — track-agnostic flat grey, very low
+ *  opacity, near-invisible border. Pairs with TRACK_CARD: track-tinted
+ *  = pickable, grey = at-cap / conflict / low-capacity. Same tuning
+ *  as PackageHeatPicker so the two pickers feel identical. */
+const DISABLED_CARD = "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
+
 function HeatGrid({
   proposals,
   selectedIdxs,
@@ -128,29 +162,32 @@ function HeatGrid({
             : spotsLabel(block.freeSpots, block.capacity);
         const badge = TRACK_BADGE[proposal._track] ?? { bg: "bg-white/10", text: "text-white/70" };
 
+        // Track-themed card colors — mixed-track packs render Red
+        // and Blue heats with the matching tint so the customer
+        // can scan the grid by color. Mega keeps the neutral cyan
+        // accent. Disabled cards drop the track tint entirely (see
+        // DISABLED_CARD): track-tinted = pickable, grey = locked.
+        const trackTheme = TRACK_CARD[proposal._track] ?? TRACK_CARD.Mega;
+        const cardClass = isSelected
+          ? trackTheme.selected
+          : isDisabled
+            ? DISABLED_CARD
+            : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
+
         return (
           <button
             key={idx}
             onClick={() => !isDisabled && onToggle(idx)}
             disabled={isDisabled}
             title={isBackToBack ? HEAT_CONFLICT_TOOLTIP : undefined}
-            className={`
-              rounded-xl border p-3 text-left transition-all duration-150
-              ${isSelected
-                ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-                : isDisabled
-                  ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                  : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
-              }
-            `}
+            className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
           >
             {showTrackBadge && (
               <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badge.bg} ${badge.text}`}>
                 {proposal._track}
               </div>
             )}
-            <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
-            <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
+            <div className="text-white font-bold text-base mb-2">{formatTime(block.start)}</div>
             <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
             <div className={`text-[13px] font-medium ${isLowCap ? "text-red-400" : spots.text}`}>
               {isLowCap ? `Need ${quantity}, only ${block.freeSpots} left` : spots.label}
@@ -417,6 +454,20 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       </div>
 
       <ProgressDots current={selectedIdxs.length} total={totalRaces} />
+
+      {/* Track guide — only on mixed-track packs (weekday/weekend
+          Intermediate 3-Pack spans Red + Blue). Mirrors the
+          Ultimate Qualifier picker's banner so the customer sees
+          the same color-coded context above both heat grids. */}
+      {isMixedTrack && (
+        <TrackInfoBanner
+          tracks={
+            (Object.keys(trackProducts ?? {}) as Array<"Red" | "Blue" | "Mega">)
+              .filter((t) => t === "Red" || t === "Blue" || t === "Mega")
+          }
+        />
+      )}
+
       <SelectedHeats schedules={previewSchedules} />
 
       {loading ? (

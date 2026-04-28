@@ -680,13 +680,22 @@ export default function BookRacePage() {
 
   /** Final commit path after a package is selected (post-disclaimer
    *  for packages that need one, or directly from
-   *  handleSelectPackage for those that don't). */
+   *  handleSelectPackage for those that don't).
+   *
+   *  Quantity is the racer count for the package's TARGET category only
+   *  — adult package books for adults, junior package books for juniors.
+   *  Mixed parties (adults + juniors) book each side as a separate
+   *  package round so license/POV add the right counts per side and
+   *  heats reserve the right number of seats. `category: "any"` packs
+   *  (Rookie Pack today) follow the active `bookingCategory`. */
   function commitPackageSelection(pkg: PackageDefinition) {
     trackBookingProduct(pkg.name, null, "starter");
     setSelectedProduct(null);
     setSelectedPackage(pkg);
-    const total = adults + juniors;
-    setQuantity(Math.max(1, total));
+    const targetCategory: RaceCategory =
+      pkg.category === "any" ? bookingCategory : (pkg.category as RaceCategory);
+    const racersForCategory = targetCategory === "junior" ? juniors : adults;
+    setQuantity(Math.max(1, racersForCategory));
     setTimeout(() => changeStep("heat"), 300);
   }
 
@@ -720,23 +729,52 @@ export default function BookRacePage() {
   async function handlePackageHeatsConfirm({ picks }: { picks: PackagePick[] }) {
     if (!selectedPackage) return;
 
+    // Determine the target category for THIS package round. For
+    // mixed adult+junior parties this is half the booking — after
+    // the heats are reserved we route the user back to the picker
+    // for the other category if it hasn't booked yet.
+    const targetCategory: RaceCategory =
+      selectedPackage.category === "any"
+        ? bookingCategory
+        : (selectedPackage.category as RaceCategory);
+
+    // Seed billId from any existing bill so a second package round
+    // (e.g. juniors after adults) lands its heats on the SAME order
+    // — staff sees one bill at the front desk and the customer pays
+    // once. Without this, the second round would create a second
+    // bill and the activeBills setter below would clobber the first.
+    let billId: string | undefined =
+      activeBills.length > 0
+        ? activeBills[0].billId
+        : (sessionStorage.getItem("attractionOrderId") || undefined);
+
     // Book each component sequentially on the same bill so BMI sees
     // them as one order. Mirrors the PackHeatPicker's same-bill
     // pattern (re-uses orderId after the first booking).
-    let billId: string | undefined;
     const newBookings: Booking[] = [];
     try {
       for (const pick of picks) {
         // Synthesize a ClassifiedProduct shape for bookRaceHeat —
-        // mirrors what PackageHeatPicker uses internally.
+        // mirrors what PackageHeatPicker uses internally. Reads from
+        // `pick.trackOption` (not `pick.component`) so multi-track
+        // components book against the correct BMI productId — Red
+        // Starter and Blue Starter live on different SKUs even
+        // though they share a single component slot in the package.
         const race: ClassifiedProduct = {
-          productId: pick.component.productId,
-          pageId: pick.component.pageId,
-          name: pick.component.label,
+          productId: pick.trackOption.productId,
+          pageId: pick.trackOption.pageId,
+          name: pick.component.tracks.length > 1
+            ? `${pick.component.label} ${pick.trackOption.track}`
+            : pick.component.label,
           tier: pick.component.tier,
-          category: "adult",
-          track: pick.component.track,
-          price: pick.component.price,
+          // Tag the booking with the package's target category so
+          // the cross-category continuation check below sees it
+          // correctly (was hardcoded "adult" — meant a junior
+          // package's bookings still looked like adult bookings and
+          // the picker never bounced back for the other category).
+          category: targetCategory,
+          track: pick.trackOption.track,
+          price: pick.trackOption.price,
           isCombo: false,
           packType: "none",
           raceCount: 1,
@@ -748,13 +786,13 @@ export default function BookRacePage() {
         if (!billId) billId = result.rawOrderId;
         // Pull the LIVE per-unit cash price from BMI's availability
         // proposal so the cart total matches what BMI actually
-        // charges. The registry's static `pick.component.price` is
-        // a fallback only — BMI's catalog can drift (e.g. Mega races
-        // priced at $19.99 in BMI vs $20.99 in our registry caused a
-        // $4-per-racer mismatch on Ultimate Qualifier).
+        // charges. The registry's static track price is a fallback
+        // only — BMI's catalog can drift (e.g. Mega races priced at
+        // $19.99 in BMI vs $20.99 in our registry caused a $4-per-
+        // racer mismatch on Ultimate Qualifier).
         const livePrice =
           pick.proposal.blocks?.[0]?.block?.prices?.find((p) => p.depositKind === 0)?.amount
-          ?? pick.component.price;
+          ?? pick.trackOption.price;
         newBookings.push({
           product: race,
           quantity,
@@ -773,10 +811,21 @@ export default function BookRacePage() {
     }
 
     if (billId) {
-      setActiveBills([{ billId, racerName: "Package", category: "adult" as const }]);
+      // Register the bill once. Don't clobber a prior round's bill —
+      // the second round (juniors after adults) re-enters this fn
+      // with the same billId already in activeBills, and resetting
+      // would lose the first round's racerName/category metadata.
+      setActiveBills((prev) =>
+        prev.some((b) => b.billId === billId)
+          ? prev
+          : [...prev, { billId: billId!, racerName: "Package", category: targetCategory }],
+      );
       sessionStorage.setItem("attractionOrderId", billId);
     }
-    setBookings(newBookings);
+    // APPEND, not replace — second package round (e.g. juniors after
+    // adults) needs to keep the prior round's bookings so the cart,
+    // review hero, and confirmation render the full party.
+    setBookings((prev) => [...prev, ...newBookings]);
 
     // ── Auto-add License + POV to the BMI bill ────────────────────
     //
@@ -864,9 +913,38 @@ export default function BookRacePage() {
       }
     }
 
-    // Skip the POV step when the package already bundles POV — for
-    // both Rookie Pack and Ultimate Qualifier this means jumping
-    // straight to add-ons.
+    // ── Cross-category continuation ───────────────────────────────
+    //
+    // Mixed adult + junior parties book each side as a separate
+    // round (the package's `category` gates eligibility). After
+    // booking THIS round, check whether the OTHER category still
+    // needs heats. If so, bounce the user back to the product
+    // picker scoped to that category — they can pick a junior
+    // package, a single junior race, or skip out via the back
+    // arrow. Mirrors the regular-race continuation at
+    // `bookHeatForRacers` so package + single-race flows behave
+    // the same when toggling between adult and junior sides.
+    const allBookings = [...bookings, ...newBookings];
+    const bookedCategories = new Set(allBookings.map((b) => b.product.category));
+    const needAdult = adults > 0 && !bookedCategories.has("adult");
+    const needJunior = juniors > 0 && !bookedCategories.has("junior");
+
+    if (needAdult || needJunior) {
+      const nextCategory: RaceCategory = needAdult ? "adult" : "junior";
+      setBookingCategory(nextCategory);
+      // Clear package + single-race state for the next round so the
+      // picker presents fresh options to the user.
+      setSelectedPackage(null);
+      setSelectedProduct(null);
+      // Resize the racer count to whichever category is up next so
+      // any package they pick on this round books for that side.
+      setQuantity(Math.max(1, nextCategory === "junior" ? juniors : adults));
+      changeStep("product");
+      return;
+    }
+
+    // All categories booked — skip POV when the package already
+    // bundles it, otherwise drop into the standard POV upsell.
     if (selectedPackage.includesPov) {
       changeStep("addons");
     } else {

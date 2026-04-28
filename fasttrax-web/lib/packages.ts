@@ -43,12 +43,28 @@ export type PackageId =
   | "rookie-pack-weekday"
   | "rookie-pack-weekend"
   | "ultimate-qualifier-mega"
-  | "ultimate-qualifier-weekday-red"
-  | "ultimate-qualifier-weekday-blue"
-  | "ultimate-qualifier-weekend-red"
-  | "ultimate-qualifier-weekend-blue"
+  | "ultimate-qualifier-weekday"
+  | "ultimate-qualifier-weekday-junior"
+  | "ultimate-qualifier-weekend"
+  | "ultimate-qualifier-weekend-junior"
   | "rookie-pack"; // legacy alias kept for confirmation-page back-compat
 export type Schedule = "weekday" | "weekend" | "mega";
+
+/** Per-track product configuration — used inside `PackageRaceComponent.tracks`
+ *  for components that span multiple tracks (e.g. weekday Ultimate
+ *  Qualifier Starter spans Red + Blue). The heat picker fetches each
+ *  track's productId, tags every proposal with its track, and lets the
+ *  customer pick any combination at heat-selection time. */
+export interface PackageTrackOption {
+  track: "Red" | "Blue" | "Mega";
+  productId: string;
+  pageId: string;
+  /** Per-unit price fallback for this track. The picker / cart pull
+   *  the authoritative live price from BMI's `/availability` endpoint
+   *  at render time — this is just the seed used before that fetch
+   *  resolves and the cold-start fallback when BMI is unreachable. */
+  price: number;
+}
 
 export interface PackageRaceComponent {
   /** 1-indexed sequence — drives the order in PackageHeatPicker. */
@@ -57,24 +73,33 @@ export interface PackageRaceComponent {
    *  "intermediate"). Used by `minMinutesAfterEndOf` and the heat
    *  picker's "what's the previous heat I picked" lookup. */
   ref: string;
-  /** BMI productId. */
-  productId: string;
-  /** BMI pageId the product is sold from. */
-  pageId: string;
-  /** Display label (cart, review, hero card). */
+  /** Display label (cart, review, hero card). For multi-track
+   *  components the customer-facing label should be track-agnostic
+   *  (e.g. "Starter Race") so the heat picker's track badge carries
+   *  the track distinction. */
   label: string;
   tier: "starter" | "intermediate" | "pro";
-  track: "Red" | "Blue" | "Mega";
-  /** Per-unit price USED ONLY AS FALLBACK when the live BMI price
-   *  fetch (in the picker / cart) hasn't returned yet or fails.
-   *  The picker pulls the authoritative price from BMI's
-   *  /availability endpoint at render time so the registry never
-   *  drifts from BMI's catalog. */
-  price: number;
+  /** Tracks this component spans. ONE entry → single-track component
+   *  (e.g. Mega-only or junior Blue-only). MULTIPLE entries → the
+   *  heat picker shows all tracks merged in one grid with track
+   *  badges, mirroring the race-pack mixed-track UX. The customer
+   *  picks any heat from any track for this component (the gap rule
+   *  for downstream components anchors on whichever track they
+   *  picked). */
+  tracks: PackageTrackOption[];
   /** Heat-gap rule against an earlier component's STOP time.
    *  e.g. `{ ref: "starter", minutes: 60 }` means "this heat must
    *  start ≥ 60 min after the starter heat ends". */
   minMinutesAfterEndOf?: { ref: string; minutes: number };
+}
+
+/** First track entry on a component — convenience for callers that
+ *  only need the default product (cart preview, registry helpers).
+ *  When the component has multiple tracks the LIVE pick at heat-
+ *  selection time takes precedence — this is just the seed used
+ *  before any pick exists. */
+export function primaryTrack(component: PackageRaceComponent): PackageTrackOption {
+  return component.tracks[0];
 }
 
 export interface PackageDefinition {
@@ -196,12 +221,11 @@ const PACKAGES: PackageDefinition[] = [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24965505",
-        pageId: "24966930",
         label: "Starter Race Mega",
         tier: "starter",
-        track: "Mega",
-        price: 20.99,
+        tracks: [
+          { track: "Mega", productId: "24965505", pageId: "24966930", price: 20.99 },
+        ],
       },
     ],
     includesLicense: true,
@@ -211,13 +235,13 @@ const PACKAGES: PackageDefinition[] = [
     displayOrder: 20,
   },
   // ── Rookie Pack — Weekday (Mon/Wed/Thu) ───────────────────────────────────
-  // Defaults to Blue Track. Customers wanting Red Rookie Pack can pick
-  // a regular Red starter and add the bundle at the POV step (existing
-  // PovUpsell upgrade path still works there).
+  // Spans BOTH tracks — the heat picker shows Red and Blue heats in
+  // one merged grid with track badges so the customer can pick
+  // whichever track fits their group on the day.
   {
     id: "rookie-pack-weekday",
     name: "Rookie Pack",
-    shortDescription: "Starter Race Blue + License + POV + free appetizer",
+    shortDescription: "Starter Race + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -227,12 +251,12 @@ const PACKAGES: PackageDefinition[] = [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24960393",
-        pageId: "24961568",
-        label: "Starter Race Blue",
+        label: "Starter Race",
         tier: "starter",
-        track: "Blue",
-        price: 20.99,
+        tracks: [
+          { track: "Red",  productId: "24960859", pageId: "24961568", price: 20.99 },
+          { track: "Blue", productId: "24960393", pageId: "24961568", price: 20.99 },
+        ],
       },
     ],
     includesLicense: true,
@@ -245,7 +269,7 @@ const PACKAGES: PackageDefinition[] = [
   {
     id: "rookie-pack-weekend",
     name: "Rookie Pack",
-    shortDescription: "Starter Race Blue + License + POV + free appetizer",
+    shortDescription: "Starter Race + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -255,12 +279,12 @@ const PACKAGES: PackageDefinition[] = [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24952964",
-        pageId: "24871574",
-        label: "Starter Race Blue",
+        label: "Starter Race",
         tier: "starter",
-        track: "Blue",
-        price: 26.99,
+        tracks: [
+          { track: "Red",  productId: "24953280", pageId: "24871574", price: 26.99 },
+          { track: "Blue", productId: "24952964", pageId: "24871574", price: 26.99 },
+        ],
       },
     ],
     includesLicense: true,
@@ -325,22 +349,23 @@ const PACKAGES: PackageDefinition[] = [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24965505", // existing Starter Race Mega (new-racer)
-        pageId: "24966930",
         label: "Starter Race Mega",
         tier: "starter",
-        track: "Mega",
-        price: 20.99,
+        tracks: [
+          // Existing Starter Race Mega (new-racer).
+          { track: "Mega", productId: "24965505", pageId: "24966930", price: 20.99 },
+        ],
       },
       {
         sequence: 2,
         ref: "intermediate",
-        productId: "45810775", // NEW — Ultimate-Qualifier-only Intermediate Mega
-        pageId: "25850647",     // verify before launch (see comment above)
         label: "Intermediate Race Mega",
         tier: "intermediate",
-        track: "Mega",
-        price: 20.99,
+        tracks: [
+          // NEW — Ultimate-Qualifier-only Intermediate Mega. Verify
+          // pageId before launch — see the comment above.
+          { track: "Mega", productId: "45810775", pageId: "25850647", price: 20.99 },
+        ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
       },
     ],
@@ -354,17 +379,23 @@ const PACKAGES: PackageDefinition[] = [
     disclaimers: UQ_DISCLAIMERS,
   },
 
-  // ── Ultimate Qualifier — Weekday Red ──────────────────────────────────────
-  // New BMI Intermediate Red SKU (45810802) is a package-only product
-  // — distinct from the standalone Intermediate Race Red 24960650 in
-  // RACE_PRODUCTS so it doesn't clutter the regular intermediate
-  // picker. pageId guess: weekday Intermediate page (25850629). Verify
-  // before launch — see the Mega variant comment for the probe pattern.
+  // ── Ultimate Qualifier — Weekday (Adult, Red + Blue) ──────────────────────
+  // ONE entry that spans both tracks. Heat picker fetches Red AND
+  // Blue heats for each component (Starter, Intermediate) and shows
+  // them in a single merged grid with track badges, mirroring the
+  // race-pack mixed-track UX. The customer can mix tracks too — pick
+  // a Red Starter and a Blue Intermediate if that's what fits time-
+  // wise (gap rule still anchors on whichever Starter STOP they
+  // landed on). New BMI Intermediate SKUs 45810802 (Red) and 45811366
+  // (Blue) are package-only — distinct from the standalone Intermediate
+  // products in RACE_PRODUCTS so they don't clutter the regular picker.
+  // pageId guess: weekday Intermediate page (25850629). Verify before
+  // launch — see the Mega-variant comment for the probe pattern.
   {
-    id: "ultimate-qualifier-weekday-red",
+    id: "ultimate-qualifier-weekday",
     name: "Ultimate Qualifier",
     shortDescription:
-      "Starter Red + Intermediate Red + License + POV + free appetizer",
+      "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -374,89 +405,94 @@ const PACKAGES: PackageDefinition[] = [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24960859", // existing Starter Race Red (weekday, new-racer)
-        pageId: "24961568",
-        label: "Starter Race Red",
+        label: "Starter Race",
         tier: "starter",
-        track: "Red",
-        price: 20.99,
+        tracks: [
+          { track: "Red",  productId: "24960859", pageId: "24961568", price: 20.99 },
+          { track: "Blue", productId: "24960393", pageId: "24961568", price: 20.99 },
+        ],
       },
       {
         sequence: 2,
         ref: "intermediate",
-        productId: "45810802", // NEW — Ultimate-Qualifier-only Intermediate Red (weekday)
-        pageId: "25850629",
-        label: "Intermediate Race Red",
+        label: "Intermediate Race",
         tier: "intermediate",
-        track: "Red",
-        price: 20.99,
+        tracks: [
+          { track: "Red",  productId: "45810802", pageId: "25850629", price: 20.99 },
+          { track: "Blue", productId: "45811366", pageId: "25850629", price: 20.99 },
+        ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
       },
     ],
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
-    cartLineKey: "ultimate-qualifier-weekday-red",
+    cartLineKey: "ultimate-qualifier-weekday",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
   },
 
-  // ── Ultimate Qualifier — Weekday Blue ─────────────────────────────────────
-  // Same shape as the Red variant but on Blue Track. New BMI
-  // Intermediate Blue SKU 45811366 again package-only.
+  // ── Ultimate Qualifier — Weekday Junior (Blue) ────────────────────────────
+  // Juniors race Blue Track only on weekdays — one variant per schedule, no
+  // Red counterpart. Pulls the existing Junior Starter Race Blue (24960106)
+  // on page 24961568, paired with the new package-only Junior Intermediate
+  // SKU 45811531 on the existing weekday Intermediate page (25850629). Verify
+  // the pageId before launch — see the Mega-variant comment for the probe
+  // pattern. Junior weekday Starter is $15.99 (vs. $20.99 adult); standalone
+  // Junior Intermediate weekday is $20.99 — used as the registry fallback
+  // when the live BMI fetch hasn't resolved yet.
   {
-    id: "ultimate-qualifier-weekday-blue",
+    id: "ultimate-qualifier-weekday-junior",
     name: "Ultimate Qualifier",
     shortDescription:
-      "Starter Blue + Intermediate Blue + License + POV + free appetizer",
+      "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
     schedules: ["weekday"],
-    category: "adult",
+    category: "junior",
     races: [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24960393", // existing Starter Race Blue (weekday, new-racer)
-        pageId: "24961568",
-        label: "Starter Race Blue",
+        label: "Junior Starter Race Blue",
         tier: "starter",
-        track: "Blue",
-        price: 20.99,
+        tracks: [
+          // Existing Junior Starter Race Blue (weekday).
+          { track: "Blue", productId: "24960106", pageId: "24961568", price: 15.99 },
+        ],
       },
       {
         sequence: 2,
         ref: "intermediate",
-        productId: "45811366", // NEW — Ultimate-Qualifier-only Intermediate Blue (weekday)
-        pageId: "25850629",
-        label: "Intermediate Race Blue",
+        label: "Junior Intermediate Race Blue",
         tier: "intermediate",
-        track: "Blue",
-        price: 20.99,
+        tracks: [
+          // NEW — Ultimate-Qualifier-only Junior Intermediate Blue (weekday).
+          { track: "Blue", productId: "45811531", pageId: "25850629", price: 20.99 },
+        ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
       },
     ],
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
-    cartLineKey: "ultimate-qualifier-weekday-blue",
+    cartLineKey: "ultimate-qualifier-weekday-junior",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
   },
 
-  // ── Ultimate Qualifier — Weekend Red ──────────────────────────────────────
-  // Weekend Starter pricing is $26.99 (vs. $20.99 weekday). Pulls
-  // the existing weekend Starter Red product (24953280) on page
-  // 24871574, paired with the new package-only Intermediate Red
-  // weekend SKU 45811390 on the existing weekend Intermediate
-  // page 25850598. pageId verification probe before launch — see
-  // the Mega-variant comment for the curl pattern.
+  // ── Ultimate Qualifier — Weekend (Adult, Red + Blue) ──────────────────────
+  // Weekend Starter / Intermediate pricing is $26.99 (vs. $20.99 weekday).
+  // Heat picker spans both tracks in one merged grid — same UX as the
+  // weekday variant above. New package-only weekend Intermediate SKUs:
+  // 45811390 (Red) and 45811415 (Blue). pageId guess: weekend
+  // Intermediate page (25850598). Verify before launch.
   {
-    id: "ultimate-qualifier-weekend-red",
+    id: "ultimate-qualifier-weekend",
     name: "Ultimate Qualifier",
     shortDescription:
-      "Starter Red + Intermediate Red + License + POV + free appetizer",
+      "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -466,71 +502,77 @@ const PACKAGES: PackageDefinition[] = [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24953280", // existing Starter Race Red (weekend, new-racer)
-        pageId: "24871574",
-        label: "Starter Race Red",
+        label: "Starter Race",
         tier: "starter",
-        track: "Red",
-        price: 26.99,
+        tracks: [
+          { track: "Red",  productId: "24953280", pageId: "24871574", price: 26.99 },
+          { track: "Blue", productId: "24952964", pageId: "24871574", price: 26.99 },
+        ],
       },
       {
         sequence: 2,
         ref: "intermediate",
-        productId: "45811390", // NEW — Ultimate-Qualifier-only Intermediate Red (weekend)
-        pageId: "25850598",
-        label: "Intermediate Race Red",
+        label: "Intermediate Race",
         tier: "intermediate",
-        track: "Red",
-        price: 26.99,
+        tracks: [
+          { track: "Red",  productId: "45811390", pageId: "25850598", price: 26.99 },
+          { track: "Blue", productId: "45811415", pageId: "25850598", price: 26.99 },
+        ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
       },
     ],
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
-    cartLineKey: "ultimate-qualifier-weekend-red",
+    cartLineKey: "ultimate-qualifier-weekend",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
   },
 
-  // ── Ultimate Qualifier — Weekend Blue ─────────────────────────────────────
+  // ── Ultimate Qualifier — Weekend Junior (Blue) ────────────────────────────
+  // Weekend junior counterpart to the weekday-junior variant above. Junior
+  // Starter Blue weekend is $19.99 (vs. $26.99 adult). Standalone Junior
+  // Intermediate Blue weekend is $20.99 — registry fallback only; the picker
+  // pulls live BMI prices at render time. New package-only Junior
+  // Intermediate weekend SKU 45811475 lives on the existing weekend
+  // Intermediate page (25850598) — verify before launch.
   {
-    id: "ultimate-qualifier-weekend-blue",
+    id: "ultimate-qualifier-weekend-junior",
     name: "Ultimate Qualifier",
     shortDescription:
-      "Starter Blue + Intermediate Blue + License + POV + free appetizer",
+      "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
     schedules: ["weekend"],
-    category: "adult",
+    category: "junior",
     races: [
       {
         sequence: 1,
         ref: "starter",
-        productId: "24952964", // existing Starter Race Blue (weekend, new-racer)
-        pageId: "24871574",
-        label: "Starter Race Blue",
+        label: "Junior Starter Race Blue",
         tier: "starter",
-        track: "Blue",
-        price: 26.99,
+        tracks: [
+          // Existing Junior Starter Race Blue (weekend).
+          { track: "Blue", productId: "24953399", pageId: "24871574", price: 19.99 },
+        ],
       },
       {
         sequence: 2,
         ref: "intermediate",
-        productId: "45811415", // NEW — Ultimate-Qualifier-only Intermediate Blue (weekend)
-        pageId: "25850598",
-        label: "Intermediate Race Blue",
+        label: "Junior Intermediate Race Blue",
         tier: "intermediate",
-        track: "Blue",
-        price: 26.99,
+        tracks: [
+          // NEW — Ultimate-Qualifier-only Junior Intermediate Blue (weekend).
+          { track: "Blue", productId: "45811475", pageId: "25850598", price: 20.99 },
+        ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
       },
     ],
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
-    cartLineKey: "ultimate-qualifier-weekend-blue",
+    cartLineKey: "ultimate-qualifier-weekend-junior",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
   },
@@ -578,14 +620,19 @@ export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
 
 /** Per-racer total for a package. When the package didn't pin an
  *  explicit `price`, sums:
- *   - each race component's `price`
+ *   - each race component's primary-track price
  *   - $4.99 license if `includesLicense`
  *   - $5 POV per racer if `includesPov`
  *  Appetizer code is treated as $0 (free promo).
+ *
+ *  For multi-track components the primary track's price is used as
+ *  the seed — Red and Blue currently price identically per schedule
+ *  so the customer-visible total stays correct regardless of which
+ *  track they pick at heat-selection time.
  */
 export function packagePerRacerPrice(pkg: PackageDefinition): number {
   if (typeof pkg.price === "number") return pkg.price;
-  let sum = pkg.races.reduce((acc, r) => acc + (r.price || 0), 0);
+  let sum = pkg.races.reduce((acc, r) => acc + (primaryTrack(r)?.price || 0), 0);
   if (pkg.includesLicense) sum += LICENSE_PRICE;
   if (pkg.includesPov) sum += POV_PRICE;
   return sum;
@@ -604,7 +651,7 @@ export function packageBundleTotal(pkg: PackageDefinition, racerCount: number): 
  *  Compared against `packageBundleTotal` to compute savings. */
 export function packageRetailTotal(pkg: PackageDefinition, racerCount: number): number {
   const racers = Math.max(1, racerCount);
-  let total = pkg.races.reduce((acc, r) => acc + r.price, 0) * racers;
+  let total = pkg.races.reduce((acc, r) => acc + (primaryTrack(r)?.price || 0), 0) * racers;
   if (pkg.includesLicense) total += LICENSE_PRICE * racers;
   // POV at retail check-in price — $2 more per racer than online.
   if (pkg.includesPov) total += POV_CHECKIN_PRICE * racers;
