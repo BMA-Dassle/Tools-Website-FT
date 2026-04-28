@@ -41,7 +41,9 @@ export const APPETIZER_RETAIL_VALUE = 15;
 export type PackageId =
   | "rookie-pack-mega"
   | "rookie-pack-weekday"
+  | "rookie-pack-weekday-junior"
   | "rookie-pack-weekend"
+  | "rookie-pack-weekend-junior"
   | "ultimate-qualifier-mega"
   | "ultimate-qualifier-weekday"
   | "ultimate-qualifier-weekday-junior"
@@ -216,7 +218,12 @@ const PACKAGES: PackageDefinition[] = [
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
     schedules: ["mega"],
-    category: "any",
+    // Adult-only — there's no Junior Starter Race Mega product in
+    // BMI's catalog (juniors at Mega are existing-racer-only via
+    // Junior Intermediate/Pro Mega). Was previously `category: "any"`
+    // which let juniors pick this pack and silently book under the
+    // adult Mega Starter SKU.
+    category: "adult",
     races: [
       {
         sequence: 1,
@@ -234,10 +241,13 @@ const PACKAGES: PackageDefinition[] = [
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
-  // ── Rookie Pack — Weekday (Mon/Wed/Thu) ───────────────────────────────────
-  // Spans BOTH tracks — the heat picker shows Red and Blue heats in
-  // one merged grid with track badges so the customer can pick
-  // whichever track fits their group on the day.
+  // ── Rookie Pack — Weekday Adult (Mon/Wed/Thu) ─────────────────────────────
+  // Adult variant only — spans BOTH tracks (Red + Blue), heat picker
+  // shows them merged with track badges. The matching junior variant
+  // is below. Was previously `category: "any"` with adult-only product
+  // ids — meaning juniors who picked this pack got silently booked
+  // under the adult Starter SKU (wrong kart category at the front
+  // desk).
   {
     id: "rookie-pack-weekday",
     name: "Rookie Pack",
@@ -246,7 +256,7 @@ const PACKAGES: PackageDefinition[] = [
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
     schedules: ["weekday"],
-    category: "any",
+    category: "adult",
     races: [
       {
         sequence: 1,
@@ -265,7 +275,43 @@ const PACKAGES: PackageDefinition[] = [
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
-  // ── Rookie Pack — Weekend (Fri/Sat/Sun) ───────────────────────────────────
+  // ── Rookie Pack — Weekday Junior (Mon/Wed/Thu) ────────────────────────────
+  // Junior counterpart to the adult variant above. BMI only has a
+  // Junior Starter Race BLUE product (no Red junior starter exists),
+  // so the heat picker renders Blue-only. Junior weekday Starter is
+  // $15.99 (vs. $20.99 adult).
+  {
+    id: "rookie-pack-weekday-junior",
+    name: "Rookie Pack",
+    shortDescription: "Junior Starter Blue + License + POV + free appetizer",
+    longDescription: ROOKIE_LONG,
+    enabled: ROOKIE_PACK_ENABLED,
+    racerType: "new",
+    schedules: ["weekday"],
+    category: "junior",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        label: "Junior Starter Race Blue",
+        tier: "starter",
+        tracks: [
+          // Existing Junior Starter Race Blue (weekday).
+          { track: "Blue", productId: "24960106", pageId: "24961568", price: 15.99 },
+        ],
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "rookie-pack-weekday-junior",
+    displayOrder: 20,
+  },
+  // ── Rookie Pack — Weekend Adult (Fri/Sat/Sun) ─────────────────────────────
+  // Adult variant — Red + Blue. Junior counterpart below. Same split
+  // rationale as the weekday entries: was `category: "any"` with
+  // adult-only product ids and silently booked juniors under adult
+  // SKUs.
   {
     id: "rookie-pack-weekend",
     name: "Rookie Pack",
@@ -274,7 +320,7 @@ const PACKAGES: PackageDefinition[] = [
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
     schedules: ["weekend"],
-    category: "any",
+    category: "adult",
     races: [
       {
         sequence: 1,
@@ -291,6 +337,36 @@ const PACKAGES: PackageDefinition[] = [
     includesPov: true,
     appetizerCode: "RACEAPP",
     cartLineKey: "rookie-pack",
+    displayOrder: 20,
+  },
+  // ── Rookie Pack — Weekend Junior (Fri/Sat/Sun) ────────────────────────────
+  // Junior counterpart — Blue Track only (no Red junior product).
+  // Junior weekend Starter is $19.99.
+  {
+    id: "rookie-pack-weekend-junior",
+    name: "Rookie Pack",
+    shortDescription: "Junior Starter Blue + License + POV + free appetizer",
+    longDescription: ROOKIE_LONG,
+    enabled: ROOKIE_PACK_ENABLED,
+    racerType: "new",
+    schedules: ["weekend"],
+    category: "junior",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        label: "Junior Starter Race Blue",
+        tier: "starter",
+        tracks: [
+          // Existing Junior Starter Race Blue (weekend).
+          { track: "Blue", productId: "24953399", pageId: "24871574", price: 19.99 },
+        ],
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "rookie-pack-weekend-junior",
     displayOrder: 20,
   },
   // ── Legacy alias — `rookie-pack` ──────────────────────────────────────────
