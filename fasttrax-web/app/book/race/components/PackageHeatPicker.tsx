@@ -159,6 +159,17 @@ function HeatGrid({
         // Lead-time cutoff
         const tooSoon = cutoff > 0 && blockStart < cutoff;
 
+        // Sequencing — components must be picked in `sequence`
+        // order (Starter before Intermediate for Ultimate Qualifier).
+        // Any earlier-sequence slot left empty blocks heats in this
+        // component until that prior pick lands. The message points
+        // at the FIRST missing prior component so the customer
+        // knows where to start.
+        const priorMissing = components
+          .filter((c) => c.sequence < component.sequence && !picks[c.ref])
+          .sort((a, b) => a.sequence - b.sequence)[0];
+        const isPriorMissing = !!priorMissing;
+
         // Package gap rule against the referenced component's pick.
         const gapRule = component.minMinutesAfterEndOf;
         const refPick = gapRule ? picks[gapRule.ref] : null;
@@ -183,29 +194,33 @@ function HeatGrid({
           );
 
         const isLowCap = block.freeSpots < quantity;
-        const isFull = !isSelected && (isLowCap || isConflict || isGapViolation || tooSoon);
+        const isFull = !isSelected && (isPriorMissing || isLowCap || isConflict || isGapViolation || tooSoon);
 
-        const statusLabel = isGapViolation && gapAnchor
-          ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
-          : isConflict
-            ? "Too close to picked heat"
-            : tooSoon
-              ? "Too soon — needs lead time"
-              : isLowCap
-                ? `Need ${quantity}, only ${block.freeSpots} left`
-                : spotsLabel(block.freeSpots, block.capacity).label;
+        const statusLabel = isPriorMissing
+          ? `Pick your ${priorMissing.label} first`
+          : isGapViolation && gapAnchor
+            ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+            : isConflict
+              ? "Too close to picked heat"
+              : tooSoon
+                ? "Too soon — needs lead time"
+                : isLowCap
+                  ? `Need ${quantity}, only ${block.freeSpots} left`
+                  : spotsLabel(block.freeSpots, block.capacity).label;
 
-        const statusClass = isGapViolation || isConflict || tooSoon
+        const statusClass = isPriorMissing || isGapViolation || isConflict || tooSoon
           ? "text-amber-400"
           : isLowCap
             ? "text-red-400"
             : spotsLabel(block.freeSpots, block.capacity).text;
 
-        const cardTooltip = isGapViolation && gapAnchor
-          ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
-          : isConflict
-            ? HEAT_CONFLICT_TOOLTIP
-            : undefined;
+        const cardTooltip = isPriorMissing
+          ? `Locked until you pick your ${priorMissing.label}.`
+          : isGapViolation && gapAnchor
+            ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
+            : isConflict
+              ? HEAT_CONFLICT_TOOLTIP
+              : undefined;
 
         return (
           <button
@@ -236,8 +251,8 @@ function HeatGrid({
             </div>
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
               <div
-                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
-                style={{ width: (isConflict || isGapViolation) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
+                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation || isPriorMissing) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                style={{ width: (isConflict || isGapViolation || isPriorMissing) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
               />
             </div>
           </button>
@@ -369,6 +384,33 @@ export default function PackageHeatPicker({
       </div>
 
       <ProgressDots current={pickedCount} total={totalComponents} />
+
+      {/* Current-step status banner — names the component the user
+          should pick NEXT (or confirms when all are picked). Pairs
+          with the per-card "Pick your {prior} first" lock so the
+          customer always knows which slot they're filling. */}
+      {(() => {
+        const nextComponent = components
+          .filter((c) => !picks[c.ref])
+          .sort((a, b) => a.sequence - b.sequence)[0];
+        if (nextComponent) {
+          return (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-center">
+              <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
+                Step {nextComponent.sequence} of {totalComponents} · Pick your {nextComponent.label}
+              </p>
+            </div>
+          );
+        }
+        return (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2 text-center">
+            <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest">
+              All heats selected — review and confirm below
+            </p>
+          </div>
+        );
+      })()}
+
       <SelectedHeats picks={picks} components={components} />
 
       {loading ? (
