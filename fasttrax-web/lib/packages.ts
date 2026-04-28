@@ -31,7 +31,10 @@ export const POV_PRICE = 5;
 // carries a real menu value at Nemo's. Used by the picker card +
 // review hero card to show "you save $X".
 export const POV_CHECKIN_PRICE = 7;
-export const APPETIZER_RETAIL_VALUE = 10;
+// $15 menu retail at Nemo's — counts toward the package savings
+// line so customers see the full bundle value vs. piecing the
+// gear together at the counter + ordering an app separately.
+export const APPETIZER_RETAIL_VALUE = 15;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -167,7 +170,10 @@ const PACKAGES: PackageDefinition[] = [
     longDescription:
       "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (one per group, dine-in only). This ultimate pack also includes your license.",
     enabled: ULTIMATE_QUALIFIER_ENABLED,
-    racerType: "any",
+    // First-time racers only. A returning racer who's already
+    // qualified Intermediate doesn't need the qualifier-+-buffer
+    // bundle; they book Intermediate directly.
+    racerType: "new",
     schedules: ["mega"],
     category: "adult",
     races: [
