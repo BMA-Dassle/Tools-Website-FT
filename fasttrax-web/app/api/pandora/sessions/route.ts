@@ -1,21 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
+import redis from "@/lib/redis";
 
 /**
  * Proxy for Pandora's sessions-list endpoint.
  *
  *   GET /api/pandora/sessions?locationId=LAB52GY480CJF&startDate=...&endDate=...&resourceName=Blue%20Track
+ *       &prefer=cache  — Redis-first, fall through to live Pandora on miss
+ *                         (camera-assign auto-poll uses this for instant render)
+ *       &fresh=1       — bypass cache entirely, force live Pandora call
+ *                         (camera-assign refresh button)
  *
  * Upstream: GET /bmi/sessions/{locationID}?startDate&endDate&resourceName
  *
  * Response: { success, data: [{ sessionId, name, scheduledStart, type, heatNumber }] }
  *
- * Server-side 60s in-memory cache per (location, resourceName, window) so
- * the pre-race cron doesn't thrash Pandora when running every few minutes.
+ * ── Caching ─────────────────────────────────────────────────────────────────
+ * Two layers, mirroring the participants proxy:
+ *
+ * 1. Per-instance in-memory cache (60s) — protects against burst
+ *    polling from the same Vercel function instance.
+ * 2. Redis write-through on every successful Pandora fetch (30-min
+ *    TTL) — survives function cold starts and instance churn, and
+ *    serves the failure-fallback when Pandora is degraded.
+ *
+ * The pre-race-tickets cron (every 2 min) already calls this
+ * endpoint to enumerate upcoming heats, so during operating hours
+ * the Redis cache stays continuously warm. Camera-assign reads
+ * cache-first via `prefer=cache` for instant render even when
+ * Pandora is hung.
+ *
+ * Hard 12s abort timeout on the upstream fetch — without it,
+ * browsers hung on Pandora's BMI bridge during outages and the
+ * camera-assign page wouldn't render at all.
  */
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const CACHE_TTL_MS = 60_000;
+const MEMORY_CACHE_TTL_MS = 60_000;
+const REDIS_CACHE_TTL_SECONDS = 30 * 60; // 30 min — sessions for today rarely change post-publish
 
 const ALLOWED_LOCATIONS = new Set([
   "LAB52GY480CJF", // FastTrax
@@ -37,7 +59,11 @@ export interface PandoraSession {
   heatNumber: number;
 }
 
-const cache: Map<string, { data: PandoraSession[]; expiry: number }> = new Map();
+const memoryCache: Map<string, { data: PandoraSession[]; expiry: number }> = new Map();
+
+function cacheKey(locationId: string, resourceName: string, startDate: string, endDate: string): string {
+  return `pandora:sessions:${locationId}:${resourceName}:${startDate}:${endDate}`;
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -45,6 +71,8 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
   const resourceName = searchParams.get("resourceName");
+  const preferCache = searchParams.get("prefer") === "cache";
+  const forceFresh = searchParams.get("fresh") === "1";
 
   if (!locationId || !ALLOWED_LOCATIONS.has(locationId)) {
     return NextResponse.json({ error: "Invalid locationId" }, { status: 400 });
@@ -53,51 +81,72 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "startDate and endDate required" }, { status: 400 });
   }
   if (!resourceName || !ALLOWED_RESOURCES.has(resourceName)) {
-    return NextResponse.json({ error: "Invalid resourceName (Blue Track / Red Track / Mega)" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid resourceName (Blue Track / Red Track / Mega Track)" }, { status: 400 });
   }
 
-  const cacheKey = `${locationId}|${resourceName}|${startDate}|${endDate}`;
-  const hit = cache.get(cacheKey);
-  if (hit && Date.now() < hit.expiry) {
-    return NextResponse.json(
-      { data: hit.data },
-      { headers: { "X-Cache": "HIT", "Cache-Control": "no-store" } },
-    );
+  const memKey = cacheKey(locationId, resourceName, startDate, endDate);
+
+  // In-memory cache hit (always check unless forceFresh) — covers
+  // burst polling from the same Vercel instance.
+  if (!forceFresh) {
+    const memHit = memoryCache.get(memKey);
+    if (memHit && Date.now() < memHit.expiry) {
+      return NextResponse.json(
+        { data: memHit.data },
+        { headers: { "X-Cache": "MEM-HIT", "Cache-Control": "no-store" } },
+      );
+    }
   }
 
-  const upstreamQs = new URLSearchParams({
-    startDate,
-    endDate,
-    resourceName,
-  }).toString();
+  // Cache-first path: Redis read FIRST. Used by camera-assign
+  // auto-poll (`prefer=cache`) for instant render even during a
+  // Pandora outage. The pre-race-tickets cron writes through on
+  // every run, so this serves cron-warmed data during operating
+  // hours.
+  if (preferCache && !forceFresh) {
+    const redisData = await readRedisCache(memKey);
+    if (redisData && redisData.length > 0) {
+      // Promote to in-memory for subsequent calls in this instance.
+      memoryCache.set(memKey, { data: redisData, expiry: Date.now() + MEMORY_CACHE_TTL_MS });
+      return NextResponse.json(
+        { data: redisData, cached: true },
+        { headers: { "X-Cache": "REDIS-HIT", "Cache-Control": "no-store" } },
+      );
+    }
+    // Cache miss → fall through to live Pandora.
+  }
 
   /**
    * Pandora's /bmi/sessions endpoint goes flaky during peak race
-   * windows — sporadic 500s with no clear pattern. The camera-assign
-   * page fans out one call per track on each refresh, so a single
-   * upstream 500 currently zeroes out the heat list ("0 HEATS · 0
-   * DONE · 0 LIVE · 0 UPCOMING") even when only one of three tracks
-   * is affected.
-   *
-   * Mitigations layered here:
-   *  1. Retry once on 5xx (or fetch throw) after a 250ms back-off —
-   *     usually clears it.
-   *  2. On final failure, fall back to whatever was last in our
-   *     in-memory cache (any age) before returning empty. Better to
-   *     show slightly stale heats than no heats.
-   *  3. Surface the upstream body slice in the JSON response so the
-   *     page can `console.warn` it for debugging — separate from the
-   *     empty fallback so the data path stays uniform.
+   * windows. Mitigations layered here:
+   *  1. Hard 12s abort timeout on each upstream fetch — without it,
+   *     a hung Pandora could hang the proxy for 60s+ until Vercel's
+   *     function timeout fires, blocking the camera-assign page
+   *     from rendering at all.
+   *  2. Retry once on 5xx (or fetch throw) after 250ms back-off —
+   *     usually clears transient glitches.
+   *  3. On final failure, fall back to Redis cache → in-memory
+   *     cache → empty.
+   *  4. Surface upstream body slices in the JSON for debugging.
    */
   async function fetchOnce(): Promise<{ ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12_000);
     try {
+      const upstreamQs = new URLSearchParams({
+        startDate,
+        endDate,
+        resourceName,
+      } as Record<string, string>).toString();
       const res = await fetch(`${PANDORA_URL}/bmi/sessions/${locationId}?${upstreamQs}`, {
         headers: {
           Authorization: `Bearer ${API_KEY}`,
           Accept: "application/json",
         },
         cache: "no-store",
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok) {
         const body = (await res.text()).slice(0, 300);
         return { ok: false, status: res.status, body };
@@ -106,7 +155,13 @@ export async function GET(req: NextRequest) {
       const data: PandoraSession[] = Array.isArray(json?.data) ? json.data : [];
       return { ok: true, data };
     } catch (err) {
-      return { ok: false, status: null, body: err instanceof Error ? err.message : "fetch threw" };
+      clearTimeout(timeoutId);
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      return {
+        ok: false,
+        status: null,
+        body: isTimeout ? "timeout (>12s)" : (err instanceof Error ? err.message : "fetch threw"),
+      };
     }
   }
 
@@ -119,7 +174,14 @@ export async function GET(req: NextRequest) {
   }
 
   if (attempt.ok) {
-    cache.set(cacheKey, { data: attempt.data, expiry: Date.now() + CACHE_TTL_MS });
+    // Write-through: in-memory + Redis. Fire-and-forget on Redis so
+    // a hiccup never blocks the response.
+    memoryCache.set(memKey, { data: attempt.data, expiry: Date.now() + MEMORY_CACHE_TTL_MS });
+    if (attempt.data.length > 0) {
+      redis
+        .set(memKey, JSON.stringify(attempt.data), "EX", REDIS_CACHE_TTL_SECONDS)
+        .catch((err) => console.warn("[sessions] redis write failed:", err));
+    }
     return NextResponse.json(
       { data: attempt.data },
       { headers: { "X-Cache": "MISS", "Cache-Control": "no-store" } },
@@ -127,17 +189,38 @@ export async function GET(req: NextRequest) {
   }
 
   console.error(`[sessions] Pandora ${attempt.status ?? "ERR"} for ${resourceName}: ${attempt.body}`);
-  // Fall back to last-known cached data (any age) so the page doesn't
-  // zero out during transient Pandora flakiness. Empty array if we've
-  // never successfully fetched this combination before.
-  const stale = cache.get(cacheKey)?.data ?? [];
+
+  // Fall back through cache layers: Redis first (survives instance
+  // churn), then in-memory, then empty. Both are stale-but-real and
+  // strictly better than zeroing out the heat list.
+  const redisStale = await readRedisCache(memKey);
+  if (redisStale && redisStale.length > 0) {
+    memoryCache.set(memKey, { data: redisStale, expiry: Date.now() + MEMORY_CACHE_TTL_MS });
+    return NextResponse.json(
+      { data: redisStale, error: `Pandora ${attempt.status ?? "fetch failed"}`, stale: true },
+      { status: 200, headers: { "X-Cache": "REDIS-STALE", "Cache-Control": "no-store" } },
+    );
+  }
+  const memStale = memoryCache.get(memKey)?.data ?? [];
   return NextResponse.json(
     {
-      data: stale,
+      data: memStale,
       error: `Pandora ${attempt.status ?? "fetch failed"}`,
       upstreamBody: attempt.body.slice(0, 200),
-      stale: stale.length > 0,
+      stale: memStale.length > 0,
     },
-    { status: 200, headers: { "X-Cache": stale.length > 0 ? "STALE" : "ERROR", "Cache-Control": "no-store" } },
+    { status: 200, headers: { "X-Cache": memStale.length > 0 ? "MEM-STALE" : "ERROR", "Cache-Control": "no-store" } },
   );
+}
+
+async function readRedisCache(key: string): Promise<PandoraSession[] | null> {
+  try {
+    const raw = await redis.get(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PandoraSession[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    console.warn("[sessions] redis read failed:", err);
+    return null;
+  }
 }

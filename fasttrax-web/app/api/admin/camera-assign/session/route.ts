@@ -106,14 +106,20 @@ async function fetchSessionsForResource(
   resourceName: string,
   startDate: string,
   endDate: string,
+  forceFresh: boolean,
 ): Promise<(PandoraSession & { resourceName: string })[]> {
   const qs = new URLSearchParams({
     locationId: FASTTRAX_LOCATION_ID,
     resourceName,
     startDate,
     endDate,
-  }).toString();
-  const res = await fetch(`${BASE}/api/pandora/sessions?${qs}`, { cache: "no-store" });
+  });
+  // Refresh button → bypass cache, hit Pandora live. Default load
+  // + auto-poll → Redis-first (cron-warmed) for instant render even
+  // when Pandora's BMI bridge is hung.
+  if (forceFresh) qs.set("fresh", "1");
+  else qs.set("prefer", "cache");
+  const res = await fetch(`${BASE}/api/pandora/sessions?${qs.toString()}`, { cache: "no-store" });
   if (!res.ok) return [];
   const data = await res.json();
   const list: PandoraSession[] = Array.isArray(data?.data) ? data.data : [];
@@ -124,8 +130,9 @@ async function fetchSessionsInWindow(
   resources: readonly string[],
   startDate: string,
   endDate: string,
+  forceFresh: boolean,
 ) {
-  const per = await Promise.all(resources.map((r) => fetchSessionsForResource(r, startDate, endDate)));
+  const per = await Promise.all(resources.map((r) => fetchSessionsForResource(r, startDate, endDate, forceFresh)));
   return per.flat();
 }
 
@@ -221,7 +228,7 @@ export async function GET(req: NextRequest) {
       // (~8 PM yesterday ET during EDT), dropping today's already-run
       // heats from the "Earlier" modal.
       const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 1);
-      const all = await fetchSessionsInWindow(resources, startDate, endDate);
+      const all = await fetchSessionsInWindow(resources, startDate, endDate, refresh);
       const past = all
         .filter((s) => new Date(s.scheduledStart).getTime() <= now)
         .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime());
@@ -261,7 +268,7 @@ export async function GET(req: NextRequest) {
     // This roughly halves perceived load time when an operator picks
     // a heat: was sessions→participants→blocks (~2-3s serial), now
     // max(sessions, participants)→blocks (~1-2s).
-    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate);
+    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, refresh);
     const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam, refresh) : null;
     const earlyAssignmentsPromise = sessionIdParam ? listAssignmentsForSession(sessionIdParam) : null;
 
@@ -283,6 +290,7 @@ export async function GET(req: NextRequest) {
           TRACK_RESOURCES as readonly string[],
           wide.startDate,
           wide.endDate,
+          refresh,
         );
         picked = widerSessions.find((s) => String(s.sessionId) === sessionIdParam);
       }
