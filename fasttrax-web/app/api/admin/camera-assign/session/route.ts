@@ -129,18 +129,43 @@ async function fetchSessionsInWindow(
   return per.flat();
 }
 
-async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
+/**
+ * Pull participants for a session. Cache-first by default — reads
+ * the cron-warmed Redis snapshot for an instant load even when
+ * Pandora is degraded. The refresh button on the camera-assign UI
+ * forwards `?refresh=1` to bypass the cache and force a live
+ * Pandora call.
+ *
+ * Crons (pre-race-tickets every 2 min, checkin-alerts every 1 min)
+ * keep the cache warm against the same cache key, so during
+ * operating hours the cache-hit path is the common case.
+ */
+async function fetchParticipants(
+  sessionId: string | number,
+  forceFresh: boolean,
+): Promise<Participant[]> {
   // Camera-assign wants to see unpaid racers too — staff can still bind
   // a camera while payment is being taken. `excludeRemoved` stays on
   // so scratched racers don't pollute the roster.
+  const params = new URLSearchParams({
+    locationId: FASTTRAX_LOCATION_ID,
+    sessionId: String(sessionId),
+    excludeRemoved: "true",
+    excludeUnpaid: "false",
+  });
+  // Refresh button → live Pandora call. Default load → Redis cache
+  // (cron-warmed) for instant render even during Pandora outages.
+  if (forceFresh) params.set("fresh", "1");
+  else params.set("prefer", "cache");
+
   const res = await fetch(
-    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=true&excludeUnpaid=false`,
+    `${BASE}/api/pandora/session-participants?${params.toString()}`,
     {
       cache: "no-store",
-      // Server-only admin call — pass the internal trust header so
-      // the proxy returns full PII (firstName/lastName for the
-      // staff display). Public e-ticket browser calls don't include
-      // this header and get a redacted personId-only response.
+      // Server-only admin call — internal trust header gets full
+      // PII back (firstName/lastName for staff display). Public
+      // e-ticket browser calls don't include this header and get
+      // a redacted personId-only response.
       headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
     },
   );
@@ -156,6 +181,11 @@ export async function GET(req: NextRequest) {
     const sessionIdParam = searchParams.get("sessionId");
     const trackParam = searchParams.get("track");
     const daysParam = parseInt(searchParams.get("days") || "7", 10) || 7;
+    // Refresh button on the camera-assign page forwards `refresh=1`
+    // — bypasses the Redis cache and forces a live Pandora call.
+    // Default load is cache-first (cron-warmed Redis) for instant
+    // render even during Pandora outages.
+    const refresh = searchParams.get("refresh") === "1";
 
     // Resolve which track resources to query. No track = all three.
     const requestedResource = trackSlugToResource(trackParam);
@@ -210,7 +240,7 @@ export async function GET(req: NextRequest) {
     // a heat: was sessions→participants→blocks (~2-3s serial), now
     // max(sessions, participants)→blocks (~1-2s).
     const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate);
-    const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam) : null;
+    const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam, refresh) : null;
     const earlyAssignmentsPromise = sessionIdParam ? listAssignmentsForSession(sessionIdParam) : null;
 
     const allSessions = await sessionsPromise;
@@ -263,7 +293,7 @@ export async function GET(req: NextRequest) {
     // Use the early-fired promises when the client gave us sessionId;
     // otherwise fire them now against the resolved "next upcoming".
     const [participants, assignments] = await Promise.all([
-      earlyParticipantsPromise ?? fetchParticipants(picked.sessionId),
+      earlyParticipantsPromise ?? fetchParticipants(picked.sessionId, refresh),
       earlyAssignmentsPromise ?? listAssignmentsForSession(picked.sessionId),
     ]);
 

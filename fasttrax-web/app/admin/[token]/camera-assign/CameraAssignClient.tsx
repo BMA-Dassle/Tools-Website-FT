@@ -637,7 +637,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  (same system number can exist on different tracks at similar times).
    *  If track isn't set, we short-circuit and let the UI show its
    *  "pick a track" prompt. */
-  const loadSession = useCallback(async (sessionIdOverride?: string) => {
+  const loadSession = useCallback(async (sessionIdOverride?: string, forceRefresh: boolean = false) => {
     if (!track) {
       // Clear any stale state so the prompt renders cleanly.
       setSession(null);
@@ -658,6 +658,11 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       const qs = new URLSearchParams({ token });
       if (sessionIdOverride) qs.set("sessionId", sessionIdOverride);
       qs.set("track", track);
+      // Initial loads + auto-polls read the cron-warmed cache for
+      // instant render even during Pandora outages. Manual refresh
+      // button passes `refresh=1` to bypass the cache and force a
+      // live Pandora call — staff get fresh data on demand.
+      if (forceRefresh) qs.set("refresh", "1");
       const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`load failed: ${res.status}`);
       const json = (await res.json()) as SessionResponse;
@@ -1803,11 +1808,14 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                 const sid = session
                   ? String(session.sessionId)
                   : (overrideSessionId || undefined);
+                // Manual refresh — bypass the Redis cache and force
+                // a live Pandora call so staff see fresh data
+                // (the auto-poll uses cache-first for speed).
                 if (sid) {
                   setOverrideSessionId(sid);
-                  void loadSession(sid);
+                  void loadSession(sid, true);
                 } else {
-                  void loadSession();
+                  void loadSession(undefined, true);
                 }
               }}
               className="text-[#00E2E5] hover:underline"

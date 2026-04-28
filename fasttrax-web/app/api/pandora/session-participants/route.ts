@@ -95,12 +95,50 @@ export async function GET(req: NextRequest) {
   const sessionId = searchParams.get("sessionId");
   const excludeRemoved = boolParam(searchParams.get("excludeRemoved"), true);
   const excludeUnpaid = boolParam(searchParams.get("excludeUnpaid"), true);
+  // Read-mode selectors:
+  //   prefer=cache  — Redis FIRST, fall through to Pandora only on
+  //                   cache miss. Camera-assign uses this so the
+  //                   page loads instantly from cron-warmed data
+  //                   instead of paying the 12s Pandora timeout
+  //                   on every render.
+  //   fresh=1       — bypass any cache read, force a live Pandora
+  //                   hit. Wired to the camera-assign refresh
+  //                   button so staff can pull a real-time roster
+  //                   on demand. Trumps prefer=cache.
+  // Default (no params): live-first, cache fallback only on
+  // Pandora failure — what e-ticket polls and crons want.
+  const preferCache = searchParams.get("prefer") === "cache";
+  const forceFresh = searchParams.get("fresh") === "1";
 
   if (!locationId || !ALLOWED_LOCATIONS.has(locationId)) {
     return NextResponse.json({ error: "Invalid locationId" }, { status: 400 });
   }
   if (!sessionId || !/^\d+$/.test(sessionId)) {
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
+  }
+
+  // Cache-first path: Redis read FIRST, return on hit. Saves the
+  // 12s Pandora timeout cost when crons have warmed the cache and
+  // upstream is degraded. Camera-assign sets this on initial loads.
+  if (preferCache && !forceFresh) {
+    try {
+      const key = cacheKey(locationId, sessionId, excludeRemoved);
+      const raw = await redis.get(key);
+      if (raw) {
+        const cached = JSON.parse(raw) as Participant[];
+        if (Array.isArray(cached) && cached.length > 0) {
+          const filtered = applyUnpaidFilter(cached, excludeUnpaid);
+          const data = redactIfUntrusted(req, filtered);
+          return NextResponse.json(
+            { data, cached: true },
+            { headers: { "Cache-Control": "no-store", "X-Cache": "HIT" } },
+          );
+        }
+      }
+    } catch (err) {
+      console.warn("[session-participants] cache-first read failed:", err);
+    }
+    // Cache miss → fall through to live Pandora below.
   }
 
   // Hard timeout on the upstream Pandora fetch. Without this,
