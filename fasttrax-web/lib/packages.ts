@@ -45,6 +45,8 @@ export type PackageId =
   | "ultimate-qualifier-mega"
   | "ultimate-qualifier-weekday-red"
   | "ultimate-qualifier-weekday-blue"
+  | "ultimate-qualifier-weekend-red"
+  | "ultimate-qualifier-weekend-blue"
   | "rookie-pack"; // legacy alias kept for confirmation-page back-compat
 export type Schedule = "weekday" | "weekend" | "mega";
 
@@ -439,6 +441,96 @@ const PACKAGES: PackageDefinition[] = [
     includesPov: true,
     appetizerCode: "RACEAPP",
     cartLineKey: "ultimate-qualifier-weekday-blue",
+    displayOrder: 10,
+    disclaimers: UQ_DISCLAIMERS,
+  },
+
+  // ── Ultimate Qualifier — Weekend Red ──────────────────────────────────────
+  // Weekend Starter pricing is $26.99 (vs. $20.99 weekday). Pulls
+  // the existing weekend Starter Red product (24953280) on page
+  // 24871574, paired with the new package-only Intermediate Red
+  // weekend SKU 45811390 on the existing weekend Intermediate
+  // page 25850598. pageId verification probe before launch — see
+  // the Mega-variant comment for the curl pattern.
+  {
+    id: "ultimate-qualifier-weekend-red",
+    name: "Ultimate Qualifier",
+    shortDescription:
+      "Starter Red + Intermediate Red + License + POV + free appetizer",
+    longDescription: UQ_LONG,
+    enabled: ULTIMATE_QUALIFIER_ENABLED,
+    racerType: "new",
+    schedules: ["weekend"],
+    category: "adult",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24953280", // existing Starter Race Red (weekend, new-racer)
+        pageId: "24871574",
+        label: "Starter Race Red",
+        tier: "starter",
+        track: "Red",
+        price: 26.99,
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        productId: "45811390", // NEW — Ultimate-Qualifier-only Intermediate Red (weekend)
+        pageId: "25850598",
+        label: "Intermediate Race Red",
+        tier: "intermediate",
+        track: "Red",
+        price: 26.99,
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "ultimate-qualifier-weekend-red",
+    displayOrder: 10,
+    disclaimers: UQ_DISCLAIMERS,
+  },
+
+  // ── Ultimate Qualifier — Weekend Blue ─────────────────────────────────────
+  {
+    id: "ultimate-qualifier-weekend-blue",
+    name: "Ultimate Qualifier",
+    shortDescription:
+      "Starter Blue + Intermediate Blue + License + POV + free appetizer",
+    longDescription: UQ_LONG,
+    enabled: ULTIMATE_QUALIFIER_ENABLED,
+    racerType: "new",
+    schedules: ["weekend"],
+    category: "adult",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24952964", // existing Starter Race Blue (weekend, new-racer)
+        pageId: "24871574",
+        label: "Starter Race Blue",
+        tier: "starter",
+        track: "Blue",
+        price: 26.99,
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        productId: "45811415", // NEW — Ultimate-Qualifier-only Intermediate Blue (weekend)
+        pageId: "25850598",
+        label: "Intermediate Race Blue",
+        tier: "intermediate",
+        track: "Blue",
+        price: 26.99,
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "ultimate-qualifier-weekend-blue",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
   },
