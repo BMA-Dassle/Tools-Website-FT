@@ -261,10 +261,28 @@ export function packageHeatGapMinutes(component: PackageRaceComponent): { ref: s
 
 /** Derive the current schedule slot from a date. Tuesday = "mega",
  *  Mon/Wed/Thu = "weekday", Fri/Sat/Sun = "weekend". Mirrors the
- *  classification in `app/book/race/data.ts`. */
+ *  classification in `app/book/race/data.ts`.
+ *
+ *  Important: when given a `YYYY-MM-DD` string we parse it as LOCAL
+ *  time, not UTC. `new Date("2026-04-28")` resolves to UTC midnight
+ *  which shifts back into Monday for any negative-offset timezone
+ *  (US/ET, etc.) and then `getDay()` returns the wrong weekday —
+ *  the symptom that hid the Ultimate Qualifier card from the picker
+ *  for an entire Tuesday. */
 export function scheduleForDate(d: Date | string): Schedule {
-  const date = typeof d === "string" ? new Date(d) : d;
-  const day = date.getDay(); // 0 = Sun … 6 = Sat
+  let day: number;
+  if (typeof d === "string") {
+    const datePart = d.split("T")[0];
+    const m = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      // Local-time construction — sidesteps the UTC parse trap.
+      day = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getDay();
+    } else {
+      day = new Date(d).getDay();
+    }
+  } else {
+    day = d.getDay();
+  }
   if (day === 2) return "mega";
   if (day === 0 || day === 5 || day === 6) return "weekend";
   return "weekday";
