@@ -209,9 +209,18 @@ export default function BookRacePage() {
     // Remove old racing items (re-sync)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nonRacing = existingCart.filter((item: any) => item.attraction !== "racing");
+
+    // When a package owns the races (Ultimate Qualifier-style), the
+    // mini cart should show ONE bundle line (added below) instead of
+    // a separate per-heat row for each component. Without this guard
+    // we'd double-render: race-A, race-B, AND "Ultimate Qualifier".
+    const packageOwnsRaces = !!(selectedPackage && selectedPackage.races.length > 0);
+
     // Add current racing items
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const racingItems: any[] = bookings.map(b => ({
+    const racingItems: any[] = packageOwnsRaces
+      ? []
+      : bookings.map(b => ({
       attraction: "racing",
       attractionName: "Racing",
       product: { name: b.product.name, price: b.blockPrice || 0, bookingMode: "per-person" },
@@ -248,10 +257,9 @@ export default function BookRacePage() {
 
     // Package with owned races (Ultimate Qualifier) — render ONE
     // bundled cart line representing the whole package + skip the
-    // license/POV/individual-race lines that the package owns. The
-    // race lines from `bookings` already show above; the bundle line
-    // sits alongside as the "this is one purchase" indicator.
-    const packageOwnsRaces = !!(selectedPackage && selectedPackage.races.length > 0);
+    // license/POV/individual-race lines that the package owns.
+    // The per-booking race lines were already filtered out at the
+    // top of this effect (see packageOwnsRaces guard there).
     if (packageOwnsRaces && selectedPackage) {
       const racerCount = quantity || 1;
       racingItems.push({
@@ -1521,6 +1529,7 @@ export default function BookRacePage() {
                   }
                   racerCount={adults + juniors}
                   onSelectPackage={handleSelectPackage}
+                  date={selectedDate}
                 />
               </>
             )}

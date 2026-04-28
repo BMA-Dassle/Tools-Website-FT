@@ -4,8 +4,8 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, TIER_DESCRIPTIONS, groupByTrack } from "../data";
-import type { PackageDefinition } from "@/lib/packages";
-import { packagePerRacerPrice } from "@/lib/packages";
+import type { PackageDefinition, PackageRaceComponent } from "@/lib/packages";
+import { LICENSE_PRICE, POV_PRICE, POV_CHECKIN_PRICE, APPETIZER_RETAIL_VALUE } from "@/lib/packages";
 import { modalBackdropProps } from "@/lib/a11y";
 
 // ── Track info shown in the "Pick your track" modal ─────────────────────────
@@ -61,9 +61,12 @@ interface ProductPickerProps {
   racerCount?: number;
   /** Click handler for a package card. */
   onSelectPackage?: (pkg: PackageDefinition) => void;
+  /** Booking date (YYYY-MM-DD) — passed down to PackageCard so it
+   *  can fetch live prices from BMI's /availability endpoint. */
+  date?: string | null;
 }
 
-export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect, packages = [], racerCount = 1, onSelectPackage }: ProductPickerProps) {
+export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect, packages = [], racerCount = 1, onSelectPackage, date = null }: ProductPickerProps) {
   /** When a multi-track product is clicked, stash its items here and
    *  render the TrackPickerModal. Keeps single-track + pack + multi-
    *  track cards visually consistent in the grid. */
@@ -84,37 +87,15 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
   const hasAdultSection = adults > 0 && adultGroups.length > 0;
   const hasJuniorSection = juniors > 0 && juniorGroups.length > 0;
 
+  const hasPackages = packages.length > 0 && onSelectPackage;
   return (
     <div className="space-y-6">
-      {/* Packages row — premium bundles up top so they're seen first.
-          Driven by the centralized package registry (lib/packages.ts);
-          parent is responsible for filtering eligibility. The
-          legacy first-time-racer license banner used to live here
-          but it's redundant once packages explicitly call out the
-          license inclusion. */}
-      {packages.length > 0 && onSelectPackage && (
-        <div className="space-y-3">
-          <div className="text-center">
-            <p className="text-amber-400 text-[11px] font-bold uppercase tracking-widest">
-              Premium Packages
-            </p>
-            <p className="text-white/40 text-xs mt-0.5">
-              Bundle the gear and save — fastest way to a complete experience.
-            </p>
-          </div>
-          <div className="grid gap-3">
-            {packages.map((pkg) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                racerCount={racerCount}
-                onSelect={onSelectPackage}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* Single header for the whole step — packages and individual
+          races flow under it. The old separate "Premium Packages"
+          sub-header read as a competing title and made the page
+          feel like two stacked steps. Now it's one Pick-Your-Race
+          step with packages as the recommended option above plain
+          races. */}
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-display uppercase tracking-widest text-white">
           {racerType === "new" ? "Pick Your Starter Race" : "Choose Your Race"}
@@ -125,6 +106,28 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
             : "Select from races you've qualified for."}
         </p>
       </div>
+
+      {hasPackages && (
+        <div className="grid gap-3">
+          {packages.map((pkg) => (
+            <PackageCard
+              key={pkg.id}
+              pkg={pkg}
+              racerCount={racerCount}
+              date={date}
+              onSelect={onSelectPackage}
+            />
+          ))}
+        </div>
+      )}
+
+      {hasPackages && (products.length > 0) && (
+        <div className="flex items-center gap-3 text-white/30 text-[11px] uppercase tracking-widest">
+          <div className="flex-1 h-px bg-white/10" />
+          <span>or pick a single race</span>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
+      )}
 
       {products.length === 0 && (
         <div className="text-center py-8">
@@ -343,57 +346,215 @@ function TrackPickerModal({ items, onSelect, onClose }: {
   );
 }
 
-/** Package card — premium-tier highlight with bundled "what's
- *  included" chips and a per-racer × N total. Paired with the
- *  central package registry; visual treatment intentionally
- *  distinct from individual race cards (gradient border + amber
- *  premium accent) so packages read as the recommended upsell. */
-function PackageCard({ pkg, racerCount, onSelect }: {
+/**
+ * Live BMI price fetch — pulls per-component prices from
+ * `/api/bmi?endpoint=availability` for the given date. Returns a
+ * map keyed by component `ref`. Falls back to the registry's
+ * static `price` per component when BMI is unreachable / slow.
+ *
+ * Used by PackageCard so the picker total auto-syncs with whatever
+ * BMI's catalog says today — no risk of registry hardcodes drifting
+ * out of sync with the actual sell prices.
+ */
+function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
+  prices: Record<string, number>;
+  loading: boolean;
+} {
+  const [prices, setPrices] = useState<Record<string, number>>(() => {
+    // Seed with registry-static fallbacks so the card renders
+    // immediately while the live fetch is in flight.
+    const seed: Record<string, number> = {};
+    for (const r of pkg.races) seed[r.ref] = r.price;
+    return seed;
+  });
+  const [loading, setLoading] = useState(!!date && pkg.races.length > 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!date || pkg.races.length === 0) {
+      // Defer the state flip to the next microtask so we don't
+      // trigger a cascading-render lint warning. Effect bodies that
+      // synchronously setState are flagged by our ESLint config.
+      Promise.resolve().then(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    }
+    const dateOnly = date.split("T")[0];
+    Promise.resolve().then(() => { if (!cancelled) setLoading(true); });
+
+    async function loadOne(component: PackageRaceComponent): Promise<[string, number] | null> {
+      try {
+        const res = await fetch(`/api/bmi?endpoint=availability&date=${dateOnly}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ProductId: Number(component.productId),
+            PageId: Number(component.pageId),
+            Quantity: 1,
+            OrderId: null,
+            PersonId: null,
+            DynamicLines: [],
+          }),
+        });
+        if (!res.ok) return null;
+        type AvailBlock = { prices?: { amount: number; depositKind: number }[] };
+        type AvailProposalItem = { block?: AvailBlock };
+        type AvailProposal = { blocks?: AvailProposalItem[] };
+        const data = (await res.json()) as { proposals?: AvailProposal[] };
+        const proposals = data?.proposals || [];
+        for (const p of proposals) {
+          for (const b of p.blocks || []) {
+            const cash = b.block?.prices?.find((pr: { amount: number; depositKind: number }) => pr.depositKind === 0);
+            if (cash?.amount) return [component.ref, cash.amount];
+          }
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    Promise.all(pkg.races.map(loadOne)).then((results) => {
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      for (const r of pkg.races) next[r.ref] = r.price; // baseline
+      for (const r of results) if (r) next[r[0]] = r[1]; // overlay live
+      setPrices(next);
+      setLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [pkg, date]);
+
+  return { prices, loading };
+}
+
+/** Package card — price-prominent layout with itemized included
+ *  list, live BMI pricing, and a "you save" line. Each item shows
+ *  per-racer × N math so the customer sees exactly what they're
+ *  paying for. */
+function PackageCard({ pkg, racerCount, date, onSelect }: {
   pkg: PackageDefinition;
   racerCount: number;
+  date: string | null;
   onSelect: (pkg: PackageDefinition) => void;
 }) {
-  const perRacer = packagePerRacerPrice(pkg);
-  const total = perRacer * Math.max(1, racerCount);
-  const includes: string[] = [
-    ...pkg.races.map((r) => r.label),
-    ...(pkg.includesLicense ? ["License"] : []),
-    ...(pkg.includesPov ? ["POV Video"] : []),
-    ...(pkg.appetizerCode ? ["Free Appetizer"] : []),
-  ];
+  const { prices: livePrices, loading } = usePackageLivePrices(pkg, date);
+  const racers = Math.max(1, racerCount);
+
+  // Build line items with live BMI prices. Each line is per-racer
+  // × N (heats are shared across racers, but license + POV scale
+  // per-racer; appetizer is one per group).
+  type Line = { key: string; label: string; perUnit: number | null; quantity: number; lineTotal: number; freeNote?: string };
+  const lines: Line[] = [];
+  for (const r of pkg.races) {
+    const perUnit = livePrices[r.ref] ?? r.price;
+    lines.push({
+      key: r.ref,
+      label: r.label,
+      perUnit,
+      quantity: racers,
+      lineTotal: perUnit * racers,
+    });
+  }
+  if (pkg.includesLicense) {
+    lines.push({
+      key: "license",
+      label: "Racing License",
+      perUnit: LICENSE_PRICE,
+      quantity: racers,
+      lineTotal: LICENSE_PRICE * racers,
+    });
+  }
+  if (pkg.includesPov) {
+    lines.push({
+      key: "pov",
+      label: "POV Race Video",
+      perUnit: POV_PRICE,
+      quantity: racers,
+      lineTotal: POV_PRICE * racers,
+    });
+  }
+  if (pkg.appetizerCode) {
+    lines.push({
+      key: "appetizer",
+      label: "Free Appetizer at Nemo's",
+      perUnit: 0,
+      quantity: 1,
+      lineTotal: 0,
+      freeNote: "1 per group · race day only",
+    });
+  }
+
+  const total = lines.reduce((acc, l) => acc + l.lineTotal, 0);
+
+  // "You save" math — what the contents would cost piecemeal at
+  // retail (POV at check-in price, appetizer at menu retail).
+  const retail = (() => {
+    let r = 0;
+    for (const l of pkg.races) r += (livePrices[l.ref] ?? l.price) * racers;
+    if (pkg.includesLicense) r += LICENSE_PRICE * racers;
+    if (pkg.includesPov) r += POV_CHECKIN_PRICE * racers;
+    if (pkg.appetizerCode) r += APPETIZER_RETAIL_VALUE;
+    return r;
+  })();
+  const youSave = Math.max(0, retail - total);
+
   return (
     <button
       type="button"
       onClick={() => onSelect(pkg)}
-      className="text-left rounded-xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 to-amber-500/5 p-4 transition-all duration-200 hover:border-amber-500/60 hover:from-amber-500/15 hover:to-amber-500/8"
+      className="text-left rounded-xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 to-amber-500/5 p-5 transition-all duration-200 hover:border-amber-500/60 hover:from-amber-500/15 hover:to-amber-500/8"
     >
-      <div className="flex items-start justify-between gap-2 mb-1.5">
+      {/* Header — name + total. Total leads so the customer sees
+          what they're paying for the bundle up front. */}
+      <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-white text-sm">{pkg.name}</span>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200 uppercase tracking-wider">
-            Package
+          <span className="text-amber-400 text-[11px] font-bold uppercase tracking-widest">
+            {pkg.name}
           </span>
+          {racers > 1 && (
+            <span className="text-white/30 text-xs">{racers} racers</span>
+          )}
         </div>
         <div className="text-right shrink-0">
-          <p className="text-amber-300 font-bold text-sm">${total.toFixed(2)}</p>
-          {racerCount > 1 && (
-            <p className="text-white/40 text-[11px]">${perRacer.toFixed(2)} × {racerCount}</p>
+          <p className="text-amber-300 font-bold text-lg leading-none">
+            ${total.toFixed(2)}
+          </p>
+          {loading && (
+            <p className="text-white/30 text-[10px] mt-1">updating…</p>
           )}
         </div>
       </div>
 
-      <p className="text-white/60 text-xs leading-relaxed mb-2">{pkg.longDescription}</p>
+      <p className="text-white/60 text-xs leading-relaxed mb-3">{pkg.longDescription}</p>
 
-      {includes.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {includes.map((label, i) => (
-            <span
-              key={i}
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-200/90"
-            >
-              {label}
+      {/* Itemized "What's included" — per-racer × N + line totals */}
+      <ul className="space-y-1 text-xs text-white/75 mb-2">
+        {lines.map((l) => (
+          <li key={l.key} className="flex items-baseline justify-between gap-2">
+            <span>
+              <span className="text-emerald-400">✓</span> {l.label}
+              {l.quantity > 1 && <span className="text-white/40"> × {l.quantity}</span>}
+              {l.freeNote && <span className="text-white/40"> ({l.freeNote})</span>}
             </span>
-          ))}
+            <span className={l.lineTotal === 0 ? "text-emerald-300 font-semibold" : "text-white/60"}>
+              {l.lineTotal === 0 ? "FREE" : `$${l.lineTotal.toFixed(2)}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {/* Total + savings line — savings only shown when meaningful. */}
+      <div className="flex items-baseline justify-between text-sm pt-3 border-t border-amber-500/20">
+        <span className="text-amber-400 font-bold uppercase tracking-wider text-xs">
+          {pkg.name} total
+        </span>
+        <span className="text-white font-bold">${total.toFixed(2)}</span>
+      </div>
+      {youSave > 0 && (
+        <div className="flex items-baseline justify-between text-xs mt-1.5">
+          <span className="text-amber-400 font-bold">💰 You save ${youSave.toFixed(2)}</span>
+          <span className="text-white/40 line-through">${retail.toFixed(2)}</span>
         </div>
       )}
     </button>

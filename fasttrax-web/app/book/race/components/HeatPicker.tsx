@@ -26,6 +26,13 @@ interface HeatPickerProps {
    *  (e.g. the Starter heat) finishes. Heats that violate the gap
    *  show as conflicting with a package-specific tooltip. */
   minutesAfterEnd?: { stop: string; minutes: number; refLabel: string };
+  /** True when this picker is the inner step of a package
+   *  (PackageHeatPicker mounts it). Hides the per-heat price line
+   *  in the "Selected" CTA and the standalone $4.99 license notice
+   *  at the bottom — both are misleading inside a package because
+   *  pricing is bundled at the package level and license is
+   *  already included. */
+  packageMode?: boolean;
 }
 
 function parseLocal(iso: string): Date {
@@ -47,7 +54,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -261,9 +268,11 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                 <div>
                   <p className="text-white/50 text-xs mb-1">Selected</p>
                   <p className="text-white font-bold">{selectedBlock.name} · {formatTime(selectedBlock.start)}</p>
-                  <p className="text-[#00E2E5] text-sm font-semibold mt-0.5">
-                    ${perUnit.toFixed(2)} × {quantity} = <span className="text-lg">${total}</span>
-                  </p>
+                  {!packageMode && (
+                    <p className="text-[#00E2E5] text-sm font-semibold mt-0.5">
+                      ${perUnit.toFixed(2)} × {quantity} = <span className="text-lg">${total}</span>
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
                   <button
@@ -296,7 +305,9 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
 
           <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
             <p>· Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.</p>
-            <p>· A <strong className="text-white/60">$4.99 license fee</strong> per driver applies at first check-in.</p>
+            {!packageMode && (
+              <p>· A <strong className="text-white/60">$4.99 license fee</strong> per driver applies at first check-in.</p>
+            )}
           </div>
         </>
       )}

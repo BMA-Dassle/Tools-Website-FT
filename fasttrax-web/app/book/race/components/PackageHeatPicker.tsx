@@ -234,6 +234,7 @@ export default function PackageHeatPicker({
         bookedHeats={augmentedBookedHeats}
         minAdvanceMinutes={minAdvanceMinutes}
         minutesAfterEnd={minutesAfterEnd}
+        packageMode={true}
       />
     </div>
   );

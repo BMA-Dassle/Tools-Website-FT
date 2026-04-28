@@ -26,6 +26,12 @@
 
 export const LICENSE_PRICE = 4.99;
 export const POV_PRICE = 5;
+// "Retail" anchors for savings comparisons. POV at the counter is
+// $2 more per racer than the prepay-online price; the appetizer
+// carries a real menu value at Nemo's. Used by the picker card +
+// review hero card to show "you save $X".
+export const POV_CHECKIN_PRICE = 7;
+export const APPETIZER_RETAIL_VALUE = 10;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -47,8 +53,11 @@ export interface PackageRaceComponent {
   label: string;
   tier: "starter" | "intermediate" | "pro";
   track: "Red" | "Blue" | "Mega";
-  /** Per-unit price for the component — used by the auto-sum
-   *  pricing helper when the package omits an explicit `price`. */
+  /** Per-unit price USED ONLY AS FALLBACK when the live BMI price
+   *  fetch (in the picker / cart) hasn't returned yet or fails.
+   *  The picker pulls the authoritative price from BMI's
+   *  /availability endpoint at render time so the registry never
+   *  drifts from BMI's catalog. */
   price: number;
   /** Heat-gap rule against an earlier component's STOP time.
    *  e.g. `{ ref: "starter", minutes: 60 }` means "this heat must
@@ -252,6 +261,29 @@ export function packagePerRacerPrice(pkg: PackageDefinition): number {
  *  per-racer-times-N math. */
 export function packageBundleTotal(pkg: PackageDefinition, racerCount: number): number {
   return packagePerRacerPrice(pkg) * Math.max(1, racerCount);
+}
+
+/** What the bundle's contents would have cost if bought separately
+ *  at retail — drives the "💰 Save $X" line on the picker card.
+ *  Compared against `packageBundleTotal` to compute savings. */
+export function packageRetailTotal(pkg: PackageDefinition, racerCount: number): number {
+  const racers = Math.max(1, racerCount);
+  let total = pkg.races.reduce((acc, r) => acc + r.price, 0) * racers;
+  if (pkg.includesLicense) total += LICENSE_PRICE * racers;
+  // POV at retail check-in price — $2 more per racer than online.
+  if (pkg.includesPov) total += POV_CHECKIN_PRICE * racers;
+  // Appetizer is "one per group" so a flat retail value, not × N.
+  if (pkg.appetizerCode) total += APPETIZER_RETAIL_VALUE;
+  return total;
+}
+
+/** Convenience: how much the customer saves vs. piecing the bundle
+ *  together at retail. Returns 0 when retail ≤ bundle (e.g. a
+ *  package configured at parity, no savings to claim). */
+export function packageSavings(pkg: PackageDefinition, racerCount: number): number {
+  const retail = packageRetailTotal(pkg, racerCount);
+  const total = packageBundleTotal(pkg, racerCount);
+  return Math.max(0, retail - total);
 }
 
 /** Pull the gap rule for a component, if any. */
