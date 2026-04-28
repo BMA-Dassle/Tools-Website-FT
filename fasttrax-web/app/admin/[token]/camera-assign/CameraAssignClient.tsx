@@ -648,6 +648,14 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   const scanBufferRef = useRef(scanBuffer);
   useEffect(() => { scanBufferRef.current = scanBuffer; }, [scanBuffer]);
 
+  /** Abort controller for the currently-pending loadSession fetch.
+   *  When the operator changes heat (taps a different row, switches
+   *  tracks, or hits Refresh), we abort whatever's in flight so its
+   *  late response doesn't clobber the new heat's roster. Without
+   *  this, a slow Heat 41 fetch could land AFTER the operator
+   *  already moved on to Heat 42 and overwrite the new state. */
+  const loadSessionAbortRef = useRef<AbortController | null>(null);
+
   /** Load the active session (next upcoming by default, or override if picked).
    *  Full reset — use this for initial load, track switch, and manual reload.
    *
@@ -662,6 +670,15 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  If track isn't set, we short-circuit and let the UI show its
    *  "pick a track" prompt. */
   const loadSession = useCallback(async (sessionIdOverride?: string, forceRefresh: boolean = false) => {
+    // Abort any in-flight prior call. The operator just picked a
+    // different heat (or hit Refresh) — the previous heat's data is
+    // no longer wanted, and letting it land late would overwrite the
+    // new heat's roster.
+    loadSessionAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    loadSessionAbortRef.current = ctrl;
+    const signal = ctrl.signal;
+
     if (!track) {
       // Clear any stale state so the prompt renders cleanly.
       setSession(null);
@@ -687,9 +704,11 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       // button passes `refresh=1` to bypass the cache and force a
       // live Pandora call — staff get fresh data on demand.
       if (forceRefresh) qs.set("refresh", "1");
-      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store", signal });
+      if (signal.aborted) return;
       if (!res.ok) throw new Error(`load failed: ${res.status}`);
       const json = (await res.json()) as SessionResponse;
+      if (signal.aborted) return;
       setSession(json.session);
       setParticipants(json.participants || []);
       setNote(json.note || null);

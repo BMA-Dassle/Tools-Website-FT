@@ -114,11 +114,10 @@ async function fetchSessionsForResource(
     startDate,
     endDate,
   });
-  // Refresh button → bypass cache, hit Pandora live. Default load
-  // + auto-poll → Redis-first (cron-warmed) for instant render even
-  // when Pandora's BMI bridge is hung.
+  // Refresh button → live Pandora call. Default load → cacheOnly=1
+  // (cron-warmed Redis only, no Pandora wait on auto-poll).
   if (forceFresh) qs.set("fresh", "1");
-  else qs.set("prefer", "cache");
+  else qs.set("cacheOnly", "1");
   const res = await fetch(`${BASE}/api/pandora/sessions?${qs.toString()}`, { cache: "no-store" });
   if (!res.ok) return [];
   const data = await res.json();
@@ -160,10 +159,12 @@ async function fetchParticipants(
     excludeRemoved: "true",
     excludeUnpaid: "false",
   });
-  // Refresh button → live Pandora call. Default load → Redis cache
-  // (cron-warmed) for instant render even during Pandora outages.
+  // Refresh button → live Pandora call. Default load → cacheOnly=1
+  // so auto-poll NEVER waits on Pandora (cron warmups populate
+  // the cache; the page just reads it). Cold cache returns empty
+  // and the next cron run + the next poll fixes it.
   if (forceFresh) params.set("fresh", "1");
-  else params.set("prefer", "cache");
+  else params.set("cacheOnly", "1");
 
   const res = await fetch(
     `${BASE}/api/pandora/session-participants?${params.toString()}`,

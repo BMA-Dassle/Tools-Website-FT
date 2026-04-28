@@ -70,8 +70,10 @@ async function fetchCurrentRaces(): Promise<CurrentRaces> {
 }
 
 async function fetchParticipants(sessionId: number): Promise<Participant[]> {
+  // warm=1 → 30s upstream timeout. Cron-warmup path; no user is
+  // waiting on this. Populates Redis so user-facing calls hit cache.
   const res = await fetch(
-    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}`,
+    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&warm=1`,
     {
       cache: "no-store",
       // Server-only call — pass the internal trust header so the
@@ -106,7 +108,7 @@ async function fetchParticipants(sessionId: number): Promise<Participant[]> {
  */
 async function fetchPandoraPidsAnyState(sessionId: number): Promise<Set<string>> {
   const res = await fetch(
-    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=false&excludeUnpaid=false`,
+    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=false&excludeUnpaid=false&warm=1`,
     {
       cache: "no-store",
       // PersonId-only is fine here, but pass the internal header for

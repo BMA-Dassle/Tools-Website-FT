@@ -73,6 +73,12 @@ export async function GET(req: NextRequest) {
   const resourceName = searchParams.get("resourceName");
   const preferCache = searchParams.get("prefer") === "cache";
   const forceFresh = searchParams.get("fresh") === "1";
+  // cacheOnly=1 → return cache or empty, NEVER hit Pandora live.
+  // Camera-assign auto-poll uses this so it never blocks waiting
+  // for upstream — crons populate the cache, the page reads it.
+  const cacheOnly = searchParams.get("cacheOnly") === "1";
+  // Warm-mode opt-in for crons — see timeout block below.
+  const isWarmCall = searchParams.get("warm") === "1";
 
   if (!locationId || !ALLOWED_LOCATIONS.has(locationId)) {
     return NextResponse.json({ error: "Invalid locationId" }, { status: 400 });
@@ -98,12 +104,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Cache-first path: Redis read FIRST. Used by camera-assign
-  // auto-poll (`prefer=cache`) for instant render even during a
-  // Pandora outage. The pre-race-tickets cron writes through on
-  // every run, so this serves cron-warmed data during operating
-  // hours.
-  if (preferCache && !forceFresh) {
+  // Cache-first path (prefer=cache OR cacheOnly=1): Redis read
+  // FIRST. cacheOnly=1 returns empty on miss (camera-assign
+  // auto-poll uses this to never block on Pandora). prefer=cache
+  // falls through to live Pandora on miss. Cron-warmed data is the
+  // common case during operating hours.
+  if ((preferCache || cacheOnly) && !forceFresh) {
     const redisData = await readRedisCache(memKey);
     if (redisData && redisData.length > 0) {
       // Promote to in-memory for subsequent calls in this instance.
@@ -113,7 +119,15 @@ export async function GET(req: NextRequest) {
         { headers: { "X-Cache": "REDIS-HIT", "Cache-Control": "no-store" } },
       );
     }
-    // Cache miss → fall through to live Pandora.
+    // Cache miss handling:
+    //   cacheOnly=1 → return empty immediately (no Pandora call)
+    //   prefer=cache → fall through to live Pandora below
+    if (cacheOnly) {
+      return NextResponse.json(
+        { data: [], cached: false, miss: true },
+        { headers: { "X-Cache": "MISS-COLD", "Cache-Control": "no-store" } },
+      );
+    }
   }
 
   /**
@@ -129,9 +143,15 @@ export async function GET(req: NextRequest) {
    *     cache → empty.
    *  4. Surface upstream body slices in the JSON for debugging.
    */
+  // Two-tier timeout (mirrors the participants proxy):
+  //   - warm=1 → 30s for cron-driven cache warmups (no user waits)
+  //   - default → 6s for user-facing calls (fail-fast keeps the
+  //     camera-assign page snappy when cache misses)
+  const timeoutMs = isWarmCall ? 30_000 : 6_000;
+
   async function fetchOnce(): Promise<{ ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12_000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const upstreamQs = new URLSearchParams({
         startDate,
@@ -160,7 +180,7 @@ export async function GET(req: NextRequest) {
       return {
         ok: false,
         status: null,
-        body: isTimeout ? "timeout (>12s)" : (err instanceof Error ? err.message : "fetch threw"),
+        body: isTimeout ? `timeout (>${timeoutMs / 1000}s, warm=${isWarmCall})` : (err instanceof Error ? err.message : "fetch threw"),
       };
     }
   }

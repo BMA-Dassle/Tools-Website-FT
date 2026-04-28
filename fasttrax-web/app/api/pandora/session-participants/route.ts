@@ -134,6 +134,12 @@ export async function GET(req: NextRequest) {
   // Pandora failure — what e-ticket polls and crons want.
   const preferCache = searchParams.get("prefer") === "cache";
   const forceFresh = searchParams.get("fresh") === "1";
+  // cacheOnly=1 → return cache or empty, NEVER fall through to
+  // Pandora. Camera-assign auto-poll uses this so it's truly
+  // independent of Pandora's latency — cron warmups populate the
+  // cache, the page reads it, no upstream waiting ever happens
+  // on the polling path.
+  const cacheOnly = searchParams.get("cacheOnly") === "1";
 
   if (!locationId || !ALLOWED_LOCATIONS.has(locationId)) {
     return NextResponse.json({ error: "Invalid locationId" }, { status: 400 });
@@ -142,10 +148,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
 
-  // Cache-first path: Redis read FIRST, return on hit. Saves the
-  // 12s Pandora timeout cost when crons have warmed the cache and
-  // upstream is degraded. Camera-assign sets this on initial loads.
-  if (preferCache && !forceFresh) {
+  // Cache-first path (prefer=cache OR cacheOnly=1): Redis read
+  // FIRST. cacheOnly=1 returns immediately on miss with an empty
+  // array (camera-assign auto-poll uses this to never block on
+  // Pandora). prefer=cache falls through to live Pandora on miss.
+  if ((preferCache || cacheOnly) && !forceFresh) {
     try {
       const key = cacheKey(locationId, sessionId, excludeRemoved);
       const raw = await redis.get(key);
@@ -166,25 +173,40 @@ export async function GET(req: NextRequest) {
     } catch (err) {
       console.warn("[session-participants] cache-first read failed:", err);
     }
-    // Cache miss → fall through to live Pandora below.
+    // Cache miss handling:
+    //   cacheOnly=1 → return empty immediately (no Pandora call)
+    //   prefer=cache → fall through to live Pandora below
+    if (cacheOnly) {
+      return NextResponse.json(
+        { data: [], cached: false, miss: true },
+        { headers: { "Cache-Control": "no-store", "X-Cache": "MISS-COLD" } },
+      );
+    }
   }
 
-  // Hard timeout on the upstream Pandora fetch. Without this,
-  // browser polls hang indefinitely and stack up in the renderer
-  // until Edge OOM-kills the tab. Falls through to the Redis
-  // fallback path (last successful response) when Pandora is
-  // degraded.
+  // Hard timeout on the upstream Pandora fetch. Two tiers:
   //
-  // 20s ceiling: heavy heats (large rosters, GF/Pro fields) have
-  // measured ~19s upstream when Pandora is partially degraded, and
-  // the cron at 12s couldn't warm the cache for those sessions —
-  // camera-assign saw an empty roster forever. 20s captures those
-  // outliers while staying safely under Vercel's serverless
-  // function limit. Camera-assign auto-poll uses prefer=cache so
-  // most calls never wait this long; only refresh-button + cron-
-  // warmups pay the upstream cost.
+  //   - `?warm=1` → 30s. Cron-driven cache warmups. They run
+  //     every 1-2 min, no user is waiting on them, so let Pandora
+  //     take its time on heavy rosters (GF/Pro heats with ~19s
+  //     upstream during partial degradation). The longer ceiling
+  //     ensures the cache actually populates instead of every cron
+  //     call timing out.
+  //
+  //   - Default → 6s. User-facing requests. Camera-assign auto-
+  //     poll (prefer=cache) returns the warmed cache instantly; a
+  //     cache miss falls through to a quick live attempt and bails
+  //     fast if Pandora is slow. Refresh-button (fresh=1) also
+  //     uses 6s — staff would rather see a quick re-attempt than
+  //     wait 20+ seconds for a single load.
+  //
+  // The cron warmups run independently against `?warm=1`, so even
+  // when user-facing calls fail-fast the cache stays populated for
+  // the next attempt.
+  const isWarmCall = searchParams.get("warm") === "1";
+  const timeoutMs = isWarmCall ? 30_000 : 6_000;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     // Always pull the unpaid superset from Pandora — single cache
@@ -243,7 +265,7 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId);
     const isTimeout = err instanceof Error && err.name === "AbortError";
     console.error(
-      `[session-participants] ${isTimeout ? "TIMEOUT (>20s)" : "fetch error"}:`,
+      `[session-participants] ${isTimeout ? `TIMEOUT (>${timeoutMs / 1000}s, warm=${isWarmCall})` : "fetch error"}:`,
       err,
     );
     return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, isTimeout ? "timeout" : "fetch-failed");

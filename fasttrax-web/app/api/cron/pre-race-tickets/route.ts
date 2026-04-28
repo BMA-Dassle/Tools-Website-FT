@@ -96,11 +96,17 @@ function todayETRange(): { startDate: string; endDate: string } {
 
 async function fetchSessions(resourceName: string): Promise<PandoraSession[]> {
   const { startDate, endDate } = todayETRange();
+  // warm=1 → 30s upstream timeout. We're a cron, no user is
+  // waiting, so let Pandora take its time — the whole point is
+  // to populate the Redis cache so subsequent user-facing calls
+  // (camera-assign auto-poll, e-ticket polls) hit the warmed
+  // cache instead of paying the upstream cost themselves.
   const qs = new URLSearchParams({
     locationId: FASTTRAX_LOCATION_ID,
     resourceName,
     startDate,
     endDate,
+    warm: "1",
   }).toString();
   const res = await fetch(`${BASE}/api/pandora/sessions?${qs}`, { cache: "no-store" });
   if (!res.ok) return [];
@@ -109,8 +115,9 @@ async function fetchSessions(resourceName: string): Promise<PandoraSession[]> {
 }
 
 async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
+  // warm=1 → 30s upstream timeout (cron warm-up path — see fetchSessions).
   const res = await fetch(
-    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}`,
+    `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&warm=1`,
     {
       cache: "no-store",
       // Server-only call — pass the internal trust header so the
