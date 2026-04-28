@@ -38,7 +38,12 @@ export const APPETIZER_RETAIL_VALUE = 15;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export type PackageId = "rookie-pack" | "ultimate-qualifier-mega";
+export type PackageId =
+  | "rookie-pack-mega"
+  | "rookie-pack-weekday"
+  | "rookie-pack-weekend"
+  | "ultimate-qualifier-mega"
+  | "rookie-pack"; // legacy alias kept for confirmation-page back-compat
 export type Schedule = "weekday" | "weekend" | "mega";
 
 export interface PackageRaceComponent {
@@ -119,29 +124,116 @@ const ROOKIE_PACK_ENABLED = process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1";
 const ULTIMATE_QUALIFIER_ENABLED =
   (process.env.NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED || "true").toLowerCase() !== "false";
 
+const ROOKIE_LONG = "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).";
+
 const PACKAGES: PackageDefinition[] = [
-  // ── Rookie Pack ───────────────────────────────────────────────────────────
-  // Migrated from the hard-coded chooser in PovUpsell.tsx so the picker
-  // can render it as a top-level card and the POV step can keep
-  // offering it as an upgrade for users who picked a plain Starter.
+  // ── Rookie Pack — Mega (Tuesday) ──────────────────────────────────────────
+  // Per-schedule variants so the picker can render a single card with
+  // a definitive Starter race component (vs. the old `races: []` form
+  // that needed extra plumbing to combine with a separately-picked
+  // race). Pricing auto-sums from the components.
+  {
+    id: "rookie-pack-mega",
+    name: "Rookie Pack",
+    shortDescription: "Starter Mega + License + POV + free appetizer",
+    longDescription: ROOKIE_LONG,
+    enabled: ROOKIE_PACK_ENABLED,
+    racerType: "new",
+    schedules: ["mega"],
+    category: "any",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24965505",
+        pageId: "24966930",
+        label: "Starter Race Mega",
+        tier: "starter",
+        track: "Mega",
+        price: 20.99,
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "rookie-pack",
+  },
+  // ── Rookie Pack — Weekday (Mon/Wed/Thu) ───────────────────────────────────
+  // Defaults to Blue Track. Customers wanting Red Rookie Pack can pick
+  // a regular Red starter and add the bundle at the POV step (existing
+  // PovUpsell upgrade path still works there).
+  {
+    id: "rookie-pack-weekday",
+    name: "Rookie Pack",
+    shortDescription: "Starter Race Blue + License + POV + free appetizer",
+    longDescription: ROOKIE_LONG,
+    enabled: ROOKIE_PACK_ENABLED,
+    racerType: "new",
+    schedules: ["weekday"],
+    category: "any",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24960393",
+        pageId: "24961568",
+        label: "Starter Race Blue",
+        tier: "starter",
+        track: "Blue",
+        price: 20.99,
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "rookie-pack",
+  },
+  // ── Rookie Pack — Weekend (Fri/Sat/Sun) ───────────────────────────────────
+  {
+    id: "rookie-pack-weekend",
+    name: "Rookie Pack",
+    shortDescription: "Starter Race Blue + License + POV + free appetizer",
+    longDescription: ROOKIE_LONG,
+    enabled: ROOKIE_PACK_ENABLED,
+    racerType: "new",
+    schedules: ["weekend"],
+    category: "any",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        productId: "24952964",
+        pageId: "24871574",
+        label: "Starter Race Blue",
+        tier: "starter",
+        track: "Blue",
+        price: 26.99,
+      },
+    ],
+    includesLicense: true,
+    includesPov: true,
+    appetizerCode: "RACEAPP",
+    cartLineKey: "rookie-pack",
+  },
+  // ── Legacy alias — `rookie-pack` ──────────────────────────────────────────
+  // Keeps `getPackageIgnoreFlag("rookie-pack")` returning a working
+  // entry for OLD bookings whose booking record still has
+  // `package: "rookie-pack"` from the pre-split deploy. Disabled so
+  // it never renders on the picker. New bookings write one of the
+  // per-schedule ids above instead.
   {
     id: "rookie-pack",
     name: "Rookie Pack",
     shortDescription: "Starter race + license + POV + free appetizer",
-    longDescription:
-      "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).",
-    enabled: ROOKIE_PACK_ENABLED,
+    longDescription: ROOKIE_LONG,
+    enabled: false,
     racerType: "new",
     schedules: ["weekday", "weekend", "mega"],
     category: "any",
-    // No races array — Rookie Pack bundles whatever Starter race the
-    // user picks separately (legacy behavior preserved).
     races: [],
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
-    // license + pov; the Starter race itself is priced separately
-    // because the pack rides on top of it.
     price: LICENSE_PRICE + POV_PRICE,
     cartLineKey: "rookie-pack",
   },

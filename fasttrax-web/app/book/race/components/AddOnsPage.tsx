@@ -37,7 +37,7 @@ interface TimeSlot {
 interface AddOnsPageProps {
   racerCount: number;
   date: string; // YYYY-MM-DD
-  bookedHeats: { start: string; stop: string; track: string | null }[]; // race heats to avoid
+  bookedHeats: { start: string; stop: string; track: string | null; tier?: string | null; label?: string | null }[]; // race heats to avoid
   onContinue: (addOns: AddOnItem[]) => void;
   onBack: () => void;
   initialAddOns?: AddOnItem[];
@@ -256,13 +256,22 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           <div className="flex flex-wrap gap-2">
             {bookedHeats.map((h, i) => {
               const color = h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5";
+              // Prefer a caller-supplied label (e.g. "Starter Race
+              // Mega") if provided; otherwise build from track + tier
+              // so package heats read "Mega Starter" / "Mega
+              // Intermediate" instead of two ambiguous "Mega" pills.
+              const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : null;
+              const display = h.label
+                || (h.track && tierLabel ? `${h.track} ${tierLabel}` : null)
+                || h.track
+                || "Race";
               return (
                 <span
                   key={i}
                   className="px-3 py-1 rounded-full text-xs font-semibold border"
                   style={{ borderColor: color, color, backgroundColor: `${color}15` }}
                 >
-                  🏎️ {formatTime(h.start)} — {h.track ?? "Race"}
+                  🏎️ {formatTime(h.start)} — {display}
                 </span>
               );
             })}

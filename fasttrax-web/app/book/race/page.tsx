@@ -736,6 +736,66 @@ export default function BookRacePage() {
     }
     setBookings(newBookings);
 
+    // ── Auto-add License + POV to the BMI bill ────────────────────
+    //
+    // The package's bundle price INCLUDES license + POV, so they
+    // need to be on the bill as line items — otherwise BMI's payment
+    // step undercharges by ~$10/racer. Mirrors the auto-adds that
+    // run in handleConfirmHeat (license) and handleContinue (POV)
+    // for the regular-race / PovUpsell flows.
+    const totalRacers = quantity || (adults + juniors) || 1;
+    if (selectedPackage.includesLicense && billId && !licenseSoldRef.current) {
+      try {
+        const sellBody = `{"ProductId":43473520,"Quantity":${totalRacers},"orderId":${billId}}`;
+        const sellQs = new URLSearchParams({ endpoint: "booking/sell" });
+        const sellRes = await fetch(`/api/bmi?${sellQs.toString()}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: sellBody,
+        });
+        const sellRaw = await sellRes.text();
+        const sellResult = JSON.parse(sellRaw);
+        if (sellResult.success !== false) {
+          licenseSoldRef.current = true;
+          const lineId = String(sellRaw.match(/"orderItemId"\s*:\s*(\d+)/)?.[1] || "");
+          setLicenseSold({ quantity: totalRacers, billLineId: lineId || null });
+        }
+      } catch (err) {
+        console.warn("[package license sell] error (non-fatal):", err);
+      }
+    }
+    if (selectedPackage.includesPov && billId) {
+      try {
+        const povRes = await fetch("/api/sms?endpoint=booking%2Fsell", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify([{
+            productId: "43746981", // POV product
+            pageId: null,
+            quantity: totalRacers,
+            billId,
+            dynamicLines: null,
+            sellKind: 0,
+          }]),
+        });
+        const povResult = await povRes.json();
+        const povLineId = povResult?.parentBillLineId ? String(povResult.parentBillLineId) : undefined;
+        // Mirror the rookie-pack PovSelection shape so cart-sync,
+        // OrderSummary, and the booking-record write all see a
+        // populated POV. `rookiePack: true` keeps confirmation-page
+        // back-compat for any code path that still reads it.
+        setSelectedPov({
+          id: "43746981",
+          quantity: totalRacers,
+          price: 5,
+          billLineId: povLineId,
+          rookiePack: selectedPackage.id.startsWith("rookie-pack"),
+        });
+      } catch (err) {
+        console.warn("[package POV sell] error (non-fatal):", err);
+      }
+    }
+
     // Skip the POV step when the package already bundles POV — for
     // both Rookie Pack and Ultimate Qualifier this means jumping
     // straight to add-ons.
@@ -1514,17 +1574,16 @@ export default function BookRacePage() {
                   selected={selectedProduct}
                   onSelect={handleProductSelect}
                   packages={
-                    // V1 scope: only packages that OWN races render on
-                    // the picker (Ultimate Qualifier). The Rookie Pack
-                    // registry entry has races: [] and continues to
-                    // surface via PovUpsell's chooser — Phase 2 will
-                    // migrate it to the picker.
+                    // All eligible packages render — Rookie Pack now
+                    // has per-schedule variants (each with its own
+                    // Starter race component) so the legacy
+                    // races.length > 0 filter is no longer needed.
                     selectedDate
                       ? eligiblePackages({
                           racerType,
                           schedule: scheduleForDate(selectedDate),
                           category: bookingCategory,
-                        }).filter((p) => p.races.length > 0)
+                        }).filter((p) => p.id !== "rookie-pack")
                       : []
                   }
                   racerCount={adults + juniors}
@@ -1816,7 +1875,7 @@ export default function BookRacePage() {
           <AddOnsPage
             racerCount={bookings.reduce((s, b) => s + b.quantity, 0)}
             date={selectedDate || ""}
-            bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track }))}
+            bookedHeats={bookings.map(b => ({ start: b.block.start, stop: b.block.stop, track: b.product.track, tier: b.product.tier, label: b.product.name }))}
             initialAddOns={selectedAddOns}
             onContinue={async (addOns) => {
               trackBookingAddOns(addOns.filter(a => a.quantity > 0).map(a => a.shortName));

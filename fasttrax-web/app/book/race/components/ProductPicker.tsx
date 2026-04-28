@@ -499,25 +499,35 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   })();
   const youSave = Math.max(0, retail - total);
 
+  // Race-count tag — gives the customer a clear "this is a 1-race
+  // package" / "this is a 2-race package" cue alongside the
+  // package label.
+  const raceCount = pkg.races.length;
+  const raceCountLabel = raceCount === 1 ? "1 RACE" : `${raceCount} RACES`;
+
   return (
     <button
       type="button"
       onClick={() => onSelect(pkg)}
       className="text-left rounded-xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 to-amber-500/5 p-5 transition-all duration-200 hover:border-amber-500/60 hover:from-amber-500/15 hover:to-amber-500/8"
     >
-      {/* Header — name + total. Total leads so the customer sees
-          what they're paying for the bundle up front. */}
+      {/* Header — name + race-count tag on the left, big total on the
+          right. Customer reads top-to-bottom: "what is this and how
+          many races · how much it costs". */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-amber-400 text-[11px] font-bold uppercase tracking-widest">
             {pkg.name}
+          </span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-100 uppercase tracking-wider">
+            {raceCountLabel}
           </span>
           {racers > 1 && (
             <span className="text-white/30 text-xs">{racers} racers</span>
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className="text-amber-300 font-bold text-lg leading-none">
+          <p className="text-amber-300 font-bold text-2xl leading-none">
             ${total.toFixed(2)}
           </p>
           {loading && (
@@ -528,7 +538,10 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
 
       <p className="text-white/60 text-xs leading-relaxed mb-3">{pkg.longDescription}</p>
 
-      {/* Itemized "What's included" — per-racer × N + line totals */}
+      {/* What's included — items show "Included" rather than line
+          totals so the headline price stays the focal point. The
+          footnote on the appetizer line keeps the "1 per group"
+          caveat visible. */}
       <ul className="space-y-1 text-xs text-white/75 mb-2">
         {lines.map((l) => (
           <li key={l.key} className="flex items-baseline justify-between gap-2">
@@ -537,22 +550,18 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
               {l.quantity > 1 && <span className="text-white/40"> × {l.quantity}</span>}
               {l.freeNote && <span className="text-white/40"> ({l.freeNote})</span>}
             </span>
-            <span className={l.lineTotal === 0 ? "text-emerald-300 font-semibold" : "text-white/60"}>
-              {l.lineTotal === 0 ? "FREE" : `$${l.lineTotal.toFixed(2)}`}
+            <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">
+              Included
             </span>
           </li>
         ))}
       </ul>
 
-      {/* Total + savings line — savings only shown when meaningful. */}
-      <div className="flex items-baseline justify-between text-sm pt-3 border-t border-amber-500/20">
-        <span className="text-amber-400 font-bold uppercase tracking-wider text-xs">
-          {pkg.name} total
-        </span>
-        <span className="text-white font-bold">${total.toFixed(2)}</span>
-      </div>
+      {/* Savings line — anchored to retail comparison so customer
+          sees the bundle value vs. piecing the gear together at the
+          counter (POV at check-in price + appetizer at menu retail). */}
       {youSave > 0 && (
-        <div className="flex items-baseline justify-between text-xs mt-1.5">
+        <div className="flex items-baseline justify-between text-xs mt-3 pt-3 border-t border-amber-500/20">
           <span className="text-amber-400 font-bold">💰 You save ${youSave.toFixed(2)}</span>
           <span className="text-white/40 line-through">${retail.toFixed(2)}</span>
         </div>
