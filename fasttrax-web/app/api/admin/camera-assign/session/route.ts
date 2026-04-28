@@ -187,9 +187,28 @@ export async function GET(req: NextRequest) {
     // render even during Pandora outages.
     const refresh = searchParams.get("refresh") === "1";
 
-    // Resolve which track resources to query. No track = all three.
+    // Resolve which track resources to query.
+    //
+    // - Explicit `?track=...` → just that one (kiosk dedicated to a track).
+    // - No track + Tuesday (Mega day) → Mega Track ONLY.
+    // - No track + other days → Blue + Red (Mega isn't running).
+    //
+    // Was: "no track = all three resources" — meant Tuesdays burned
+    // 2 wasted Pandora calls (Blue + Red have no sessions), and
+    // other days burned 1 wasted call (Mega). Each call is ~1-2s
+    // normally, 12s+ during Pandora outages, so trimming wasted ones
+    // cuts load and makes the page snappier.
     const requestedResource = trackSlugToResource(trackParam);
-    const resources = requestedResource ? [requestedResource] : (TRACK_RESOURCES as readonly string[]);
+    const weekdayET = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+    }).format(new Date());
+    const isMegaDay = weekdayET === "Tue";
+    const resources: readonly string[] = requestedResource
+      ? [requestedResource]
+      : isMegaDay
+        ? ["Mega Track"]
+        : ["Blue Track", "Red Track"];
 
     const now = Date.now();
 
@@ -222,10 +241,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Live mode: look ~8 days forward so we catch whatever's next, even
-    // if today is a closed day. Also look back 1 day so an in-progress
-    // session (started <1h ago) still shows up.
-    const { startDate, endDate } = rangeETForDays(1, 8);
+    // Live mode: TODAY only. Look 1 day back + 1 day forward so the
+    // ET-day window is fully covered (the UTC day boundaries can clip
+    // ET evening heats if you query just one calendar day). Was 8
+    // days forward, which dragged in dozens of upcoming heats the
+    // camera-assign page never displays — wasted Pandora payload +
+    // longer timeout exposure during outages.
+    const { startDate, endDate } = rangeETForDays(1, 1);
 
     // ── Latency optimization ────────────────────────────────────────
     //
