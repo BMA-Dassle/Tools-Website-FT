@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { BmiProposal, BmiBlock, BmiProduct } from "../data";
 import { bmiPost } from "../data";
 import type { PackageDefinition, PackageRaceComponent } from "@/lib/packages";
@@ -14,23 +14,21 @@ import {
 /**
  * Multi-component heat picker for packages with more than one race
  * (Ultimate Qualifier — Starter Mega → Intermediate Mega ≥ 60 min
- * later). Mirrors the race-pack PackHeatPicker UX so customers
- * already familiar with that flow see the same single-screen
- * pattern: every component's heats laid out at once, one selection
- * per component, single commit button at the bottom.
+ * later). Mirrors PackHeatPicker's UX: ONE merged grid showing all
+ * heats from all components tagged with their tier, ProgressDots
+ * tracking picks, SelectedHeats chips previewing the selection,
+ * and a single Confirm CTA at the bottom.
  *
- * vs. PackHeatPicker:
- *   - Sections by component (Starter, Intermediate) instead of one
- *     merged grid — clearer when the same time on different tiers
- *     is meaningful.
- *   - Per-component cross-rules: package's `minMinutesAfterEndOf`
- *     gap (e.g. Intermediate ≥ 60 min after Starter ends) plus
- *     standard same/cross-track adjacency from `lib/heat-conflict`.
- *   - Multi-racer "all share heats" — `quantity` reserves N seats
- *     on each chosen heat.
+ * Selection model:
+ *   - One pick PER COMPONENT (radio per component, not Set-of-N
+ *     like the race-pack flow which picks any-N-from-same-product).
+ *   - Clicking a heat from component X replaces the previous pick
+ *     for X. Click again to deselect.
+ *   - Cross-component rules: package gap (Intermediate ≥ 60 min
+ *     after Starter STOP) + standard same/cross-track adjacency.
  *
- * Outputs the same `{ picks: PackagePick[] }` shape the parent
- * page.tsx expects so handlePackageHeatsConfirm doesn't change.
+ * Outputs `{ picks: PackagePick[] }` so handlePackageHeatsConfirm
+ * doesn't change.
  */
 
 export interface PackagePick {
@@ -41,12 +39,9 @@ export interface PackagePick {
 
 interface PackageHeatPickerProps {
   pkg: PackageDefinition;
-  date: string;          // YYYY-MM-DD
-  quantity: number;      // racer count
-  /** Other heats already in the cart (cross-track / cross-day). */
+  date: string;
+  quantity: number;
   bookedHeats?: { start: string; stop: string; track: string | null }[];
-  /** Minimum lead time before a heat can be booked (e.g. new-racer
-   *  "must arrive 75 min early" rule). Forwarded to all components. */
   minAdvanceMinutes?: number;
   onConfirm: (result: { picks: PackagePick[] }) => void;
   onBack: () => void;
@@ -73,7 +68,186 @@ function spotsLabel(free: number, capacity: number): { text: string; label: stri
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-// ── Component ───────────────────────────────────────────────────────────────
+/** Tagged proposal — annotated with the component ref it belongs to
+ *  so a single merged grid can route clicks to the right "slot". */
+type TaggedProposal = BmiProposal & { _componentRef: string };
+
+/** Color tokens by tier so the badge on each card pops the way the
+ *  Red/Blue/Mega track badges do on race-pack cards. */
+const TIER_BADGE: Record<string, { bg: string; text: string }> = {
+  starter: { bg: "bg-[#00E2E5]/20", text: "text-[#00E2E5]" },
+  intermediate: { bg: "bg-amber-500/20", text: "text-amber-300" },
+  pro: { bg: "bg-purple-500/20", text: "text-purple-300" },
+};
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function ProgressDots({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center justify-center gap-2">
+      {Array.from({ length: total }, (_, i) => (
+        <div
+          key={i}
+          className={`w-2.5 h-2.5 rounded-full transition-colors ${
+            i < current
+              ? "bg-amber-400"
+              : i === current
+                ? "bg-amber-500/40 ring-2 ring-amber-500/30"
+                : "bg-white/15"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SelectedHeats({
+  picks,
+  components,
+}: {
+  picks: Record<string, PackagePick | null>;
+  components: PackageRaceComponent[];
+}) {
+  const filled = components.filter((c) => picks[c.ref] != null);
+  if (filled.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+      <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">Heats Selected</p>
+      {filled.map((c) => {
+        const p = picks[c.ref]!;
+        return (
+          <div key={c.ref} className="flex justify-between text-sm text-white/70">
+            <span>{c.label}</span>
+            <span className="text-white/40">{formatTime(p.block.start)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HeatGrid({
+  proposals,
+  components,
+  picks,
+  onToggle,
+  quantity,
+  bookedHeats,
+  cutoff,
+}: {
+  proposals: TaggedProposal[];
+  components: PackageRaceComponent[];
+  picks: Record<string, PackagePick | null>;
+  onToggle: (proposal: TaggedProposal, block: BmiBlock) => void;
+  quantity: number;
+  bookedHeats: { start: string; stop: string; track: string | null }[];
+  cutoff: number;
+}) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+      {proposals.map((proposal, idx) => {
+        const block = proposal.blocks?.[0]?.block;
+        if (!block) return null;
+        const blockStart = parseLocal(block.start).getTime();
+        const component = components.find((c) => c.ref === proposal._componentRef);
+        if (!component) return null;
+        const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
+
+        const myPick = picks[component.ref];
+        const isSelected = !!(myPick && myPick.proposal === proposal);
+
+        // Lead-time cutoff
+        const tooSoon = cutoff > 0 && blockStart < cutoff;
+
+        // Package gap rule against the referenced component's pick.
+        const gapRule = component.minMinutesAfterEndOf;
+        const refPick = gapRule ? picks[gapRule.ref] : null;
+        const gapAnchor = refPick && gapRule
+          ? { stop: refPick.block.stop, minutes: gapRule.minutes, refLabel: refPick.component.label }
+          : null;
+        const isGapViolation = gapAnchor
+          ? violatesMinGapAfter(gapAnchor.stop, block.start, gapAnchor.minutes)
+          : false;
+
+        // Same/cross-track adjacency vs. EVERY pick from another
+        // component + the external bookedHeats list.
+        const otherPicks = Object.entries(picks)
+          .filter(([ref, p]) => ref !== component.ref && p != null)
+          .map(([, p]) => p as PackagePick);
+        const isConflict =
+          bookedHeats.some((bh) =>
+            heatsConflict(parseLocal(bh.start).getTime(), bh.track, blockStart, component.track),
+          ) ||
+          otherPicks.some((p) =>
+            heatsConflict(parseLocal(p.block.start).getTime(), p.component.track, blockStart, component.track),
+          );
+
+        const isLowCap = block.freeSpots < quantity;
+        const isFull = !isSelected && (isLowCap || isConflict || isGapViolation || tooSoon);
+
+        const statusLabel = isGapViolation && gapAnchor
+          ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+          : isConflict
+            ? "Too close to picked heat"
+            : tooSoon
+              ? "Too soon — needs lead time"
+              : isLowCap
+                ? `Need ${quantity}, only ${block.freeSpots} left`
+                : spotsLabel(block.freeSpots, block.capacity).label;
+
+        const statusClass = isGapViolation || isConflict || tooSoon
+          ? "text-amber-400"
+          : isLowCap
+            ? "text-red-400"
+            : spotsLabel(block.freeSpots, block.capacity).text;
+
+        const cardTooltip = isGapViolation && gapAnchor
+          ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
+          : isConflict
+            ? HEAT_CONFLICT_TOOLTIP
+            : undefined;
+
+        return (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => !isFull && onToggle(proposal, block)}
+            disabled={isFull}
+            title={cardTooltip}
+            className={`rounded-xl border p-3 text-left transition-all duration-150 ${
+              isSelected
+                ? "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50"
+                : isFull
+                  ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
+                  : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
+            }`}
+          >
+            {/* Tier badge — same role the Red/Blue track badge plays
+                on race-pack cards. Tells the customer at a glance
+                whether this heat is the Starter slot or Intermediate. */}
+            <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${tierBadge.bg} ${tierBadge.text}`}>
+              {component.tier}
+            </div>
+            <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
+            <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
+            <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
+            <div className={`text-[13px] font-medium ${statusClass}`}>
+              {statusLabel}
+            </div>
+            <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                style={{ width: (isConflict || isGapViolation) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
+              />
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
 
 export default function PackageHeatPicker({
   pkg,
@@ -89,87 +263,90 @@ export default function PackageHeatPicker({
     [pkg],
   );
   const totalComponents = components.length;
+  const ctaRef = useRef<HTMLDivElement>(null);
 
-  // Picks indexed by component.ref. null = not yet chosen.
   const [picks, setPicks] = useState<Record<string, PackagePick | null>>(() => {
     const seed: Record<string, PackagePick | null> = {};
     for (const c of components) seed[c.ref] = null;
     return seed;
   });
-
-  // Per-component proposals fetched from BMI on mount.
-  const [proposalsByRef, setProposalsByRef] = useState<Record<string, BmiProposal[]>>({});
+  const [proposals, setProposals] = useState<TaggedProposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const ctaRef = useRef<HTMLDivElement>(null);
 
-  // Fetch availability for every component in parallel — one
-  // /api/bmi?endpoint=availability call per productId. BMI's
-  // current proxy returns the full day in one shot.
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const dateOnly = date.split("T")[0];
-        const fetches = components.map(async (c) => {
-          const data = await bmiPost(
-            "availability",
-            {
-              ProductId: Number(c.productId),
-              PageId: Number(c.pageId),
-              Quantity: 1,
-              OrderId: null,
-              PersonId: null,
-              DynamicLines: [],
-            },
-            { date: dateOnly },
-          );
-          const proposals: BmiProposal[] = data?.proposals || [];
-          proposals.sort((a, b) => {
-            const aS = a.blocks?.[0]?.block?.start || "";
-            const bS = b.blocks?.[0]?.block?.start || "";
-            return aS.localeCompare(bS);
-          });
-          return [c.ref, proposals] as const;
-        });
-        const results = await Promise.all(fetches);
-        if (cancelled) return;
-        const next: Record<string, BmiProposal[]> = {};
-        for (const [ref, props] of results) next[ref] = props;
-        setProposalsByRef(next);
-      } catch {
-        if (!cancelled) setError("Couldn't load time slots. Please try again.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  // Lead-time cutoff anchored at mount — Date.now() is impure in
+  // render under our ESLint config.
+  const cutoff = useMemo(
+    () => (minAdvanceMinutes > 0 ? Date.now() + minAdvanceMinutes * 60_000 : 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Fetch heats for every component in parallel and merge into ONE
+  // tagged list. Each proposal carries `_componentRef` so the grid
+  // knows which "slot" a click goes to.
+  const fetchHeats = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const dateOnly = date.split("T")[0];
+      const fetches = components.map(async (c) => {
+        const data = await bmiPost(
+          "availability",
+          {
+            ProductId: Number(c.productId),
+            PageId: Number(c.pageId),
+            Quantity: 1,
+            OrderId: null,
+            PersonId: null,
+            DynamicLines: [],
+          },
+          { date: dateOnly },
+        );
+        const props: BmiProposal[] = data?.proposals || [];
+        return props.map((p) => ({ ...p, _componentRef: c.ref } as TaggedProposal));
+      });
+      const all = (await Promise.all(fetches)).flat();
+      // Sort by start time so the grid reads top-to-bottom
+      // chronologically. Tiers are visually distinct via the
+      // badge so mixing them in one grid is clear.
+      all.sort((a, b) => {
+        const aS = a.blocks?.[0]?.block?.start || "";
+        const bS = b.blocks?.[0]?.block?.start || "";
+        return aS.localeCompare(bS);
+      });
+      setProposals(all);
+    } catch {
+      setError("Couldn't load time slots. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    load();
-    return () => { cancelled = true; };
   }, [components, date]);
 
-  // Auto-scroll the CTA into view when all picks are filled.
+  useEffect(() => { fetchHeats(); }, [fetchHeats]);
+
+  // Auto-scroll the CTA when the user fills in the last pick.
+  const pickedCount = components.filter((c) => picks[c.ref] != null).length;
+  const allPicked = pickedCount === totalComponents;
   useEffect(() => {
-    const allPicked = components.every((c) => picks[c.ref] != null);
     if (allPicked) {
       setTimeout(() => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     }
-  }, [picks, components]);
+  }, [allPicked]);
 
-  function pickHeat(component: PackageRaceComponent, proposal: BmiProposal, block: BmiBlock) {
-    setPicks((prev) => ({
-      ...prev,
-      [component.ref]: { component, proposal, block },
-    }));
+  function toggleHeat(proposal: TaggedProposal, block: BmiBlock) {
+    const component = components.find((c) => c.ref === proposal._componentRef);
+    if (!component) return;
+    setPicks((prev) => {
+      // Deselect when clicking the already-picked heat for this
+      // component; otherwise replace the slot's pick.
+      const current = prev[component.ref];
+      if (current && current.proposal === proposal) {
+        return { ...prev, [component.ref]: null };
+      }
+      return { ...prev, [component.ref]: { component, proposal, block } };
+    });
   }
-
-  function clearPick(ref: string) {
-    setPicks((prev) => ({ ...prev, [ref]: null }));
-  }
-
-  const allPicked = components.every((c) => picks[c.ref] != null);
-  const pickedCount = components.filter((c) => picks[c.ref] != null).length;
 
   const displayDate = parseLocal(date + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
@@ -177,12 +354,13 @@ export default function PackageHeatPicker({
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
-      {/* Header */}
-      <div className="text-center space-y-1">
-        <p className="text-amber-400 text-[11px] font-bold uppercase tracking-widest">
+      {/* Header — package name + race count. Mirrors PackHeatPicker's
+          "Pick {totalRaces} heats — $X.XX total" line. */}
+      <div className="text-center">
+        <p className="text-amber-400 text-[11px] font-bold uppercase tracking-widest mb-1">
           {pkg.name}
         </p>
-        <h2 className="text-2xl font-display uppercase tracking-widest text-white">
+        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
           Pick Your Heats
         </h2>
         <p className="text-white/50 text-sm">
@@ -190,31 +368,8 @@ export default function PackageHeatPicker({
         </p>
       </div>
 
-      {/* Progress dots — visual cue of how many picks are in. */}
-      <div className="flex items-center justify-center gap-2">
-        {components.map((c, i) => {
-          const filled = picks[c.ref] != null;
-          return (
-            <div
-              key={c.ref}
-              className={`flex items-center gap-2 ${i > 0 ? "ml-2" : ""}`}
-            >
-              <div
-                className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                  filled ? "bg-amber-400" : "bg-white/15"
-                }`}
-              />
-              <span
-                className={`text-[11px] uppercase tracking-widest ${
-                  filled ? "text-amber-400" : "text-white/30"
-                }`}
-              >
-                {c.label.replace(/^Starter Race\s+|^Intermediate Race\s+|^Pro Race\s+/i, "")}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <ProgressDots current={pickedCount} total={totalComponents} />
+      <SelectedHeats picks={picks} components={components} />
 
       {loading ? (
         <div className="h-48 flex items-center justify-center">
@@ -223,29 +378,29 @@ export default function PackageHeatPicker({
       ) : error ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <p className="text-red-400 text-sm">{error}</p>
+          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">Retry</button>
+        </div>
+      ) : proposals.length === 0 ? (
+        <div className="h-48 flex flex-col items-center justify-center gap-3">
+          <p className="text-white/40 text-sm">No heats available for this date.</p>
         </div>
       ) : (
-        <div className="space-y-8">
-          {components.map((component) => (
-            <ComponentSection
-              key={component.ref}
-              component={component}
-              proposals={proposalsByRef[component.ref] || []}
-              picks={picks}
-              quantity={quantity}
-              bookedHeats={bookedHeats}
-              minAdvanceMinutes={minAdvanceMinutes}
-              onPick={(p, b) => pickHeat(component, p, b)}
-              onClear={() => clearPick(component.ref)}
-            />
-          ))}
+        <>
+          <HeatGrid
+            proposals={proposals}
+            components={components}
+            picks={picks}
+            onToggle={toggleHeat}
+            quantity={quantity}
+            bookedHeats={bookedHeats}
+            cutoff={cutoff}
+          />
 
-          {/* Commit CTA */}
           <div
             ref={ctaRef}
             className={`rounded-xl border p-5 transition-all duration-300 ${
               allPicked
-                ? "border-[#00E2E5]/40 bg-[#00E2E5]/8"
+                ? "border-amber-500/40 bg-amber-500/8"
                 : "border-white/10 bg-white/3"
             }`}
           >
@@ -254,21 +409,21 @@ export default function PackageHeatPicker({
                 <div>
                   <p className="text-white/50 text-xs mb-1">All {totalComponents} heats selected</p>
                   <p className="text-white/70 text-sm">
-                    {components
-                      .map((c) => `${c.label} · ${formatTime(picks[c.ref]!.block.start)}`)
-                      .join(" → ")}
+                    {components.map((c) => `${c.label} · ${formatTime(picks[c.ref]!.block.start)}`).join(" → ")}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() =>
                     onConfirm({
-                      picks: components.map((c) => picks[c.ref]!).filter((p): p is PackagePick => p != null),
+                      picks: components
+                        .map((c) => picks[c.ref])
+                        .filter((p): p is PackagePick => p != null),
                     })
                   }
-                  className="shrink-0 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
+                  className="shrink-0 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-amber-400 text-[#000418] hover:bg-amber-300 transition-colors shadow-lg shadow-amber-500/25"
                 >
-                  Lock in heats →
+                  Confirm &amp; Continue to Checkout →
                 </button>
               </div>
             ) : (
@@ -277,7 +432,7 @@ export default function PackageHeatPicker({
               </p>
             )}
           </div>
-        </div>
+        </>
       )}
 
       <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
@@ -287,160 +442,4 @@ export default function PackageHeatPicker({
   );
 }
 
-// ── Component section ──────────────────────────────────────────────────────
-
-function ComponentSection({
-  component,
-  proposals,
-  picks,
-  quantity,
-  bookedHeats,
-  minAdvanceMinutes,
-  onPick,
-  onClear,
-}: {
-  component: PackageRaceComponent;
-  proposals: BmiProposal[];
-  picks: Record<string, PackagePick | null>;
-  quantity: number;
-  bookedHeats: { start: string; stop: string; track: string | null }[];
-  minAdvanceMinutes: number;
-  onPick: (proposal: BmiProposal, block: BmiBlock) => void;
-  onClear: () => void;
-}) {
-  const myPick = picks[component.ref];
-
-  // Gap rule: when this component declares a `minMinutesAfterEndOf`,
-  // any candidate heat must start ≥ N minutes after the referenced
-  // component's chosen heat ENDS. If the referenced component isn't
-  // picked yet, the rule is inert (no candidates blocked) — but the
-  // section header tells the user to pick that one first.
-  const gapRule = component.minMinutesAfterEndOf;
-  const refPick = gapRule ? picks[gapRule.ref] : null;
-  const gapAnchor = refPick && gapRule ? { stop: refPick.block.stop, minutes: gapRule.minutes, refLabel: refPick.component.label } : null;
-
-  // Same-time picks from OTHER components in the package — used to
-  // run standard same-track / cross-track adjacency conflict so we
-  // don't accidentally book two heats that overlap or are too close
-  // for the racer to walk between.
-  const otherPicks = Object.entries(picks)
-    .filter(([ref, p]) => ref !== component.ref && p != null)
-    .map(([, p]) => p as PackagePick);
-
-  // Lead-time cutoff — anchored at component mount so re-renders
-  // don't shift it. `Date.now()` is impure in render under our
-  // ESLint config; useMemo + empty deps locks it down.
-  const cutoff = useMemo(
-    () => (minAdvanceMinutes > 0 ? Date.now() + minAdvanceMinutes * 60_000 : 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  return (
-    <section className="space-y-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <div>
-          <h3 className="text-white font-bold text-base">{component.label}</h3>
-          {gapRule && !refPick && (
-            <p className="text-amber-400/70 text-xs mt-0.5">
-              Pick your {gapRule.ref} heat first to see options here.
-            </p>
-          )}
-        </div>
-        {myPick && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-white/40 hover:text-white/70 text-xs underline"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-        {proposals.map((proposal, idx) => {
-          const block = proposal.blocks?.[0]?.block;
-          if (!block) return null;
-          const blockStart = parseLocal(block.start).getTime();
-
-          // Lead-time cutoff (new-racer 75-min rule etc.)
-          const tooSoon = cutoff > 0 && blockStart < cutoff;
-
-          // Gap rule against the referenced component's pick.
-          const isGapViolation = gapAnchor
-            ? violatesMinGapAfter(gapAnchor.stop, block.start, gapAnchor.minutes)
-            : false;
-
-          // Same/cross-track adjacency conflict against:
-          //  - heats already in the customer's cart (cross-day, etc.)
-          //  - sibling-component picks within this package
-          const isConflict =
-            bookedHeats.some((bh) =>
-              heatsConflict(parseLocal(bh.start).getTime(), bh.track, blockStart, component.track),
-            ) ||
-            otherPicks.some((p) =>
-              heatsConflict(parseLocal(p.block.start).getTime(), p.component.track, blockStart, component.track),
-            );
-
-          const isLowCap = block.freeSpots < quantity;
-          const isFull = isLowCap || isConflict || isGapViolation || tooSoon;
-          const isSelected = !!(myPick && myPick.proposal === proposal);
-
-          const statusLabel = isGapViolation && gapAnchor
-            ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
-            : isConflict
-              ? "Too close to picked heat"
-              : tooSoon
-                ? "Too soon — needs lead time"
-                : isLowCap
-                  ? `Need ${quantity}, only ${block.freeSpots} left`
-                  : spotsLabel(block.freeSpots, block.capacity).label;
-
-          const statusClass = isGapViolation || isConflict || tooSoon
-            ? "text-amber-400"
-            : isLowCap
-              ? "text-red-400"
-              : spotsLabel(block.freeSpots, block.capacity).text;
-
-          const cardTooltip = isGapViolation && gapAnchor
-            ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
-            : isConflict
-              ? HEAT_CONFLICT_TOOLTIP
-              : undefined;
-
-          return (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => {
-                if (isFull) return;
-                onPick(proposal, block);
-              }}
-              disabled={isFull}
-              title={cardTooltip}
-              className={`rounded-xl border p-3 text-left transition-all duration-150 ${
-                isSelected
-                  ? "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50"
-                  : isFull
-                    ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                    : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
-              }`}
-            >
-              <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
-              <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
-              <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-              <div className={`text-[13px] font-medium ${statusClass}`}>
-                {statusLabel}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-// Re-export types used by callers — lets page.tsx import
-// `PackagePick` from here without reaching into lib/packages.
 export type { BmiProduct };
