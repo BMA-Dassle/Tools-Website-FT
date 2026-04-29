@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import type { RaceTicket } from "@/lib/race-tickets";
-import TrackStatus from "@/components/home/TrackStatus";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import {
   CheckingInCard,
@@ -13,6 +13,17 @@ import {
   minutesUntil,
 } from "./cards";
 import ImportantRaceInfo from "./ImportantRaceInfo";
+
+/** TrackStatus pulls Pandora + the proxied track-status API on
+ *  mount. When Pandora is degraded its initial render can be held
+ *  up while the bundle loads + the first poll resolves. Loading it
+ *  via dynamic import + ssr:false splits it into its own chunk so
+ *  the e-ticket card and Important Race Info banner ABOVE it paint
+ *  immediately — TrackStatus arrives a beat later without blocking. */
+const TrackStatus = dynamic(() => import("@/components/home/TrackStatus"), {
+  ssr: false,
+  loading: () => null,
+});
 
 interface Props {
   ticket: RaceTicket;

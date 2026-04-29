@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
-import TrackStatus from "@/components/home/TrackStatus";
 import {
   CheckingInCard,
   InvalidCard,
@@ -13,6 +13,13 @@ import {
   minutesUntil,
 } from "../../t/[id]/cards";
 import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
+
+// Lazy-load TrackStatus so the ticket cards + race-info banner
+// paint immediately. Same rationale as /t/[id]/ETicketView.
+const TrackStatus = dynamic(() => import("@/components/home/TrackStatus"), {
+  ssr: false,
+  loading: () => null,
+});
 
 export interface MemberInitialState {
   checkingIn: boolean;

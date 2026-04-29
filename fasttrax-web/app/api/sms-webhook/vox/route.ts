@@ -41,7 +41,11 @@ import type { VideoMatch } from "@/lib/video-match";
  */
 
 interface VoxStatusPayload {
+  /** Older Vox API versions used `id`. The 2025-02-01 webhook
+   *  payload uses `message_id`. We accept both — message_id wins
+   *  when present. */
   id?: string;
+  message_id?: string;
   status?: "queued" | "sent" | "delivered" | "undelivered" | "failed";
   time?: string;
   direction?: string;
@@ -49,6 +53,9 @@ interface VoxStatusPayload {
   from?: string;
   error?: { code?: number; description?: string };
   segments?: number;
+  channel?: string;
+  type?: string;
+  api_version?: string;
 }
 
 /** Index used by the webhook to find the SMS log day-key + position
@@ -106,11 +113,15 @@ export async function POST(req: NextRequest) {
     await redis.set("sms-webhook:vox:lastPayload", rawBody.slice(0, 1024), "EX", 60 * 60 * 24 * 7);
   } catch { /* ignore */ }
 
-  const voxId = payload?.id;
+  // Vox API 2025-02-01 sends `message_id`; older shapes used `id`.
+  // Accept both — message_id takes precedence since that's the
+  // current production payload shape (verified via the lastPayload
+  // stat snapshot during webhook bring-up).
+  const voxId = payload?.message_id || payload?.id;
   const status = payload?.status;
   if (!voxId || !status) {
-    console.warn("[sms-webhook/vox] missing id/status:", JSON.stringify(payload).slice(0, 300));
-    return NextResponse.json({ ok: false, error: "missing id or status" });
+    console.warn("[sms-webhook/vox] missing message_id/status:", JSON.stringify(payload).slice(0, 300));
+    return NextResponse.json({ ok: false, error: "missing message_id or status" });
   }
 
   // Resolve the day-key index so we know which sms:log:{date} list
