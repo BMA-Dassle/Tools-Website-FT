@@ -2075,8 +2075,8 @@ export default function BowlingBookingPage() {
                       isFun4All
                         ? {
                             backgroundColor: "rgba(7,16,39,0.6)",
-                            border: `1px solid ${coral}55`,
-                            boxShadow: `0 0 12px ${coral}20`,
+                            border: `1px solid ${cyan}55`,
+                            boxShadow: `0 0 12px ${cyan}25`,
                           }
                         : { backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }
                     }
