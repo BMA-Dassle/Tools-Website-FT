@@ -121,11 +121,26 @@ function todayETRange(): { startDate: string; endDate: string } {
   };
 }
 
+/** Three sessions-fetch modes:
+ *   - "cacheOnly"   — Redis or empty. Auto-poll path; never blocks
+ *                     on Pandora (truly instant render).
+ *   - "preferCache" — Redis first, fall through to live Pandora on
+ *                     miss. Manual Refresh path; the sessions list
+ *                     rarely changes mid-day so we'd rather re-use
+ *                     the warm cache, but we still recover when
+ *                     cache is cold (e.g. cron hasn't run yet) so
+ *                     the route doesn't 404.
+ *   - "fresh"       — bypass cache, force live Pandora. Currently
+ *                     unused for sessions (sessions list rarely
+ *                     changes intra-day; cron is the live writer).
+ */
+type SessionsFetchMode = "cacheOnly" | "preferCache" | "fresh";
+
 async function fetchSessionsForResource(
   resourceName: string,
   startDate: string,
   endDate: string,
-  forceFresh: boolean,
+  mode: SessionsFetchMode,
 ): Promise<(PandoraSession & { resourceName: string })[]> {
   const qs = new URLSearchParams({
     locationId: FASTTRAX_LOCATION_ID,
@@ -133,9 +148,8 @@ async function fetchSessionsForResource(
     startDate,
     endDate,
   });
-  // Refresh button → live Pandora call. Default load → cacheOnly=1
-  // (cron-warmed Redis only, no Pandora wait on auto-poll).
-  if (forceFresh) qs.set("fresh", "1");
+  if (mode === "fresh") qs.set("fresh", "1");
+  else if (mode === "preferCache") qs.set("prefer", "cache");
   else qs.set("cacheOnly", "1");
   const res = await fetch(`${BASE}/api/pandora/sessions?${qs.toString()}`, { cache: "no-store" });
   if (!res.ok) return [];
@@ -148,9 +162,9 @@ async function fetchSessionsInWindow(
   resources: readonly string[],
   startDate: string,
   endDate: string,
-  forceFresh: boolean,
+  mode: SessionsFetchMode,
 ) {
-  const per = await Promise.all(resources.map((r) => fetchSessionsForResource(r, startDate, endDate, forceFresh)));
+  const per = await Promise.all(resources.map((r) => fetchSessionsForResource(r, startDate, endDate, mode)));
   return per.flat();
 }
 
@@ -248,9 +262,10 @@ export async function GET(req: NextRequest) {
       // (~8 PM yesterday ET during EDT), dropping today's already-run
       // heats from the "Earlier" modal.
       const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 1);
-      // Past-mode session list: read cache (cron-warmed). Refresh
-      // button doesn't apply here — past sessions don't change.
-      const all = await fetchSessionsInWindow(resources, startDate, endDate, false);
+      // Past-mode session list: cron doesn't warm 30-day-back data,
+      // so prefer-cache (with live fallback) gives staff a usable
+      // result whether or not someone has hit this window before.
+      const all = await fetchSessionsInWindow(resources, startDate, endDate, "preferCache");
       const past = all
         .filter((s) => new Date(s.scheduledStart).getTime() <= now)
         .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime());
@@ -292,13 +307,22 @@ export async function GET(req: NextRequest) {
     // a heat: was sessions→participants→blocks (~2-3s serial), now
     // max(sessions, participants)→blocks (~1-2s).
     //
-    // Refresh button only forces fresh on the SPECIFIC heat's
-    // participants — the sessions list (today's heat schedule) is
-    // cron-warmed and rarely changes mid-day, so we always read it
-    // from cache. Otherwise Refresh paid 30s for the sessions list
-    // PLUS 30s for participants on slow heats (~46s total) when
-    // staff just wanted to re-pull one heat's roster.
-    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, false);
+    // Sessions-list mode:
+    //   - Auto-poll (refresh=false) → cacheOnly (instant, never
+    //     blocks). Cold cache returns empty; the next poll picks
+    //     up after the cron warms it. Page can still render the
+    //     prior session via PriorBookings… etc.
+    //   - Refresh button (refresh=true) → preferCache (Redis hit
+    //     when warm, falls through to live Pandora on miss).
+    //     Recovers from cold-cache 404s when staff explicitly hits
+    //     Refresh after a cron miss.
+    //
+    // Refresh DOESN'T force a fresh sessions list — today's heat
+    // schedule rarely changes mid-day, and the cron is the live
+    // writer. Refresh's whole point is the SPECIFIC heat's
+    // participants (forceFresh on that call below).
+    const sessionsMode: SessionsFetchMode = refresh ? "preferCache" : "cacheOnly";
+    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, sessionsMode);
     const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam, refresh) : null;
     const earlyAssignmentsPromise = sessionIdParam ? listAssignmentsForSession(sessionIdParam) : null;
 
@@ -320,7 +344,10 @@ export async function GET(req: NextRequest) {
           TRACK_RESOURCES as readonly string[],
           wide.startDate,
           wide.endDate,
-          false, // sessions list always reads cache — see comment above
+          // Wider 30-day window — cron doesn't warm this so
+          // preferCache falls through to live Pandora on miss
+          // (test picker / past-session re-load path).
+          "preferCache",
         );
         picked = widerSessions.find((s) => String(s.sessionId) === sessionIdParam);
       }
