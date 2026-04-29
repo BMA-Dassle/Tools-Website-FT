@@ -45,6 +45,12 @@ type VideoRow = {
   notifySmsError?: string;
   notifySmsSentTo?: string;
   notifySmsSentAt?: string;
+  /** Carrier-DLR delivery state (populated by /api/sms-webhook/vox).
+   *  Optional — older records and pre-webhook entries don't have it,
+   *  so the UI falls back to the send-time `notifySmsOk` outcome.
+   *  Same vocabulary as the e-ticket admin so the legend applies
+   *  identically across both screens. */
+  notifySmsDeliveryStatus?: "delivered" | "undelivered" | "failed" | "sent" | "queued";
   notifyEmailOk?: boolean;
   notifyEmailError?: string;
   notifyEmailSentTo?: string;
@@ -103,6 +109,97 @@ function formatEt(iso?: string): string {
       hour: "numeric", minute: "2-digit", hour12: true,
     });
   } catch { return iso; }
+}
+
+// Pill palette — matches the e-ticket admin so staff parse one
+// legend across both screens. Color semantics:
+//   GREY   = not sent (no attempt yet)
+//   YELLOW = sent (Vox accepted, no carrier DLR yet)
+//   GREEN  = delivered (carrier confirmed handset receipt)
+//   RED    = rejected (carrier blocked the message)
+const PILL_BASE = "text-[10px] uppercase px-1.5 py-0.5 rounded";
+const PILL_OK = "bg-emerald-500/20 text-emerald-300";
+const PILL_AMBER = "bg-amber-500/20 text-amber-300";
+const PILL_RED = "bg-red-500/20 text-red-300";
+const PILL_GREY = "bg-white/10 text-white/50";
+
+/** SMS-state chip — same shape as the e-ticket admin. Uses the
+ *  carrier DLR (`notifySmsDeliveryStatus`) when available; falls
+ *  back to send-time `notifySmsOk` for older entries that pre-date
+ *  the webhook hook-up. */
+function smsPill(e: VideoRow): React.ReactNode {
+  if (e.notifySmsError?.includes("[quota")) {
+    return (
+      <span className={`${PILL_BASE} ${PILL_GREY} ring-1 ring-amber-400/20`} title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset.">
+        sms ⏳ queued
+      </span>
+    );
+  }
+  if (e.notifySmsError) {
+    return <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifySmsError}>sms rejected ✗</span>;
+  }
+  if (e.notifySmsOk !== true) {
+    // No send yet (notify-deferred, never attempted, etc.)
+    return <span className={`${PILL_BASE} ${PILL_GREY}`}>sms —</span>;
+  }
+  // notifySmsOk=true → consult the carrier DLR if we have one
+  switch (e.notifySmsDeliveryStatus) {
+    case "delivered":
+      return <span className={`${PILL_BASE} ${PILL_OK}`} title={e.notifySmsSentTo ? `Delivered to ${e.notifySmsSentTo}` : "Carrier confirmed handset receipt"}>sms delivered ✓</span>;
+    case "undelivered":
+    case "failed":
+      return <span className={`${PILL_BASE} ${PILL_RED}`} title="Carrier rejected the message after Vox accepted it">sms rejected ✗</span>;
+    case "sent":
+    case "queued":
+    default:
+      return <span className={`${PILL_BASE} ${PILL_AMBER}`} title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo} — waiting for carrier delivery confirmation` : "Vox accepted — waiting for carrier delivery confirmation"}>sms sent ⋯</span>;
+  }
+}
+
+/** Email-state chip. No DLR for email — `ok` is the only signal. */
+function emailPill(e: VideoRow): React.ReactNode {
+  if (e.notifyEmailError) {
+    return <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifyEmailError}>email ✗</span>;
+  }
+  if (e.notifyEmailOk === true) {
+    return <span className={`${PILL_BASE} ${PILL_OK}`} title={e.notifyEmailSentTo ? `Sent to ${e.notifyEmailSentTo}` : undefined}>email ✓</span>;
+  }
+  return <span className={`${PILL_BASE} ${PILL_GREY}`}>email —</span>;
+}
+
+/** Color-coded legend — keys the pill colors used in the table.
+ *  Mirrors the e-ticket admin's StatusLegend so staff have ONE
+ *  convention to learn. */
+function VideoStatusLegend() {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 mb-3 text-xs">
+      <p className="text-white/40 uppercase tracking-wider text-[10px] font-semibold mb-1.5">
+        Status colors
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-white/70">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_GREY}`}>sms —</span>
+          <span className="text-white/50">not sent yet</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_AMBER}`}>sms sent ⋯</span>
+          <span className="text-white/50">accepted, no carrier confirm</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_OK}`}>sms delivered ✓</span>
+          <span className="text-white/50">handset receipt confirmed</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_RED}`}>sms rejected ✗</span>
+          <span className="text-white/50">carrier blocked</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_OK}`}>👁 viewed</span>
+          <span className="text-white/50">recipient opened video (separate from delivery)</span>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export default function VideoAdminClient({ token }: { token: string }) {
@@ -273,6 +370,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
           </div>
         )}
 
+        {/* Status-color legend — keys the SMS chip colors used in
+            the table below. Mirrors the e-ticket admin's legend so
+            staff have ONE color convention across both screens. */}
+        {entries.length > 0 && <VideoStatusLegend />}
+
         {/* Mobile card list (<md) */}
         <div className="md:hidden space-y-2">
           {entries.map((e) => {
@@ -319,32 +421,8 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       </span>
                     ) : (
                       <>
-                        {e.notifySmsOk === true ? (
-                          <span
-                            className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300"
-                            title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo}` : undefined}
-                          >
-                            sms ✓
-                          </span>
-                        ) : e.notifySmsError?.includes("[quota") ? (
-                          <span
-                            className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/60 ring-1 ring-amber-400/20"
-                            title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry as soon as the quota resets — this chip flips to green automatically."
-                          >
-                            sms ⏳ queued
-                          </span>
-                        ) : e.notifySmsError ? (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifySmsError}>sms ✗</span>
-                        ) : (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">sms —</span>
-                        )}
-                        {e.notifyEmailOk === true ? (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">email ✓</span>
-                        ) : e.notifyEmailError ? (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">email ✗</span>
-                        ) : (
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">email —</span>
-                        )}
+                        {smsPill(e)}
+                        {emailPill(e)}
                         {e.viaGuardian && (
                           <span
                             className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
@@ -513,35 +591,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             </span>
                           ) : (
                             <>
-                              {e.notifySmsOk === true ? (
-                                <span
-                                  className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300"
-                                  title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo}` : undefined}
-                                >
-                                  sms ✓
-                                </span>
-                              ) : e.notifySmsError?.includes("[quota") ? (
-                                <span
-                                  className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/60 ring-1 ring-amber-400/20"
-                                  title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry as soon as the quota resets — this chip flips to green automatically."
-                                >
-                                  sms ⏳ queued
-                                </span>
-                              ) : e.notifySmsError ? (
-                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifySmsError}>sms ✗</span>
-                              ) : (
-                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">sms —</span>
-                              )}
-                              {e.notifyEmailOk === true ? (
-                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">email ✓</span>
-                              ) : e.notifyEmailError ? (
-                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-300" title={e.notifyEmailError}>email ✗</span>
-                              ) : (
-                                <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">email —</span>
-                              )}
+                              {smsPill(e)}
+                              {emailPill(e)}
                               {e.viaGuardian && (
                                 <span
-                                  className="text-xs uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
+                                  className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
                                   title="Sent to guardian — minor racer with no usable own contact"
                                 >
                                   ↻ guardian
