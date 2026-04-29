@@ -116,23 +116,19 @@ const PILL_PURPLE = "bg-purple-500/20 text-purple-300";
 function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.ReactNode {
   const pills: React.ReactNode[] = [];
 
-  // 1. Delivery-state chip — semantics per the page legend:
-  //    grey not-sent / yellow sent / green delivered / red rejected.
+  // 1. Delivery-state chip — only show meaningful states. Passive
+  //    grey "not sent" / "queued" pills are skipped (visual noise
+  //    for the active staff workflow); "needs verbal OK" is the
+  //    one action-required state and stays visible as RED.
   if (!e.ok) {
-    // Send didn't make it out — never reached Vox successfully.
     if (noConsent) {
       pills.push(
-        <span key="ds" className={`${PILL_BASE} ${PILL_GREY}`} title="Customer hasn't given verbal SMS consent — staff must collect it before resend">not sent · needs verbal ok</span>,
-      );
-    } else if (isQuotaQueued(e)) {
-      pills.push(
-        <span key="ds" className={`${PILL_BASE} ${PILL_GREY} ring-1 ring-amber-400/20`} title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset.">not sent · queued ⏳</span>,
-      );
-    } else {
-      pills.push(
-        <span key="ds" className={`${PILL_BASE} ${PILL_GREY}`} title={e.error || `failed (${e.status ?? "?"})`}>not sent</span>,
+        <span key="ds" className={`${PILL_BASE} ${PILL_RED}`} title="Customer hasn't given verbal SMS consent — staff must collect it before resend">needs verbal ok</span>,
       );
     }
+    // Quota-queued + transient failures render no pill — staff will
+    // see them flip to a real status (delivered / rejected) on the
+    // next cron tick or webhook arrival.
   } else {
     switch (e.deliveryStatus) {
       case "delivered":
@@ -142,9 +138,6 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
         break;
       case "undelivered":
       case "failed": {
-        // Carrier rejected — red. Surfaces the actual error code
-        // (e.g. 4505 "carrier rejected message too long") in the
-        // tooltip so operators can act.
         const code = e.deliveryErrorCode ? ` ${e.deliveryErrorCode}` : "";
         pills.push(
           <span key="ds" className={`${PILL_BASE} ${PILL_RED}`} title={e.error || `Carrier rejected — status ${e.deliveryStatus}${code}`}>rejected{code} ✗</span>,
@@ -163,8 +156,9 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
     }
   }
 
-  // 2. Opened-state chip — independent of delivery.
-  //    Click telemetry from /s/{code} redirect log.
+  // 2. Opened-state chip — only show when the recipient HAS opened.
+  //    "not opened" was just clutter; absence of a green pill says
+  //    the same thing without competing for attention.
   if (e.clickCount && e.clickCount > 0) {
     pills.push(
       <span
@@ -178,10 +172,6 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
       >
         opened ✓{e.clickCount > 1 ? ` ${e.clickCount}×` : ""}
       </span>,
-    );
-  } else if (e.shortCode && e.ok) {
-    pills.push(
-      <span key="op" className={`${PILL_BASE} ${PILL_GREY}`} title="Recipient hasn't tapped the e-ticket link yet">not opened</span>,
     );
   }
 
@@ -211,10 +201,6 @@ function StatusLegend() {
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-white/70">
         <span className="inline-flex items-center gap-1.5">
-          <span className={`${PILL_BASE} ${PILL_GREY}`}>not sent</span>
-          <span className="text-white/50">never reached carrier (failed / queued / no consent)</span>
-        </span>
-        <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_AMBER}`}>sent</span>
           <span className="text-white/50">carrier accepted, no delivery confirm yet</span>
         </span>
@@ -228,7 +214,11 @@ function StatusLegend() {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_OK}`}>opened ✓</span>
-          <span className="text-white/50">recipient tapped the link (separate from delivery)</span>
+          <span className="text-white/50">recipient tapped the link</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_RED}`}>needs verbal ok</span>
+          <span className="text-white/50">staff must collect SMS consent before resend</span>
         </span>
       </div>
     </div>

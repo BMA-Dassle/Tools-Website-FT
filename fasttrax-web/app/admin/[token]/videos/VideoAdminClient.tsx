@@ -123,15 +123,18 @@ const PILL_AMBER = "bg-amber-500/20 text-amber-300";
 const PILL_RED = "bg-red-500/20 text-red-300";
 const PILL_GREY = "bg-white/10 text-white/50";
 
-/** SMS-state chip — same shape as the e-ticket admin. Uses the
- *  carrier DLR (`notifySmsDeliveryStatus`) when available; falls
- *  back to send-time `notifySmsOk` for older entries that pre-date
- *  the webhook hook-up. */
+/** SMS-state chip — same shape as the e-ticket admin. Returns
+ *  null for passive "not sent" states so the row stays uncluttered;
+ *  only renders when there's something the operator needs to see
+ *  (yellow sent, green delivered, red rejected/quota). */
 function smsPill(e: VideoRow): React.ReactNode {
   if (e.notifySmsError?.includes("[quota")) {
+    // Quota state — keep visible, but as RED since it's an actionable
+    // hold (sweep cron will retry, but operator may want to drain
+    // manually via the SMS quota tool).
     return (
-      <span className={`${PILL_BASE} ${PILL_GREY} ring-1 ring-amber-400/20`} title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset.">
-        sms ⏳ queued
+      <span className={`${PILL_BASE} ${PILL_RED}`} title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset.">
+        sms quota ⏳
       </span>
     );
   }
@@ -139,8 +142,9 @@ function smsPill(e: VideoRow): React.ReactNode {
     return <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifySmsError}>sms rejected ✗</span>;
   }
   if (e.notifySmsOk !== true) {
-    // No send yet (notify-deferred, never attempted, etc.)
-    return <span className={`${PILL_BASE} ${PILL_GREY}`}>sms —</span>;
+    // No send yet (notify-deferred, never attempted, etc.) — render
+    // nothing so passive states don't clutter the row.
+    return null;
   }
   // notifySmsOk=true → consult the carrier DLR if we have one
   switch (e.notifySmsDeliveryStatus) {
@@ -156,7 +160,8 @@ function smsPill(e: VideoRow): React.ReactNode {
   }
 }
 
-/** Email-state chip. No DLR for email — `ok` is the only signal. */
+/** Email-state chip. No DLR for email — `ok` is the only signal.
+ *  Hides the passive "not sent" pill (returns null). */
 function emailPill(e: VideoRow): React.ReactNode {
   if (e.notifyEmailError) {
     return <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifyEmailError}>email ✗</span>;
@@ -164,7 +169,7 @@ function emailPill(e: VideoRow): React.ReactNode {
   if (e.notifyEmailOk === true) {
     return <span className={`${PILL_BASE} ${PILL_OK}`} title={e.notifyEmailSentTo ? `Sent to ${e.notifyEmailSentTo}` : undefined}>email ✓</span>;
   }
-  return <span className={`${PILL_BASE} ${PILL_GREY}`}>email —</span>;
+  return null;
 }
 
 /** Color-coded legend — keys the pill colors used in the table.
@@ -177,10 +182,6 @@ function VideoStatusLegend() {
         Status colors
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-white/70">
-        <span className="inline-flex items-center gap-1.5">
-          <span className={`${PILL_BASE} ${PILL_GREY}`}>sms —</span>
-          <span className="text-white/50">not sent yet</span>
-        </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_AMBER}`}>sms sent</span>
           <span className="text-white/50">accepted, no carrier confirm</span>
@@ -195,7 +196,7 @@ function VideoStatusLegend() {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_OK}`}>👁 opened</span>
-          <span className="text-white/50">recipient opened video (separate from delivery)</span>
+          <span className="text-white/50">recipient opened video</span>
         </span>
       </div>
     </div>
