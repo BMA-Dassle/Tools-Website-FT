@@ -1922,7 +1922,21 @@ export default function BowlingBookingPage() {
             <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">Choose Your Experience</h2>
             <div className="space-y-4">
               {getLaneTypes(centerId).map(lt => {
-                const count = allOffers.filter(o => classifyOffer(o.Name) === lt.key && filterOfferItems(o, selectedTime, selectedDate).length > 0).length;
+                // Midnight Madness should always count as a Regular
+                // package on Fri/Sat (when the upstream offer feed
+                // includes it), regardless of the customer's selected
+                // time. The 1-hour `filterOfferItems` would otherwise
+                // hide it pre-11pm and the lane card would show "Next:
+                // 12:00 AM" or even "Sold Out" — confusing, since
+                // they CAN book it (the offer-step modal handles the
+                // time shift to 12 AM).
+                const count = allOffers.filter(o => {
+                  if (classifyOffer(o.Name) !== lt.key) return false;
+                  if (/midnight\s*madness/i.test(o.Name)) {
+                    return (o.Items || []).some(it => !it.Reason && it.Remaining > 0);
+                  }
+                  return filterOfferItems(o, selectedTime, selectedDate).length > 0;
+                }).length;
                 const nextTime = count === 0 ? getNextAvailableTime(allOffers, lt.key, selectedTime, selectedDate) : null;
                 const isSoldOut = count === 0 && !nextTime;
                 return (
