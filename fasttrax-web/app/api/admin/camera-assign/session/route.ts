@@ -102,6 +102,25 @@ function rangeETForDays(backDays: number, forwardDays: number): { startDate: str
   return { startDate: start.toISOString(), endDate: end.toISOString() };
 }
 
+/** Today's ET-local-string range — matches the cron's `todayETRange`
+ *  in app/api/cron/pre-race-tickets/route.ts. Critical that camera-
+ *  assign uses the EXACT same format as the cron, otherwise the
+ *  sessions cache key differs and we never hit the cron-warmed cache.
+ *  Symptom of mismatch: 404 "sessionId not found" because cacheOnly
+ *  reads return empty. */
+function todayETRange(): { startDate: string; endDate: string } {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  return {
+    startDate: `${ymd}T00:00:00`,
+    endDate: `${ymd}T23:59:59`,
+  };
+}
+
 async function fetchSessionsForResource(
   resourceName: string,
   startDate: string,
@@ -251,13 +270,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Live mode: TODAY only. Look 1 day back + 1 day forward so the
-    // ET-day window is fully covered (the UTC day boundaries can clip
-    // ET evening heats if you query just one calendar day). Was 8
-    // days forward, which dragged in dozens of upcoming heats the
-    // camera-assign page never displays — wasted Pandora payload +
-    // longer timeout exposure during outages.
-    const { startDate, endDate } = rangeETForDays(1, 1);
+    // Live mode: TODAY only. CRITICAL — uses the same date-range
+    // function as the pre-race-tickets cron so we hit the cron-
+    // warmed sessions cache. Earlier we used UTC day boundaries
+    // (rangeETForDays) which produced a different cache key than
+    // the cron's ET-local-string format — every call cache-missed,
+    // cacheOnly=1 returned empty, sessions list was empty, and the
+    // route 404'd because picked sessionId wasn't in the empty list.
+    const { startDate, endDate } = todayETRange();
 
     // ── Latency optimization ────────────────────────────────────────
     //
