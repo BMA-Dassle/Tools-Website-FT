@@ -212,6 +212,49 @@ export function PreRaceCard({ details }: { details: CardDetails }) {
   );
 }
 
+/** Transient state — shown for the brief window between the page
+ *  opening and the first live poll resolving. Without this card,
+ *  pages with `wasCalled=true` (Redis-seeded) flash PastCard for
+ *  ~1-2s while we wait for `checkingIn` to arrive — the user sees
+ *  "Session Complete" on a heat that's actually checking in RIGHT
+ *  NOW. Renders the same shape as PreRaceCard so the layout
+ *  doesn't jump when the real card swaps in. */
+export function LoadingStatusCard({ details }: { details: CardDetails }) {
+  const trackColor = trackColorFor(details);
+  return (
+    <div
+      className="rounded-2xl overflow-hidden border border-white/15 bg-white/[0.02]"
+      style={{ boxShadow: "0 0 24px rgba(255,255,255,0.04)" }}
+    >
+      <div className="bg-white/[0.04] border-b border-white/10 px-4 py-3">
+        <p
+          className="text-white/60 font-bold uppercase tracking-wider text-center inline-flex items-center justify-center gap-2 w-full"
+          style={{ fontSize: "clamp(12px, 2vw, 14px)" }}
+        >
+          <span
+            aria-hidden="true"
+            className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
+          />
+          Loading status…
+        </p>
+      </div>
+      <div className="p-5 sm:p-6 text-center">
+        <div className="mb-4">
+          <span
+            className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
+            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}50` }}
+          >
+            {badgeFor(details)}
+          </span>
+        </div>
+        <p className="text-white/40 text-sm">
+          Confirming whether this race is currently being called…
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function InvalidCard({ details }: { details?: CardDetails }) {
   const trackColor = details ? trackColorFor(details) : "#9ca3af";
   return (

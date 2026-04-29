@@ -7,6 +7,7 @@ import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import {
   CheckingInCard,
   InvalidCard,
+  LoadingStatusCard,
   PastCard,
   PreRaceCard,
   TICKET_PULSE_CSS,
@@ -57,6 +58,10 @@ export default function GroupETicketView({ group, initial }: Props) {
     }
     return s;
   });
+  // True after the FIRST live poll completes. Same rationale as
+  // /t/[id] — without it, members with `wasCalled=true` (Redis SSR)
+  // wrongly resolve to PastCard before `checkingIn` arrives.
+  const [statusLoaded, setStatusLoaded] = useState(false);
 
   // Sort: active heats first (soonest start), past heats last.
   const sortedMembers = [...group.members].sort((a, b) => {
@@ -141,7 +146,16 @@ export default function GroupETicketView({ group, initial }: Props) {
         }
         return next;
       });
-    } catch { /* aborts + transient network errors land here — silent */ }
+      // First poll has settled — `checkingIn` is now trustable, so
+      // members with `wasCalled=true && checkingIn=false` can
+      // legitimately resolve to PastCard without flashing.
+      if (!signal.aborted) setStatusLoaded(true);
+    } catch {
+      // Even on error, flip statusLoaded so the user doesn't get
+      // stuck on a "Loading status…" card forever — next poll will
+      // correct any wrong assumptions.
+      setStatusLoaded(true);
+    }
   }
   useVisibleInterval(poll, 20_000, !allPast);
 
@@ -188,11 +202,19 @@ export default function GroupETicketView({ group, initial }: Props) {
             const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
             const mins = minutesUntil(m.scheduledStart);
             const longPast = mins < -90;
-            const dropped = s.wasCalled && !s.checkingIn;
+            // Same gating as /t/[id]: only treat the race as past
+            // when the first poll has settled. wasCalled from SSR
+            // alone could mean either "checking in now" or "race
+            // already past" — wait for `checkingIn` confirmation
+            // before committing to PastCard.
+            const dropped = statusLoaded && s.wasCalled && !s.checkingIn;
             const isPast = longPast || dropped;
+            const loadingStatus = !statusLoaded && s.wasCalled && !longPast;
             return (
               <div key={key}>
-                {!s.onSession && !isPast ? (
+                {loadingStatus ? (
+                  <LoadingStatusCard details={m} />
+                ) : !s.onSession && !isPast ? (
                   <InvalidCard details={m} />
                 ) : isPast ? (
                   <PastCard details={m} />

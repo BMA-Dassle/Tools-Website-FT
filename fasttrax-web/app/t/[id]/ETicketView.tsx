@@ -7,6 +7,7 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import {
   CheckingInCard,
   InvalidCard,
+  LoadingStatusCard,
   PastCard,
   PreRaceCard,
   TICKET_PULSE_CSS,
@@ -38,13 +39,29 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
   // wasCalled is monotonic (false → true only) once the checkin cron flags
   // this session. `ever` tracks both the SSR value and any live observation.
   const [wasCalled, setWasCalled] = useState(initialWasCalled || initialCheckingIn);
+  // True after the FIRST live poll completes. Until then we don't
+  // know whether `checkingIn` is actually false or just hasn't been
+  // fetched yet — and `wasCalled && !checkingIn` would wrongly
+  // resolve to PastCard when the race might be checking in RIGHT
+  // NOW. Was the cause of the "session complete" flash on open.
+  const [statusLoaded, setStatusLoaded] = useState(false);
 
   const mins = minutesUntil(ticket.scheduledStart);
   // Hard fallback for tickets viewed long after the heat with no called signal.
   const longPast = mins < -90;
   // Primary past-state trigger: race was called and is no longer currently checking in.
-  const dropped = wasCalled && !checkingIn;
+  // Only evaluate after the first poll has settled. If wasCalled was
+  // seeded from Redis (SSR) but the page hasn't seen a fresh
+  // races-current yet, we DON'T jump to PastCard — show a loading
+  // state instead. longPast is time-based and always safe.
+  const dropped = statusLoaded && wasCalled && !checkingIn;
   const isPast = longPast || dropped;
+  // Pre-first-poll "loading" state: race is in the live window
+  // (not longPast) AND we have a wasCalled signal that COULD mean
+  // "currently checking in" OR "race already finished". Ambiguous
+  // until the poll resolves. Show a transient loading card instead
+  // of the wrong final card.
+  const loadingStatus = !statusLoaded && wasCalled && !longPast;
 
   // Poll Pandora every 20s: races-current (for checking-in flip) AND
   // session-participants (to catch staff-removed racers). Also
@@ -86,7 +103,17 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
         const d = await stateRes.json();
         if (d?.wasCalled) setWasCalled(true);
       }
-    } catch { /* aborts + transient network errors land here — silent */ }
+      // Mark first-poll-complete so the "is this race past?" check
+      // can now trust `checkingIn`. Done at the END of the poll so
+      // any state setters above have already queued.
+      if (!signal.aborted) setStatusLoaded(true);
+    } catch {
+      /* aborts + transient network errors land here — silent. We
+         still flip statusLoaded on transient errors so the user
+         doesn't get stuck on the loading card forever; the next
+         poll cycle will correct any wrong assumptions. */
+      setStatusLoaded(true);
+    }
   }
   useVisibleInterval(poll, 20_000, !longPast);
 
@@ -116,7 +143,13 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
             its own messaging). */}
         {!isPast && <ImportantRaceInfo />}
 
-        {!onSession && !isPast ? (
+        {loadingStatus ? (
+          // Pre-first-poll: wasCalled is true but we don't yet know
+          // if the race is currently checking in or already past.
+          // Show a transient "Loading status…" card to avoid a
+          // wrong PastCard flash while the poll resolves.
+          <LoadingStatusCard details={ticket} />
+        ) : !onSession && !isPast ? (
           <InvalidCard details={ticket} />
         ) : isPast ? (
           <PastCard details={ticket} />
