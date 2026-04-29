@@ -14,6 +14,7 @@ import {
   minutesUntil,
 } from "./cards";
 import ImportantRaceInfo from "./ImportantRaceInfo";
+import FullScreenTicket from "./FullScreenTicket";
 
 /** TrackStatus pulls Pandora + the proxied track-status API on
  *  mount. When Pandora is degraded its initial render can be held
@@ -45,6 +46,11 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
   // resolve to PastCard when the race might be checking in RIGHT
   // NOW. Was the cause of the "session complete" flash on open.
   const [statusLoaded, setStatusLoaded] = useState(false);
+  /** Drives the full-screen "show to Karting attendant" overlay.
+   *  Same UX pattern as the confirmation page's QR modal — high-
+   *  contrast white background + huge text so staff can read the
+   *  racer's heat info from across the check-in counter. */
+  const [fullScreen, setFullScreen] = useState(false);
 
   const mins = minutesUntil(ticket.scheduledStart);
   // Hard fallback for tickets viewed long after the heat with no called signal.
@@ -159,6 +165,20 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
           <PreRaceCard details={ticket} />
         )}
 
+        {/* "Show to Karting attendant" full-screen button —
+            mirrors the confirmation page's QR-modal pattern. Hidden
+            on past states (nothing to scan) and during the loading
+            window (no settled state to display). */}
+        {!isPast && !loadingStatus && onSession && (
+          <button
+            type="button"
+            onClick={() => setFullScreen(true)}
+            className="mt-4 w-full py-3 rounded-xl bg-white text-[#000418] font-bold uppercase tracking-wider text-sm hover:bg-white/90 active:scale-[0.99] transition-all"
+          >
+            Show to Karting Attendant
+          </button>
+        )}
+
         <div className="mt-6">
           <TrackStatus />
         </div>
@@ -168,6 +188,20 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
           <p className="text-white/20 text-[11px] mt-1">Show this screen at check-in · No paper ticket needed</p>
         </div>
       </div>
+
+      {fullScreen && (
+        <FullScreenTicket
+          racers={[{ firstName: ticket.firstName, lastName: ticket.lastName }]}
+          heat={{
+            scheduledStart: ticket.scheduledStart,
+            track: ticket.track,
+            raceType: ticket.raceType,
+            heatNumber: ticket.heatNumber,
+            resNumber: ticket.resNumber,
+          }}
+          onClose={() => setFullScreen(false)}
+        />
+      )}
     </div>
   );
 }

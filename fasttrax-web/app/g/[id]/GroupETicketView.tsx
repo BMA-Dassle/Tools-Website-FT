@@ -14,6 +14,7 @@ import {
   minutesUntil,
 } from "../../t/[id]/cards";
 import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
+import FullScreenTicket from "../../t/[id]/FullScreenTicket";
 
 // Lazy-load TrackStatus so the ticket cards + race-info banner
 // paint immediately. Same rationale as /t/[id]/ETicketView.
@@ -62,6 +63,10 @@ export default function GroupETicketView({ group, initial }: Props) {
   // /t/[id] — without it, members with `wasCalled=true` (Redis SSR)
   // wrongly resolve to PastCard before `checkingIn` arrives.
   const [statusLoaded, setStatusLoaded] = useState(false);
+  /** Currently-fullscreened member key (or null when no overlay).
+   *  Lets staff scan one racer's heat info at a time even on
+   *  group tickets. Same UX pattern as /t/[id]. */
+  const [fullScreenKey, setFullScreenKey] = useState<string | null>(null);
 
   // Sort: active heats first (soonest start), past heats last.
   const sortedMembers = [...group.members].sort((a, b) => {
@@ -196,36 +201,83 @@ export default function GroupETicketView({ group, initial }: Props) {
             the page now so customers always see it. */}
         <ImportantRaceInfo />
 
+        {/* Group members by sessionId so per-heat content +
+            full-screen overlays line up with how staff scans the
+            check-in counter (one heat at a time). Members in the
+            same heat share metadata; we render their cards
+            together with ONE "show to staff" button that opens a
+            full-screen view listing every racer in that heat. */}
         <div className="space-y-5">
-          {sortedMembers.map((m) => {
-            const key = memberKey(m);
-            const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
-            const mins = minutesUntil(m.scheduledStart);
-            const longPast = mins < -90;
-            // Same gating as /t/[id]: only treat the race as past
-            // when the first poll has settled. wasCalled from SSR
-            // alone could mean either "checking in now" or "race
-            // already past" — wait for `checkingIn` confirmation
-            // before committing to PastCard.
-            const dropped = statusLoaded && s.wasCalled && !s.checkingIn;
-            const isPast = longPast || dropped;
-            const loadingStatus = !statusLoaded && s.wasCalled && !longPast;
-            return (
-              <div key={key}>
-                {loadingStatus ? (
-                  <LoadingStatusCard details={m} />
-                ) : !s.onSession && !isPast ? (
-                  <InvalidCard details={m} />
-                ) : isPast ? (
-                  <PastCard details={m} />
-                ) : s.checkingIn ? (
-                  <CheckingInCard details={m} />
-                ) : (
-                  <PreRaceCard details={m} />
-                )}
-              </div>
-            );
-          })}
+          {(() => {
+            const bySession = new Map<string, GroupTicketMember[]>();
+            for (const m of sortedMembers) {
+              const sid = String(m.sessionId);
+              const arr = bySession.get(sid) ?? [];
+              arr.push(m);
+              bySession.set(sid, arr);
+            }
+            return Array.from(bySession.entries()).map(([sid, members]) => {
+              const first = members[0];
+              const mins = minutesUntil(first.scheduledStart);
+              const longPast = mins < -90;
+              // A heat is "past" only when EVERY member's wasCalled
+              // is true and none are currently checking in — and
+              // the first poll has settled.
+              const allCalled = members.every((m) => state[memberKey(m)]?.wasCalled ?? false);
+              const anyCheckingIn = members.some((m) => state[memberKey(m)]?.checkingIn ?? false);
+              const dropped = statusLoaded && allCalled && !anyCheckingIn;
+              const isPast = longPast || dropped;
+              const loadingStatus = !statusLoaded && allCalled && !longPast;
+              const anyOnSession = members.some((m) => state[memberKey(m)]?.onSession ?? true);
+              return (
+                <div key={sid} className="space-y-2">
+                  {members.map((m) => {
+                    const key = memberKey(m);
+                    const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
+                    return (
+                      <div key={key}>
+                        {loadingStatus ? (
+                          <LoadingStatusCard details={m} />
+                        ) : !s.onSession && !isPast ? (
+                          <InvalidCard details={m} />
+                        ) : isPast ? (
+                          <PastCard details={m} />
+                        ) : s.checkingIn ? (
+                          <CheckingInCard details={m} />
+                        ) : (
+                          <PreRaceCard details={m} />
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Per-heat "show to staff" button — fullscreens
+                      every racer in this heat together. */}
+                  {!isPast && !loadingStatus && anyOnSession && (
+                    <button
+                      type="button"
+                      onClick={() => setFullScreenKey(sid)}
+                      className="w-full py-2.5 rounded-xl bg-white text-[#000418] font-bold uppercase tracking-wider text-xs hover:bg-white/90 active:scale-[0.99] transition-all"
+                    >
+                      Show Heat {first.heatNumber} to Karting Attendant
+                    </button>
+                  )}
+                  {/* Full-screen overlay for this heat. */}
+                  {fullScreenKey === sid && (
+                    <FullScreenTicket
+                      racers={members.map((m) => ({ firstName: m.firstName, lastName: m.lastName }))}
+                      heat={{
+                        scheduledStart: first.scheduledStart,
+                        track: first.track,
+                        raceType: first.raceType,
+                        heatNumber: first.heatNumber,
+                      }}
+                      onClose={() => setFullScreenKey(null)}
+                    />
+                  )}
+                </div>
+              );
+            });
+          })()}
         </div>
 
         <div className="mt-8">
