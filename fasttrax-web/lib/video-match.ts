@@ -73,6 +73,20 @@ export interface VideoMatch {
   notifySmsError?: string;
   notifySmsSentTo?: string;
   notifySmsSentAt?: string;
+  /** Vox message id captured at send time. Used by the SMS-status
+   *  webhook (/api/sms-webhook/vox) to look up THIS video record
+   *  (via the `video:msgid:{voxId}` index) and update the carrier
+   *  delivery status — without it, the videos admin would only
+   *  ever see "send-time outcome" not "actual handset delivery". */
+  notifySmsProviderMessageId?: string;
+  /** Carrier-DLR delivery state from the Vox webhook. `delivered`
+   *  is the strong positive (carrier confirmed handset receipt);
+   *  `undelivered` / `failed` mean the carrier rejected. Drives
+   *  the green-vs-yellow pill on the videos admin so staff see
+   *  ACTUAL delivery, not just "Vox accepted". */
+  notifySmsDeliveryStatus?: "delivered" | "undelivered" | "failed" | "sent" | "queued";
+  notifySmsDeliveryUpdatedAt?: string;
+  notifySmsDeliveryErrorCode?: string;
   notifyEmailOk?: boolean;
   notifyEmailError?: string;
   notifyEmailSentTo?: string;

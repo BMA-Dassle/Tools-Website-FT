@@ -269,7 +269,18 @@ function entryAsParticipant(entry: CameraHistoryEntry): Participant {
 }
 
 export interface NotifyResult {
-  sms: { attempted: boolean; ok?: boolean; status?: number | null; error?: string; sentTo?: string };
+  sms: {
+    attempted: boolean;
+    ok?: boolean;
+    status?: number | null;
+    error?: string;
+    sentTo?: string;
+    /** Vox message id captured at send. The cron caller copies this
+     *  onto the saved match record (notifySmsProviderMessageId) so
+     *  the Vox webhook can later patch in the carrier DLR delivery
+     *  state. */
+    providerMessageId?: string;
+  };
   email: { attempted: boolean; ok?: boolean; status?: number | null; error?: string; sentTo?: string };
   /** Which recipient the picker chose for this notify event — present
    *  whenever notify was attempted. Caller writes this onto the saved
@@ -392,7 +403,29 @@ export async function notifyVideoReady(
         provider: send.provider,
         failedOver: send.failedOver,
         viaGuardian: recipient === "guardian",
+        // Carry the Vox messageId to the SMS log + write a back-
+        // reference index so the Vox status-callback webhook can
+        // find the matching video record and update its DLR
+        // delivery status. Without this the videos admin would
+        // only ever show send-time outcome (yellow "sent ⋯"); with
+        // it, entries flip to green "delivered ✓" once the carrier
+        // confirms receipt.
+        providerMessageId: send.voxId,
       });
+      if (send.voxId) {
+        // 90-day TTL matches the SMS log retention so an old
+        // delivery callback can still find the right video record.
+        try {
+          await redis.set(`video:msgid:${send.voxId}`, match.videoCode, "EX", 60 * 60 * 24 * 90);
+          // Stash on the in-flight result so the cron's persistence
+          // loop can copy it onto the saved match record. (Done via
+          // `result.sms.providerMessageId` so we don't need a new
+          // signature on updateVideoMatch.)
+          result.sms.providerMessageId = send.voxId;
+        } catch (err) {
+          console.warn("[video-notify] msgid index write failed:", err);
+        }
+      }
     } catch (err) {
       result.sms.ok = false;
       result.sms.error = err instanceof Error ? err.message : "send error";

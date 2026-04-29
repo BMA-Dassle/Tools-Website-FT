@@ -197,6 +197,12 @@ export async function GET(req: NextRequest) {
           record.notifySmsError = n.sms.error;
           record.notifySmsSentTo = n.sms.sentTo;
           record.notifySmsSentAt = nowIso;
+          // Carry the Vox messageId onto the record so the Vox
+          // webhook (/api/sms-webhook/vox) can patch in the
+          // carrier DLR delivery state when it fires.
+          if (n.sms.providerMessageId) {
+            record.notifySmsProviderMessageId = n.sms.providerMessageId;
+          }
         }
         if (n.email.attempted) {
           record.notifyEmailOk = n.email.ok;

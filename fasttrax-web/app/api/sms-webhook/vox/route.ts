@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import type { SmsLogEntry } from "@/lib/sms-log";
+import type { VideoMatch } from "@/lib/video-match";
 
 /**
  * Voxtelesys delivery-status webhook receiver.
@@ -144,7 +145,52 @@ export async function POST(req: NextRequest) {
     // have stuck callbacks pile up in their queue.
   }
 
+  // ── Mirror the delivery state onto a matching VIDEO record ────
+  // The video-notify path writes a `video:msgid:{voxId}` index when
+  // it sends — if present, find the video-match record by its
+  // videoCode and patch the delivery fields in place. Lets the
+  // videos admin show GREEN "delivered ✓" on actual carrier-DLR-
+  // confirmed receipts, not just YELLOW "sent ⋯" forever.
+  await updateVideoRecordIfPresent(voxId, payload);
+
   return NextResponse.json({ ok: true, status });
+}
+
+/** Look up the video match associated with this Vox messageId and
+ *  patch the carrier DLR fields. No-op when there's no
+ *  `video:msgid:*` index entry (i.e. the SMS wasn't a video-notify).
+ *
+ *  Note: this scans `video-match:*:*` keys via the videoCode-keyed
+ *  sentinel — each sentinel stores `{sessionId, personId}` so we can
+ *  reconstruct the primary record key without an extra lookup. */
+async function updateVideoRecordIfPresent(
+  voxId: string,
+  payload: VoxStatusPayload,
+): Promise<void> {
+  try {
+    const videoCode = await redis.get(`video:msgid:${voxId}`);
+    if (!videoCode) return;
+    const sentinelRaw = await redis.get(`video-match:by-code:${videoCode}`);
+    if (!sentinelRaw) return;
+    const sentinel = JSON.parse(sentinelRaw) as { sessionId?: string | number; personId?: string | number };
+    if (!sentinel.sessionId || !sentinel.personId) return;
+    const recordKey = `video-match:${sentinel.sessionId}:${sentinel.personId}`;
+    const recordRaw = await redis.get(recordKey);
+    if (!recordRaw) return;
+    const record = JSON.parse(recordRaw) as VideoMatch;
+    record.notifySmsDeliveryStatus = payload.status;
+    record.notifySmsDeliveryUpdatedAt = payload.time || new Date().toISOString();
+    if (payload.error?.code) {
+      record.notifySmsDeliveryErrorCode = String(payload.error.code);
+    }
+    // Preserve the existing TTL by reading PTTL first; fallback to
+    // the standard 90-day window if Redis has no TTL on the key.
+    const pttl = await redis.pttl(recordKey);
+    const ttlSeconds = pttl > 0 ? Math.ceil(pttl / 1000) : 60 * 60 * 24 * 90;
+    await redis.set(recordKey, JSON.stringify(record), "EX", ttlSeconds);
+  } catch (err) {
+    console.warn(`[sms-webhook/vox] video record patch failed for ${voxId}:`, err);
+  }
 }
 
 /** Vox may also send GET to verify the endpoint exists when first
