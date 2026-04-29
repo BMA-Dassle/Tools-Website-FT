@@ -333,27 +333,17 @@ export async function GET(req: NextRequest) {
     let picked: (PandoraSession & { resourceName: string }) | undefined;
     if (sessionIdParam) {
       picked = allSessions.find((s) => String(s.sessionId) === sessionIdParam);
-      if (!picked) {
-        // Fall back to a broader search (last 30 days) — past sessions
-        // selected from the test picker may be older than the live
-        // window. The early participants fetch we kicked off is still
-        // valid for past sessions; Pandora's session-participants
-        // endpoint isn't time-bounded.
-        const wide = rangeETForDays(30, 0);
-        const widerSessions = await fetchSessionsInWindow(
-          TRACK_RESOURCES as readonly string[],
-          wide.startDate,
-          wide.endDate,
-          // Wider 30-day window — cron doesn't warm this so
-          // preferCache falls through to live Pandora on miss
-          // (test picker / past-session re-load path).
-          "preferCache",
-        );
-        picked = widerSessions.find((s) => String(s.sessionId) === sessionIdParam);
-      }
+      // Removed the 30-day-back wider fallback — it existed for
+      // the now-removed "Earlier sessions" modal + day-old bookmark
+      // recovery, and meant a single bad sessionId could trigger a
+      // multi-resource 30-day Pandora search (slow + heavy). With
+      // the Earlier modal gone there's no UI path to deep-link a
+      // session outside today. Bookmarks from yesterday just get a
+      // clean 404 — staff reload without the sessionId param to
+      // pick fresh.
       if (!picked) {
         return NextResponse.json(
-          { error: `sessionId ${sessionIdParam} not found` },
+          { error: `sessionId ${sessionIdParam} not found in today's heats` },
           { status: 404 },
         );
       }
