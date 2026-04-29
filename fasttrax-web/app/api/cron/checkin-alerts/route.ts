@@ -351,6 +351,9 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
       ts, phone: toFormatted, source: "checkin-cron",
       status: result.status, ok: true, body,
       provider: result.provider, failedOver: result.failedOver,
+      // Carry voxId so the Vox status webhook can update this
+      // entry's deliveryStatus when the carrier reports back.
+      providerMessageId: result.voxId,
       ...audit,
     });
     return true;

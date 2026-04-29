@@ -70,14 +70,41 @@ export async function recordVoxIndex(voxId: string, dayKey: string): Promise<voi
 }
 
 export async function POST(req: NextRequest) {
-  let payload: VoxStatusPayload;
+  // Hit counter — proves Vox is actually calling us. Increment
+  // before any parsing so even malformed-payload calls are counted.
+  // Inspect via /api/sms-webhook/vox?stats=1 (GET, see below).
   try {
-    payload = (await req.json()) as VoxStatusPayload;
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const tx = redis.multi();
+    tx.incr(`sms-webhook:vox:hits:${today}`);
+    tx.expire(`sms-webhook:vox:hits:${today}`, 60 * 60 * 24 * 30);
+    tx.set(`sms-webhook:vox:lastHit`, new Date().toISOString(), "EX", 60 * 60 * 24 * 30);
+    await tx.exec();
+  } catch { /* ignore — counter is best-effort */ }
+
+  let payload: VoxStatusPayload;
+  let rawBody = "";
+  try {
+    rawBody = await req.text();
+    payload = JSON.parse(rawBody) as VoxStatusPayload;
   } catch (err) {
-    console.warn("[sms-webhook/vox] non-JSON callback body:", err);
+    console.warn("[sms-webhook/vox] non-JSON callback body:", err, "raw:", rawBody.slice(0, 500));
+    // Stash the most recent malformed payload for debugging without
+    // needing Vercel function logs. Trim to 1KB to be safe.
+    try {
+      await redis.set("sms-webhook:vox:lastBadPayload", rawBody.slice(0, 1024), "EX", 60 * 60 * 24 * 7);
+    } catch { /* ignore */ }
     // 200 anyway — we don't want Vox retrying a permanently-bad shape.
     return NextResponse.json({ ok: false, error: "invalid json" });
   }
+  // Stash the most recent VALID payload for debugging — lets us see
+  // the actual shape Vox sends without Vercel logs.
+  try {
+    await redis.set("sms-webhook:vox:lastPayload", rawBody.slice(0, 1024), "EX", 60 * 60 * 24 * 7);
+  } catch { /* ignore */ }
 
   const voxId = payload?.id;
   const status = payload?.status;
@@ -193,8 +220,38 @@ async function updateVideoRecordIfPresent(
   }
 }
 
-/** Vox may also send GET to verify the endpoint exists when first
- *  configured. Respond 200 so the validation passes. */
-export async function GET() {
-  return NextResponse.json({ ok: true, hint: "POST your status callbacks here" });
+/** GET returns a 200 ack for Vox's endpoint validation, OR — when
+ *  hit with `?stats=1` — exposes the hit counter + last-payload
+ *  snapshots so we can verify Vox is actually calling us in
+ *  production without needing Vercel function logs. */
+export async function GET(req: NextRequest) {
+  const wantsStats = new URL(req.url).searchParams.get("stats") === "1";
+  if (!wantsStats) {
+    return NextResponse.json({ ok: true, hint: "POST your status callbacks here" });
+  }
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  try {
+    const [hitsToday, lastHit, lastPayload, lastBad] = await Promise.all([
+      redis.get(`sms-webhook:vox:hits:${today}`),
+      redis.get(`sms-webhook:vox:lastHit`),
+      redis.get(`sms-webhook:vox:lastPayload`),
+      redis.get(`sms-webhook:vox:lastBadPayload`),
+    ]);
+    return NextResponse.json({
+      ok: true,
+      hitsToday: hitsToday ? parseInt(hitsToday, 10) : 0,
+      lastHit: lastHit || null,
+      lastPayloadSample: lastPayload ? safeJsonOrString(lastPayload) : null,
+      lastBadPayloadSample: lastBad || null,
+    });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "stats read failed" });
+  }
+}
+
+function safeJsonOrString(s: string): unknown {
+  try { return JSON.parse(s); } catch { return s; }
 }

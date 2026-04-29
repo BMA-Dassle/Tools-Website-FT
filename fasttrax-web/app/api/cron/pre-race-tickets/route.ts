@@ -169,6 +169,11 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
       ts, phone: toFormatted, source: "pre-race-cron",
       status: result.status, ok: true, body,
       provider: result.provider, failedOver: result.failedOver,
+      // Carry the Vox messageId so the webhook can correlate the
+      // delivery callback back to this log entry. Without it the
+      // entry stays YELLOW "sent" forever even after the carrier
+      // confirms delivery.
+      providerMessageId: result.voxId,
       ...audit,
     });
     return true;
