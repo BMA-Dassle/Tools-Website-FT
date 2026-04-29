@@ -147,18 +147,11 @@ const attractions = [
 
 const specials = [
   {
-    name: "Fun 4 All Day",
-    when: "Mon-Thu before 6PM",
-    regular: "$12.99",
-    vip: "$14.99",
-    note: "1.5 hours per lane",
-  },
-  {
     name: "Fun 4 Night",
-    when: "Mon-Thu 6PM-12AM",
+    when: "Mon-Thu open to close",
     regular: "$15.99",
     vip: "$17.99",
-    note: "1.5 hours per lane",
+    note: "1.5 hours per lane · Shoes included",
   },
   {
     name: "Late Night Madness",
