@@ -2031,6 +2031,14 @@ export default function BowlingBookingPage() {
                 if (validItems.length === 0) return null; // Hide offers with no items within 1 hour
 
                 const perPerson = isPerPerson(offer.Name);
+                // Fun 4 All bundles shoes into the per-person price.
+                // Bowling shoes normally rent at $5/person, so the bundle
+                // is effectively a $5/person discount vs. open bowling +
+                // shoe rental. We treat it as a featured "special" — coral
+                // glow + savings ribbon so it visually beats Open VIP.
+                const isFun4All = /fun\s*4/i.test(offer.Name);
+                const SHOE_VALUE_PER_PERSON = 5;
+                const groupShoeSavings = SHOE_VALUE_PER_PERSON * Math.max(playerCount, 1);
                 const firstItem = validItems[0];
                 const basePrice = firstItem?.Total || 0;
                 const perPersonPrice = perPerson && playerCount > 0 ? basePrice / playerCount : 0;
@@ -2062,9 +2070,33 @@ export default function BowlingBookingPage() {
                 return (
                   <div
                     key={offer.OfferId}
-                    className="rounded-lg overflow-hidden"
-                    style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }}
+                    className="rounded-lg overflow-hidden relative"
+                    style={
+                      isFun4All
+                        ? {
+                            backgroundColor: "rgba(7,16,39,0.7)",
+                            border: `2px solid ${coral}`,
+                            boxShadow: `0 0 24px ${coral}40, inset 0 0 24px ${coral}10`,
+                          }
+                        : { backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }
+                    }
                   >
+                    {/* "SPECIAL" ribbon for Fun 4 All — pulses subtly so
+                        it reads as a deal at a glance. Sits above the
+                        flex row so the image overlay badges still work. */}
+                    {isFun4All && (
+                      <div
+                        className="font-heading uppercase tracking-[0.2em] text-[11px] sm:text-xs font-bold py-1.5 text-center"
+                        style={{
+                          background: `linear-gradient(90deg, ${coral} 0%, #ff8a6a 50%, ${coral} 100%)`,
+                          color: "#fff",
+                          letterSpacing: "0.25em",
+                          textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+                        }}
+                      >
+                        ★ Special · Bowling Shoes Included ★
+                      </div>
+                    )}
                     <div className="flex flex-col sm:flex-row">
                     {offer.ImageUrl && (
                       <div className="relative w-full sm:w-72 h-40 shrink-0 overflow-hidden sm:min-h-[200px]">
@@ -2079,6 +2111,25 @@ export default function BowlingBookingPage() {
                     <div className="p-4">
                       <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
                       {offer.Description && <p className="font-body text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
+
+                      {/* Savings callout — Fun 4 All only. Bowling shoes
+                          would normally cost $5/person extra at HeadPinz,
+                          so this bundle is an honest savings vs. Open
+                          Bowling VIP + shoe rental. We compute the group
+                          total so larger parties see a bigger number. */}
+                      {isFun4All && (
+                        <div
+                          className="mb-3 rounded-md px-3 py-2 flex items-center gap-2 flex-wrap"
+                          style={{ backgroundColor: `${gold}15`, border: `1px solid ${gold}50` }}
+                        >
+                          <span className="font-heading uppercase text-[11px] font-bold tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: gold, color: "#0a1628" }}>
+                            Save ${SHOE_VALUE_PER_PERSON}/person
+                          </span>
+                          <span className="font-body text-white/80 text-xs">
+                            Shoes included{playerCount > 1 ? ` — that's $${groupShoeSavings.toFixed(0)} off your group` : ""}
+                          </span>
+                        </div>
+                      )}
 
                       <div className="grid gap-2 grid-cols-3">
                         {validItems.map(item => {
