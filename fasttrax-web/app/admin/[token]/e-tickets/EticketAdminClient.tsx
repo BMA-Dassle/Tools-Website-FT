@@ -752,10 +752,21 @@ function ResendModal({
             >
               Cancel
             </button>
+            {/* Effective destination phone — derived once for both
+                the disabled-state check and the visible feedback.
+                Was a bug here: the disabled flag only checked the
+                "Different number" input box (`phone` state), so
+                with "Same number" selected and phone="" (default)
+                the Send button was always disabled. Operators saw
+                a button that looked clickable but did nothing. */}
             <button
               type="button"
               onClick={submit}
-              disabled={sending || !phone || !entry.body}
+              disabled={
+                sending ||
+                !entry.body ||
+                (destMode === "same" ? !entry.phone : !phone.trim())
+              }
               className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
             >
               {sending ? "Sending…" : "Send"}
