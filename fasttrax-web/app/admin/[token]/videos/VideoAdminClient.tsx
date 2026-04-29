@@ -242,11 +242,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Auto-refresh every 2 min; paused while the resend modal is open
-  // so we don't yank state out from under the operator.
+  // Auto-refresh every 15s so delivery state + viewed/opened
+  // updates land in near-real-time. Was 2 min — operator stared
+  // at stale "yellow sent" pills long after the carrier had
+  // confirmed delivery. Modal open → pause (don't yank state).
   useEffect(() => {
     if (resendTarget) return;
-    const id = setInterval(load, 120_000);
+    const id = setInterval(load, 15_000);
     return () => clearInterval(id);
   }, [load, resendTarget]);
 

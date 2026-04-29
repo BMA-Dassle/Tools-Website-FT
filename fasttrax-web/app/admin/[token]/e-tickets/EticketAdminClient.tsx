@@ -352,13 +352,19 @@ export default function EticketAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Auto-refresh every 2 minutes so staff see new cron-logged entries
-  // (including fresh no-consent skips) without manually hitting refresh.
-  // We don't refresh while the resend modal is open — that would clobber
-  // the target entry out from under the operator mid-action.
+  // Auto-refresh every 15s so staff see delivery state updates land
+  // in near-real-time as Vox webhooks fire — was 2 min, which felt
+  // dead. Webhooks can update an entry within a couple seconds of
+  // the carrier confirming delivery; if we polled at 120s the
+  // operator was staring at stale "yellow sent" pills for two
+  // minutes before they flipped to green. 15s feels live without
+  // hammering the API.
+  //
+  // We don't refresh while the resend modal is open — that would
+  // clobber the target entry out from under the operator mid-action.
   useEffect(() => {
     if (resendTarget) return;
-    const id = setInterval(load, 120_000);
+    const id = setInterval(load, 15_000);
     return () => clearInterval(id);
   }, [load, resendTarget]);
 
