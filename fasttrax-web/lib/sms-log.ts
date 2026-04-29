@@ -47,6 +47,33 @@ export interface SmsLogEntry {
    *  "↻ via guardian" badge so staff can audit fallback rate. The
    *  `phone` field holds the actual destination (guardian's). */
   viaGuardian?: boolean;
+  /** Provider message id captured at send time. Used by the
+   *  status-callback webhook to correlate delivery state back to
+   *  this log entry. Vox: 24-char hex. Twilio: SMxxxxx. */
+  providerMessageId?: string;
+  /** Real handset-delivery state, populated by the carrier callback
+   *  (Vox: /api/sms-webhook/vox; Twilio webhook not yet wired). The
+   *  send-time `ok` field only indicates "provider accepted"; this
+   *  field tracks what actually happened to the message after.
+   *
+   *  Values mirror what the providers report:
+   *    - "delivered"   — carrier confirmed handset receipt (DLR)
+   *    - "undelivered" — carrier rejected (filtered, invalid, etc.)
+   *    - "failed"      — provider gave up before carrier handoff
+   *    - "sent"        — provider handed to carrier, no DLR yet
+   *    - "queued"      — provider hasn't tried sending yet
+   *    - undefined     — initial state, no callback received
+   */
+  deliveryStatus?: "delivered" | "undelivered" | "failed" | "sent" | "queued";
+  /** Most recent delivery-status update timestamp (ISO). Lets the
+   *  admin UI show "delivered 0:02 after send" or "no DLR after 5
+   *  minutes — likely silently dropped". */
+  deliveryUpdatedAt?: string;
+  /** Provider error code on undelivered/failed (e.g. carrier
+   *  filtered = 30007 on Twilio). Surfaces the actual reason in the
+   *  admin log so operators can act (resend via different provider,
+   *  contact carrier, etc.). */
+  deliveryErrorCode?: string;
 }
 
 const LOG_TTL = 60 * 60 * 24 * 90; // 90 days
@@ -67,6 +94,17 @@ export async function logSms(entry: SmsLogEntry): Promise<void> {
     await redis.lpush(key, JSON.stringify(entry));
     await redis.ltrim(key, 0, MAX_PER_DAY - 1);
     await redis.expire(key, LOG_TTL);
+    // Index Vox message ids → day-key so the status callback can
+    // find the entry to update (the per-day list is not random
+    // access on providerMessageId; this index avoids a full scan).
+    if (entry.providerMessageId && entry.provider !== "twilio") {
+      const indexKey = `sms:log:idx:vox:${entry.providerMessageId}`;
+      try {
+        await redis.set(indexKey, key, "EX", LOG_TTL);
+      } catch (err) {
+        console.warn("[sms-log] index write failed:", err);
+      }
+    }
   } catch (err) {
     // Logging failures must never interrupt SMS flow.
     console.error("[sms-log] write failed:", err);

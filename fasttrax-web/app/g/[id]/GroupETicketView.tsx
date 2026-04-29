@@ -12,6 +12,7 @@ import {
   TICKET_PULSE_CSS,
   minutesUntil,
 } from "../../t/[id]/cards";
+import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
 
 export interface MemberInitialState {
   checkingIn: boolean;
@@ -167,6 +168,12 @@ export default function GroupETicketView({ group, initial }: Props) {
             </p>
           )}
         </div>
+
+        {/* Important race info banner — shared with /t/[id]. Was
+            previously baked into the SMS body but the carrier kept
+            rejecting 11-segment messages with code 4505. Lives on
+            the page now so customers always see it. */}
+        <ImportantRaceInfo />
 
         <div className="space-y-5">
           {sortedMembers.map((m) => {

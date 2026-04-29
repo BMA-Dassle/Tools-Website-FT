@@ -226,17 +226,14 @@ function formatTimeET(iso: string): string {
   }
 }
 
-const IMPORTANT_INFO = [
-  `PLEASE READ — IMPORTANT RACE INFO`,
-  ``,
-  `The time on your ticket is your CHECK-IN CUT-OFF. Arrive at the Karting check-in desk on the 1st Floor at least 5 min early. Miss check-in and we may not be able to reschedule — missed races are non-refundable.`,
-  ``,
-  `Have your e-ticket OPEN and ready at check-in — staff scans the screen, no paper ticket needed.`,
-  ``,
-  `Allow ~30 min from check-in to race time for briefing, helmet fitting, and prep. Lockers are available in the briefing rooms. NO LOOSE ITEMS on the track.`,
-  ``,
-  `This is live racing — yellow flags or track conditions may cause delays. We'll announce upcoming races.`,
-].join("\n");
+// IMPORTANT_INFO boilerplate moved to the e-ticket page itself
+// (app/t/[id] and /g/[id]). The SMS body now stays under 2 segments
+// (~280 chars) so carriers don't reject as A2P spam — Vox returns
+// `code 4505: carrier rejected message too long` on 11+ segment
+// bodies, which was silently dropping e-tickets to a chunk of
+// recipients. Customers see the full race info when they open the
+// link, which is the expected flow anyway.
+const SHORT_CTA = `Open this for check-in info ↑`;
 
 function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
@@ -249,8 +246,7 @@ function buildSingleSmsBody(sessionName: string, member: GroupTicketMember, shor
     racerLabel(member),
     ``,
     shortUrl,
-    ``,
-    IMPORTANT_INFO,
+    SHORT_CTA,
   ].join("\n");
 }
 
@@ -280,8 +276,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
   }
   lines.push(``);
   lines.push(shortUrl);
-  lines.push(``);
-  lines.push(IMPORTANT_INFO);
+  lines.push(SHORT_CTA);
   return lines.join("\n");
 }
 
@@ -299,8 +294,7 @@ function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string)
     `- ${member.firstName} — ${heatLabel}`,
     "",
     shortUrl,
-    "",
-    IMPORTANT_INFO,
+    SHORT_CTA,
   ].join("\n");
 }
 
@@ -321,8 +315,7 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   }
   lines.push("");
   lines.push(shortUrl);
-  lines.push("");
-  lines.push(IMPORTANT_INFO);
+  lines.push(SHORT_CTA);
   return lines.join("\n");
 }
 

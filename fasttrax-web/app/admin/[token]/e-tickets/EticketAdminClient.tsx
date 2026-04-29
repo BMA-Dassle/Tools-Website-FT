@@ -75,6 +75,167 @@ function isQuotaQueued(e: EnrichedLogEntry): boolean {
 }
 
 /**
+ * Consistent pill-chip status renderer — matches the video admin's
+ * style (`text-[10px] uppercase px-1.5 py-0.5 rounded bg-{color}-500/20`).
+ * Returns an array of chips so the table cell + mobile card render
+ * exactly the same set: delivery state + opened state + any
+ * routing flags (Twilio failover / guardian). One renderer = one
+ * source of truth for status appearance across views.
+ *
+ * Delivery state precedence:
+ *   - Webhook DLR if available (delivered/undelivered/failed/sent/queued)
+ *   - Else fall back to send-time `ok` flag (legacy "sent" pre-webhook)
+ *   - Failure cases mark needs-verbal-OK and quota-queued separately
+ *
+ * Opened state: emerald "opened ✓" if at least one click recorded;
+ * grey "not opened —" if we have a shortCode but no clicks yet;
+ * omitted entirely otherwise (no link to track).
+ */
+const PILL_BASE = "inline-flex items-center text-[10px] uppercase px-1.5 py-0.5 rounded";
+const PILL_OK = "bg-emerald-500/20 text-emerald-300";
+const PILL_AMBER = "bg-amber-500/20 text-amber-300";
+const PILL_RED = "bg-red-500/20 text-red-300";
+const PILL_GREY = "bg-white/10 text-white/50";
+const PILL_PURPLE = "bg-purple-500/20 text-purple-300";
+
+/**
+ * Color semantics — explained in the legend at the top of the page:
+ *   GREY   = not sent (failed, queued, or no consent — message
+ *            never made it out of our system)
+ *   YELLOW = sent (Vox accepted but carrier hasn't confirmed
+ *            delivery to the handset yet)
+ *   GREEN  = delivered (carrier confirmed handset receipt via DLR)
+ *   RED    = carrier rejected (e.g. message too long, opted out,
+ *            invalid number)
+ *
+ * Opened state is a SEPARATE pill independent of delivery — we
+ * track it from /s/{code} click logs. A green "opened" + grey
+ * "not sent" is impossible; a green "delivered" + grey "not opened"
+ * is normal (customer hasn't tapped the link yet).
+ */
+function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.ReactNode {
+  const pills: React.ReactNode[] = [];
+
+  // 1. Delivery-state chip — semantics per the page legend:
+  //    grey not-sent / yellow sent / green delivered / red rejected.
+  if (!e.ok) {
+    // Send didn't make it out — never reached Vox successfully.
+    if (noConsent) {
+      pills.push(
+        <span key="ds" className={`${PILL_BASE} ${PILL_GREY}`} title="Customer hasn't given verbal SMS consent — staff must collect it before resend">not sent · needs verbal ok</span>,
+      );
+    } else if (isQuotaQueued(e)) {
+      pills.push(
+        <span key="ds" className={`${PILL_BASE} ${PILL_GREY} ring-1 ring-amber-400/20`} title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset.">not sent · queued ⏳</span>,
+      );
+    } else {
+      pills.push(
+        <span key="ds" className={`${PILL_BASE} ${PILL_GREY}`} title={e.error || `failed (${e.status ?? "?"})`}>not sent</span>,
+      );
+    }
+  } else {
+    switch (e.deliveryStatus) {
+      case "delivered":
+        pills.push(
+          <span key="ds" className={`${PILL_BASE} ${PILL_OK}`} title={e.deliveryUpdatedAt ? `Carrier confirmed handset receipt at ${formatEt(e.deliveryUpdatedAt)}` : "Carrier confirmed handset receipt"}>delivered ✓</span>,
+        );
+        break;
+      case "undelivered":
+      case "failed": {
+        // Carrier rejected — red. Surfaces the actual error code
+        // (e.g. 4505 "carrier rejected message too long") in the
+        // tooltip so operators can act.
+        const code = e.deliveryErrorCode ? ` ${e.deliveryErrorCode}` : "";
+        pills.push(
+          <span key="ds" className={`${PILL_BASE} ${PILL_RED}`} title={e.error || `Carrier rejected — status ${e.deliveryStatus}${code}`}>rejected{code} ✗</span>,
+        );
+        break;
+      }
+      case "sent":
+      case "queued":
+      default:
+        // Vox accepted; carrier DLR not in yet (or webhook never
+        // wired for this entry). Yellow = "sent, awaiting confirm".
+        pills.push(
+          <span key="ds" className={`${PILL_BASE} ${PILL_AMBER}`} title="Vox accepted the send — waiting for carrier delivery confirmation">sent ⋯</span>,
+        );
+        break;
+    }
+  }
+
+  // 2. Opened-state chip — independent of delivery.
+  //    Click telemetry from /s/{code} redirect log.
+  if (e.clickCount && e.clickCount > 0) {
+    pills.push(
+      <span
+        key="op"
+        className={`${PILL_BASE} ${PILL_OK}`}
+        title={
+          e.clickFirst && e.clickLast
+            ? `First opened ${formatEt(e.clickFirst)}${e.clickCount > 1 ? ` · last ${formatEt(e.clickLast)}` : ""}`
+            : "Recipient tapped the e-ticket link"
+        }
+      >
+        opened ✓{e.clickCount > 1 ? ` ${e.clickCount}×` : ""}
+      </span>,
+    );
+  } else if (e.shortCode && e.ok) {
+    pills.push(
+      <span key="op" className={`${PILL_BASE} ${PILL_GREY}`} title="Recipient hasn't tapped the e-ticket link yet">not opened</span>,
+    );
+  }
+
+  // 3. Routing flags — orthogonal to delivery + opened state.
+  if (e.failedOver) {
+    pills.push(
+      <span key="tw" className={`${PILL_BASE} ${PILL_AMBER}`} title="Vox quota hit — delivered via Twilio failover">↻ twilio</span>,
+    );
+  }
+  if (e.viaGuardian) {
+    pills.push(
+      <span key="gd" className={`${PILL_BASE} ${PILL_PURPLE}`} title="Sent to guardian — minor racer with no usable own contact">↻ guardian</span>,
+    );
+  }
+
+  return <span className="inline-flex flex-wrap items-center gap-1">{pills}</span>;
+}
+
+/** Color-coded legend rendered above the SMS log table — explains
+ *  what each pill color means so staff aren't guessing whether
+ *  yellow vs. green is the success state. */
+function StatusLegend() {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 mb-3 text-xs">
+      <p className="text-white/40 uppercase tracking-wider text-[10px] font-semibold mb-1.5">
+        Status colors
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-white/70">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_GREY}`}>not sent</span>
+          <span className="text-white/50">never reached carrier (failed / queued / no consent)</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_AMBER}`}>sent ⋯</span>
+          <span className="text-white/50">carrier accepted, no delivery confirm yet</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_OK}`}>delivered ✓</span>
+          <span className="text-white/50">handset receipt confirmed</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_RED}`}>rejected ✗</span>
+          <span className="text-white/50">carrier blocked the message</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`${PILL_BASE} ${PILL_OK}`}>opened ✓</span>
+          <span className="text-white/50">recipient tapped the link (separate from delivery)</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * When an SMS is queued and later drained successfully, two distinct
  * log entries exist for the same logical send. Collapse them: keep
  * only the most recent entry per (shortCode + phone + source) tuple.
@@ -328,6 +489,12 @@ export default function EticketAdminClient({ token }: { token: string }) {
           </div>
         )}
 
+        {/* Status-color legend — keys the pill colors used in
+            both the mobile card list and the desktop table below.
+            Helps staff parse "yellow sent vs. green delivered"
+            without having to memorize the convention. */}
+        {entries.length > 0 && <StatusLegend />}
+
         {/* Mobile card list (<md). Stacks one card per entry; taps/buttons
             stay finger-sized. Table header row is purely visual chrome so
             we drop it here — each card labels its own fields. */}
@@ -346,25 +513,20 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       : "border-white/10 bg-white/[0.02]"
                 }`}
               >
-                {/* Top row: time + source chip + click chip */}
+                {/* Top row: time + source chip. Opened-chip moved
+                    down into the consolidated status-pills row so
+                    every status indicator follows the same legend. */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-white/50 text-xs">{formatEt(e.ts)}</span>
-                  <div className="flex items-center gap-1 flex-wrap justify-end">
-                    <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
-                      noConsent ? "bg-red-500/25 text-red-200"
-                      : e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
-                      : e.source === "checkin-cron" ? "bg-emerald-500/20 text-emerald-300"
-                      : e.source === "admin-resend" ? "bg-amber-500/20 text-amber-300"
-                      : "bg-white/10 text-white/60"
-                    }`}>
-                      {noConsent ? "no consent" : sourceLabel(e.source)}
-                    </span>
-                    {e.clickCount && e.clickCount > 0 ? (
-                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
-                        👁 opened{e.clickCount > 1 ? ` ${e.clickCount}×` : ""}
-                      </span>
-                    ) : null}
-                  </div>
+                  <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
+                    noConsent ? "bg-red-500/25 text-red-200"
+                    : e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
+                    : e.source === "checkin-cron" ? "bg-emerald-500/20 text-emerald-300"
+                    : e.source === "admin-resend" ? "bg-amber-500/20 text-amber-300"
+                    : "bg-white/10 text-white/60"
+                  }`}>
+                    {noConsent ? "no consent" : sourceLabel(e.source)}
+                  </span>
                 </div>
 
                 {/* Racer name — big, the thing staff are scanning for */}
@@ -382,24 +544,13 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   </div>
                 )}
 
-                {/* Phone + status on one row */}
-                <div className="flex items-center justify-between gap-2 mt-2">
+                {/* Phone + status pills.
+                    Pills follow the page-top legend: grey not-sent,
+                    yellow sent (no DLR yet), green delivered, red
+                    rejected. Opened state is a separate pill. */}
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
                   <span className="font-mono text-xs text-white/70">{e.phone}</span>
-                  <span className="text-xs">
-                    {e.ok
-                      ? (
-                        <span className="text-emerald-400">
-                          sent
-                          {e.failedOver && <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>}
-                          {e.viaGuardian && <span className="text-purple-300/80 ml-1" title="Sent to guardian — minor racer with no usable own contact">↻ guardian</span>}
-                        </span>
-                      )
-                      : noConsent
-                        ? <span className="text-red-300 font-semibold">needs verbal OK</span>
-                        : isQuotaQueued(e)
-                          ? <span className="text-white/50" title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry on quota reset — auto-flips to green when delivered.">⏳ queued</span>
-                          : <span className="text-red-400">failed ({e.status ?? "?"})</span>}
-                  </span>
+                  {renderStatusPills(e, noConsent)}
                 </div>
 
                 {flashHere && (
@@ -467,38 +618,10 @@ export default function EticketAdminClient({ token }: { token: string }) {
                         {e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        {e.ok
-                          ? (
-                            <span className="text-emerald-400 text-xs">
-                              sent
-                              {e.failedOver && (
-                                <span className="text-amber-300/80 ml-1" title="Vox quota hit — delivered via Twilio failover">↻ Twilio</span>
-                              )}
-                              {e.viaGuardian && (
-                                <span className="text-purple-300/80 ml-1" title="Sent to guardian — minor racer with no usable own contact">↻ guardian</span>
-                              )}
-                            </span>
-                          )
-                          : noConsent
-                            ? <span className="text-red-300 text-xs font-semibold">needs verbal OK</span>
-                            : isQuotaQueued(e)
-                              ? <span className="text-white/50 text-xs" title="SMS hit a daily/rate limit and is queued. The every-minute sweep cron will retry on quota reset — auto-flips to green when delivered.">⏳ queued</span>
-                              : <span className="text-red-400 text-xs">failed ({e.status ?? "?"})</span>}
-                        {/* Click telemetry — only show if we actually have a shortCode + at least one click */}
-                        {e.clickCount && e.clickCount > 0 ? (
-                          <span
-                            className="ml-2 inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300"
-                            title={
-                              e.clickFirst && e.clickLast
-                                ? `First opened ${formatEt(e.clickFirst)}${e.clickCount > 1 ? ` · last ${formatEt(e.clickLast)}` : ""}`
-                                : "Opened"
-                            }
-                          >
-                            👁 opened{e.clickCount > 1 ? ` ${e.clickCount}×` : ""}
-                          </span>
-                        ) : e.shortCode && e.ok ? (
-                          <span className="ml-2 text-xs text-white/30">not opened</span>
-                        ) : null}
+                        {/* Unified pill chips — same renderer as
+                            the mobile card view. Color semantics
+                            keyed by the StatusLegend above. */}
+                        {renderStatusPills(e, noConsent)}
                         {flashHere && <span className="text-emerald-400 text-xs ml-2">· {flash!.msg}</span>}
                       </td>
                       <td className="px-3 py-2">

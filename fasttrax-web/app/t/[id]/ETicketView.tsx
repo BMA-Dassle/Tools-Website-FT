@@ -12,6 +12,7 @@ import {
   TICKET_PULSE_CSS,
   minutesUntil,
 } from "./cards";
+import ImportantRaceInfo from "./ImportantRaceInfo";
 
 interface Props {
   ticket: RaceTicket;
@@ -94,6 +95,15 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
             </p>
           )}
         </div>
+
+        {/* Important race info banner — was previously embedded in
+            the SMS body but T-Mobile / Verizon were rejecting the
+            11-segment messages with code 4505 ("carrier rejected
+            message too long"). Moved here so customers still see
+            the same info the moment they open the e-ticket link.
+            Hidden once the race has run (PastCard branch handles
+            its own messaging). */}
+        {!isPast && <ImportantRaceInfo />}
 
         {!onSession && !isPast ? (
           <InvalidCard details={ticket} />

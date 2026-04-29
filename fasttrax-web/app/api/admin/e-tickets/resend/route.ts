@@ -111,6 +111,10 @@ export async function POST(req: NextRequest) {
   // Log regardless of success. On failure we DO NOT queueRetry — admin
   // resends should fail loudly so the operator sees the error and can
   // retry manually instead of the cron retry queue doing it silently.
+  // providerMessageId lets the Vox webhook update this entry's
+  // deliveryStatus when the carrier reports back (delivered /
+  // undelivered / failed) — replaces the prior "we accepted" 200 with
+  // the actual handset state.
   await logSms({
     ts,
     phone,
@@ -123,6 +127,8 @@ export async function POST(req: NextRequest) {
     personIds,
     memberCount,
     shortCode,
+    provider: result.provider,
+    providerMessageId: result.voxId,
   });
 
   return NextResponse.json({

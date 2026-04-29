@@ -207,11 +207,19 @@ export interface VoxSendOpts {
 
 const VOX_FROM = "+12394819666";
 
+/** Public-facing webhook URL Vox calls when a message changes
+ *  delivery state. Built from env so non-prod deployments can point
+ *  at a test receiver if needed. */
+function voxStatusCallbackUrl(): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+  return `${base}/api/sms-webhook/vox`;
+}
+
 async function voxSendOnce(
   toFormatted: string,
   body: string,
   fromNumber: string,
-): Promise<{ ok: boolean; status: number | null; error?: string }> {
+): Promise<{ ok: boolean; status: number | null; error?: string; voxId?: string }> {
   const VOX_API_KEY = process.env.VOX_API_KEY || "";
   if (!VOX_API_KEY) return { ok: false, status: null, error: "VOX_API_KEY missing" };
 
@@ -225,13 +233,33 @@ async function voxSendOnce(
         Accept: "application/json",
         Authorization: `Bearer ${VOX_API_KEY}`,
       },
-      body: JSON.stringify({ to: toFormatted, from: fromNumber, body }),
+      // status_callback wires Vox's delivery-receipt webhook to our
+      // /api/sms-webhook/vox endpoint. Vox POSTs there when the message
+      // moves through `sent` → `delivered` / `undelivered` so the SMS
+      // log can show actual handset state instead of the previous
+      // "we accepted your request" 200. Schema discovered by probing —
+      // Vox requires the callback as an OBJECT with `url` + `method`,
+      // not a bare URL string.
+      body: JSON.stringify({
+        to: toFormatted,
+        from: fromNumber,
+        body,
+        status_callback: { url: voxStatusCallbackUrl(), method: "POST" },
+      }),
     });
     if (!res.ok) {
       const errText = (await res.text()).slice(0, 500);
       return { ok: false, status: res.status, error: errText };
     }
-    return { ok: true, status: res.status };
+    // Capture the Vox message id so the webhook can correlate the
+    // delivery callback back to our SMS log entry. Best-effort —
+    // Vox may shape the response differently across API versions.
+    let voxId: string | undefined;
+    try {
+      const json = (await res.clone().json()) as { id?: string };
+      if (typeof json?.id === "string") voxId = json.id;
+    } catch { /* ignore — older API or non-JSON */ }
+    return { ok: true, status: res.status, voxId };
   } catch (err) {
     return { ok: false, status: null, error: err instanceof Error ? err.message : "network error" };
   }
@@ -262,6 +290,12 @@ export interface VoxSendResult {
   quotaHit?: boolean;
   provider?: "vox" | "twilio";
   failedOver?: boolean;
+  /** Provider-specific message id. Captured so the SMS log entry
+   *  can be correlated with the delivery-receipt webhook callback
+   *  (Vox: 24-char hex; Twilio: SMxxxxx). Undefined when the
+   *  provider's response didn't include one. */
+  voxId?: string;
+  twilioSid?: string;
 }
 
 export async function voxSend(
