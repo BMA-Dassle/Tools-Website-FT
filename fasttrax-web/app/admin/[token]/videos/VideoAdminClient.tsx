@@ -194,7 +194,7 @@ function VideoStatusLegend() {
           <span className="text-white/50">carrier blocked</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className={`${PILL_BASE} ${PILL_OK}`}>👁 viewed</span>
+          <span className={`${PILL_BASE} ${PILL_OK}`}>👁 opened</span>
           <span className="text-white/50">recipient opened video (separate from delivery)</span>
         </span>
       </div>
@@ -442,7 +442,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             : "Racer opened the video"
                         }
                       >
-                        👁 viewed
+                        👁 opened
                       </span>
                     )}
                     {e.purchased && (
@@ -612,7 +612,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                                   : "Racer opened the video"
                               }
                             >
-                              👁 viewed
+                              👁 opened
                             </span>
                           )}
                           {e.purchased && (
