@@ -315,6 +315,22 @@ export function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
+  // Suppress the mobile "Book Now" bar on focused customer-action
+  // screens — e-tickets (/t/, /g/) and the booking confirmation /
+  // express-checkin screen. The bar overlaps the action surfaces
+  // (full-screen ticket button, QR modals) and the customer is
+  // already mid-flow, so an offer to start a NEW booking is just
+  // visual noise. Header is read by app/layout.tsx.
+  const suppressMobileBar =
+    pathname.startsWith("/t/") ||
+    pathname.startsWith("/g/") ||
+    pathname.startsWith("/book/confirmation");
+  if (suppressMobileBar) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-no-mobile-bar", "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   return NextResponse.next();
 }
 

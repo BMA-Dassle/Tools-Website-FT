@@ -7,7 +7,6 @@ import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import {
   CheckingInCard,
   InvalidCard,
-  LoadingStatusCard,
   PastCard,
   PreRaceCard,
   TICKET_PULSE_CSS,
@@ -236,29 +235,28 @@ export default function GroupETicketView({ group, initial }: Props) {
                     const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
                     return (
                       <div key={key}>
-                        {loadingStatus ? (
-                          <LoadingStatusCard details={m} />
-                        ) : !s.onSession && !isPast ? (
+                        {!s.onSession && !isPast && !loadingStatus ? (
                           <InvalidCard details={m} />
                         ) : isPast ? (
                           <PastCard details={m} />
                         ) : s.checkingIn ? (
                           <CheckingInCard details={m} />
                         ) : (
-                          <PreRaceCard details={m} />
+                          <PreRaceCard details={m} loadingStatus={loadingStatus} />
                         )}
                       </div>
                     );
                   })}
-                  {/* Per-heat "show to staff" button — fullscreens
-                      every racer in this heat together. */}
-                  {!isPast && !loadingStatus && anyOnSession && (
+                  {/* Per-heat full-screen button — TABLED for now.
+                      Component + state preserved so we can re-enable
+                      with a one-line change once the UX is finalized. */}
+                  {false && !isPast && anyOnSession && (
                     <button
                       type="button"
                       onClick={() => setFullScreenKey(sid)}
-                      className="w-full py-2.5 rounded-xl bg-white text-[#000418] font-bold uppercase tracking-wider text-xs hover:bg-white/90 active:scale-[0.99] transition-all"
+                      className="w-full py-2.5 rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/10 text-[#00E2E5] font-bold uppercase tracking-wider text-xs hover:bg-[#00E2E5]/15 active:scale-[0.99] transition-all"
                     >
-                      Show Heat {first.heatNumber} to Karting Attendant
+                      Open Full Screen · Heat {first.heatNumber}
                     </button>
                   )}
                   {/* Full-screen overlay for this heat. */}

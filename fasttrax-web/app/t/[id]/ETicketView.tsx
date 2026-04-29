@@ -7,7 +7,6 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import {
   CheckingInCard,
   InvalidCard,
-  LoadingStatusCard,
   PastCard,
   PreRaceCard,
   TICKET_PULSE_CSS,
@@ -149,33 +148,33 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
             its own messaging). */}
         {!isPast && <ImportantRaceInfo />}
 
-        {loadingStatus ? (
-          // Pre-first-poll: wasCalled is true but we don't yet know
-          // if the race is currently checking in or already past.
-          // Show a transient "Loading status…" card to avoid a
-          // wrong PastCard flash while the poll resolves.
-          <LoadingStatusCard details={ticket} />
-        ) : !onSession && !isPast ? (
+        {/* Always render the e-ticket info immediately. The status
+            bar inside PreRaceCard shows a spinner while the live
+            check is in flight — the customer's name, heat, time
+            never gets blocked behind a loading card. Only confirmed
+            terminal states (past / checking-in / removed) swap to
+            their dedicated cards. */}
+        {!onSession && !isPast && !loadingStatus ? (
           <InvalidCard details={ticket} />
         ) : isPast ? (
           <PastCard details={ticket} />
         ) : checkingIn ? (
           <CheckingInCard details={ticket} />
         ) : (
-          <PreRaceCard details={ticket} />
+          <PreRaceCard details={ticket} loadingStatus={loadingStatus} />
         )}
 
-        {/* "Show to Karting attendant" full-screen button —
-            mirrors the confirmation page's QR-modal pattern. Hidden
-            on past states (nothing to scan) and during the loading
-            window (no settled state to display). */}
-        {!isPast && !loadingStatus && onSession && (
+        {/* Full-screen "Open Full Screen" button — TABLED for now.
+            Keeping the FullScreenTicket component + state in place so
+            we can re-enable with a one-line change once the UX is
+            finalized. */}
+        {false && !isPast && onSession && (
           <button
             type="button"
             onClick={() => setFullScreen(true)}
-            className="mt-4 w-full py-3 rounded-xl bg-white text-[#000418] font-bold uppercase tracking-wider text-sm hover:bg-white/90 active:scale-[0.99] transition-all"
+            className="mt-3 w-full py-3 rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/10 text-[#00E2E5] font-bold uppercase tracking-wider text-sm hover:bg-[#00E2E5]/15 active:scale-[0.99] transition-all"
           >
-            Show to Karting Attendant
+            Open Full Screen
           </button>
         )}
 

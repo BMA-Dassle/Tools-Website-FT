@@ -152,7 +152,7 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
   );
 }
 
-export function PreRaceCard({ details }: { details: CardDetails }) {
+export function PreRaceCard({ details, loadingStatus }: { details: CardDetails; loadingStatus?: boolean }) {
   const trackColor = trackColorFor(details);
   const mins = minutesUntil(details.scheduledStart);
   const startsInText =
@@ -164,11 +164,27 @@ export function PreRaceCard({ details }: { details: CardDetails }) {
       style={{ boxShadow: "0 0 24px rgba(0,226,229,0.1)" }}
     >
       <div className="bg-[#00E2E5]/10 border-b border-[#00E2E5]/30 px-4 py-3">
+        {/* Status bar — when `loadingStatus` is set, the live state
+            check is still in flight (wasCalled=true from Redis but
+            `checkingIn` not yet confirmed). Show a subtle spinner
+            in the bar so the rest of the ticket (name / time / heat)
+            stays visible immediately instead of being blocked by a
+            separate loading card. */}
         <p
-          className="text-[#00E2E5] font-bold uppercase tracking-wider text-center"
+          className="text-[#00E2E5] font-bold uppercase tracking-wider text-center inline-flex items-center justify-center gap-2 w-full"
           style={{ fontSize: "clamp(12px, 2vw, 14px)" }}
         >
-          E-Ticket · {startsInText}
+          {loadingStatus ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="inline-block w-3 h-3 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+              />
+              Confirming current status…
+            </>
+          ) : (
+            <>E-Ticket · {startsInText}</>
+          )}
         </p>
       </div>
 

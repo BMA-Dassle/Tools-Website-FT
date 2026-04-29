@@ -215,7 +215,12 @@ export default async function RootLayout({
   // no footer, no chat widget, no cart. Flag set by middleware.ts after
   // the auth gate passes.
   const isAdmin = hdrs.get("x-admin-route") === "1";
+  // Customer mid-flow screens (e-tickets, confirmation/express
+  // check-in) suppress the mobile "Book Now" bar — flagged by
+  // middleware.ts so the chrome decision stays in one place.
+  const noMobileBar = hdrs.get("x-no-mobile-bar") === "1";
   const showChrome = !isHeadPinz && !isAdmin;
+  const showMobileBar = showChrome && !noMobileBar;
 
   return (
     <html lang="en" className={`${exo2.variable} ${barlow.variable} ${outfit.variable} ${dmSans.variable}`}>
@@ -227,7 +232,7 @@ export default async function RootLayout({
         {!isAdmin && <MiniCart />}
         <main>{children}</main>
         {showChrome && <Footer />}
-        {showChrome && <MobileBookBar />}
+        {showMobileBar && <MobileBookBar />}
         {showChrome && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />
