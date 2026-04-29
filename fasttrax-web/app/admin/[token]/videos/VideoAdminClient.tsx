@@ -152,7 +152,7 @@ function smsPill(e: VideoRow): React.ReactNode {
     case "sent":
     case "queued":
     default:
-      return <span className={`${PILL_BASE} ${PILL_AMBER}`} title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo} — waiting for carrier delivery confirmation` : "Vox accepted — waiting for carrier delivery confirmation"}>sms sent ⋯</span>;
+      return <span className={`${PILL_BASE} ${PILL_AMBER}`} title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo} — waiting for carrier delivery confirmation` : "Vox accepted — waiting for carrier delivery confirmation"}>sms sent</span>;
   }
 }
 
@@ -182,7 +182,7 @@ function VideoStatusLegend() {
           <span className="text-white/50">not sent yet</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className={`${PILL_BASE} ${PILL_AMBER}`}>sms sent ⋯</span>
+          <span className={`${PILL_BASE} ${PILL_AMBER}`}>sms sent</span>
           <span className="text-white/50">accepted, no carrier confirm</span>
         </span>
         <span className="inline-flex items-center gap-1.5">

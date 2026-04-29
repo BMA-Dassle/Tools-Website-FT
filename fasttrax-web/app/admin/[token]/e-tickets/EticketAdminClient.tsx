@@ -157,7 +157,7 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
         // Vox accepted; carrier DLR not in yet (or webhook never
         // wired for this entry). Yellow = "sent, awaiting confirm".
         pills.push(
-          <span key="ds" className={`${PILL_BASE} ${PILL_AMBER}`} title="Vox accepted the send — waiting for carrier delivery confirmation">sent ⋯</span>,
+          <span key="ds" className={`${PILL_BASE} ${PILL_AMBER}`} title="Vox accepted the send — waiting for carrier delivery confirmation">sent</span>,
         );
         break;
     }
@@ -215,7 +215,7 @@ function StatusLegend() {
           <span className="text-white/50">never reached carrier (failed / queued / no consent)</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className={`${PILL_BASE} ${PILL_AMBER}`}>sent ⋯</span>
+          <span className={`${PILL_BASE} ${PILL_AMBER}`}>sent</span>
           <span className="text-white/50">carrier accepted, no delivery confirm yet</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
