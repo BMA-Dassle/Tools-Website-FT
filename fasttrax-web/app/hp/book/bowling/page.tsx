@@ -1107,10 +1107,40 @@ export default function BowlingBookingPage() {
     setError("");
     try {
       const dt = resolveDateTime(selectedDate, selectedTime);
-      const data = await qamf(
-        `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&players=1-${playerCount}&page=1&itemsPerPage=50`
+      const baseUrl = (datetime: string) =>
+        `centers/${centerId}/offers-availability?systemId=${centerId}&datetime=${encodeURIComponent(datetime)}&players=1-${playerCount}&page=1&itemsPerPage=50`;
+
+      // QAMF /offers-availability filters server-side by the datetime
+      // window — at 7 PM it won't return Midnight Madness (which has
+      // its only items at 12 AM). On Fri/Sat we fire a second probe
+      // at 11:30 PM specifically to pick up the late-night deal and
+      // merge it in, so the offer step + lane-type counter can still
+      // surface it. Skipped when the customer is already late-night
+      // (the primary call already covers it) or it's not a Fri/Sat.
+      const [y, m, d] = selectedDate.split("-").map(Number);
+      const dow = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
+      const selectedHour = parseInt(selectedTime.split(":")[0] || "0", 10);
+      const isLateNight = selectedHour >= 23 || selectedHour < 3;
+      const probeMidnightMadness = (dow === 5 || dow === 6) && !isLateNight;
+
+      const [primary, late] = await Promise.all([
+        qamf(baseUrl(dt)),
+        probeMidnightMadness
+          ? qamf(baseUrl(`${selectedDate}T23:30`)).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      const primaryOffers: Offer[] = Array.isArray(primary) ? primary : [];
+      const lateOffers: Offer[] = Array.isArray(late) ? late : [];
+
+      // Merge: keep everything from primary, add Midnight Madness
+      // offers from the late probe that aren't already in primary
+      // (matched by OfferId). Anything else from the late probe is
+      // dropped — only the deal is what we're after.
+      const seenIds = new Set(primaryOffers.map((o) => o.OfferId));
+      const mmOffers = lateOffers.filter(
+        (o) => /midnight\s*madness/i.test(o.Name) && !seenIds.has(o.OfferId),
       );
-      setAllOffers(Array.isArray(data) ? data : []);
+      setAllOffers([...primaryOffers, ...mmOffers]);
       setStep("lane-type");
     } catch { setError("Failed to load packages"); }
     finally { setLoading(false); }
