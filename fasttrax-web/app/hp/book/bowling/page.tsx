@@ -2026,23 +2026,57 @@ export default function BowlingBookingPage() {
             <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-2 text-center">Choose a Package</h2>
             <p className="font-body text-white/40 text-xs text-center mb-4">Showing packages near {formatTimeStr(selectedTime)}</p>
             <div className="space-y-4">
-              {filteredOffers.map(offer => {
-                const validItems = filterOfferItems(offer, selectedTime, selectedDate);
+              {(() => {
+                // Late-night window — Midnight Madness only runs Fri/Sat
+                // 12 AM–2 AM. We treat 11 PM through 2:59 AM as "late
+                // enough to be the deal" so the package appears at the
+                // top of the picker once the customer picks a slot in
+                // that window. Otherwise we still surface it (so Fri/Sat
+                // visitors learn it exists) but at the bottom with a
+                // "switch your time to grab it" header.
+                const hour = parseInt(selectedTime.split(":")[0] || "0", 10);
+                const lateNight = hour >= 23 || hour < 3;
+                const isMM = (name: string) => /midnight\s*madness/i.test(name);
+                const ordered = [...filteredOffers].sort((a, b) => {
+                  const aMM = isMM(a.Name);
+                  const bMM = isMM(b.Name);
+                  if (aMM === bMM) return 0;
+                  if (aMM) return lateNight ? -1 : 1;
+                  return lateNight ? 1 : -1;
+                });
+                return ordered.map(offer => {
+                const isMidnightMadness = isMM(offer.Name);
+                // Midnight Madness ignores the 1-hour filter so it stays
+                // visible even at, say, 7 PM — the customer can click
+                // through and the existing pendingOffer modal confirms
+                // the time shift to 12 AM.
+                const validItems = isMidnightMadness
+                  ? (offer.Items || []).filter(it => !it.Reason && it.Remaining > 0)
+                  : filterOfferItems(offer, selectedTime, selectedDate);
                 if (validItems.length === 0) return null; // Hide offers with no items within 1 hour
 
                 const perPerson = isPerPerson(offer.Name);
-                // Fun 4 All bundles shoes into the per-person price.
-                // Bowling shoes normally rent at $5/person, so the bundle
-                // is effectively a $5/person discount vs. open bowling +
-                // shoe rental. We treat it as a featured "special" — coral
-                // glow + savings ribbon so it visually beats Open VIP.
+                // Fun 4 All bundles shoes into the per-person price;
+                // Midnight Madness includes shoes too. Bowling shoes
+                // normally rent at $5/person, so both are effectively a
+                // $5/person discount vs. open bowling + shoe rental. We
+                // treat them as featured "specials" — cyan border + coral
+                // ribbon + savings callout so they visually beat the
+                // plain Open VIP cards.
                 const isFun4All = /fun\s*4/i.test(offer.Name);
+                const isSpecial = isFun4All || isMidnightMadness;
                 const SHOE_VALUE_PER_PERSON = 5;
                 const groupShoeSavings = SHOE_VALUE_PER_PERSON * Math.max(playerCount, 1);
                 const firstItem = validItems[0];
                 const basePrice = firstItem?.Total || 0;
                 const perPersonPrice = perPerson && playerCount > 0 ? basePrice / playerCount : 0;
                 const hasMultipleItems = validItems.length > 1;
+                // Earliest start slot for Midnight Madness — feeds the
+                // ribbon copy ("Starts at 12:00 AM") so the customer
+                // knows what time they need to be here.
+                const mmStartTime = isMidnightMadness
+                  ? [...validItems].sort((a, b) => a.Time.localeCompare(b.Time))[0]?.Time || ""
+                  : "";
 
                 function handleSelectItem(item: OfferItem) {
                   const tariff = { Id: item.ItemId, Name: offer.Name, Price: item.Total, Duration: formatDuration(item.Quantity, item.QuantityType) };
@@ -2067,12 +2101,25 @@ export default function BowlingBookingPage() {
                   selectOffer(offer, tariff);
                 }
 
+                // Ribbon copy — same coral gradient bar across all
+                // specials, but text shifts based on context:
+                //   - Fun 4 All: always "Special · Shoes Included"
+                //   - Midnight Madness late-night: "Late Night Special"
+                //   - Midnight Madness early time: invites customer to
+                //     switch their time, with the deal start time
+                //     spelled out so they know what they're committing
+                //     to.
+                const ribbonText = isMidnightMadness
+                  ? lateNight
+                    ? "★ Late Night Special · Shoes Included ★"
+                    : `★ Book Late Night & Save · Starts ${formatTimeStr(mmStartTime)} ★`
+                  : "★ Special · Bowling Shoes Included ★";
                 return (
                   <div
                     key={offer.OfferId}
                     className="rounded-lg overflow-hidden relative"
                     style={
-                      isFun4All
+                      isSpecial
                         ? {
                             backgroundColor: "rgba(7,16,39,0.6)",
                             border: `1px solid ${cyan}55`,
@@ -2081,10 +2128,10 @@ export default function BowlingBookingPage() {
                         : { backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${coral}25` }
                     }
                   >
-                    {/* "SPECIAL" ribbon for Fun 4 All — pulses subtly so
-                        it reads as a deal at a glance. Sits above the
-                        flex row so the image overlay badges still work. */}
-                    {isFun4All && (
+                    {/* "SPECIAL" ribbon — sits above the flex row so the
+                        image overlay badges still work. Same gradient
+                        bar for every special; only the copy changes. */}
+                    {isSpecial && (
                       <div
                         className="font-heading uppercase tracking-[0.2em] text-[11px] sm:text-xs font-bold py-1.5 text-center"
                         style={{
@@ -2094,7 +2141,7 @@ export default function BowlingBookingPage() {
                           textShadow: "0 1px 2px rgba(0,0,0,0.3)",
                         }}
                       >
-                        ★ Special · Bowling Shoes Included ★
+                        {ribbonText}
                       </div>
                     )}
                     <div className="flex flex-col sm:flex-row">
@@ -2112,12 +2159,13 @@ export default function BowlingBookingPage() {
                       <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-1">{offer.Name}</h3>
                       {offer.Description && <p className="font-body text-white/50 text-xs mb-3">{stripHtml(offer.Description)}</p>}
 
-                      {/* Savings callout — Fun 4 All only. Bowling shoes
-                          would normally cost $5/person extra at HeadPinz,
-                          so this bundle is an honest savings vs. Open
-                          Bowling VIP + shoe rental. We compute the group
-                          total so larger parties see a bigger number. */}
-                      {isFun4All && (
+                      {/* Savings callout — applies to any package that
+                          bundles shoes. Bowling shoes normally cost
+                          $5/person extra at HeadPinz, so we surface the
+                          group total ($5 × playerCount) — larger parties
+                          see a bigger number, which is the strongest
+                          conversion lever. */}
+                      {isSpecial && (
                         <div
                           className="mb-3 rounded-md px-3 py-2 flex items-center gap-2 flex-wrap"
                           style={{ backgroundColor: `${gold}15`, border: `1px solid ${gold}50` }}
@@ -2165,9 +2213,18 @@ export default function BowlingBookingPage() {
                     </div>
                   </div>
                 );
-              }).filter(Boolean)}
+                }).filter(Boolean);
+              })()}
             </div>
-            {filteredOffers.filter(o => filterOfferItems(o, selectedTime, selectedDate).length > 0).length === 0 && (
+            {filteredOffers.filter(o => {
+              // Midnight Madness bypasses the 1-hour filter (see map
+              // above), so the "no packages" empty state has to mirror
+              // that or it'll show alongside a rendered card.
+              if (/midnight\s*madness/i.test(o.Name)) {
+                return (o.Items || []).some(it => !it.Reason && it.Remaining > 0);
+              }
+              return filterOfferItems(o, selectedTime, selectedDate).length > 0;
+            }).length === 0 && (
               <p className="font-body text-white/40 text-sm text-center py-8">No packages available within an hour of {formatTimeStr(selectedTime)}. Try a different time.</p>
             )}
             <button onClick={goBack} className="mt-4 font-body text-white/40 text-sm cursor-pointer">&larr; Back</button>
