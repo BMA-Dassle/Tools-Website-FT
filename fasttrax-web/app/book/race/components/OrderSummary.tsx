@@ -9,6 +9,8 @@ import type { PackageDefinition } from "@/lib/packages";
 import { packagePerRacerPrice, LICENSE_PRICE, POV_PRICE, getPackageIgnoreFlag } from "@/lib/packages";
 import type { ContactInfo } from "./ContactForm";
 import PaymentForm from "@/components/square/PaymentForm";
+import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
+import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -192,6 +194,7 @@ export default function OrderSummary({
 }: OrderSummaryProps) {
   const [removingPack, setRemovingPack] = useState(false);
   const [state, setState] = useState<BookingState>({ status: "idle" });
+  const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const effectRan = useRef(false);
 
   // Computed pricing — prefer real block price from availability over catalog price
@@ -327,9 +330,37 @@ export default function OrderSummary({
     }
   }
 
+  /** Fire-and-forget clickwrap log to Neon via the API route.
+   *  Server captures IP + user-agent; we supply booking context. */
+  async function recordClickwrap(orderId: string, cashOwed: number, cardLast4?: string, cardBrand?: string) {
+    try {
+      await fetch("/api/clickwrap/record", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ts: new Date().toISOString(),
+          billId: orderId,
+          email: contact.email,
+          phone: contact.phone,
+          firstName: contact.firstName,
+          amountCents: Math.round(cashOwed * 100),
+          cardLast4,
+          cardBrand,
+          bookingType: isPack ? "racing-pack" : "racing",
+          policyVersion: CURRENT_POLICY_VERSION,
+        }),
+      });
+    } catch { /* non-fatal */ }
+  }
+
   async function handleConfirm() {
     if (state.status !== "booked") return;
     const { orderId, isCreditOrder, cashOwed } = state;
+
+    // Log clickwrap acceptance immediately on confirm click (non-fatal).
+    // Card details are only available after Square tokenizes, so they're
+    // filled in the onSuccess callback for Square payments.
+    void recordClickwrap(orderId, cashOwed);
 
     setState({ status: "booking" }); // Show loading while preparing payment
     trackBookingPayment(isCreditOrder ? "credit" : "square", cashOwed);
@@ -664,6 +695,9 @@ export default function OrderSummary({
             amount: result.amount,
             paymentId: result.paymentId,
           }));
+          // Supplement the clickwrap record with card details now that
+          // Square has tokenized. Fire-and-forget — don't block redirect.
+          void recordClickwrap(state.orderId, state.cashOwed, result.cardLast4 ?? undefined, result.cardBrand ?? undefined);
           window.location.href = confirmUrl;
         }}
         onError={(msg) => setState({ status: "error", message: msg })}
@@ -1198,6 +1232,12 @@ export default function OrderSummary({
             )}
           </div>
 
+          {/* Clickwrap agreement — must be checked before Pay/Confirm */}
+          <ClickwrapCheckbox
+            checked={clickwrapAccepted}
+            onChange={setClickwrapAccepted}
+          />
+
           {/* Actions */}
           <div className="flex items-center justify-between gap-4">
             <button
@@ -1209,7 +1249,8 @@ export default function OrderSummary({
             </button>
             <button
               onClick={handleConfirm}
-              disabled={isPaying}
+              disabled={isPaying || !clickwrapAccepted}
+              title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
               className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-base bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isPaying ? (
