@@ -426,13 +426,6 @@ export default function HeadPinzGroupEventsPage() {
               >
                 Download Sales Booklet
               </a>
-              <a
-                href="tel:+12393022155"
-                className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-                style={{ backgroundColor: purple, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
-              >
-                Call (239) 302-2155
-              </a>
             </div>
           </div>
           <div className="flex-1 relative w-full aspect-[4/3] rounded-2xl overflow-hidden">

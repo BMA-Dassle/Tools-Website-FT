@@ -411,13 +411,6 @@ export default function HeadPinzNaplesGroupEventsPage() {
               >
                 Download Sales Booklet
               </a>
-              <a
-                href="tel:+12394553755"
-                className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-                style={{ backgroundColor: purple, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
-              >
-                Call (239) 455-3755
-              </a>
             </div>
           </div>
           <div className="flex-1 relative w-full aspect-[4/3] rounded-2xl overflow-hidden">
