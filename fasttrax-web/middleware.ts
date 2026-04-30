@@ -273,6 +273,7 @@ export function middleware(request: NextRequest) {
     !pathname.startsWith("/hp") &&
     !pathname.startsWith("/book") &&
     !pathname.startsWith("/api") &&
+    !pathname.startsWith("/documents") &&
     !isRootMetadataPath &&
     !isSharedTopLevelRoute
   ) {
