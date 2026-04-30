@@ -7,6 +7,8 @@ import { calculateTax, calculateTotal, isRelevantMembership } from "../race/data
 import { trackBookingStep } from "@/lib/analytics";
 import PaymentForm from "@/components/square/PaymentForm";
 import type { PaymentResult } from "@/components/square/PaymentForm";
+import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
+import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
 
@@ -135,6 +137,7 @@ export default function RacePacksPage() {
   const [emailSmsSent, setEmailSmsSent] = useState(false);
   const [emailSmsCode, setEmailSmsCode] = useState("");
   const [disclaimersAccepted, setDisclaimersAccepted] = useState<boolean[]>([]);
+  const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
   const [checkoutBillId, setCheckoutBillId] = useState("");
@@ -533,6 +536,23 @@ export default function RacePacksPage() {
 
   async function handleCheckout() {
     if (!selectedPack || !person) return;
+
+    // Log clickwrap acceptance (non-fatal)
+    void fetch("/api/clickwrap/record", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ts: new Date().toISOString(),
+        billId: checkoutBillId || undefined,
+        email: person.email,
+        phone: person.phone || newPerson.phone || "",
+        firstName: person.fullName.split(" ")[0] || "",
+        amountCents: Math.round(checkoutTotal * 100),
+        bookingType: "racing-pack",
+        policyVersion: CURRENT_POLICY_VERSION,
+      }),
+    }).catch(() => {});
+
     setPaying(true);
     changeStep("paying");
 
@@ -1036,7 +1056,7 @@ export default function RacePacksPage() {
               "Race pack is non-transferable",
               "This does not book you a race. It is highly suggested you complete a reservation after purchase.",
             ];
-            const allAccepted = disclaimersAccepted.length >= disclaimers.length && disclaimersAccepted.slice(0, disclaimers.length).every(Boolean);
+            const allAccepted = disclaimersAccepted.length >= disclaimers.length && disclaimersAccepted.slice(0, disclaimers.length).every(Boolean) && clickwrapAccepted;
             return (
               <div className="space-y-4">
                 {/* Pack info */}
@@ -1087,6 +1107,12 @@ export default function RacePacksPage() {
                     </label>
                   ))}
                 </div>
+
+                {/* Cancellation policy clickwrap */}
+                <ClickwrapCheckbox
+                  checked={clickwrapAccepted}
+                  onChange={setClickwrapAccepted}
+                />
 
                 <button
                   onClick={handleCheckout}

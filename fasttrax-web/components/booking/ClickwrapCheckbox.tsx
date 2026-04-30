@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 
 interface ClickwrapCheckboxProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /**
+   * How many hours before the reservation cancellations are accepted.
+   * Defaults to 2. Pass 1 for bowling.
+   */
+  cancellationHours?: number;
 }
 
 /**
@@ -15,11 +20,21 @@ interface ClickwrapCheckboxProps {
  * payment. Clicking "View full policy" opens an inline modal with the
  * complete cancellation & payment policy.
  *
- * The checkbox state lives in the parent (OrderSummary) so it can
- * gate the Pay/Confirm button and be passed into the acceptance log.
+ * The checkbox state lives in the parent so it can gate the Pay/Confirm
+ * button and be passed into the acceptance log.
  */
-export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckboxProps) {
+export default function ClickwrapCheckbox({ checked, onChange, cancellationHours = 2 }: ClickwrapCheckboxProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [isHeadPinz, setIsHeadPinz] = useState(false);
+
+  useEffect(() => {
+    setIsHeadPinz(window.location.hostname.includes("headpinz"));
+  }, []);
+
+  const brandName = isHeadPinz ? "HeadPinz" : "FastTrax Entertainment";
+  const brandPhone = isHeadPinz ? "(239) 302-2155" : "(239) 481-9666";
+  const brandPhoneTel = isHeadPinz ? "+12393022155" : "+12394819666";
+  const policyUrl = "/cancellation-policy";
 
   return (
     <>
@@ -58,7 +73,7 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
           </div>
         </div>
         <span className="text-xs text-white/50 leading-relaxed">
-          I agree to FastTrax&apos;s{" "}
+          I agree to our{" "}
           <button
             type="button"
             onClick={(e) => {
@@ -70,7 +85,7 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
             cancellation &amp; payment policy
           </button>{" "}
           <a
-            href="/cancellation-policy"
+            href={policyUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-white/30 hover:text-white/60 transition-colors text-[10px]"
@@ -78,7 +93,7 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
           >
             ↗
           </a>
-          . All race bookings are final and subject to this policy.
+          . All reservations are final and subject to this policy.
         </span>
       </label>
 
@@ -90,8 +105,7 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
           aria-modal="true"
           aria-label="Cancellation & Payment Policy"
         >
-          {/* Backdrop — modalBackdropProps adds role, tabIndex, and keyboard
-              handlers so the a11y gate doesn't flag a clickable div */}
+          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             {...modalBackdropProps(() => setModalOpen(false))}
@@ -120,7 +134,7 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
               {/* Policy body */}
               <div className="text-xs text-white/60 space-y-4 leading-relaxed">
                 <p className="text-white/80">
-                  Race reservations are confirmed immediately upon payment.
+                  Reservations are confirmed immediately upon payment.
                   All sales are final.
                 </p>
 
@@ -129,37 +143,22 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
                   <ul className="space-y-1 ml-3">
                     <li>
                       &middot; Cancellations must be made{" "}
-                      <strong className="text-white/80">more than 2 hours</strong> before
-                      your scheduled race time to be eligible for a refund or credit.
+                      <strong className="text-white/80">more than {cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}</strong>{" "}
+                      before your reservation to be eligible for a refund or credit.
                     </li>
                     <li>
                       &middot; Cancellations within{" "}
-                      <strong className="text-white/80">2 hours</strong> of your race are{" "}
+                      <strong className="text-white/80">{cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}</strong>{" "}
+                      of your reservation are{" "}
                       <strong className="text-white/80">non-refundable</strong>, no exceptions.
                     </li>
                     <li>
                       &middot; All cancellation and reschedule requests must be made by{" "}
                       <strong className="text-white/80">phone or SMS</strong> at{" "}
-                      <a href="tel:+12394819666" className="text-[#00E2E5] hover:underline">
-                        (239) 481-9666
+                      <a href={`tel:${brandPhoneTel}`} className="text-[#00E2E5] hover:underline">
+                        {brandPhone}
                       </a>
                       . Online requests are not accepted.
-                    </li>
-                  </ul>
-                </div>
-
-                <div>
-                  <p className="text-white/80 font-semibold mb-1">Race Packs &amp; Credits</p>
-                  <ul className="space-y-1 ml-3">
-                    <li>
-                      &middot; Race pack credits are added to your FastTrax account
-                      immediately and are{" "}
-                      <strong className="text-white/80">non-refundable</strong> once
-                      applied.
-                    </li>
-                    <li>
-                      &middot; Credits have no cash value and cannot be transferred to
-                      another account.
                     </li>
                   </ul>
                 </div>
@@ -169,15 +168,15 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
                   <ul className="space-y-1 ml-3">
                     <li>
                       &middot; If you have a concern about a charge, please{" "}
-                      <strong className="text-white/80">call us first</strong> at{" "}
-                      <a href="tel:+12394819666" className="text-[#00E2E5] hover:underline">
-                        (239) 481-9666
+                      <strong className="text-white/80">contact us first</strong> at{" "}
+                      <a href={`tel:${brandPhoneTel}`} className="text-[#00E2E5] hover:underline">
+                        {brandPhone}
                       </a>{" "}
                       before contacting your bank. We can typically resolve issues within
                       one business day.
                     </li>
                     <li>
-                      &middot; Initiating a chargeback without first contacting FastTrax
+                      &middot; Initiating a chargeback without first contacting {brandName}{" "}
                       may result in suspension of booking privileges.
                     </li>
                   </ul>

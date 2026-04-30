@@ -6,6 +6,8 @@ import { trackBowlingStep } from "@/lib/analytics";
 import { bookAttractionSlot } from "@/lib/attractions-data";
 import { getBookingClientKey } from "@/lib/booking-location";
 import { modalBackdropProps } from "@/lib/a11y";
+import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
+import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -695,6 +697,9 @@ export default function BowlingBookingPage() {
   // Location confirm modal
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [redirectingToPayment, setRedirectingToPayment] = useState(false);
+
+  // Clickwrap agreement
+  const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
 
   // Time change confirmation modal
   const [pendingOffer, setPendingOffer] = useState<{ offer: Offer; tariff: { Id: number; Name: string; Price: number; Duration: string }; newTime: string } | null>(null);
@@ -1402,6 +1407,22 @@ export default function BowlingBookingPage() {
 
   async function submitBooking() {
     if (!guestName || !guestEmail || !guestPhone) { setError("Please fill in all fields"); return; }
+
+    // Log clickwrap acceptance before redirecting to payment (non-fatal)
+    void fetch("/api/clickwrap/record", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ts: new Date().toISOString(),
+        email: guestEmail,
+        phone: guestPhone,
+        firstName: guestName.split(" ")[0] || guestName,
+        amountCents: cartSummary ? Math.round(cartSummary.Total * 100) : undefined,
+        bookingType: "attractions",
+        policyVersion: CURRENT_POLICY_VERSION,
+      }),
+    }).catch(() => {});
+
     setLoading(true);
     setError("");
     try {
@@ -2741,8 +2762,16 @@ export default function BowlingBookingPage() {
               <input type="tel" placeholder="Phone Number" value={guestPhone} onChange={e => setGuestPhone(e.target.value)}
                 className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors" />
             </div>
-            <button onClick={submitBooking} disabled={loading}
-              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
+            <div className="mb-4">
+              <ClickwrapCheckbox
+                checked={clickwrapAccepted}
+                onChange={setClickwrapAccepted}
+                cancellationHours={1}
+              />
+            </div>
+            <button onClick={submitBooking} disabled={loading || !clickwrapAccepted}
+              title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
+              className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ backgroundColor: gold, boxShadow: `0 0 16px ${gold}30` }}>
               {loading ? "Processing..." : "Pay & Confirm"}
             </button>

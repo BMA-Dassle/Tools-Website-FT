@@ -8,6 +8,8 @@ import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
 import PaymentForm from "@/components/square/PaymentForm";
 import type { PaymentResult } from "@/components/square/PaymentForm";
+import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
+import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 // MiniCart is rendered globally in root layout
 import ContactForm from "@/app/book/race/components/ContactForm";
 import type { ContactInfo } from "@/app/book/race/components/ContactForm";
@@ -710,6 +712,7 @@ function ReviewStep({
   color: string;
 }) {
   const [state, setState] = useState<ReviewState>({ status: "idle" });
+  const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const effectRan = useRef(false);
 
   useEffect(() => {
@@ -788,6 +791,22 @@ function ReviewStep({
 
   async function handlePay() {
     if (state.status !== "booked") return;
+
+    // Log clickwrap acceptance (non-fatal)
+    void fetch("/api/clickwrap/record", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ts: new Date().toISOString(),
+        billId: state.orderId,
+        email: contact.email,
+        phone: contact.phone,
+        firstName: contact.firstName,
+        amountCents: Math.round(state.total * 100),
+        bookingType: "attractions",
+        policyVersion: CURRENT_POLICY_VERSION,
+      }),
+    }).catch(() => {});
 
     try {
       const { orderId, total, subtotal, tax, lines, creditsApplied } = state;
@@ -986,6 +1005,12 @@ function ReviewStep({
         Payment handled securely by Square.
       </div>
 
+      {/* Clickwrap agreement */}
+      <ClickwrapCheckbox
+        checked={clickwrapAccepted}
+        onChange={setClickwrapAccepted}
+      />
+
       {/* Actions */}
       <div className="flex items-center justify-between gap-4">
         <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
@@ -993,7 +1018,9 @@ function ReviewStep({
         </button>
         <button
           onClick={handlePay}
-          className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-sm text-[#000418] hover:brightness-110 transition-all shadow-lg"
+          disabled={!clickwrapAccepted}
+          title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
+          className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-sm text-[#000418] hover:brightness-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ backgroundColor: color, boxShadow: `0 10px 25px ${color}40` }}
         >
           Pay ${bmiTotal.toFixed(2)} →
