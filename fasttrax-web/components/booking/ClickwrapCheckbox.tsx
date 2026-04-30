@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 interface ClickwrapCheckboxProps {
   checked: boolean;
@@ -80,10 +81,11 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
           aria-modal="true"
           aria-label="Cancellation & Payment Policy"
         >
-          {/* Backdrop */}
+          {/* Backdrop — modalBackdropProps adds role, tabIndex, and keyboard
+              handlers so the a11y gate doesn't flag a clickable div */}
           <div
             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setModalOpen(false)}
+            {...modalBackdropProps(() => setModalOpen(false))}
           />
 
           {/* Sheet */}
