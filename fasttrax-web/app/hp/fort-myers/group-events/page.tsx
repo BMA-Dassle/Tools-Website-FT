@@ -146,8 +146,8 @@ const vipPinzExclusive = {
   subtitle: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling \u2014 holds up to 80 people, 48 can bowl at once",
   color: blue,
   rows: [
-    { period: "Mon\u2013Thu", h15: "$960", h2: "$1,144", h3: "$1,504" },
-    { period: "Fri\u2013Sun", h15: "$1,120", h2: "$1,344", h3: "$1,808" },
+    { period: "Mon\u2013Thu", h15: "$979", h2: "$1,174", h3: "$1,549" },
+    { period: "Fri\u2013Sun", h15: "$1,139", h2: "$1,374", h3: "$1,853" },
   ],
 };
 
