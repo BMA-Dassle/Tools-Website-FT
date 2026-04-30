@@ -6,27 +6,31 @@ import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import { HeadPinzNaplesJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Naples | Bowling, Arcade & Events | Naples FL",
+  title: "HeadPinz Naples FL | Best Bowling Alley, Laser Tag & Arcade",
   description:
-    "HeadPinz Naples offers bowling, HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro. 8525 Radio Lane. Book lanes online!",
+    "Naples' best bowling alley — lanes from $13.99, shoes included. Plus HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro at 8525 Radio Lane. Book online!",
   keywords: [
     "HeadPinz Naples",
     "bowling Naples FL",
     "bowling alley Naples Florida",
     "best bowling Naples FL",
+    "bowling near me Naples",
     "laser tag Naples",
     "arcade Naples FL",
-    "HyperBowling",
-    "NeoVerse",
+    "HyperBowling Naples",
+    "NeoVerse Naples",
     "things to do Naples FL",
     "family entertainment Naples",
-    "indoor activities Naples",
+    "indoor activities Naples FL",
     "bowling league Naples FL",
+    "birthday party Naples FL",
+    "group events Naples bowling",
+    "Fun 4 Night Naples",
   ],
   openGraph: {
-    title: "HeadPinz Naples | Bowling, Arcade & Events",
+    title: "HeadPinz Naples FL | Best Bowling, Laser Tag & Arcade",
     description:
-      "Bowling, HyperBowling, NeoVerse, laser tag, 40+ arcade games & Nemo's dining at HeadPinz Naples.",
+      "Bowling from $13.99 (shoes included), HyperBowling, NeoVerse, laser tag, 40+ arcade games & Nemo's dining at 8525 Radio Lane, Naples. Book now!",
     type: "website",
     url: "https://headpinz.com/naples",
   },

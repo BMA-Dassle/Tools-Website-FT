@@ -68,6 +68,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${hp}/book/laser-tag`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${hp}/book/shuffly`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${hp}/fwf`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${hp}/careers`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     // SEO content hubs + competitor-alternative landing pages.
     { url: `${hp}/things-to-do-fort-myers`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${hp}/things-to-do-naples`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },

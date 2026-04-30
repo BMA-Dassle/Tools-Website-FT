@@ -172,13 +172,14 @@ export function middleware(request: NextRequest) {
       "/headpinz-fort-myers/nexus-laser-tag/": "/book/laser-tag",
       "/headpinz-naples/laser-tag": "/book/laser-tag",
       "/headpinz-naples/laser-tag/": "/book/laser-tag",
-      // Careers / team — no dedicated page yet, send to home
-      "/headpinz-fort-myers/join-our-team": "/",
-      "/headpinz-fort-myers/join-our-team/": "/",
-      "/headpinz-naples/join-our-team": "/",
-      "/headpinz-naples/join-our-team/": "/",
-      "/careers": "/",
-      "/careers/": "/",
+      // Careers / team — dedicated /careers page
+      "/headpinz-fort-myers/join-our-team": "/careers",
+      "/headpinz-fort-myers/join-our-team/": "/careers",
+      "/headpinz-naples/join-our-team": "/careers",
+      "/headpinz-naples/join-our-team/": "/careers",
+      "/join-our-team": "/careers",
+      "/join-our-team/": "/careers",
+      "/careers/": "/careers",
       // Gift cards — no dedicated page yet, send to home
       "/headpinz-fort-myers/gift-card": "/",
       "/headpinz-fort-myers/gift-card/": "/",
@@ -214,6 +215,25 @@ export function middleware(request: NextRequest) {
     const redirect = legacyRedirects[pathname.toLowerCase()];
     if (redirect) {
       return NextResponse.redirect(`https://headpinz.com${redirect}`, 301);
+    }
+
+    // Old WordPress sitemap index — redirect to the real Next.js sitemap.
+    // This clears the Search Console "sitemap_index.xml has errors" alert
+    // caused by 66K stale WordPress URLs Google is still trying to crawl.
+    if (pathname === "/sitemap_index.xml") {
+      return NextResponse.redirect("https://headpinz.com/sitemap.xml", 301);
+    }
+
+    // Catch-all for any remaining old WordPress /headpinz-fort-myers/* and
+    // /headpinz-naples/* URLs not in the explicit table above. Saves crawl
+    // budget — any unknown WP sub-path gets a 301 to the new location hub
+    // rather than a 404.
+    const lp = pathname.toLowerCase();
+    if (lp.startsWith("/headpinz-fort-myers/")) {
+      return NextResponse.redirect("https://headpinz.com/fort-myers", 301);
+    }
+    if (lp.startsWith("/headpinz-naples/")) {
+      return NextResponse.redirect("https://headpinz.com/naples", 301);
     }
 
     // /review → Google Business Profile review (Fort Myers default, /review/naples for Naples)

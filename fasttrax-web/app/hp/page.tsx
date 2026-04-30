@@ -3,22 +3,32 @@ import Image from "next/image";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "HeadPinz - Where Fun Comes Together | Fort Myers & Naples",
+  title: "HeadPinz – Bowling, Laser Tag, Arcade & Dining | Fort Myers & Naples FL",
   description:
-    "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+    "Bowling from $13.99, laser tag, gel blasters, HyperBowling, NeoVerse, 40+ arcade games & Nemo's Sports Bistro. Two Southwest Florida locations. Book online — shoes included!",
   keywords: [
     "HeadPinz",
     "bowling Fort Myers",
     "bowling Naples",
-    "laser tag",
+    "bowling near me",
+    "laser tag Fort Myers",
+    "laser tag Naples",
     "gel blasters",
-    "arcade",
+    "arcade Fort Myers",
+    "arcade Naples",
+    "HyperBowling",
+    "NeoVerse",
     "family entertainment Southwest Florida",
+    "things to do Fort Myers",
+    "things to do Naples FL",
+    "birthday party Fort Myers",
+    "group events Fort Myers",
+    "SWFL entertainment",
   ],
   openGraph: {
-    title: "HeadPinz - Where Fun Comes Together",
+    title: "HeadPinz – Bowling, Laser Tag & More | Fort Myers & Naples",
     description:
-      "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
+      "Bowling from $13.99, laser tag, gel blasters, 40+ arcade games & dining. Two Southwest Florida locations. Shoes included — book online!",
     type: "website",
     url: "https://headpinz.com",
   },

@@ -26,56 +26,13 @@ export const metadata: Metadata = {
   },
 };
 
-const faqJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: [
-    {
-      "@type": "Question",
-      name: "How far in advance should I book a group event?",
-      acceptedAnswer: { "@type": "Answer", text: "We recommend 2-3 weeks for smaller groups and 4-6 weeks for large events or facility buyouts." },
-    },
-    {
-      "@type": "Question",
-      name: "What is the minimum group size?",
-      acceptedAnswer: { "@type": "Answer", text: "Group event packages are available for groups of 10 or more. Buffet catering requires a minimum of 25 people." },
-    },
-    {
-      "@type": "Question",
-      name: "Can we bring outside food?",
-      acceptedAnswer: { "@type": "Answer", text: "All food and beverage is provided by Nemo's Sports Bistro. Custom catering packages are available for groups of any size." },
-    },
-    {
-      "@type": "Question",
-      name: "Is a deposit required?",
-      acceptedAnswer: { "@type": "Answer", text: "Yes, a deposit is required to secure your date. Deposit amount and payment terms will be included in your custom quote." },
-    },
-    {
-      "@type": "Question",
-      name: "What about non-bowlers in our group?",
-      acceptedAnswer: { "@type": "Answer", text: "We offer laser tag, gel blasters, arcade games, HyperBowling, and a full-service restaurant and bar." },
-    },
-    {
-      "@type": "Question",
-      name: "Do you have a corporate meeting room?",
-      acceptedAnswer: { "@type": "Answer", text: "Yes! Our meeting room is available for $100/hour with A/V equipment included." },
-    },
-  ],
-};
-
 export default function GroupEventsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Nav + Footer provided by parent fort-myers/layout.tsx
-  return (
-    <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
-      />
-      <div>{children}</div>
-    </>
-  );
+  // FAQ JSON-LD is rendered by the page component (FAQJsonLd) to avoid
+  // duplicate FAQPage schemas that trigger Google Search Console errors.
+  // Nav + Footer provided by parent fort-myers/layout.tsx.
+  return <>{children}</>;
 }
