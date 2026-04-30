@@ -344,10 +344,16 @@ export async function notifyVideoReady(
   result.recipient = recipient;
 
   // ── SMS ────────────────────────────────────────────────────────────
+  // Append referrer tag so analytics can attribute clicks from video
+  // notifications. The short URL wraps the tagged destination.
+  const customerUrlWithRef = match.customerUrl.includes("?")
+    ? `${match.customerUrl}&referrer=receipt`
+    : `${match.customerUrl}?referrer=receipt`;
+
   const phone = candidate.phone;
   if (phone) {
     result.sms.attempted = true;
-    const { url: shortUrl } = await shortenForSms(match.customerUrl);
+    const { url: shortUrl } = await shortenForSms(customerUrlWithRef);
     const body = buildVideoSmsBody(entry, shortUrl, recipient);
     const ts = new Date().toISOString();
     try {
@@ -453,7 +459,7 @@ export async function notifyVideoReady(
     const subject = recipient === "guardian"
       ? `Race video ready for ${entry.firstName || "your racer"}`
       : `Your FastTrax race video is ready`;
-    const html = buildVideoEmailHtml(entry, match.customerUrl, match.thumbnailUrl, recipient, guardianFirstName);
+    const html = buildVideoEmailHtml(entry, customerUrlWithRef, match.thumbnailUrl, recipient, guardianFirstName);
     // toName: who we're addressing — guardian when fallback, racer otherwise
     const toName = recipient === "guardian"
       ? `${guardianFirstName ?? ""} ${candidate.contactLastName ?? ""}`.trim() || undefined

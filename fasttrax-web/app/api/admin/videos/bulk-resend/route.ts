@@ -160,7 +160,9 @@ export async function POST(req: NextRequest) {
     const phone = candidate.phone;
     const recipient = candidate.recipient;
 
-    const shortUrl = await shortenForSms(match.customerUrl);
+    const shortUrl = await shortenForSms(
+      match.customerUrl.includes("?") ? `${match.customerUrl}&referrer=receipt` : `${match.customerUrl}?referrer=receipt`
+    );
     const smsBody = buildSmsBody({
       firstName: match.firstName,
       track: match.track,
@@ -234,7 +236,9 @@ export async function POST(req: NextRequest) {
       for (const m of rest) {
         const c = pickContactWithGuardianFallback(matchAsParticipant(m));
         if (!c || !c.phone) { failed++; continue; }
-        const sUrl = await shortenForSms(m.customerUrl);
+        const sUrl = await shortenForSms(
+          m.customerUrl.includes("?") ? `${m.customerUrl}&referrer=receipt` : `${m.customerUrl}?referrer=receipt`
+        );
         const sBody = buildSmsBody({ firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl }, c.recipient);
         const tts = new Date().toISOString();
         await quotaEnqueue({

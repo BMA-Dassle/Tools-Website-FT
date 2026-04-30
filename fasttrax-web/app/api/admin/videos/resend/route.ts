@@ -299,7 +299,10 @@ export async function POST(req: NextRequest) {
         error: `Invalid phone: ${rawPhone || "(none)"}`,
       };
     } else {
-      const shortUrl = await shortenForSms(match.customerUrl);
+      const customerUrlWithRef = match.customerUrl.includes("?")
+        ? `${match.customerUrl}&referrer=receipt`
+        : `${match.customerUrl}?referrer=receipt`;
+      const shortUrl = await shortenForSms(customerUrlWithRef);
       const smsBody = buildSmsBody({
         firstName: match.firstName,
         track: match.track,
@@ -333,12 +336,15 @@ export async function POST(req: NextRequest) {
     if (!to) {
       result.email = { ok: false, status: null, error: "No email on file; supply overrideEmail" };
     } else {
+      const emailUrlWithRef = match.customerUrl.includes("?")
+        ? `${match.customerUrl}&referrer=receipt`
+        : `${match.customerUrl}?referrer=receipt`;
       const html = buildEmailHtml({
         firstName: match.firstName,
         track: match.track,
         heatNumber: match.heatNumber,
         raceType: match.raceType,
-        videoUrl: match.customerUrl,
+        videoUrl: emailUrlWithRef,
         thumbnailUrl: match.thumbnailUrl,
       });
       try {

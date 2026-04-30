@@ -1054,7 +1054,7 @@ function ResendModal({
 
 ${(isUnmatched ? firstName.trim() : entry.firstName) || "Hey there"}, your ${entry.track ? `${entry.track.replace(" Track", "")} Track` : "race"}${entry.heatNumber ? ` Heat ${entry.heatNumber}` : ""} video is live.
 
-Watch + share: ${entry.customerUrl}`}
+Watch + share: ${entry.customerUrl.includes("?") ? `${entry.customerUrl}&referrer=receipt` : `${entry.customerUrl}?referrer=receipt`}`}
           </pre>
 
           {err && <div className="text-xs text-red-400 mb-3">{err}</div>}
