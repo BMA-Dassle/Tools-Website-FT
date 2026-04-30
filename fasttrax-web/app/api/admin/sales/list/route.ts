@@ -92,6 +92,28 @@ export async function GET(req: NextRequest) {
     const racingNew = racingAll.filter((e) => e.isNewRacer === true);
     const racingReturning = racingAll.filter((e) => e.isNewRacer === false);
     const rookiePackCount = racingAll.filter((e) => e.rookiePack === true).length;
+
+    // Generic package breakdown — count by packageId across ALL racing entries.
+    // Includes backwards-compat: old rows that only have rookiePack=true will
+    // have packageId synthesized to "rookie-pack" by rowToEntry().
+    const packageMap = new Map<string, number>();
+    for (const e of racingAll) {
+      if (e.packageId) {
+        packageMap.set(e.packageId, (packageMap.get(e.packageId) ?? 0) + 1);
+      }
+    }
+    const PACKAGE_LABELS: Record<string, string> = {
+      "rookie-pack": "Rookie Pack",
+      "ultimate-qualifier-mega": "Ultimate Qualifier",
+    };
+    const packagesByType = Array.from(packageMap.entries())
+      .map(([id, count]) => ({
+        id,
+        label: PACKAGE_LABELS[id] ?? id,
+        count,
+        pctOfRacing: pct(count, racingAll.length),
+      }))
+      .sort((a, b) => b.count - a.count);
     const povCount = racingAll.filter((e) => e.povPurchased === true).length;
     const povQtySum = racingAll.reduce((s, e) => s + (e.povQty ?? 0), 0);
     const povNewRacer = racingAll.filter((e) => e.povPurchased && e.isNewRacer === true).length;
@@ -109,10 +131,16 @@ export async function GET(req: NextRequest) {
       newRacers: racingNew.length,
       returningRacers: racingReturning.length,
       expressLane: expressLaneCount,
+      // Legacy field — kept for backwards compat with existing dashboard reads.
       rookiePack: {
         count: rookiePackCount,
         pctOfNew: pct(rookiePackCount, racingNew.length),
         pctOfRacing: pct(rookiePackCount, racingAll.length),
+      },
+      // Generic packages breakdown — one entry per packageId found in the range.
+      packages: {
+        total: packageMap.size > 0 ? Array.from(packageMap.values()).reduce((s, c) => s + c, 0) : 0,
+        byType: packagesByType,
       },
       pov: {
         count: povCount,

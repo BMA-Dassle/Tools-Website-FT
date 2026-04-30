@@ -158,12 +158,22 @@ export async function POST(req: NextRequest) {
       location,
       expressLane,
       rookiePack,
+      packageId,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     // Rookie Pack hint — adds a one-liner pointing at the
     // confirmation link to find the appetizer code. Code itself
     // never appears in SMS/email so it can't be screenshot-shared.
     const isRookiePack = rookiePack === true;
+    // Generic package ID — "rookie-pack", "ultimate-qualifier-mega", etc.
+    // Falls back to "rookie-pack" when the legacy rookiePack boolean is set
+    // (for callers that haven't been updated to send packageId yet).
+    const resolvedPackageId: string | undefined =
+      typeof packageId === "string" && packageId
+        ? packageId
+        : isRookiePack
+          ? "rookie-pack"
+          : undefined;
     const products: string[] = Array.isArray(productNames) ? productNames : [];
     const scheduled: { name: string; start: string }[] = Array.isArray(scheduledItems) ? scheduledItems : [];
     const isExpressLane = !!expressLane;
@@ -236,6 +246,7 @@ export async function POST(req: NextRequest) {
         participantCount,
         isNewRacer: !!isNewRacer,
         rookiePack: isRookiePack,
+        packageId: resolvedPackageId,
         povPurchased: hasPov,
         povQty: codes.length || (hasPov ? participantCount : 0) || undefined,
         licensePurchased: hasLicense || undefined,

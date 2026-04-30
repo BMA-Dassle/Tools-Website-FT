@@ -26,7 +26,10 @@ type SaleEntry = {
   bookingType: "racing" | "racing-pack" | "attractions" | "mixed" | "other";
   participantCount?: number;
   isNewRacer?: boolean;
+  /** @deprecated use packageId */
   rookiePack?: boolean;
+  /** Package ID if this booking used a named bundle. */
+  packageId?: string;
   povPurchased?: boolean;
   povQty?: number;
   licensePurchased?: boolean;
@@ -54,6 +57,10 @@ type ListResponse = {
     returningRacers: number;
     expressLane: number;
     rookiePack: { count: number; pctOfNew: number; pctOfRacing: number };
+    packages: {
+      total: number;
+      byType: { id: string; label: string; count: number; pctOfRacing: number }[];
+    };
     pov: {
       count: number;
       qty: number;
@@ -274,17 +281,30 @@ export default function SalesAdminClient({ token }: { token: string }) {
                   <MiniStat label="Avg racers / booking" value={data.racing.reservations > 0 ? (data.totals.racers / data.racing.reservations).toFixed(1) : "--"} />
                 </div>
 
-                {/* Rookie Pack + POV */}
+                {/* Packages */}
+                {data.racing.packages.byType.length > 0 && (
+                  <div className="mb-4">
+                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2">
+                      Packages <span className="text-white/30 font-normal normal-case tracking-normal ml-1">({data.racing.packages.total} sold)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {data.racing.packages.byType.map((pkg) => (
+                        <Tile
+                          key={pkg.id}
+                          title={pkg.label}
+                          primary={`${pkg.count}`}
+                          primarySubtle={`/ ${data.racing.reservations} racing`}
+                          rows={[
+                            { label: "% of racing bookings", value: `${pkg.pctOfRacing}%` },
+                          ]}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* POV */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                  <Tile
-                    title="Rookie Pack"
-                    primary={`${data.racing.rookiePack.count}`}
-                    primarySubtle={`/${data.racing.newRacers} new racers`}
-                    rows={[
-                      { label: "% of new racers", value: `${data.racing.rookiePack.pctOfNew}%` },
-                      { label: "% of all racing", value: `${data.racing.rookiePack.pctOfRacing}%` },
-                    ]}
-                  />
                   <Tile
                     title="POV Race Video"
                     primary={`${data.racing.pov.count}`}
@@ -293,6 +313,14 @@ export default function SalesAdminClient({ token }: { token: string }) {
                       { label: "Attach rate (overall)", value: `${data.racing.pov.attachRate}%` },
                       { label: "  · new racers", value: `${data.racing.pov.byNewRacer} (${data.racing.pov.attachRateNewRacer}%)` },
                       { label: "  · returning", value: `${data.racing.pov.byReturning} (${data.racing.pov.attachRateReturning}%)` },
+                    ]}
+                  />
+                  <Tile
+                    title="Packages (all types)"
+                    primary={`${data.racing.packages.total}`}
+                    primarySubtle="total package sales"
+                    rows={[
+                      { label: "% of racing bookings", value: data.racing.reservations > 0 ? `${Math.round((data.racing.packages.total / data.racing.reservations) * 100)}%` : "—" },
                     ]}
                   />
                 </div>
@@ -389,10 +417,18 @@ export default function SalesAdminClient({ token }: { token: string }) {
                                 : <span className="text-white/30 text-xs">—</span>}
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs">
-                            {e.rookiePack && <span className="text-amber-300 mr-1">PACK</span>}
+                            {e.packageId && (
+                              <span className="text-amber-300 mr-1 uppercase tracking-wide">
+                                {e.packageId === "rookie-pack"
+                                  ? "ROOKIE"
+                                  : e.packageId === "ultimate-qualifier-mega"
+                                    ? "ULT-Q"
+                                    : e.packageId.toUpperCase().slice(0, 8)}
+                              </span>
+                            )}
                             {e.povPurchased && <span className="text-purple-300 mr-1">POV{e.povQty ? `×${e.povQty}` : ""}</span>}
                             {e.licensePurchased && <span className="text-blue-300">LIC</span>}
-                            {!e.rookiePack && !e.povPurchased && !e.licensePurchased && <span className="text-white/30">—</span>}
+                            {!e.packageId && !e.povPurchased && !e.licensePurchased && <span className="text-white/30">—</span>}
                           </td>
                           <td className="px-3 py-2 text-white/70 text-xs">
                             {e.raceProductNames?.length ? e.raceProductNames.join(", ") : "—"}

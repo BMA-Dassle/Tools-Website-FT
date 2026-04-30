@@ -91,6 +91,10 @@ export interface SaleEntry {
    *  marketing / outreach from this surface. */
   email?: string;
   phone?: string;
+  /** Package ID if this booking used a named bundle (e.g. "rookie-pack",
+   *  "ultimate-qualifier-mega"). Null for plain/itemized bookings.
+   *  Drives the generic "Packages" section in the sales dashboard. */
+  packageId?: string;
   /** True when the bill was sold via the Square-charge +
    *  Pandora-deposit workaround (race packs, while BMI's
    *  booking/sell flow for packs is broken). When true, the BMI
@@ -161,6 +165,10 @@ async function ensureSchema(): Promise<void> {
   await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_person_id TEXT`;
   await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_kind_id TEXT`;
   await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS deposit_amount INTEGER`;
+  // Generic package tracking — stores the packageId string (e.g. "rookie-pack",
+  // "ultimate-qualifier-mega") so the dashboard can group by package type
+  // without hardcoding every bundle name in SQL.
+  await q`ALTER TABLE sales_log ADD COLUMN IF NOT EXISTS package_id TEXT`;
   // Partial index: admin board's "needs reconcile" filter scans
   // only the small subset where Square charged but addDeposit
   // didn't land. Predicate keeps the index tiny.
@@ -190,7 +198,8 @@ export async function logSale(entry: SaleEntry): Promise<void> {
         license_purchased, express_lane, race_product_names, add_on_names,
         total_usd, email, phone,
         via_deposit, deposit_id, deposit_credit_pending,
-        deposit_person_id, deposit_kind_id, deposit_amount
+        deposit_person_id, deposit_kind_id, deposit_amount,
+        package_id
       ) VALUES (
         ${entry.ts},
         ${entry.billId ?? null},
@@ -215,7 +224,8 @@ export async function logSale(entry: SaleEntry): Promise<void> {
         ${entry.depositCreditPending ?? null},
         ${entry.depositPersonId ?? null},
         ${entry.depositKindId ?? null},
-        ${entry.depositAmount ?? null}
+        ${entry.depositAmount ?? null},
+        ${entry.packageId ?? null}
       )
     `;
   } catch (err) {
@@ -250,6 +260,7 @@ interface SalesLogRow {
   deposit_person_id: string | null;
   deposit_kind_id: string | null;
   deposit_amount: number | null;
+  package_id: string | null;
 }
 
 function rowToEntry(r: SalesLogRow): SaleEntry {
@@ -278,6 +289,9 @@ function rowToEntry(r: SalesLogRow): SaleEntry {
     depositPersonId: r.deposit_person_id ?? undefined,
     depositKindId: r.deposit_kind_id ?? undefined,
     depositAmount: r.deposit_amount ?? undefined,
+    // Synthesize packageId from legacy rookiePack bool for old rows
+    // that were written before the package_id column existed.
+    packageId: r.package_id ?? (r.rookie_pack ? "rookie-pack" : undefined),
   };
 }
 
@@ -333,7 +347,8 @@ export async function readSalesRange(
       license_purchased, express_lane, race_product_names, add_on_names,
       total_usd, email, phone,
       via_deposit, deposit_id, deposit_credit_pending,
-      deposit_person_id, deposit_kind_id, deposit_amount
+      deposit_person_id, deposit_kind_id, deposit_amount,
+      package_id
     FROM sales_log
     WHERE ts >= ${startTs}::timestamptz
       AND ts <= ${endTs}::timestamptz
