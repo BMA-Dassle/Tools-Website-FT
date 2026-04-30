@@ -64,6 +64,9 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkedNoFuture, setCheckedNoFuture] = useState(false);
+  // Hide the calendar grid until the initial month probe completes so users
+  // never see the jarring "April empty → snap to May" flash.
+  const [ready, setReady] = useState(false);
 
   const fetchAvailability = useCallback(async (year: number, month: number) => {
     setLoading(true);
@@ -99,25 +102,34 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
 
   useEffect(() => {
     fetchAvailability(viewYear, viewMonth).then(({ all }) => {
-      // If this is the initial month and no future dates, auto-advance
       if (!checkedNoFuture) {
+        // Initial probe: advance to next month if nothing bookable remains
         setCheckedNoFuture(true);
         const futureDates = all.filter(d => d >= todayStr);
         if (futureDates.length === 0) {
-          // Advance to next month
+          // Silently advance — the calendar stays hidden (ready=false) until
+          // the next month's data arrives, so the user never sees the flash.
           if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
           else setViewMonth(m => m + 1);
+          // ready stays false; the next effect run will set it true
+        } else {
+          setReady(true);
         }
+      } else {
+        // Second run (after advance) or a user-triggered month nav — show calendar
+        setReady(true);
       }
     });
   }, [viewYear, viewMonth, fetchAvailability, checkedNoFuture, todayStr]);
 
   const prevMonth = () => {
+    setReady(true); // already probed; manual nav always reveals calendar
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
     else setViewMonth(m => m - 1);
   };
 
   const nextMonth = () => {
+    setReady(true);
     if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
     else setViewMonth(m => m + 1);
   };
@@ -139,7 +151,14 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
         </p>
       </div>
 
-      <div className="max-w-sm mx-auto">
+      {/* Spinner shown while probing the initial month (hides the April→May flash) */}
+      {!ready && (
+        <div className="h-48 flex items-center justify-center">
+          <div className="w-6 h-6 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+        </div>
+      )}
+
+      <div className="max-w-sm mx-auto" style={{ display: ready ? undefined : "none" }}>
         {/* Month nav */}
         <div className="flex items-center justify-between mb-4">
           <button
