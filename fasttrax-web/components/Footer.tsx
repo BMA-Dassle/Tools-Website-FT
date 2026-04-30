@@ -13,7 +13,7 @@ const quickLinks = [
   { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
   { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
-  { label: "Careers", href: "https://bowlandheadpinzfasttrax.applytojob.com/apply" },
+  { label: "Careers", href: "/careers" },
 ];
 
 export default function Footer() {
