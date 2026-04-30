@@ -119,22 +119,22 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
                   <p className="text-white/80 font-semibold mb-1">Cancellations &amp; Reschedules</p>
                   <ul className="space-y-1 ml-3">
                     <li>
-                      &middot; Cancellations requested at least{" "}
-                      <strong className="text-white/80">24 hours</strong> before your
-                      scheduled race may be eligible for a credit toward a future visit.
+                      &middot; Cancellations must be made{" "}
+                      <strong className="text-white/80">more than 2 hours</strong> before
+                      your scheduled race time to be eligible for a refund or credit.
                     </li>
                     <li>
-                      &middot; Reschedules require at least{" "}
-                      <strong className="text-white/80">24 hours&apos; notice</strong>.
-                      Call us at{" "}
+                      &middot; Cancellations within{" "}
+                      <strong className="text-white/80">2 hours</strong> of your race are{" "}
+                      <strong className="text-white/80">non-refundable</strong>, no exceptions.
+                    </li>
+                    <li>
+                      &middot; All cancellation and reschedule requests must be made by{" "}
+                      <strong className="text-white/80">phone or SMS</strong> at{" "}
                       <a href="tel:+12394819666" className="text-[#00E2E5] hover:underline">
                         (239) 481-9666
-                      </a>{" "}
-                      and we&apos;ll do our best to accommodate you.
-                    </li>
-                    <li>
-                      &middot; No-shows and same-day cancellations are{" "}
-                      <strong className="text-white/80">non-refundable</strong>.
+                      </a>
+                      . Online requests are not accepted.
                     </li>
                   </ul>
                 </div>

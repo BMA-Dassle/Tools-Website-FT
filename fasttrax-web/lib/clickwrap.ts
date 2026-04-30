@@ -22,7 +22,7 @@ import { sql, isDbConfigured } from "@/lib/db";
  * that was in effect at the time of acceptance.
  */
 
-export const CURRENT_POLICY_VERSION = "v1-2026-04-30";
+export const CURRENT_POLICY_VERSION = "v2-2026-04-30";
 
 export interface ClickwrapAcceptance {
   /** ISO timestamp of acceptance (client-side, when button clicked). */
