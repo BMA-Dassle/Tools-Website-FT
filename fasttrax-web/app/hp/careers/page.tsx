@@ -148,6 +148,7 @@ export default async function CareersPage() {
                   href={job.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label={`${job.title} at ${job.department} — apply on hiring portal`}
                   className="career-card-link"
                   style={{ textDecoration: "none", color: "inherit" }}
                 >
