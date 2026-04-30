@@ -51,17 +51,11 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
   const today = new Date();
   const todayStr = toISO(today.getFullYear(), today.getMonth(), today.getDate());
 
-  // Auto-advance to next month if no future dates remain this month
-  const initMonth = () => {
-    const daysLeft = getDaysInMonth(today.getFullYear(), today.getMonth()) - today.getDate();
-    // If 0 days left this month (last day), start on next month
-    if (daysLeft === 0) {
-      const m = today.getMonth();
-      return m === 11 ? { year: today.getFullYear() + 1, month: 0 } : { year: today.getFullYear(), month: m + 1 };
-    }
-    return { year: today.getFullYear(), month: today.getMonth() };
-  };
-  const init = initMonth();
+  // Always start on the current month — the useEffect will auto-advance
+  // to next month once availability is fetched and no future dates exist.
+  // (Previously this jumped to next month when today was the last day of
+  // the month, which prevented booking on the final day e.g. Apr 30.)
+  const init = { year: today.getFullYear(), month: today.getMonth() };
 
   const [viewYear, setViewYear] = useState(init.year);
   const [viewMonth, setViewMonth] = useState(init.month);
