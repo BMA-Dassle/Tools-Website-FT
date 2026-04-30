@@ -9,7 +9,10 @@ import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { modalBackdropProps } from "@/lib/a11y";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
-const EVENT_GUIDE_URL = `${BLOB}/documents/FastTrax-Event-Guide.pdf`;
+// Event Guide PDF — served via the fasttraxent.com /documents/*
+// rewrite (next.config.ts) which proxies to Vercel Blob behind the
+// scenes. Customers see a brand URL, no blob hostname leak.
+const EVENT_GUIDE_URL = "/documents/FastTrax-Event-Guide.pdf";
 
 const glowRed = "rgba(229,0,0,0.48) 0px 0px 30px";
 const glowBlue = "rgba(28,0,255,0.4) 0px 0px 30px";

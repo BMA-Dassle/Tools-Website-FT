@@ -28,6 +28,19 @@ const nextConfig: NextConfig = {
     { source: "/book/racing", destination: "/book/race", permanent: true },
     { source: "/book/racing/:path*", destination: "/book/race", permanent: true },
   ],
+  // Brand-domain pass-through for Vercel Blob assets so customer-
+  // visible URLs read as fasttraxent.com / headpinz.com instead of
+  // the blob-store hostname. Scoped to /documents/* (the user-
+  // facing "Download Event Guide" / "Download Sales Booklet" links).
+  // Images already render via /_next/image so the blob host doesn't
+  // show up in src attributes — adding rewrites for those would just
+  // proxy bytes for no UX gain.
+  rewrites: async () => [
+    {
+      source: "/documents/:path*",
+      destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/:path*",
+    },
+  ],
   headers: async () => [
     {
       source: "/(.*)",

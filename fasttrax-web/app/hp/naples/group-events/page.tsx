@@ -15,6 +15,11 @@ const blue = "#0693e3";
 const bg = "#0a1628";
 const royalBlue = "#123075";
 
+// Sales Booklet PDF — served via the headpinz.com /documents/*
+// rewrite (next.config.ts) which proxies to Vercel Blob behind the
+// scenes. Customers see a brand URL, no blob hostname leak.
+const SALES_BOOKLET_URL = "/documents/HeadPinz-Sales-Booklet.pdf";
+
 const glowCoral = "rgba(253,91,86,0.4) 0px 0px 30px";
 const glowPurple = "rgba(18,48,117,0.5) 0px 0px 30px";
 
@@ -398,6 +403,15 @@ export default function HeadPinzNaplesGroupEventsPage() {
                 Request a Quote
               </button>
               <a
+                href={SALES_BOOKLET_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
+                style={{ backgroundColor: blue, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+              >
+                Download Sales Booklet
+              </a>
+              <a
                 href="tel:+12394553755"
                 className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
                 style={{ backgroundColor: purple, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
@@ -649,8 +663,24 @@ export default function HeadPinzNaplesGroupEventsPage() {
       </section>
 
       {/* ====== 6. BOWLING EVENT PRICING ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
-        <div className="max-w-5xl mx-auto px-6 lg:px-8">
+      {/* Atmospheric bowling-alley bokeh shot lives behind the section
+          to give the pricing block some life — the previous solid
+          dark-blue panel was visually flat between the busier sections
+          above and below. The 80% dark overlay keeps the table text
+          readable while still letting the purple/blue light bleed
+          through at the edges. */}
+      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/group-events-bowling-bg.png"
+          alt=""
+          aria-hidden
+          fill
+          sizes="100vw"
+          className="object-cover"
+          style={{ objectPosition: "center" }}
+        />
+        <div className="absolute inset-0 bg-[#0a1628]/80" />
+        <div className="relative z-10 max-w-5xl mx-auto px-6 lg:px-8">
           <h2
             className="font-heading font-black uppercase text-white text-center"
             style={{
@@ -996,13 +1026,24 @@ export default function HeadPinzNaplesGroupEventsPage() {
           >
             Tell us about your event and our team will craft a custom package tailored to your group.
           </p>
-          <button
-            onClick={() => openFormWith()}
-            className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
-            style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
-          >
-            Request a Quote
-          </button>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={() => openFormWith()}
+              className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
+              style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
+            >
+              Request a Quote
+            </button>
+            <a
+              href={SALES_BOOKLET_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
+              style={{ backgroundColor: blue, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
+            >
+              Download Sales Booklet
+            </a>
+          </div>
           <p className="font-body mt-5 text-white/50 text-sm">
             Prefer to talk? Call us at{" "}
             <a href="tel:+12394553755" className="hover:underline transition-colors" style={{ color: coral }}>
