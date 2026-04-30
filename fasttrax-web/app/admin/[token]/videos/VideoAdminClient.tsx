@@ -1052,7 +1052,7 @@ function ResendModal({
           >
 {`FastTrax — your race video is ready!
 
-${(isUnmatched ? firstName.trim() : entry.firstName) || "Hey there"}, your ${entry.track?.replace(" Track", "") || "race"}${entry.heatNumber ? ` Heat ${entry.heatNumber}` : ""} video is live.
+${(isUnmatched ? firstName.trim() : entry.firstName) || "Hey there"}, your ${entry.track ? `${entry.track.replace(" Track", "")} Track` : "race"}${entry.heatNumber ? ` Heat ${entry.heatNumber}` : ""} video is live.
 
 Watch + share: ${entry.customerUrl}`}
           </pre>
