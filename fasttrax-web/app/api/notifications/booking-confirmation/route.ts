@@ -44,7 +44,7 @@ const HMAC_SECRET = process.env.BOOKING_HMAC_SECRET || process.env.SENDGRID_API_
 function signedConfirmationUrl(billId: string): string {
   const sig = createHmac("sha256", HMAC_SECRET).update(billId).digest("hex").slice(0, 16);
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-  return `${base}/book/confirmation?billId=${encodeURIComponent(billId)}&sig=${sig}`;
+  return `${base}/book/confirmation?billId=${encodeURIComponent(billId)}&sig=${sig}&referrer=receipt`;
 }
 
 /** Verify a signed billId (for the confirmation page to validate) */
