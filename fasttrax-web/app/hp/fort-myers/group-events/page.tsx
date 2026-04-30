@@ -5,6 +5,7 @@ import Image from "next/image";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
 import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { modalBackdropProps } from "@/lib/a11y";
+import BowlingPriceTabs from "@/components/headpinz/BowlingPriceTabs";
 
 /* -- HeadPinz brand tokens -------------------------------- */
 
@@ -127,7 +128,7 @@ const vipBowling = {
   subtitle: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included",
   color: purple,
   rows: [
-    { period: "Mon\u2013Thu", h15: "$120.00", h2: "$142.50", h3: "$187.50" },
+    { period: "Mon\u2013Thu", h15: "$120.00", h2: "$143.00", h3: "$188.00" },
     { period: "Fri\u2013Sun", h15: "$140.00", h2: "$168.00", h3: "$226.00" },
   ],
 };
@@ -140,7 +141,7 @@ const vipPinzExclusive = {
   subtitle: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling \u2014 holds up to 80 people, 48 can bowl at once",
   color: blue,
   rows: [
-    { period: "Mon\u2013Thu", h15: "$960", h2: "$1,140", h3: "$1,500" },
+    { period: "Mon\u2013Thu", h15: "$960", h2: "$1,144", h3: "$1,504" },
     { period: "Fri\u2013Sun", h15: "$1,120", h2: "$1,344", h3: "$1,808" },
   ],
 };
@@ -307,49 +308,6 @@ const faqs = [
     a: "Yes! We offer birthday party packages for all ages with bowling, activities, food, and a dedicated party host. Contact our events team for details and pricing.",
   },
 ];
-
-/* -- Reusable bowling price table component --------------- */
-
-function BowlingPriceTable({ table }: { table: typeof classicBowling }) {
-  return (
-    <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-8">
-      <div className="px-5 py-4 border-b border-white/10" style={{ backgroundColor: `${table.color}15` }}>
-        <h3
-          className="font-heading font-black uppercase text-white"
-          style={{ fontSize: "clamp(18px, 3vw, 24px)", letterSpacing: "0.5px" }}
-        >
-          {table.title}
-        </h3>
-        <p className="font-body text-white/50 text-xs mt-1">{table.subtitle}</p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left font-body text-sm" style={{ minWidth: "520px" }}>
-          <thead>
-            <tr style={{ backgroundColor: `${table.color}88` }}>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Time Period</th>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">1.5 Hours</th>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">2 Hours</th>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">3 Hours</th>
-            </tr>
-          </thead>
-          <tbody>
-            {table.rows.map((r, i) => (
-              <tr
-                key={r.period}
-                style={{ backgroundColor: i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)" }}
-              >
-                <td className="px-4 py-3 text-white/80 font-medium">{r.period}</td>
-                <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h15}</td>
-                <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h2}</td>
-                <td className="px-4 py-3 font-semibold text-center" style={{ color: table.color }}>{r.h3}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 /* -- Component -------------------------------------------- */
 
@@ -737,9 +695,7 @@ export default function HeadPinzGroupEventsPage() {
             All prices plus sales tax. Prices subject to change.
           </p>
 
-          {bowlingTables.map((table) => (
-            <BowlingPriceTable key={table.title} table={table} />
-          ))}
+          <BowlingPriceTabs tables={bowlingTables} />
 
           {/* Pinboyz Lanes -- flat rate, separate card */}
           <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-8">
