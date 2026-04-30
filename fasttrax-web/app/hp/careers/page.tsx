@@ -96,6 +96,7 @@ export default async function CareersPage() {
 
   return (
     <main style={{ background: bg, minHeight: "100vh", color: "#fff", paddingBottom: "80px" }}>
+      <style>{`.career-card-link:hover .career-card{border-color:rgba(253,91,86,0.5)!important;background:rgba(255,255,255,0.07)!important}`}</style>
 
       {/* Hero */}
       <section style={{ paddingTop: "clamp(120px, 18vw, 180px)", paddingBottom: "60px", paddingLeft: "24px", paddingRight: "24px", textAlign: "center", maxWidth: "800px", margin: "0 auto" }}>
@@ -147,22 +148,14 @@ export default async function CareersPage() {
                   href={job.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  className="career-card-link"
                   style={{ textDecoration: "none", color: "inherit" }}
                 >
-                  <div style={{
+                  <div className="career-card" style={{
                     background: "rgba(255,255,255,0.04)",
                     border: "1px solid rgba(255,255,255,0.1)",
                     borderRadius: "16px", padding: "22px 26px",
                     transition: "border-color 0.2s, background 0.2s",
-                    cursor: "pointer",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.borderColor = "rgba(253,91,86,0.5)";
-                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.07)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.1)";
-                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
                   }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "10px" }}>
