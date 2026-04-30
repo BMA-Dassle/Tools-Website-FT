@@ -109,9 +109,8 @@ const classicBowling = {
   subtitle: "Per lane, up to 6 people, shoes & balls included",
   color: coral,
   rows: [
-    { period: "Mon\u2013Fri before 5pm", h15: "$70.50", h2: "$82.50", h3: "$106.50" },
-    { period: "Mon\u2013Thu after 5pm", h15: "$82.50", h2: "$97.50", h3: "$127.50" },
-    { period: "Fri 5pm \u2013 Sun Close", h15: "$91.50", h2: "$115.00", h3: "$144.00" },
+    { period: "Mon\u2013Thu", h15: "$90.00", h2: "$105.00", h3: "$135.00" },
+    { period: "Fri\u2013Sun", h15: "$110.00", h2: "$130.00", h3: "$170.00" },
   ],
 };
 
@@ -120,20 +119,21 @@ const vipBowling = {
   subtitle: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included",
   color: purple,
   rows: [
-    { period: "Mon\u2013Fri before 5pm", h15: "$98.50", h2: "$117.50", h3: "$155.50" },
-    { period: "Mon\u2013Thu after 5pm", h15: "$101.50", h2: "$121.50", h3: "$161.50" },
-    { period: "Fri 5pm \u2013 Sun Close", h15: "$104.50", h2: "$125.50", h3: "$167.50" },
+    { period: "Mon\u2013Thu", h15: "$120.00", h2: "$142.50", h3: "$187.50" },
+    { period: "Fri\u2013Sun", h15: "$140.00", h2: "$168.00", h3: "$226.00" },
   ],
 };
 
+// VIP Pinz Exclusive = 8 lanes \xD7 VIP rate. Kept the math here as a
+// derivation comment so future rate updates only need to touch the
+// VIP table and we can recompute by hand: 8\xD7 the matching VIP row.
 const vipPinzExclusive = {
   title: "VIP Pinz Exclusive",
   subtitle: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling \u2014 holds up to 80 people, 48 can bowl at once",
   color: blue,
   rows: [
-    { period: "Mon\u2013Fri before 5pm", h15: "$788", h2: "$940", h3: "$1,244" },
-    { period: "Mon\u2013Thu after 5pm", h15: "$812", h2: "$972", h3: "$1,292" },
-    { period: "Fri 5pm \u2013 Sun Close", h15: "$836", h2: "$1,004", h3: "$1,340" },
+    { period: "Mon\u2013Thu", h15: "$960", h2: "$1,140", h3: "$1,500" },
+    { period: "Fri\u2013Sun", h15: "$1,120", h2: "$1,344", h3: "$1,808" },
   ],
 };
 
