@@ -76,18 +76,25 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
       const lastDay = getDaysInMonth(year, month);
       const dateTill = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
+      // BMI's GET /availability date-level endpoint can return status:1 for today
+      // even when session-level slots exist (the POST /availability endpoint is
+      // authoritative). Always force today into the available set when it falls in
+      // the viewed month — the HeatPicker is the definitive gate.
+      const forceToday = todayStr >= dateFrom && todayStr <= dateTill ? [todayStr] : [];
+
       if (productId) {
         const days = await fetchCalendarDays(productId, dateFrom, dateTill);
-        setAvailableDates(new Set(days));
+        const all = [...new Set([...days, ...forceToday])];
+        setAvailableDates(new Set(all));
         setMegaDates(new Set());
-        return { all: days, mega: [] as string[] };
+        return { all, mega: [] as string[] };
       } else {
         const [megaDays, ...regularResults] = await Promise.all([
           fetchCalendarDays(MEGA_PRODUCT_ID, dateFrom, dateTill),
           ...REGULAR_PRODUCT_IDS.map(id => fetchCalendarDays(id, dateFrom, dateTill)),
         ]);
 
-        const allDates = new Set<string>([...megaDays, ...regularResults.flat()]);
+        const allDates = new Set<string>([...megaDays, ...regularResults.flat(), ...forceToday]);
         setAvailableDates(allDates);
         setMegaDates(new Set(megaDays));
         return { all: [...allDates], mega: megaDays };
@@ -98,7 +105,7 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
     } finally {
       setLoading(false);
     }
-  }, [productId]);
+  }, [productId, todayStr]);
 
   useEffect(() => {
     fetchAvailability(viewYear, viewMonth).then(({ all }) => {
