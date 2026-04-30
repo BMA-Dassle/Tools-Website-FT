@@ -81,7 +81,7 @@ export default function CareersPage() {
           we want to hear from you. Positions available at both our Fort Myers and Naples locations.
         </p>
         <a
-          href="https://www.indeed.com/cmp/headpinz"
+          href="https://bowlandheadpinzfasttrax.applytojob.com/apply"
           target="_blank"
           rel="noopener noreferrer"
           style={{
@@ -93,7 +93,7 @@ export default function CareersPage() {
             textDecoration: "none", transition: "opacity 0.2s",
           }}
         >
-          Apply on Indeed
+          View Open Positions &amp; Apply
         </a>
       </section>
 
@@ -139,15 +139,11 @@ export default function CareersPage() {
             Don&apos;t see your role?
           </h2>
           <p style={{ fontFamily: "var(--font-dmsans)", color: "rgba(255,255,255,0.8)", fontSize: "1rem", lineHeight: 1.7, marginBottom: "28px" }}>
-            We&apos;re always looking for great people. Send your résumé and a quick intro to{" "}
-            <a href="mailto:careers@headpinz.com" style={{ color: coral, textDecoration: "underline" }}>
-              careers@headpinz.com
-            </a>{" "}
-            and tell us how you&apos;d fit in.
+            We&apos;re always looking for great people. Submit your application through our careers portal and we&apos;ll be in touch.
           </p>
           <div style={{ display: "flex", gap: "16px", justifyContent: "center", flexWrap: "wrap" }}>
             <a
-              href="https://www.indeed.com/cmp/headpinz"
+              href="https://bowlandheadpinzfasttrax.applytojob.com/apply"
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -157,7 +153,7 @@ export default function CareersPage() {
                 padding: "14px 28px", borderRadius: "555px", textDecoration: "none",
               }}
             >
-              View All on Indeed
+              Apply Now
             </a>
             <Link
               href="/fort-myers"
