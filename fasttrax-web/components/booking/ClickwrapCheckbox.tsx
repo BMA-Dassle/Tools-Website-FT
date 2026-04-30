@@ -68,7 +68,16 @@ export default function ClickwrapCheckbox({ checked, onChange }: ClickwrapCheckb
             className="text-[#00E2E5] underline hover:text-white transition-colors"
           >
             cancellation &amp; payment policy
-          </button>
+          </button>{" "}
+          <a
+            href="/cancellation-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-white/30 hover:text-white/60 transition-colors text-[10px]"
+            tabIndex={-1}
+          >
+            ↗
+          </a>
           . All race bookings are final and subject to this policy.
         </span>
       </label>
