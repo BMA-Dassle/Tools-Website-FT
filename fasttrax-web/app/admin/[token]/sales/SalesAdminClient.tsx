@@ -153,12 +153,58 @@ function bookingTypeColor(t: SaleEntry["bookingType"]): string {
   return "bg-white/10 text-white/60";
 }
 
+/**
+ * Reduce a packageId to its "family" — the human-facing brand the
+ * customer sees on the picker — so the dashboard can offer a single
+ * "Ultimate Qualifier: 26" tile instead of seven variant tiles.
+ *
+ * Strategy: strip the trailing schedule/age suffixes that
+ * `lib/packages.ts` appends to the family id (`-mega`, `-weekday`,
+ * `-weekend`, `-junior`, plus `-weekday-junior` / `-weekend-junior`
+ * compound suffixes). Whatever's left is the family id, which we
+ * lowercase-then-titlecase for display.
+ *
+ * Special-cased the legacy `rookie-pack` row (no suffix) so the
+ * confirmation-page back-compat path doesn't get its own tile.
+ */
+function packageFamilyId(packageId: string): string {
+  // Stripped suffixes come from lib/packages.ts:41 — `PackageId` union.
+  return packageId
+    .replace(/-(weekday|weekend|mega)(-junior)?$/, "")
+    .replace(/-junior$/, "");
+}
+
+function packageFamilyLabel(familyId: string): string {
+  // Convert "ultimate-qualifier" → "Ultimate Qualifier".
+  return familyId
+    .split("-")
+    .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : ""))
+    .join(" ");
+}
+
 export default function SalesAdminClient({ token }: { token: string }) {
   const [from, setFrom] = useState(todayET());
   const [to, setTo] = useState(todayET());
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Toggle: collapse `ultimate-qualifier-{mega,weekday,weekend,…}` into a
+  // single "Ultimate Qualifier" tile (and same for Rookie Pack). Default
+  // ON because the variant breakdown is rarely the question being asked
+  // at this dashboard — total package family uptake is. Persisted to
+  // localStorage so the toggle sticks across reloads.
+  const [combineFamilies, setCombineFamilies] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const v = window.localStorage.getItem("sales_combine_families");
+    return v === null ? true : v === "1";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      "sales_combine_families",
+      combineFamilies ? "1" : "0",
+    );
+  }, [combineFamilies]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -294,26 +340,102 @@ export default function SalesAdminClient({ token }: { token: string }) {
                 </div>
 
                 {/* Packages */}
-                {data.racing.packages.byType.length > 0 && (
-                  <div className="mb-4">
-                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2">
-                      Packages <span className="text-white/30 font-normal normal-case tracking-normal ml-1">({data.racing.packages.total} sold)</span>
+                {data.racing.packages.byType.length > 0 && (() => {
+                  // When the toggle is on, fold every variant into its
+                  // family bucket — Ultimate Qualifier (mega/weekday/
+                  // weekend/junior) all roll up to "Ultimate Qualifier".
+                  const tiles = combineFamilies
+                    ? (() => {
+                        const byFamily = new Map<
+                          string,
+                          { count: number; variants: string[] }
+                        >();
+                        for (const pkg of data.racing.packages.byType) {
+                          const fam = packageFamilyId(pkg.id);
+                          const slot = byFamily.get(fam) ?? {
+                            count: 0,
+                            variants: [],
+                          };
+                          slot.count += pkg.count;
+                          slot.variants.push(pkg.id);
+                          byFamily.set(fam, slot);
+                        }
+                        return Array.from(byFamily.entries())
+                          .map(([fam, { count, variants }]) => ({
+                            id: fam,
+                            label: packageFamilyLabel(fam),
+                            count,
+                            variantCount: variants.length,
+                            pctOfRacing:
+                              data.racing.reservations > 0
+                                ? Math.round(
+                                    (count / data.racing.reservations) * 100,
+                                  )
+                                : 0,
+                          }))
+                          .sort((a, b) => b.count - a.count);
+                      })()
+                    : data.racing.packages.byType.map((pkg) => ({
+                        id: pkg.id,
+                        label: pkg.label,
+                        count: pkg.count,
+                        variantCount: 1,
+                        pctOfRacing: pkg.pctOfRacing,
+                      }));
+                  return (
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                        <div className="text-xs uppercase tracking-wider text-white/55">
+                          Packages{" "}
+                          <span className="text-white/30 font-normal normal-case tracking-normal ml-1">
+                            ({data.racing.packages.total} sold)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCombineFamilies((v) => !v)}
+                          className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${
+                            combineFamilies
+                              ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/40 hover:bg-cyan-500/30"
+                              : "bg-white/5 text-white/55 border-white/15 hover:bg-white/10"
+                          }`}
+                          aria-pressed={combineFamilies}
+                          title={
+                            combineFamilies
+                              ? "Click to show every variant separately"
+                              : "Click to roll variants up to one tile per family"
+                          }
+                        >
+                          {combineFamilies ? "Combined ✓" : "Show variants"}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        {tiles.map((pkg) => (
+                          <Tile
+                            key={pkg.id}
+                            title={pkg.label}
+                            primary={`${pkg.count}`}
+                            primarySubtle={`/ ${data.racing.reservations} racing`}
+                            rows={[
+                              {
+                                label: "% of racing bookings",
+                                value: `${pkg.pctOfRacing}%`,
+                              },
+                              ...(combineFamilies && pkg.variantCount > 1
+                                ? [
+                                    {
+                                      label: "Variants",
+                                      value: `${pkg.variantCount}`,
+                                    },
+                                  ]
+                                : []),
+                            ]}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {data.racing.packages.byType.map((pkg) => (
-                        <Tile
-                          key={pkg.id}
-                          title={pkg.label}
-                          primary={`${pkg.count}`}
-                          primarySubtle={`/ ${data.racing.reservations} racing`}
-                          rows={[
-                            { label: "% of racing bookings", value: `${pkg.pctOfRacing}%` },
-                          ]}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* POV */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
