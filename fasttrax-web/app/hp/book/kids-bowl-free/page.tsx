@@ -741,6 +741,23 @@ export default function KidsBowlFreePage() {
         }),
       }).catch(() => {});
 
+      // Build extras payload from the addons step (laser tag, gel
+      // blasters, etc). Paid shoes — when toggled — get sent through
+      // the existing shoePriceKeyId / shoeUnitPrice path the reserve
+      // route already supports.
+      const extrasPayload = Object.entries(extraQty)
+        .filter(([, qty]) => qty > 0)
+        .map(([id, qty]) => {
+          const extra = extras.find((x) => x.Id === parseInt(id, 10));
+          return {
+            id: parseInt(id, 10),
+            name: extra?.Name ?? "Extra",
+            unitPrice: extra?.Price ?? 0,
+            quantity: qty,
+            priceKeyId: extra?.PriceKeyId ?? extra?.Id ?? parseInt(id, 10),
+          };
+        });
+
       const res = await fetch("/api/kbf/reserve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -753,6 +770,9 @@ export default function KidsBowlFreePage() {
           offerName: offer.Name,
           tariffPrice: item.Total,
           bowlers: bowlersPayload,
+          extras: extrasPayload,
+          shoePriceKeyId: wantPaidShoes && paidShoeOption ? paidShoeOption.priceKeyId : undefined,
+          shoeUnitPrice: wantPaidShoes && paidShoeOption ? paidShoeOption.price : undefined,
           guest: {
             firstName: guestName.split(" ")[0] || guestName,
             lastName: guestName.split(" ").slice(1).join(" ") || "",
@@ -816,16 +836,20 @@ export default function KidsBowlFreePage() {
     bowlerSelections,
     centerId,
     date,
+    extraQty,
+    extras,
     guestEmail,
     guestName,
     guestPhone,
     offers,
+    paidShoeOption,
     passes,
     router,
     selectedBowlers,
     selectedOfferId,
     selectedTariffId,
     selectedTime,
+    wantPaidShoes,
   ]);
 
   // ── Render ─────────────────────────────────────────────────────
@@ -927,6 +951,21 @@ export default function KidsBowlFreePage() {
             />
           )}
 
+          {step === "addons" && (
+            <AddonsStep
+              extras={extras}
+              extraQty={extraQty}
+              setExtraQty={setExtraQty}
+              paidShoeOption={paidShoeOption}
+              wantPaidShoes={wantPaidShoes}
+              setWantPaidShoes={setWantPaidShoes}
+              playerCount={playerCount}
+              busy={busy}
+              onContinue={handleAddonsContinue}
+              onBack={() => setStep("offer")}
+            />
+          )}
+
           {step === "review" && (
             <ReviewStep
               centerId={centerId}
@@ -951,7 +990,7 @@ export default function KidsBowlFreePage() {
               setClickwrapAccepted={setClickwrapAccepted}
               busy={busy}
               onSubmit={submitReservation}
-              onBack={() => setStep("offer")}
+              onBack={() => setStep("addons")}
             />
           )}
 
@@ -1132,9 +1171,9 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
           }}
         >
           <p className="font-body text-white/85 text-xs sm:text-sm">
-            <strong className="text-white">Special — Opening Day.</strong> Book{" "}
-            <strong className="text-white">{KBF_PROGRAM_START_YMD}</strong> right
-            now. Normally Kids Bowl Free reservations open 48 hours in advance.
+            <strong className="text-white">Special — Opening Week.</strong> Book{" "}
+            <strong className="text-white">May 14th and 15th</strong> right now.
+            Normally Kids Bowl Free reservations open 48 hours in advance.
           </p>
         </div>
       )}
@@ -2343,6 +2382,239 @@ function OfferTimeStepBody({
 }
 
 // ── Step: review ───────────────────────────────────────────────────────────
+
+// ── Step: addons (laser tag, gel blasters, paid shoes) ───────────────────
+
+/**
+ * Optional add-ons step. Mirrors the bowling extras layout: tariff
+ * summary at the top, a paid-shoes toggle (if QAMF surfaced one), and
+ * a card grid for each Extra (laser tag, gel blasters, etc.) with
+ * +/- quantity controls. Skipping is fine — the parent can continue
+ * straight to review without picking anything.
+ */
+function AddonsStep({
+  extras,
+  extraQty,
+  setExtraQty,
+  paidShoeOption,
+  wantPaidShoes,
+  setWantPaidShoes,
+  playerCount,
+  busy,
+  onContinue,
+  onBack,
+}: {
+  extras: QamfExtra[];
+  extraQty: Record<number, number>;
+  setExtraQty: (updater: (q: Record<number, number>) => Record<number, number>) => void;
+  paidShoeOption: { priceKeyId: number; price: number; name: string } | null;
+  wantPaidShoes: boolean;
+  setWantPaidShoes: (b: boolean) => void;
+  playerCount: number;
+  busy: boolean;
+  onContinue: () => void;
+  onBack: () => void;
+}) {
+  const setQty = (id: number, qty: number) => {
+    const clamped = Math.max(0, Math.min(playerCount * 2, qty));
+    setExtraQty((prev) => {
+      const next = { ...prev };
+      if (clamped <= 0) delete next[id];
+      else next[id] = clamped;
+      return next;
+    });
+  };
+
+  const totalAddOns = Object.values(extraQty).reduce((s, q) => s + q, 0);
+
+  return (
+    <div className="space-y-5">
+      <p className="text-center text-white/45 text-xs">
+        Add laser tag, gel blasters, or rental shoes to your visit. Skip
+        and continue if you don&apos;t need anything.
+      </p>
+
+      {/* Paid shoes toggle */}
+      {paidShoeOption && (
+        <div
+          className="rounded-lg p-4"
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: `1.78px dashed ${CORAL}25`,
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-body text-white font-bold text-sm">
+                {paidShoeOption.name}
+              </div>
+              <div className="font-body text-white/50 text-xs mt-0.5">
+                ${paidShoeOption.price.toFixed(2)}/person · 1 pair per
+                bowler
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWantPaidShoes(!wantPaidShoes)}
+              role="switch"
+              aria-checked={wantPaidShoes}
+              aria-label="Add bowling shoes"
+              className="w-12 h-7 rounded-full transition-colors shrink-0"
+              style={{
+                backgroundColor: wantPaidShoes ? CORAL : "rgba(255,255,255,0.10)",
+              }}
+            >
+              <div
+                className="w-5 h-5 rounded-full bg-white transition-all"
+                style={{ marginLeft: wantPaidShoes ? "26px" : "2px" }}
+              />
+            </button>
+          </div>
+          {wantPaidShoes && (
+            <div className="mt-2 text-xs" style={{ color: CORAL }}>
+              {playerCount} pair{playerCount === 1 ? "" : "s"} · $
+              {(paidShoeOption.price * playerCount).toFixed(2)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Extras grid (laser tag, gel blasters, etc.) */}
+      {extras.length > 0 ? (
+        <div className="space-y-3">
+          {extras.map((x) => {
+            const qty = extraQty[x.Id] || 0;
+            const isOn = qty > 0;
+            return (
+              <div
+                key={x.Id}
+                className="rounded-lg overflow-hidden transition-all"
+                style={{
+                  backgroundColor: isOn ? "rgba(253,91,86,0.08)" : "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${isOn ? `${CORAL}50` : "rgba(255,255,255,0.10)"}`,
+                }}
+              >
+                <div className="flex flex-col sm:flex-row">
+                  {x.ImageUrl && (
+                    <div className="relative w-full sm:w-36 h-28 sm:h-auto shrink-0 overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={x.ImageUrl}
+                        alt={x.Name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1 p-4">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <h3 className="font-body text-white font-bold text-sm">
+                        {x.Name}
+                      </h3>
+                      <span
+                        className="font-body text-sm font-bold shrink-0"
+                        style={{ color: CORAL }}
+                      >
+                        ${x.Price.toFixed(2)}
+                      </span>
+                    </div>
+                    {x.Description && (
+                      <p className="font-body text-white/45 text-xs mb-3">
+                        {x.Description}
+                      </p>
+                    )}
+                    {qty === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setQty(x.Id, playerCount || 1)}
+                        className="w-full py-2.5 rounded-lg text-xs font-bold font-body transition-colors uppercase tracking-wider"
+                        style={{
+                          backgroundColor: `${CORAL}15`,
+                          color: CORAL,
+                          border: `1px solid ${CORAL}30`,
+                        }}
+                      >
+                        Add for all {playerCount || 1} bowler
+                        {(playerCount || 1) === 1 ? "" : "s"} — $
+                        {(x.Price * (playerCount || 1)).toFixed(2)}
+                      </button>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setQty(x.Id, qty - 1)}
+                            className="w-7 h-7 rounded border border-white/20 text-white/60 hover:text-white text-sm flex items-center justify-center"
+                            aria-label="Decrease quantity"
+                          >
+                            −
+                          </button>
+                          <span className="w-6 text-center text-white font-bold text-xs">
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setQty(x.Id, qty + 1)}
+                            className="w-7 h-7 rounded border border-white/20 text-white/60 hover:text-white text-sm flex items-center justify-center"
+                            aria-label="Increase quantity"
+                          >
+                            +
+                          </button>
+                          <span className="font-body text-white/35 text-xs">
+                            {qty} {qty === 1 ? "pass" : "passes"}
+                          </span>
+                        </div>
+                        <span
+                          className="font-body text-sm font-bold"
+                          style={{ color: CORAL }}
+                        >
+                          ${(x.Price * qty).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div
+          className="rounded-lg p-6 text-center"
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: "1.78px dashed rgba(255,255,255,0.10)",
+          }}
+        >
+          <p className="font-body text-white/40 text-xs uppercase tracking-[0.2em]">
+            No add-ons available for this slot
+          </p>
+          <p className="font-body text-white/30 text-[11px] mt-1.5">
+            Continue to review.
+          </p>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={busy}
+          className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
+          style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+        >
+          {totalAddOns > 0 || wantPaidShoes ? "Continue with add-ons" : "Skip add-ons"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ReviewStep({
   centerId,

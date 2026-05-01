@@ -68,6 +68,19 @@ interface BowlerInput {
   wantBumpers?: boolean;
 }
 
+/**
+ * One row from the wizard's add-ons step (laser tag, gel blasters,
+ * etc.). Forwarded into both Cart.CreateSummary and guest/confirm so
+ * the upstream charge + reservation include them.
+ */
+interface ExtraInput {
+  id: number;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  priceKeyId: number;
+}
+
 interface ReserveBody {
   centerId: string;
   date: string;
@@ -77,6 +90,7 @@ interface ReserveBody {
   offerName: string;
   tariffPrice: number;
   bowlers: BowlerInput[];
+  extras?: ExtraInput[];
   shoePriceKeyId?: number;
   shoeUnitPrice?: number;
   guest: { firstName: string; lastName: string; email: string; phone: string };
@@ -221,7 +235,8 @@ export async function POST(req: NextRequest) {
       // Continue rather than blowing up the whole booking.
     }
 
-    // ── 3. CreateSummary (calculates total, including paid shoes) ─
+    // ── 3. CreateSummary (calculates total, including paid shoes
+    //      and optional add-ons like laser tag / gel blasters) ─
     const shoeQty = body.bowlers.filter((b) => b.wantShoes === true).length;
     const shoesItems =
       shoeQty > 0 && body.shoePriceKeyId && body.shoeUnitPrice
@@ -232,6 +247,13 @@ export async function POST(req: NextRequest) {
             Note: "",
           }]
         : [];
+    const extras = (body.extras ?? []).filter((e) => e.quantity > 0);
+    const extraItems = extras.map((e) => ({
+      PriceKeyId: e.priceKeyId,
+      Quantity: e.quantity,
+      UnitPrice: e.unitPrice,
+      Note: "",
+    }));
 
     const summarized = await qamf<QamfCartSummary>(
       `centers/${body.centerId}/Cart/CreateSummary`,
@@ -241,7 +263,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           Time: dateTime,
           Items: {
-            Extra: [],
+            Extra: extraItems,
             FoodAndBeverage: [],
             ShoesSocks: shoesItems,
             WebOffer: {
@@ -284,6 +306,15 @@ export async function POST(req: NextRequest) {
         PriceKeyId: body.shoePriceKeyId,
         Quantity: shoeQty,
         UnitPrice: body.shoeUnitPrice,
+      });
+    }
+    for (const e of extras) {
+      cartItems.push({
+        Name: e.name,
+        Type: "Extras",
+        PriceKeyId: e.priceKeyId,
+        Quantity: e.quantity,
+        UnitPrice: e.unitPrice,
       });
     }
 
@@ -342,7 +373,12 @@ export async function POST(req: NextRequest) {
       bookingType: "attractions",
       participantCount: playerCount,
       raceProductNames: [body.offerName],
-      addOnNames: shoeQty > 0 ? [`Bowling Shoes ×${shoeQty}`] : undefined,
+      addOnNames: (() => {
+        const names: string[] = [];
+        if (shoeQty > 0) names.push(`Bowling Shoes ×${shoeQty}`);
+        for (const e of extras) names.push(`${e.name} ×${e.quantity}`);
+        return names.length > 0 ? names : undefined;
+      })(),
       totalUsd: summary?.Total ?? 0,
       email: body.guest.email,
       phone: body.guest.phone.replace(/\D/g, ""),
