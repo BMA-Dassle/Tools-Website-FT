@@ -1630,6 +1630,7 @@ function ReviewStep({
   onSubmit: () => void;
   onBack: () => void;
 }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const center = CENTERS.find((c) => c.id === centerId);
   const dateLabel = date
     ? new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
@@ -1654,6 +1655,21 @@ function ReviewStep({
         <Row label="Tariff" value={`${offerName}${tariffName ? ` — ${tariffName}` : ""}`} />
         <Row label="Bowlers" value={`${bowlerCount}`} />
       </div>
+
+      {confirmOpen && (
+        <DateConfirmModal
+          dateLabel={dateLabel}
+          timeLabel={timeLabel}
+          centerName={center?.name ?? ""}
+          bowlerCount={bowlerCount}
+          busy={busy}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            onSubmit();
+          }}
+        />
+      )}
 
       <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-2">
         Guest contact
@@ -1703,7 +1719,7 @@ function ReviewStep({
         </button>
         <button
           type="button"
-          onClick={onSubmit}
+          onClick={() => setConfirmOpen(true)}
           disabled={busy || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
           className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
           style={{
@@ -1714,6 +1730,101 @@ function ReviewStep({
         >
           {busy ? "Booking…" : "Confirm reservation"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Final confirmation modal — explicitly puts the chosen date and
+ * time front-and-center so the parent can't accidentally book the
+ * wrong day. Triggered when they click "Confirm reservation" on the
+ * review step.
+ */
+function DateConfirmModal({
+  dateLabel,
+  timeLabel,
+  centerName,
+  bowlerCount,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  dateLabel: string;
+  timeLabel: string;
+  centerName: string;
+  bowlerCount: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6 sm:p-7"
+        style={{ backgroundColor: "#0f1d36", border: `1.78px solid ${CORAL}55` }}
+      >
+        <div
+          className="uppercase font-bold mb-2"
+          style={{ color: CORAL, fontSize: "11px", letterSpacing: "2.5px" }}
+        >
+          Just to be sure
+        </div>
+        <h3
+          className="font-heading font-black uppercase italic text-white mb-4"
+          style={{ fontSize: "22px", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+        >
+          Confirm your reservation
+        </h3>
+
+        <div
+          className="rounded-xl p-4 mb-4"
+          style={{
+            backgroundColor: "rgba(253,91,86,0.08)",
+            border: "1.5px solid rgba(253,91,86,0.30)",
+          }}
+        >
+          <div className="text-white/55 uppercase tracking-[2px] text-[10px] mb-1">
+            Date
+          </div>
+          <div className="text-white font-bold text-lg leading-tight">{dateLabel}</div>
+          <div className="text-white/85 text-base font-semibold mt-0.5">
+            at {timeLabel}
+          </div>
+          <div className="text-white/55 text-xs mt-2">
+            {centerName} · {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}
+          </div>
+        </div>
+
+        <p className="text-white/65 text-xs leading-relaxed mb-5">
+          Please double-check the date — once confirmed, your lane is
+          held until 5 minutes after start time. Cancellations need to
+          be called in at least 1 hour before.
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors disabled:opacity-50"
+          >
+            Go back
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-transform hover:scale-[1.02] disabled:opacity-60 disabled:scale-100"
+            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+          >
+            {busy ? "Booking…" : "Yes, book it"}
+          </button>
+        </div>
       </div>
     </div>
   );
