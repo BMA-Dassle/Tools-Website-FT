@@ -511,6 +511,37 @@ export default function KidsBowlFreePage() {
         setStep("review");
         return;
       }
+
+      // Stash reservation context for the bowling confirmation page —
+      // it reads `qamf_reservation` for the headline summary and
+      // `qamf_confirm_data` to know which reservation key to status-poll.
+      // Mirrors the keys bowling itself sets.
+      if (typeof window !== "undefined" && data.reservationKey) {
+        const center = CENTERS.find((c) => c.id === data.centerId);
+        sessionStorage.setItem(
+          "qamf_reservation",
+          JSON.stringify({
+            key: data.reservationKey,
+            centerId: data.centerId,
+            centerName: center?.name ?? "",
+            offer: offer.Name,
+            date,
+            time: selectedTime,
+            players: selectedBowlers.length,
+            tariffPrice: item.Total,
+            shoes: false,
+            shoePrice: 0,
+            addons: [],
+            guestName,
+            guestEmail,
+          }),
+        );
+        sessionStorage.setItem(
+          "qamf_confirm_data",
+          JSON.stringify({ key: data.reservationKey, center: data.centerId, transactionId: "" }),
+        );
+      }
+
       // Server returns either an internal redirect (zero-balance) or
       // an external Square URL (paid extras). Either way, navigate.
       if (typeof window !== "undefined") {

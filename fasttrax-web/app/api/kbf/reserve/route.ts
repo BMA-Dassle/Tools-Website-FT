@@ -287,8 +287,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Reuse the existing bowling confirmation page — same QAMF backend,
+    // same status-poll pattern, same player-edit form. KBF doesn't set
+    // qamf_bmi_addons so the BMI block is a no-op.
     const origin = req.nextUrl.origin;
-    const returnUrl = `${origin}/hp/book/kids-bowl-free/confirmation?key=${encodeURIComponent(reservationKey)}&center=${body.centerId}`;
+    const returnUrl = `${origin}/hp/book/bowling/confirmation?key=${encodeURIComponent(reservationKey)}&center=${body.centerId}`;
 
     const confirmed = await qamf<QamfConfirmResult>(
       `centers/${body.centerId}/reservations/${encodeURIComponent(reservationKey)}/guest/confirm`,
@@ -385,7 +388,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       needPayment: false,
-      redirect: `/hp/book/kids-bowl-free/confirmation?key=${encodeURIComponent(reservationKey)}&center=${body.centerId}`,
+      redirect: `/hp/book/bowling/confirmation?key=${encodeURIComponent(reservationKey)}&center=${body.centerId}`,
       reservationKey,
       centerId: body.centerId,
       total: summary?.Total ?? 0,
