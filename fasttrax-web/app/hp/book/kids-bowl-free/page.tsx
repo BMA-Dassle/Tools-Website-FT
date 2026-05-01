@@ -1320,10 +1320,40 @@ export default function KidsBowlFreePage() {
         );
       }
 
-      const redirect =
-        result?.NeedPayment && result.ApprovePayment?.Url
-          ? result.ApprovePayment.Url
-          : `/hp/book/bowling/confirmation?key=${encodeURIComponent(reservationKey)}&center=${centerId}`;
+      // For paid bookings (BMI add-ons billed through QAMF Square),
+      // pre-fill the Square hosted payment link with the parent's
+      // contact info before redirecting. Mirrors bowling's exact
+      // call to /api/square/update-redirect — without this the
+      // Square page lands with empty buyer fields and the parent
+      // has to retype email/phone they already gave us.
+      let redirect: string;
+      if (result?.NeedPayment && result.ApprovePayment?.Url) {
+        let paymentUrl = result.ApprovePayment.Url;
+        try {
+          const nameParts = guestName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+          const updateRes = await fetch("/api/square/update-redirect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              squareUrl: paymentUrl,
+              billId: reservationKey,
+              buyerOnly: true,
+              buyer: { email: guestEmail, phone: guestPhone, firstName, lastName },
+            }),
+          });
+          if (updateRes.ok) {
+            const updated = await updateRes.json();
+            if (updated.url) paymentUrl = updated.url;
+          }
+        } catch {
+          // Prefill is best-effort — fall through to the raw URL.
+        }
+        redirect = paymentUrl;
+      } else {
+        redirect = `/hp/book/bowling/confirmation?key=${encodeURIComponent(reservationKey)}&center=${centerId}`;
+      }
 
       if (typeof window !== "undefined") {
         window.location.href = redirect;
