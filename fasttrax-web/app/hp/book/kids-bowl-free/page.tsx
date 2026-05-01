@@ -903,8 +903,8 @@ export default function KidsBowlFreePage() {
         heldFor.tariffId === selectedTariffId &&
         heldFor.time === selectedTime;
       if (!sameSelection) {
-        try {
-          const reservation = (await qamf(
+        const fireHold = async (): Promise<{ ReservationKey?: string } | null> => {
+          return (await qamf(
             `centers/${centerId}/reservations/temporary-request/book-for-later`,
             {
               method: "POST",
@@ -917,6 +917,28 @@ export default function KidsBowlFreePage() {
               }),
             },
           )) as { ReservationKey?: string } | null;
+        };
+
+        try {
+          let reservation: { ReservationKey?: string } | null;
+          try {
+            reservation = await fireHold();
+          } catch (err) {
+            // 409 = QAMF still has the prior hold tied to our
+            // x-sessiontoken from a previous successful pick. Drop
+            // the token (fresh session) + retry once before giving
+            // up. Any other status surfaces immediately.
+            if (err instanceof QamfError && err.status === 409) {
+              if (typeof window !== "undefined") {
+                sessionStorage.removeItem("qamf_session_token");
+              }
+              setReservationKey("");
+              setHeldFor(null);
+              reservation = await fireHold();
+            } else {
+              throw err;
+            }
+          }
           if (!reservation?.ReservationKey) {
             throw new Error("Reservation key missing in QAMF response");
           }
@@ -3084,8 +3106,19 @@ function OfferTimeStepBody({
               type="button"
               onClick={() => {
                 setSelectedOfferId(o.OfferId);
-                setSelectedTariffId(firstItem?.ItemId ?? null);
-                setSelectedTime("");
+                // Clamp selectedTime + tariffId to the FIRST Item's
+                // actual bookable slot. The user's pre-pick from the
+                // datetime step might not match QAMF's offered slot
+                // (Naples KBF only opens at 11 AM even if the user
+                // probed at 5 PM); using the Item's Time prevents
+                // book-for-later 409 / "QResourceNotAvailable".
+                if (firstItem) {
+                  setSelectedTariffId(firstItem.ItemId);
+                  setSelectedTime(firstItem.Time);
+                } else {
+                  setSelectedTariffId(null);
+                  setSelectedTime("");
+                }
               }}
               // 1:1 visual mirror of the bowling lane-type card —
               // dashed accent border, slate bg, image/video on the
