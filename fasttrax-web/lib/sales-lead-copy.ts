@@ -7,13 +7,14 @@
  *
  * Brand strategy:
  *   - Centers that include "HeadPinz" in the name → HP palette (coral +
- *     navy) + "bowling, laser tag, arcade, Nemo's wings" hype.
+ *     navy) + "bowling, laser tag, arcade, Nemo's wings" hype + the
+ *     HeadPinz Sales Booklet PDF link.
  *   - Centers that include "FastTrax" → FT palette (cyan + navy) +
- *     "fastest karting in Southwest Florida" hype + Event Guide PDF link.
+ *     "fastest karting in Southwest Florida" hype + the FastTrax Event
+ *     Guide PDF link.
  *
- * Event-guide PDF exists only for FastTrax at the moment (HP doesn't
- * have one yet), so the `fasttrax` branch is the only one that surfaces
- * an Event Guide CTA in SMS or email.
+ * Both brands surface a "Download Event Guide" CTA in SMS + email; the
+ * URL is brand-aware (eventGuideUrl on the detectBrand result).
  */
 
 // ── Brand assets (verified working URLs) ────────────────────────────────────
@@ -36,6 +37,8 @@ const FASTTRAX_HERO_URL =
 
 const FASTTRAX_EVENT_GUIDE_URL =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/FastTrax-Event-Guide.pdf";
+const HEADPINZ_SALES_BOOKLET_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/HeadPinz-Sales-Booklet.pdf";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -107,7 +110,7 @@ function detectBrand(centerName: string): {
       heroUrl: HEADPINZ_HERO_URL,
       wordmark: "HeadPinz",
       tagline: "BOWLING · LASER TAG · GEL BLASTERS · ARCADE · NEMO'S",
-      eventGuideUrl: null,
+      eventGuideUrl: HEADPINZ_SALES_BOOKLET_URL,
       hypeVerb: "plan",
       hypeList: "bowling, laser tag, gel blasters, arcade games, and Nemo's famous wings",
     };
@@ -132,7 +135,11 @@ function detectBrand(centerName: string): {
 export function buildSalesLeadSms(ctx: SalesLeadCopyContext): string {
   const phone = formatPhoneDisplay(ctx.plannerPhone);
   const b = detectBrand(ctx.centerName);
-  const guideLine = b.eventGuideUrl ? `\n\nPeek at the Event Guide: ${b.eventGuideUrl}` : "";
+  // Append the guide link + a one-line price-change disclaimer so the
+  // pricing in the PDF can't be used to lock us into stale rates.
+  const guideLine = b.eventGuideUrl
+    ? `\n\nPeek at the Event Guide: ${b.eventGuideUrl}\n(Prices subject to change.)`
+    : "";
 
   if (ctx.isIndividualPlanner) {
     const hype =
@@ -165,6 +172,10 @@ export function buildSalesLeadEmailText(ctx: SalesLeadCopyContext): string {
   const b = detectBrand(ctx.centerName);
   const guideLine = b.eventGuideUrl ? `\n\nWhile you wait, grab our Event Guide:\n${b.eventGuideUrl}` : "";
 
+  // Bottom-of-email disclaimer — covers any pricing the customer pulls
+  // from the linked PDF. Shown on every email regardless of brand.
+  const disclaimer = `\n--\nPrices subject to change at any time without notice. All quotes confirmed in writing by your event planner.`;
+
   if (ctx.isIndividualPlanner) {
     return [
       `Hey ${ctx.firstName}!`,
@@ -181,6 +192,7 @@ export function buildSalesLeadEmailText(ctx: SalesLeadCopyContext): string {
       `Talk soon!`,
       `${ctx.plannerName}`,
       `${ctx.centerName}`,
+      disclaimer,
     ]
       .filter((line) => line !== undefined)
       .join("\n");
@@ -199,6 +211,7 @@ export function buildSalesLeadEmailText(ctx: SalesLeadCopyContext): string {
     ``,
     `Talk soon!`,
     `${ctx.centerName}`,
+    disclaimer,
   ].join("\n");
 }
 
@@ -399,8 +412,11 @@ export function buildSalesLeadEmailHtml(ctx: SalesLeadCopyContext): string {
           <!-- Footer -->
           <tr>
             <td style="padding: 18px 32px 22px 32px; background: #f9fafc;">
-              <p style="margin: 0; font-size: 10px; color: #8895a6; text-align: center; letter-spacing: 2px; text-transform: uppercase;">
+              <p style="margin: 0 0 8px 0; font-size: 10px; color: #8895a6; text-align: center; letter-spacing: 2px; text-transform: uppercase;">
                 Inquiry #${ctx.projectNumber} &middot; ${ctx.centerName}
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #8895a6; text-align: center; line-height: 1.5;">
+                Prices subject to change at any time without notice. All quotes are confirmed in writing by your event planner.
               </p>
             </td>
           </tr>
