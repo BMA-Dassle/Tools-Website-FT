@@ -131,7 +131,7 @@ interface QamfOffer {
 
 // ── Step keys ───────────────────────────────────────────────────────────────
 
-type Step = "lookup" | "verify" | "bowlers" | "datetime" | "review" | "submitting";
+type Step = "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "review" | "submitting";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -355,11 +355,12 @@ export default function KidsBowlFreePage() {
   // the pre-launch promo, then today + 0/1/2 once we're past launch).
 
   const loadOffers = useCallback(
-    async (chosenCenterId: string, chosenDate: string) => {
+    async (chosenCenterId: string, chosenDate: string, chosenTime?: string) => {
       setBusy(true);
       setError(null);
       try {
-        const url = `/api/kbf/offers?center=${chosenCenterId}&date=${encodeURIComponent(chosenDate)}&players=${playerCount || 1}`;
+        const tParam = chosenTime ? `&time=${encodeURIComponent(chosenTime)}` : "";
+        const url = `/api/kbf/offers?center=${chosenCenterId}&date=${encodeURIComponent(chosenDate)}&players=${playerCount || 1}${tParam}`;
         const res = await fetch(url, { cache: "no-store" });
         const data = await res.json();
         if (!res.ok) {
@@ -413,24 +414,13 @@ export default function KidsBowlFreePage() {
     }
   }, []);
 
-  const goToDateTime = useCallback(
-    async (chosenCenterId: string, chosenDate: string) => {
-      setCenterId(chosenCenterId);
-      setDate(chosenDate);
-      // Persist for nav consistency
-      const center = CENTERS.find((c) => c.id === chosenCenterId);
-      if (center) setBookingLocation(center.locationKey);
-      await loadShoeCatalog(chosenCenterId);
-      await loadOffers(chosenCenterId, chosenDate);
-      setStep("datetime");
-    },
-    [loadOffers, loadShoeCatalog],
-  );
-
   /**
    * From bowlers → datetime. Auto-defaults the date to the first
-   * bookable option (opening day during pre-launch, today otherwise),
-   * pulls the shoe catalog, and fetches offers in one shot.
+   * bookable option (opening day during pre-launch, today otherwise)
+   * and pulls the shoe catalog so the bowler-edit form on the
+   * confirmation page can render saved sizes. Offers are NOT fetched
+   * yet — that happens after the user picks a specific time, so QAMF
+   * returns matching Items at that time (mirrors the bowling flow).
    */
   const handleBowlersContinue = useCallback(async () => {
     if (selectedBowlers.length === 0) {
@@ -444,12 +434,38 @@ export default function KidsBowlFreePage() {
       setError("No bookable dates right now. Check back tomorrow.");
       return;
     }
-    await goToDateTime(resolvedCenter, resolvedDate);
-  }, [centerId, date, dateOptions, goToDateTime, selectedBowlers.length]);
+    setCenterId(resolvedCenter);
+    setDate(resolvedDate);
+    const center = CENTERS.find((c) => c.id === resolvedCenter);
+    if (center) setBookingLocation(center.locationKey);
+    await loadShoeCatalog(resolvedCenter);
+    setStep("datetime");
+  }, [centerId, date, dateOptions, loadShoeCatalog, selectedBowlers.length]);
 
-  const goToReview = useCallback(() => {
+  /**
+   * From datetime → offer. Probes QAMF at the user-selected time so
+   * it returns Items[] with the matching tariff slot. Goes to the
+   * offer step where the parent picks Regular vs VIP.
+   */
+  const handleDatetimeContinue = useCallback(async () => {
+    if (!date || !selectedTime) {
+      setError("Pick a date and time");
+      return;
+    }
+    setError(null);
+    setSelectedOfferId(null);
+    setSelectedTariffId(null);
+    await loadOffers(centerId, date, selectedTime);
+    setStep("offer");
+  }, [centerId, date, loadOffers, selectedTime]);
+
+  /**
+   * From offer → review. The user has chosen Regular or VIP; we
+   * already have offer + tariff + time so this is just a step bump.
+   */
+  const handleOfferContinue = useCallback(() => {
     if (!selectedOfferId || !selectedTariffId || !selectedTime) {
-      setError("Pick a time slot");
+      setError("Pick a package");
       return;
     }
     setError(null);
@@ -646,26 +662,32 @@ export default function KidsBowlFreePage() {
 
           {step === "datetime" && (
             <DateTimeStep
-              offers={offers}
-              centerId={centerId}
-              setCenterId={setCenterId}
-              dateOptions={dateOptions}
               date={date}
-              onChangeDate={async (ymd) => {
-                setSelectedOfferId(null);
-                setSelectedTariffId(null);
+              setDate={(ymd) => {
                 setSelectedTime("");
-                await goToDateTime(centerId, ymd);
+                setDate(ymd);
               }}
+              selectedTime={selectedTime}
+              setSelectedTime={setSelectedTime}
+              centerId={centerId}
+              onContinue={handleDatetimeContinue}
+              onBack={() => setStep("bowlers")}
+              busy={busy}
+            />
+          )}
+
+          {step === "offer" && (
+            <OfferStep
+              offers={offers}
               selectedOfferId={selectedOfferId}
               setSelectedOfferId={setSelectedOfferId}
               selectedTariffId={selectedTariffId}
               setSelectedTariffId={setSelectedTariffId}
               selectedTime={selectedTime}
-              setSelectedTime={setSelectedTime}
-              onContinue={goToReview}
-              onBack={() => setStep("bowlers")}
+              date={date}
               busy={busy}
+              onContinue={handleOfferContinue}
+              onBack={() => setStep("datetime")}
             />
           )}
 
@@ -693,7 +715,7 @@ export default function KidsBowlFreePage() {
               setClickwrapAccepted={setClickwrapAccepted}
               busy={busy}
               onSubmit={submitReservation}
-              onBack={() => setStep("datetime")}
+              onBack={() => setStep("offer")}
             />
           )}
 
@@ -747,7 +769,8 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
     lookup: "Sign in",
     verify: "Verify",
     bowlers: "Who's bowling?",
-    datetime: "When & where",
+    datetime: "When do you want to bowl?",
+    offer: "Choose a package",
     review: "Review",
     submitting: "Confirming…",
   };
@@ -989,6 +1012,30 @@ function BowlersStep({
   const accentFor = (rel: BowlerKey["relation"]): string =>
     rel === "kid" ? CORAL : rel === "family" ? GOLD : "#6b8ec7";
 
+  // KBF rule: every booking needs at least one kid. Adults (parent
+  // with Families Bowl Free + family-pass adults) only get a free
+  // lane when they're chaperoning a registered kid. Reflect that in
+  // the UI by greying out adult cards until a kid is selected.
+  const anyKidSelected = bowlerKeys.some(
+    (b) => b.relation === "kid" && selections[b.key]?.selected,
+  );
+
+  // Auto-deselect any adults if the user removes the last kid — keeps
+  // submitted bowler list consistent with the gating rule above.
+  useEffect(() => {
+    if (anyKidSelected) return;
+    const adults = bowlerKeys.filter(
+      (b) => b.relation !== "kid" && selections[b.key]?.selected,
+    );
+    if (adults.length === 0) return;
+    const next = { ...selections };
+    for (const a of adults) {
+      next[a.key] = { ...next[a.key], selected: false };
+    }
+    setSelections(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyKidSelected]);
+
   return (
     <div className="space-y-4">
       {/* Program eyebrow — Kids Bowl Free vs Families Bowl Free */}
@@ -1051,6 +1098,12 @@ function BowlersStep({
           if (!sel) return null;
           const isOn = sel.selected;
           const accent = accentFor(b.relation);
+          // Adults need an accompanying kid — KBF coupon covers the
+          // kid; the parent / family-pass adult only gets the free
+          // lane while chaperoning. Disable the card until at least
+          // one kid is selected.
+          const isAdult = b.relation !== "kid";
+          const adultLocked = isAdult && !anyKidSelected;
           const relationLabel =
             b.relation === "parent"
               ? "Account holder"
@@ -1067,14 +1120,20 @@ function BowlersStep({
                   ? `${accent}12`
                   : "rgba(255,255,255,0.025)",
                 boxShadow: isOn ? `0 0 22px ${accent}20` : undefined,
+                opacity: adultLocked ? 0.45 : 1,
               }}
             >
               {/* Header row — clickable, big tappable area */}
               <button
                 type="button"
-                onClick={() => update(b.key, { selected: !isOn })}
+                onClick={() => {
+                  if (adultLocked) return;
+                  update(b.key, { selected: !isOn });
+                }}
+                disabled={adultLocked}
                 aria-label={`Toggle bowler ${b.displayName || "unnamed"}`}
-                className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+                title={adultLocked ? "Add a kid first — adults need a registered kid bowling with them." : undefined}
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-left disabled:cursor-not-allowed"
               >
                 {/* Avatar */}
                 <div
@@ -1126,7 +1185,7 @@ function BowlersStep({
                     border: isOn ? "none" : "1px solid rgba(255,255,255,0.10)",
                   }}
                 >
-                  {isOn ? "Bowling" : "Add"}
+                  {adultLocked ? "Kid required" : isOn ? "Bowling" : "Add"}
                 </div>
               </button>
 
@@ -1227,94 +1286,338 @@ function BowlersStep({
  * Date pills + Center toggle + Regular/VIP cards + time grid in one
  * step. Mirrors the lane-type/offer/date pattern from /book/bowling.
  */
+/**
+ * Bowling-style calendar + hour drill-down + minute drill-down. Mirrors
+ * `/hp/book/bowling`'s `date` step: full-month grid on the left
+ * (bookable KBF days highlighted in coral, everything else disabled
+ * + dimmed), and a time picker on the right that drills hour →
+ * minute. After the parent picks a slot they tap "See available
+ * packages" which probes QAMF for offers at that exact time.
+ *
+ * Hour grid is static — KBF rules are Mon–Thu open-to-close and Fri
+ * before 5pm — so we render a static range and let QAMF on the
+ * offers fetch tell us if the slot's actually bookable.
+ */
 function DateTimeStep({
-  offers,
-  centerId,
-  setCenterId,
-  dateOptions,
   date,
-  onChangeDate,
+  setDate,
+  selectedTime,
+  setSelectedTime,
+  centerId,
+  onContinue,
+  onBack,
+  busy,
+}: {
+  date: string;
+  setDate: (s: string) => void;
+  selectedTime: string;
+  setSelectedTime: (s: string) => void;
+  centerId: string;
+  onContinue: () => void;
+  onBack: () => void;
+  busy: boolean;
+}) {
+  // Anchor the calendar on the program-start month if we haven't
+  // picked a date yet, otherwise on the picked date's month.
+  const initial = date ? new Date(`${date}T12:00:00`) : new Date(`${KBF_PROGRAM_START_YMD}T12:00:00`);
+  const [calMonth, setCalMonth] = useState(initial.getMonth());
+  const [calYear, setCalYear] = useState(initial.getFullYear());
+
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const monthName = new Date(calYear, calMonth).toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+
+  // Friday cuts off at 5pm; Mon–Thu run open to close (rendered to
+  // 11 PM as a reasonable upper bound, matching bowling's grid).
+  const dow = date ? new Date(`${date}T12:00:00`).getDay() : 4; // 0 = Sun
+  const isFriday = dow === 5;
+  const HOURS = Array.from({ length: 13 }, (_, i) => i + 11); // 11 → 23
+  const filteredHours = isFriday ? HOURS.filter((h) => h < 17) : HOURS;
+  const MINUTES = ["00", "15", "30", "45"];
+
+  const selectedHour = selectedTime ? selectedTime.split(":")[0] : "";
+  const selectedMinute = selectedTime ? selectedTime.split(":")[1] : "";
+
+  const formatHour = (h: number): string => {
+    const ampm = h >= 12 ? "PM" : "AM";
+    const hr = h % 12 || 12;
+    return `${hr} ${ampm}`;
+  };
+
+  const formatTime = (t: string): string => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+  };
+
+  const centerName = CENTERS.find((c) => c.id === centerId)?.name ?? "";
+
+  return (
+    <div className="space-y-6">
+      {/* Header bar — center · date · time summary, mirroring bowling. */}
+      <div className="flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-wider text-white/55 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2.5">
+        <span style={{ color: CORAL }}>📍 {centerName}</span>
+        {date && (
+          <>
+            <span className="text-white/20">·</span>
+            <span>
+              📅{" "}
+              {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+          </>
+        )}
+        {selectedTime && (
+          <>
+            <span className="text-white/20">·</span>
+            <span style={{ color: GOLD }}>🕐 {formatTime(selectedTime)}</span>
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* ── Left: Calendar ── */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
+            Date
+          </div>
+          <div className="flex items-center justify-between mb-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (calMonth === 0) {
+                  setCalMonth(11);
+                  setCalYear(calYear - 1);
+                } else setCalMonth(calMonth - 1);
+              }}
+              className="text-white/50 hover:text-white p-2"
+              aria-label="Previous month"
+            >
+              ←
+            </button>
+            <span className="font-body text-white font-bold text-sm">{monthName}</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (calMonth === 11) {
+                  setCalMonth(0);
+                  setCalYear(calYear + 1);
+                } else setCalMonth(calMonth + 1);
+              }}
+              className="text-white/50 hover:text-white p-2"
+              aria-label="Next month"
+            >
+              →
+            </button>
+          </div>
+          <div className="grid grid-cols-7 mb-1">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+              <div key={d} className="text-center text-[12px] text-white/30 py-1">
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: firstDay }).map((_, i) => (
+              <div key={`pad-${i}`} />
+            ))}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const day = i + 1;
+              const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+              const isBookable = isKbfBookableDate(dateStr);
+              const isSelected = dateStr === date;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={!isBookable}
+                  onClick={() => {
+                    setDate(dateStr);
+                    setSelectedTime("");
+                  }}
+                  className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
+                  style={{
+                    backgroundColor: isSelected
+                      ? CORAL
+                      : isBookable
+                        ? "rgba(253,91,86,0.15)"
+                        : "transparent",
+                    color: isSelected
+                      ? "#0a1628"
+                      : isBookable
+                        ? CORAL
+                        : "rgba(255,255,255,0.18)",
+                    fontWeight: isSelected ? 800 : 500,
+                    cursor: isBookable ? "pointer" : "not-allowed",
+                    boxShadow: isSelected ? `0 0 14px ${CORAL}60` : undefined,
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Right: Time picker (hour drill-down → minute drill-down) ── */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          {!date ? (
+            <div className="flex items-center justify-center h-full min-h-[200px]">
+              <p className="font-body text-white/30 text-sm">Pick a date first</p>
+            </div>
+          ) : (
+            <>
+              <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
+                Hour
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 mb-5">
+                {filteredHours.map((h) => {
+                  const isActive = String(h).padStart(2, "0") === selectedHour;
+                  return (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => {
+                        // Default to :00 when picking an hour; user
+                        // can refine in the minute row below.
+                        setSelectedTime(`${String(h).padStart(2, "0")}:00`);
+                      }}
+                      className="rounded-lg px-3 py-2 text-sm font-medium transition-all"
+                      style={{
+                        backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
+                        color: isActive ? "#0a1628" : GOLD,
+                        fontWeight: isActive ? 800 : 500,
+                        minWidth: "60px",
+                      }}
+                    >
+                      {formatHour(h)}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedHour && (
+                <>
+                  <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
+                    Minutes
+                  </div>
+                  <div className="flex justify-center gap-2 mb-5">
+                    {MINUTES.map((m) => {
+                      const isActive = m === selectedMinute;
+                      // Friday cap: 16:45 is the latest minute slot.
+                      const wouldExceed =
+                        isFriday &&
+                        selectedHour === "16" &&
+                        false; // 16:45 still allowed (under 17:00)
+                      const disabled = wouldExceed;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setSelectedTime(`${selectedHour}:${m}`)}
+                          className="rounded-lg px-4 py-2 text-sm font-medium transition-all disabled:opacity-30"
+                          style={{
+                            backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
+                            color: isActive ? "#0a1628" : GOLD,
+                            fontWeight: isActive ? 800 : 500,
+                          }}
+                        >
+                          :{m}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedTime && (
+                    <div
+                      className="text-center text-2xl font-heading font-black"
+                      style={{ color: GOLD }}
+                    >
+                      {formatTime(selectedTime)}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={busy || !date || !selectedTime}
+          className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
+          style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+        >
+          {busy ? "Loading…" : "See available packages"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Offer step — fetched after the parent picks date+time. Shows
+ * Regular vs VIP cards (with media + FREE badge) and a continue CTA.
+ * Keeps the existing OfferTimeStepBody logic for time-slot rendering
+ * but auto-selects the time we already know about.
+ */
+function OfferStep({
+  offers,
   selectedOfferId,
   setSelectedOfferId,
   selectedTariffId,
   setSelectedTariffId,
   selectedTime,
-  setSelectedTime,
+  date,
+  busy,
   onContinue,
   onBack,
-  busy,
 }: {
   offers: QamfOffer[];
-  centerId: string;
-  setCenterId: (id: string) => void;
-  dateOptions: string[];
-  date: string;
-  onChangeDate: (ymd: string) => Promise<void>;
   selectedOfferId: number | null;
   setSelectedOfferId: (n: number | null) => void;
   selectedTariffId: number | null;
   setSelectedTariffId: (n: number | null) => void;
   selectedTime: string;
-  setSelectedTime: (s: string) => void;
+  date: string;
+  busy: boolean;
   onContinue: () => void;
   onBack: () => void;
-  busy: boolean;
 }) {
+  // Set selectedTariffId on first render once an offer auto-selects.
+  // The OfferTimeStepBody handles the visual selection & the time
+  // grid (compatibility — keeps existing tariff-card UI).
   return (
     <div className="space-y-6">
-      {/* Date pills — only the bookable days during the rolling window
-          (or opening week during pre-launch). Tap to switch dates. */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-white text-sm uppercase tracking-wider font-bold">
-            Date
-          </h3>
-          <span className="text-[11px] text-white/40 uppercase tracking-wider">
-            {CENTERS.find((c) => c.id === centerId)?.name ?? ""}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {dateOptions.length === 0 && (
-            <div className="text-white/50 text-sm">
-              No bookable dates right now. Check back tomorrow.
-            </div>
-          )}
-          {dateOptions.map((ymd) => {
-            const on = date === ymd;
-            const d = new Date(`${ymd}T12:00:00`);
-            const wk = d.toLocaleDateString("en-US", { weekday: "short" });
-            const md = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-            const isOpening = ymd === KBF_PROGRAM_START_YMD;
-            return (
-              <button
-                key={ymd}
-                type="button"
-                disabled={busy || !isKbfBookableDate(ymd)}
-                onClick={() => onChangeDate(ymd)}
-                className="rounded-xl border px-3.5 py-2.5 text-left transition-colors disabled:opacity-40"
-                style={{
-                  borderColor: on ? `${CORAL}90` : "rgba(255,255,255,0.10)",
-                  backgroundColor: on ? `${CORAL}14` : "rgba(255,255,255,0.02)",
-                  minWidth: "112px",
-                }}
-              >
-                <div className="text-white/55 text-[10px] uppercase tracking-[2px]">{wk}</div>
-                <div className="text-white font-semibold text-sm">{md}</div>
-                {isOpening && (
-                  <div
-                    className="text-[10px] uppercase tracking-wider mt-0.5"
-                    style={{ color: GOLD }}
-                  >
-                    Opening day
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <p className="text-center text-white/45 text-xs">
+        Showing packages near {selectedTime ? formatTimeLabel(selectedTime) : ""} on{" "}
+        {date
+          ? new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })
+          : ""}
+      </p>
 
-      {/* Tariff (Regular / VIP) + time grid */}
       <OfferTimeStepBody
         offers={offers}
         selectedOfferId={selectedOfferId}
@@ -1322,7 +1625,7 @@ function DateTimeStep({
         selectedTariffId={selectedTariffId}
         setSelectedTariffId={setSelectedTariffId}
         selectedTime={selectedTime}
-        setSelectedTime={setSelectedTime}
+        setSelectedTime={() => { /* time fixed by datetime step */ }}
         busy={busy}
         date={date}
       />
@@ -1338,7 +1641,7 @@ function DateTimeStep({
         <button
           type="button"
           onClick={onContinue}
-          disabled={busy || !selectedOfferId || !selectedTariffId || !selectedTime}
+          disabled={busy || !selectedOfferId || !selectedTariffId}
           className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
           style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
         >
@@ -1347,6 +1650,13 @@ function DateTimeStep({
       </div>
     </div>
   );
+}
+
+function formatTimeLabel(t: string): string {
+  if (!/^\d{2}:\d{2}$/.test(t)) return t;
+  const [h, m] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
 // ── Tariff cards + time grid (extracted for reuse from DateTimeStep) ───────

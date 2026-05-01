@@ -148,11 +148,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Probe at the start of the day to get every slot QAMF has for
-    // KBF on this date. The bowling flow uses the user's selected
-    // time as the probe; we don't have one yet, so we use 09:00
-    // local which is before any reasonable open time.
-    const datetime = `${date}T09:00`;
+    // Probe time. If the wizard has a user-picked time, use it — QAMF
+    // returns the matching Item directly with Reason=null when a slot
+    // is bookable at that time, mirroring bowling's flow. Without a
+    // time we probe at 09:00 (before open) and rely on Alternatives
+    // expansion below to surface the day's bookable slots.
+    const probeTime = (sp.get("time") || "09:00").trim();
+    const safeProbe = /^\d{2}:\d{2}$/.test(probeTime) ? probeTime : "09:00";
+    const datetime = `${date}T${safeProbe}`;
     const url =
       `${QAMF_BASE}/centers/${centerId}/offers-availability` +
       `?systemId=${centerId}` +
