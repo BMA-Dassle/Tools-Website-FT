@@ -145,7 +145,7 @@ interface QamfExtra {
 
 // ── Step keys ───────────────────────────────────────────────────────────────
 
-type Step = "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "addons" | "review" | "submitting";
+type Step = "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "addons" | "review" | "details" | "submitting";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -979,6 +979,13 @@ export default function KidsBowlFreePage() {
               date={date}
               time={selectedTime}
               offerName={offers.find((o) => o.OfferId === selectedOfferId)?.Name ?? ""}
+              offerPrice={(() => {
+                const offer = offers.find((o) => o.OfferId === selectedOfferId);
+                const item = offer?.Items?.find(
+                  (i) => i.ItemId === selectedTariffId && i.Time === selectedTime,
+                );
+                return item?.Total ?? 0;
+              })()}
               tariffName={(() => {
                 const offer = offers.find((o) => o.OfferId === selectedOfferId);
                 const item = offer?.Items?.find(
@@ -986,6 +993,36 @@ export default function KidsBowlFreePage() {
                 );
                 return item ? `${item.Quantity} ${item.QuantityType}` : "";
               })()}
+              bowlerCount={playerCount}
+              extras={extras}
+              extraQty={extraQty}
+              wantPaidShoes={wantPaidShoes}
+              paidShoeOption={paidShoeOption}
+              onContinue={() => setStep("details")}
+              onBack={() => setStep("addons")}
+            />
+          )}
+
+          {step === "details" && (
+            <DetailsStep
+              dateLabel={
+                date
+                  ? new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                    })
+                  : ""
+              }
+              timeLabel={
+                selectedTime
+                  ? new Date(`${date}T${selectedTime}:00`).toLocaleTimeString("en-US", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+                  : ""
+              }
+              centerName={CENTERS.find((c) => c.id === centerId)?.name ?? ""}
               bowlerCount={playerCount}
               guestName={guestName}
               setGuestName={setGuestName}
@@ -997,7 +1034,7 @@ export default function KidsBowlFreePage() {
               setClickwrapAccepted={setClickwrapAccepted}
               busy={busy}
               onSubmit={submitReservation}
-              onBack={() => setStep("addons")}
+              onBack={() => setStep("review")}
             />
           )}
 
@@ -1076,10 +1113,11 @@ function KbfStepBar({
     { key: "offer", label: "Package" },
     { key: "addons", label: "Extras" },
     { key: "review", label: "Review" },
+    { key: "details", label: "Confirm" },
   ];
   // Map sub-states to their parent step for the bar's "current" hit.
   const currentKey: Step =
-    step === "verify" ? "lookup" : step === "submitting" ? "review" : step;
+    step === "verify" ? "lookup" : step === "submitting" ? "details" : step;
   const currentIdx = visible.findIndex((v) => v.key === currentKey);
 
   return (
@@ -1148,7 +1186,8 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
     datetime: "When do you want to bowl?",
     offer: "Choose a package",
     addons: "Level up your visit",
-    review: "Review",
+    review: "Order summary",
+    details: "Your details",
     submitting: "Confirming…",
   };
   return (
@@ -2441,50 +2480,10 @@ function AddonsStep({
         and continue if you don&apos;t need anything.
       </p>
 
-      {/* Paid shoes toggle */}
-      {paidShoeOption && (
-        <div
-          className="rounded-lg p-4"
-          style={{
-            backgroundColor: "rgba(7,16,39,0.5)",
-            border: `1.78px dashed ${CORAL}25`,
-          }}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-body text-white font-bold text-sm">
-                {paidShoeOption.name}
-              </div>
-              <div className="font-body text-white/50 text-xs mt-0.5">
-                ${paidShoeOption.price.toFixed(2)}/person · 1 pair per
-                bowler
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setWantPaidShoes(!wantPaidShoes)}
-              role="switch"
-              aria-checked={wantPaidShoes}
-              aria-label="Add bowling shoes"
-              className="w-12 h-7 rounded-full transition-colors shrink-0"
-              style={{
-                backgroundColor: wantPaidShoes ? CORAL : "rgba(255,255,255,0.10)",
-              }}
-            >
-              <div
-                className="w-5 h-5 rounded-full bg-white transition-all"
-                style={{ marginLeft: wantPaidShoes ? "26px" : "2px" }}
-              />
-            </button>
-          </div>
-          {wantPaidShoes && (
-            <div className="mt-2 text-xs" style={{ color: CORAL }}>
-              {playerCount} pair{playerCount === 1 ? "" : "s"} · $
-              {(paidShoeOption.price * playerCount).toFixed(2)}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Paid shoes toggle removed — shoe rental belongs on the
+          per-bowler card, not as a single line at the top of the
+          add-ons step. paidShoeOption / wantPaidShoes still wired
+          through the reserve route in case we re-enable later. */}
 
       {/* Extras grid (laser tag, gel blasters, etc.) */}
       {extras.length > 0 ? (
@@ -2623,44 +2622,41 @@ function AddonsStep({
   );
 }
 
+/**
+ * Order Summary card — mirrors the bowling page's review step:
+ * dashed gold border, slate bg, line items (offer, paid shoes,
+ * extras), subtotal/tax/fee/total breakdown, and a coral
+ * "Continue to Payment" CTA that advances to the Details step.
+ */
 function ReviewStep({
   centerId,
   date,
   time,
   offerName,
+  offerPrice,
   tariffName,
   bowlerCount,
-  guestName,
-  setGuestName,
-  guestEmail,
-  setGuestEmail,
-  guestPhone,
-  setGuestPhone,
-  clickwrapAccepted,
-  setClickwrapAccepted,
-  busy,
-  onSubmit,
+  extras,
+  extraQty,
+  wantPaidShoes,
+  paidShoeOption,
+  onContinue,
   onBack,
 }: {
   centerId: string;
   date: string;
   time: string;
   offerName: string;
+  offerPrice: number;
   tariffName: string;
   bowlerCount: number;
-  guestName: string;
-  setGuestName: (s: string) => void;
-  guestEmail: string;
-  setGuestEmail: (s: string) => void;
-  guestPhone: string;
-  setGuestPhone: (s: string) => void;
-  clickwrapAccepted: boolean;
-  setClickwrapAccepted: (b: boolean) => void;
-  busy: boolean;
-  onSubmit: () => void;
+  extras: QamfExtra[];
+  extraQty: Record<number, number>;
+  wantPaidShoes: boolean;
+  paidShoeOption: { priceKeyId: number; price: number; name: string } | null;
+  onContinue: () => void;
   onBack: () => void;
 }) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const center = CENTERS.find((c) => c.id === centerId);
   const dateLabel = date
     ? new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
@@ -2676,21 +2672,174 @@ function ReviewStep({
       })
     : "";
 
+  const shoesTotal =
+    wantPaidShoes && paidShoeOption ? paidShoeOption.price * bowlerCount : 0;
+  const extrasLines = extras
+    .filter((x) => (extraQty[x.Id] ?? 0) > 0)
+    .map((x) => ({
+      name: x.Name,
+      qty: extraQty[x.Id]!,
+      lineTotal: x.Price * extraQty[x.Id]!,
+    }));
+  const extrasTotal = extrasLines.reduce((s, l) => s + l.lineTotal, 0);
+  const subtotal = offerPrice + shoesTotal + extrasTotal;
+  // KBF doesn't run our cart through Square — most bookings are
+  // free, so we show the line items + a $0/total breakdown
+  // client-side. QAMF does its own tax math at confirm time; we
+  // surface that on the bowling-confirmation page after submit.
+  const total = subtotal;
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-      <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-1.5 text-sm">
-        <Row label="Center" value={center?.name ?? ""} />
-        <Row label="Date" value={dateLabel} />
-        <Row label="Time" value={timeLabel} />
-        <Row label="Tariff" value={`${offerName}${tariffName ? ` — ${tariffName}` : ""}`} />
-        <Row label="Bowlers" value={`${bowlerCount}`} />
+    <div>
+      <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">
+        Order Summary
+      </h2>
+      <div
+        className="rounded-lg p-5 mb-6"
+        style={{
+          backgroundColor: "rgba(7,16,39,0.5)",
+          border: `1.78px dashed ${GOLD}30`,
+        }}
+      >
+        {/* Header line: offer + price */}
+        <div className="space-y-2 mb-4 pb-4 border-b border-white/10">
+          <div className="flex justify-between">
+            <span className="font-body text-white text-sm">{offerName}</span>
+            <span className="font-body text-white text-sm">
+              {offerPrice === 0 ? "FREE" : `$${offerPrice.toFixed(2)}`}
+            </span>
+          </div>
+          <p className="font-body text-white/50 text-xs">
+            {dateLabel} at {timeLabel} · {bowlerCount} bowler
+            {bowlerCount === 1 ? "" : "s"} · {center?.name ?? ""}
+          </p>
+          {tariffName && (
+            <p className="font-body text-white/35 text-[11px]">{tariffName}</p>
+          )}
+          {wantPaidShoes && paidShoeOption && (
+            <div className="flex justify-between mt-1">
+              <span className="font-body text-white/70 text-sm">
+                Bowling Shoes ×{bowlerCount}
+              </span>
+              <span className="font-body text-white/70 text-sm">
+                ${shoesTotal.toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Extras */}
+        {extrasLines.length > 0 && (
+          <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
+            <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-2">
+              Add-On Activities
+            </p>
+            {extrasLines.map((l) => (
+              <div key={l.name} className="flex justify-between">
+                <span className="font-body text-white/70 text-sm">
+                  {l.name} ×{l.qty}
+                </span>
+                <span className="font-body text-white text-sm">
+                  ${l.lineTotal.toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Subtotal block */}
+        <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
+          <div className="flex justify-between">
+            <span className="font-body text-white/60 text-sm">Subtotal</span>
+            <span className="font-body text-white text-sm">
+              ${subtotal.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-body text-white/60 text-sm">Tax</span>
+            <span className="font-body text-white/40 text-xs">
+              calculated at confirm
+            </span>
+          </div>
+        </div>
+
+        <div className="flex justify-between">
+          <span className="font-body text-white font-bold">Total Due</span>
+          <span className="font-heading text-xl" style={{ color: GOLD }}>
+            {total === 0 ? "FREE" : `$${total.toFixed(2)}`}
+          </span>
+        </div>
       </div>
+
+      <button
+        type="button"
+        onClick={onContinue}
+        className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+        style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
+      >
+        Continue to Confirm
+      </button>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto"
+      >
+        ← Back
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Details step — bowling's "Your Details" page. Guest contact
+ * fields, clickwrap, and the Pay & Confirm CTA. Triggers the
+ * date-confirm modal before actually submitting.
+ */
+function DetailsStep({
+  dateLabel,
+  timeLabel,
+  centerName,
+  bowlerCount,
+  guestName,
+  setGuestName,
+  guestEmail,
+  setGuestEmail,
+  guestPhone,
+  setGuestPhone,
+  clickwrapAccepted,
+  setClickwrapAccepted,
+  busy,
+  onSubmit,
+  onBack,
+}: {
+  dateLabel: string;
+  timeLabel: string;
+  centerName: string;
+  bowlerCount: number;
+  guestName: string;
+  setGuestName: (s: string) => void;
+  guestEmail: string;
+  setGuestEmail: (s: string) => void;
+  guestPhone: string;
+  setGuestPhone: (s: string) => void;
+  clickwrapAccepted: boolean;
+  setClickwrapAccepted: (b: boolean) => void;
+  busy: boolean;
+  onSubmit: () => void;
+  onBack: () => void;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  return (
+    <div>
+      <h2 className="font-heading uppercase text-white text-lg tracking-wider mb-4 text-center">
+        Your Details
+      </h2>
 
       {confirmOpen && (
         <DateConfirmModal
           dateLabel={dateLabel}
           timeLabel={timeLabel}
-          centerName={center?.name ?? ""}
+          centerName={centerName}
           bowlerCount={bowlerCount}
           busy={busy}
           onCancel={() => setConfirmOpen(false)}
@@ -2701,37 +2850,34 @@ function ReviewStep({
         />
       )}
 
-      <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-2">
-        Guest contact
-      </h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+      <div className="space-y-3 mb-6">
         <input
           type="text"
+          placeholder="Full Name"
           autoComplete="name"
           value={guestName}
           onChange={(e) => setGuestName(e.target.value)}
-          placeholder="Name"
-          className="rounded-lg bg-white/[0.05] border border-white/10 px-3 py-2.5 text-white text-sm focus:outline-none focus:border-white/30"
-        />
-        <input
-          type="tel"
-          autoComplete="tel"
-          value={guestPhone}
-          onChange={(e) => setGuestPhone(e.target.value)}
-          placeholder="Phone"
-          className="rounded-lg bg-white/[0.05] border border-white/10 px-3 py-2.5 text-white text-sm focus:outline-none focus:border-white/30"
+          className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors"
         />
         <input
           type="email"
+          placeholder="Email"
           autoComplete="email"
           value={guestEmail}
           onChange={(e) => setGuestEmail(e.target.value)}
-          placeholder="Email"
-          className="sm:col-span-2 rounded-lg bg-white/[0.05] border border-white/10 px-3 py-2.5 text-white text-sm focus:outline-none focus:border-white/30"
+          className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors"
+        />
+        <input
+          type="tel"
+          placeholder="Phone Number"
+          autoComplete="tel"
+          value={guestPhone}
+          onChange={(e) => setGuestPhone(e.target.value)}
+          className="w-full bg-[#0a1628] border border-white/20 rounded-lg px-4 py-3.5 text-white font-body text-sm placeholder:text-white/20 focus:outline-none focus:border-[#fd5b56]/50 transition-colors"
         />
       </div>
 
-      <div className="mb-5">
+      <div className="mb-4">
         <ClickwrapCheckbox
           checked={clickwrapAccepted}
           onChange={setClickwrapAccepted}
@@ -2739,28 +2885,23 @@ function ReviewStep({
         />
       </div>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
-        >
-          Back
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirmOpen(true)}
-          disabled={busy || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
-          className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
-          style={{
-            backgroundColor: CORAL,
-            boxShadow: `0 0 18px ${CORAL}40`,
-          }}
-          title={!clickwrapAccepted ? "Please agree to the policy first" : undefined}
-        >
-          {busy ? "Booking…" : "Confirm reservation"}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        disabled={busy || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
+        title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
+        className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ backgroundColor: GOLD, boxShadow: `0 0 16px ${GOLD}30` }}
+      >
+        {busy ? "Processing…" : "Confirm Reservation"}
+      </button>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-4 font-body text-white/40 text-sm cursor-pointer block mx-auto"
+      >
+        ← Back
+      </button>
     </div>
   );
 }
