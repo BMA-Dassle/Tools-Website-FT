@@ -84,15 +84,34 @@ export function addDaysYmd(ymd: string, days: number): string {
 
 /**
  * Pre-launch carve-out — while we're still before opening day, parents
- * can book opening day itself even though it's outside the normal
- * 2-day rolling window. One-time accommodation so the program isn't
- * starved of reservations on day one. The UI surfaces a banner that
- * makes it clear this is special and the regular rule is "48 hours
- * in advance."
+ * can book the **opening week** (the first two bookable program days)
+ * even though those dates are outside the normal 2-day rolling window.
+ * One-time accommodation so the program isn't starved of reservations
+ * during week one. The UI surfaces a banner that makes it clear this
+ * is special and the regular rule is "48 hours in advance."
+ *
+ * Returns the list of YMD strings inside the opening-week window —
+ * the program start day plus the next bookable (Mon–Fri) day. Sat/Sun
+ * are skipped automatically so the second day is always actually
+ * bookable.
  */
+export function kbfOpeningWeekDates(): string[] {
+  const days: string[] = [KBF_PROGRAM_START_YMD];
+  // Walk forward until we find the next Mon–Fri day, max 4 hops to
+  // guard against an infinite loop if the program-start date were
+  // ever set to a weekend.
+  let cursor = KBF_PROGRAM_START_YMD;
+  for (let i = 0; i < 4 && days.length < 2; i++) {
+    cursor = addDaysYmd(cursor, 1);
+    const dow = dayOfWeekET(cursor);
+    if (dow >= 1 && dow <= 5) days.push(cursor);
+  }
+  return days;
+}
+
 export function isKbfOpeningDayPreview(ymd: string, now: Date = new Date()): boolean {
-  const today = todayKbfYmd(now);
-  return today < KBF_PROGRAM_START_YMD && ymd === KBF_PROGRAM_START_YMD;
+  if (todayKbfYmd(now) >= KBF_PROGRAM_START_YMD) return false;
+  return kbfOpeningWeekDates().includes(ymd);
 }
 
 /**
@@ -138,7 +157,7 @@ export function isKbfBookableDate(ymd: string, now: Date = new Date()): boolean 
  * The list of YMD strings a parent can pick today, in display
  * order. Filters out program-pre-start days, weekends, and
  * anything outside the rolling window — but always includes the
- * opening-day preview if we're still before launch.
+ * opening-week preview days if we're still before launch.
  */
 export function bookableDateRange(now: Date = new Date()): string[] {
   const today = todayKbfYmd(now);
@@ -147,11 +166,12 @@ export function bookableDateRange(now: Date = new Date()): string[] {
     const ymd = addDaysYmd(today, i);
     if (isKbfBookableDate(ymd, now)) result.push(ymd);
   }
-  // Pre-launch: surface opening day too if it isn't already in the
-  // rolling window. Keeps the picker showing exactly one option
-  // during the preview period.
-  if (isKbfPreLaunchPeriod(now) && !result.includes(KBF_PROGRAM_START_YMD)) {
-    result.push(KBF_PROGRAM_START_YMD);
+  // Pre-launch: surface the entire opening-week window so parents can
+  // pick day 1 or day 2. Dedupe against the rolling-window output.
+  if (isKbfPreLaunchPeriod(now)) {
+    for (const ymd of kbfOpeningWeekDates()) {
+      if (!result.includes(ymd)) result.push(ymd);
+    }
   }
   return result;
 }

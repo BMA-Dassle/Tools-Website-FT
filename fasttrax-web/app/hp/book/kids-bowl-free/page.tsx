@@ -1021,11 +1021,26 @@ function BowlersStep({
                             shoeSizeLabel: found ? found.label : null,
                           });
                         }}
-                        className="w-full rounded-md bg-white/[0.05] border border-white/15 px-2 py-1.5 text-sm text-white focus:outline-none focus:border-white/35"
+                        // Native <select> options inherit OS theme — on dark
+                        // mode that turns into white-on-white. Force a dark
+                        // background + light text on both the trigger and
+                        // every option so it's readable everywhere.
+                        style={{
+                          backgroundColor: "#0a1628",
+                          color: "#fff",
+                          colorScheme: "dark",
+                        }}
+                        className="w-full rounded-md border border-white/15 px-2 py-1.5 text-sm focus:outline-none focus:border-white/35"
                       >
-                        <option value="">— pick a size —</option>
+                        <option value="" style={{ backgroundColor: "#0a1628", color: "#fff" }}>
+                          — pick a size —
+                        </option>
                         {shoeCatalog.map((s) => (
-                          <option key={s.id} value={s.id}>
+                          <option
+                            key={s.id}
+                            value={s.id}
+                            style={{ backgroundColor: "#0a1628", color: "#fff" }}
+                          >
                             {s.categoryName ? `${s.categoryName}: ` : ""}
                             {s.label}
                           </option>
