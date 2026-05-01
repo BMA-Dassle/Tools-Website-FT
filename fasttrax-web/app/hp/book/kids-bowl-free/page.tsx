@@ -364,6 +364,19 @@ export default function KidsBowlFreePage() {
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
+        // SMS-first miss: KBF's CSV doesn't include parent phone
+        // numbers, so a phone lookup will fail until the family has
+        // booked at least once via Email and opted into SMS via the
+        // "save phone for faster login" toggle on the verify step.
+        // Surface that explanation + nudge them to Email rather than
+        // the generic "no account found" message.
+        if (lookupTab === "phone" && res.status === 404) {
+          setError(
+            "Kids Bowl Free doesn't share phone numbers with us by default, so SMS won't work for your first reservation. Use Email this time — you'll be able to save your phone for faster SMS login at the next step.",
+          );
+          setLookupTab("email");
+          return;
+        }
         setError(data.error || "Lookup failed");
         return;
       }
