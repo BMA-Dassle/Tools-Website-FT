@@ -418,6 +418,27 @@ export default function KidsBowlFreePage() {
   const [heldFor, setHeldFor] = useState<{ offerId: number; tariffId: number; time: string } | null>(null);
 
   /**
+   * Whenever we land on the lookup step (initial mount, back-nav,
+   * refresh, sign-out), drop any leftover QAMF/BMI session state
+   * so the next sign-in starts clean. Without this a held lane
+   * from a previous flow can leak the x-sessiontoken into the
+   * next book-for-later and trigger a 409.
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (step !== "lookup") return;
+    if (typeof window === "undefined") return;
+    setReservationKey("");
+    setHeldFor(null);
+    bmiAddonOrderIdRef.current = null;
+    bmiAddonLineIdsRef.current = {};
+    sessionStorage.removeItem("qamf_session_token");
+    sessionStorage.removeItem("qamf_reservation");
+    sessionStorage.removeItem("qamf_confirm_data");
+    sessionStorage.removeItem("qamf_bmi_addons");
+  }, [step]);
+
+  /**
    * Drop the QAMF session token + any in-flight reservation context.
    * Called when the parent back-navigates to the lookup screen or
    * changes their offer/time selection — without this the leftover
@@ -1509,6 +1530,13 @@ export default function KidsBowlFreePage() {
               setPhoneInput={setPhoneInput}
               emailInput={emailInput}
               setEmailInput={setEmailInput}
+              centerId={centerId}
+              onSwitchCenter={() => {
+                const other = CENTERS.find((c) => c.id !== centerId);
+                if (!other) return;
+                setCenterId(other.id);
+                setBookingLocation(other.locationKey);
+              }}
               busy={busy}
               onLookup={handleLookup}
             />
@@ -1932,6 +1960,8 @@ function LookupStep({
   setPhoneInput,
   emailInput,
   setEmailInput,
+  centerId,
+  onSwitchCenter,
   busy,
   onLookup,
 }: {
@@ -1941,9 +1971,13 @@ function LookupStep({
   setPhoneInput: (s: string) => void;
   emailInput: string;
   setEmailInput: (s: string) => void;
+  centerId: string;
+  onSwitchCenter: () => void;
   busy: boolean;
   onLookup: () => void;
 }) {
+  const center = CENTERS.find((c) => c.id === centerId);
+  const otherCenter = CENTERS.find((c) => c.id !== centerId);
   const formatPhoneDisplay = (raw: string): string => {
     const d = raw.replace(/\D/g, "").slice(0, 10);
     if (d.length < 4) return d;
@@ -1952,7 +1986,45 @@ function LookupStep({
   };
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
+    <div className="space-y-4">
+      {/* Location confirmation card — same shape bowling shows on
+          its first step. Confirms which center the parent is about
+          to book at + offers a one-click switch to the other. */}
+      {center && (
+        <div className="text-center">
+          <div
+            className="rounded-lg p-5"
+            style={{
+              backgroundColor: "rgba(7,16,39,0.5)",
+              border: `1.78px dashed ${GOLD}30`,
+            }}
+          >
+            <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
+              You&apos;re booking at
+            </p>
+            <h3
+              className="font-heading uppercase text-white text-xl tracking-wider"
+              style={{ textShadow: `0 0 20px ${GOLD}25` }}
+            >
+              {center.name}
+            </h3>
+            <p className="font-body text-white/40 text-sm mt-1">
+              {center.address}
+            </p>
+            {otherCenter && (
+              <button
+                type="button"
+                onClick={onSwitchCenter}
+                className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/70 transition-colors"
+              >
+                Switch to {otherCenter.name}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
       <p className="text-white/65 text-sm leading-relaxed">
         Kids Bowl Free — kids 15 and under bowl two free games per day,
         Mon–Thu open to close, Fri until 5 PM. Sign in below or register
@@ -2073,6 +2145,7 @@ function LookupStep({
           </a>
         </div>
       )}
+      </div>
     </div>
   );
 }
