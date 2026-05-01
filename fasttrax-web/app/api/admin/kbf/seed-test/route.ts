@@ -11,7 +11,8 @@ import { ensureKbfSchema } from "@/lib/kbf-sync";
  *   email:        kbftest@headpinz.com
  *   center_name:  HeadPinz Fort Myers
  *   is_test:      TRUE  (skips OTP at /api/kbf/lookup)
- *   members:      2 demo kids (Ava 7 + Mason 9)
+ *   fpass:        TRUE  (so the family-pass adult renders)
+ *   members:      3 demo kids (Ava 7, Mason 9, Lila 5) + 1 family adult (Jordan)
  *
  * Idempotent — running twice updates the existing row instead of
  * duplicating. Members are nuked and re-inserted so a stale demo
@@ -79,7 +80,7 @@ export async function POST(req: Request): Promise<NextResponse<SeededRow | { err
         city = EXCLUDED.city,
         state = EXCLUDED.state,
         zip = EXCLUDED.zip,
-        fpass = EXCLUDED.fpass,
+        fpass = TRUE,
         phone = EXCLUDED.phone,
         is_test = TRUE,
         last_synced_at = NOW()
@@ -94,17 +95,21 @@ export async function POST(req: Request): Promise<NextResponse<SeededRow | { err
     // Reset member roster — wipe and re-insert so re-runs converge.
     await q`DELETE FROM kbf_pass_members WHERE pass_id = ${passId}`;
 
-    interface KidSeed {
+    interface MemberSeed {
+      relation: "kid" | "family";
       slot: number;
       first: string;
       last: string;
       bday: string;
     }
-    const kids: KidSeed[] = [
-      { slot: 1, first: "Ava", last: "Test", bday: "06/14/2018" },
-      { slot: 2, first: "Mason", last: "Test", bday: "03/22/2016" },
+    const members: MemberSeed[] = [
+      { relation: "kid",    slot: 1, first: "Ava",    last: "Test", bday: "06/14/2018" },
+      { relation: "kid",    slot: 2, first: "Mason",  last: "Test", bday: "03/22/2016" },
+      { relation: "kid",    slot: 3, first: "Lila",   last: "Test", bday: "11/02/2020" },
+      // Family-pass adult — only renders when kbf_passes.fpass = TRUE.
+      { relation: "family", slot: 1, first: "Jordan", last: "Test", bday: "" },
     ];
-    for (const k of kids) {
+    for (const m of members) {
       await q`
         INSERT INTO kbf_pass_members (
           pass_id, relation, slot, first_name, last_name, birthday,
@@ -112,11 +117,11 @@ export async function POST(req: Request): Promise<NextResponse<SeededRow | { err
         )
         VALUES (
           ${passId},
-          'kid',
-          ${k.slot},
-          ${k.first},
-          ${k.last},
-          ${k.bday},
+          ${m.relation},
+          ${m.slot},
+          ${m.first},
+          ${m.last},
+          ${m.bday},
           0, 0, NULL
         )
       `;
@@ -126,11 +131,11 @@ export async function POST(req: Request): Promise<NextResponse<SeededRow | { err
       id: passId,
       email: passRows[0].email,
       center: passRows[0].center_name,
-      members: kids.map((k) => ({
-        relation: "kid",
-        slot: k.slot,
-        firstName: k.first,
-        lastName: k.last,
+      members: members.map((m) => ({
+        relation: m.relation,
+        slot: m.slot,
+        firstName: m.first,
+        lastName: m.last,
       })),
     };
     return NextResponse.json(result);
