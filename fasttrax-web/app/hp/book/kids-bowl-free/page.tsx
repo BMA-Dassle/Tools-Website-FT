@@ -1357,12 +1357,11 @@ function BowlersStep({
     return (first + last).toUpperCase();
   };
 
-  // Single navy-derived blue across every bowler card. Earlier
-  // attempts mixed coral / gold by relation but read as out of
-  // place — the relation chip + program header carry enough
-  // information that visual differentiation by hue isn't worth the
-  // chroma cost. Action buttons stay coral (page-level CTA color).
-  const KBF_BLUE = "#6b8ec7";
+  // Single blue across every bowler card. Lighter shade than the
+  // earlier #6b8ec7 so chip + pill text stays readable when sitting
+  // on the blue tinted backgrounds — the previous shade blended too
+  // much with the navy bg. Action buttons stay coral (page-level CTA).
+  const KBF_BLUE = "#8fb3e5";
   const accentFor = (_rel: BowlerKey["relation"]): string => KBF_BLUE;
 
   // KBF rule: every booking needs at least one kid. Adults (parent
