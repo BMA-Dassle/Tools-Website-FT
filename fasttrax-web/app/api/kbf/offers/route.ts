@@ -74,23 +74,33 @@ function kbfOfferIdsFor(centerId: string): Set<number> {
   return ids;
 }
 
-interface QamfTariff {
-  Id: number;
-  Name: string;
-  Price: number;
-  Duration?: string;
-}
-
-interface QamfReservationOption {
-  /** ISO local datetime — "2026-05-15T13:40". */
-  Datetime: string;
+/**
+ * QAMF /offers-availability response shape.
+ *
+ * Each Offer has an Items[] of bookable (tariff, slot) tuples — there
+ * is NO separate Tariffs[] / ReservationOptions[] split on this
+ * endpoint. ItemId is what we pass as WebOfferTariffId on book-for-later.
+ *
+ * Same shape the bowling page consumes (see app/hp/book/bowling/page.tsx
+ * `interface OfferItem`).
+ */
+interface QamfOfferItem {
+  ItemId: number;
+  Quantity: number;
+  QuantityType: string;     // "Games" | "Minutes"
+  Time: string;             // "17:00" — HH:MM ET local
+  Total: number;            // price in dollars
+  Remaining: number;        // open lanes
+  Lanes: number;
+  Reason?: string;
 }
 
 interface QamfOffer {
   OfferId: number;
   Name: string;
-  Tariffs?: QamfTariff[];
-  ReservationOptions?: QamfReservationOption[];
+  Description?: string;
+  ImageUrl?: string;
+  Items?: QamfOfferItem[];
 }
 
 export async function GET(req: NextRequest) {
@@ -160,22 +170,25 @@ export async function GET(req: NextRequest) {
     const raw = (await res.json()) as QamfOffer[] | unknown;
     const allOffers: QamfOffer[] = Array.isArray(raw) ? raw : [];
 
-    // Filter to only the KBF tariffs this center is allowed to surface.
+    // Filter to only the KBF offers this center is allowed to surface,
+    // and to slots that pass the Fri-5pm cutoff. Each Item is a
+    // (tariff, slot) tuple — Items[].Time is HH:MM ET local, paired
+    // with the request `date` to form the per-slot ISO timestamp.
     const kbfOffers = allOffers
       .filter((o) => allowed.has(o.OfferId))
       .map((o) => {
-        // Drop slots that violate the Fri-5pm cutoff. QAMF returns
-        // ReservationOptions[] with `Datetime` fields — keep only
-        // ones our schedule gate accepts.
-        const slots = (o.ReservationOptions ?? []).filter((s) =>
-          isKbfBookableTime(s.Datetime),
-        );
-        return { ...o, ReservationOptions: slots };
+        const items = (o.Items ?? []).filter((it) => {
+          if (!it.Time) return false;
+          // Hide soldout slots — Remaining=0 means no lanes free.
+          if (it.Remaining != null && it.Remaining <= 0) return false;
+          return isKbfBookableTime(`${date}T${it.Time}`);
+        });
+        return { ...o, Items: items };
       })
-      .filter((o) => (o.ReservationOptions?.length ?? 0) > 0);
+      .filter((o) => (o.Items?.length ?? 0) > 0);
 
     return NextResponse.json(
-      { offers: kbfOffers },
+      { offers: kbfOffers, date },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

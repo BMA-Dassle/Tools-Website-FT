@@ -108,21 +108,24 @@ interface BowlerSelection {
 }
 
 // ── QAMF response types (subset we touch) ──────────────────────────────────
+// Each Item is a (tariff, slot) tuple — ItemId doubles as the
+// WebOfferTariffId we send on book-for-later. Mirrors the bowling
+// page's `interface OfferItem`.
 
-interface QamfTariff {
-  Id: number;
-  Name: string;
-  Price: number;
-  Duration?: string;
-}
-interface QamfReservationOption {
-  Datetime: string;
+interface QamfOfferItem {
+  ItemId: number;
+  Quantity: number;
+  QuantityType: string;
+  Time: string;          // "17:00" — HH:MM ET local
+  Total: number;
+  Remaining: number;
+  Lanes: number;
 }
 interface QamfOffer {
   OfferId: number;
   Name: string;
-  Tariffs?: QamfTariff[];
-  ReservationOptions?: QamfReservationOption[];
+  Description?: string;
+  Items?: QamfOfferItem[];
 }
 
 // ── Step keys ───────────────────────────────────────────────────────────────
@@ -441,8 +444,12 @@ export default function KidsBowlFreePage() {
     setError(null);
     try {
       const offer = offers.find((o) => o.OfferId === selectedOfferId);
-      const tariff = offer?.Tariffs?.find((t) => t.Id === selectedTariffId);
-      if (!offer || !tariff) {
+      // selectedTariffId is the chosen Item's ItemId — pull the
+      // matching Item to recover price + slot duration.
+      const item = offer?.Items?.find(
+        (i) => i.ItemId === selectedTariffId && i.Time === selectedTime,
+      );
+      if (!offer || !item) {
         setError("Couldn't resolve selected offer");
         setStep("review");
         return;
@@ -485,9 +492,9 @@ export default function KidsBowlFreePage() {
           date,
           time: selectedTime,
           offerId: offer.OfferId,
-          tariffId: tariff.Id,
+          tariffId: item.ItemId,
           offerName: offer.Name,
-          tariffPrice: tariff.Price,
+          tariffPrice: item.Total,
           bowlers: bowlersPayload,
           guest: {
             firstName: guestName.split(" ")[0] || guestName,
@@ -630,11 +637,13 @@ export default function KidsBowlFreePage() {
               date={date}
               time={selectedTime}
               offerName={offers.find((o) => o.OfferId === selectedOfferId)?.Name ?? ""}
-              tariffName={
-                offers
-                  .find((o) => o.OfferId === selectedOfferId)
-                  ?.Tariffs?.find((t) => t.Id === selectedTariffId)?.Name ?? ""
-              }
+              tariffName={(() => {
+                const offer = offers.find((o) => o.OfferId === selectedOfferId);
+                const item = offer?.Items?.find(
+                  (i) => i.ItemId === selectedTariffId && i.Time === selectedTime,
+                );
+                return item ? `${item.Quantity} ${item.QuantityType}` : "";
+              })()}
               bowlerCount={playerCount}
               guestName={guestName}
               setGuestName={setGuestName}
@@ -1208,14 +1217,15 @@ function OfferTimeStep({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
         {offers.map((o) => {
           const on = selectedOfferId === o.OfferId;
-          const firstTariff = o.Tariffs?.[0];
+          const firstItem = o.Items?.[0];
           return (
             <button
               key={o.OfferId}
               type="button"
               onClick={() => {
                 setSelectedOfferId(o.OfferId);
-                setSelectedTariffId(firstTariff?.Id ?? null);
+                // ItemId doubles as WebOfferTariffId on book-for-later.
+                setSelectedTariffId(firstItem?.ItemId ?? null);
                 setSelectedTime("");
               }}
               className="rounded-xl border p-4 text-left transition-colors"
@@ -1225,10 +1235,10 @@ function OfferTimeStep({
               }}
             >
               <div className="text-white font-semibold text-sm">{o.Name}</div>
-              {firstTariff && (
+              {firstItem && (
                 <div className="text-white/55 text-xs mt-0.5">
-                  {firstTariff.Name}
-                  {firstTariff.Price > 0 ? ` · $${firstTariff.Price.toFixed(2)}` : " · Free"}
+                  {firstItem.Quantity} {firstItem.QuantityType}
+                  {firstItem.Total > 0 ? ` · $${firstItem.Total.toFixed(2)}` : " · Free"}
                 </div>
               )}
             </button>
@@ -1242,23 +1252,26 @@ function OfferTimeStep({
             Time
           </h3>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-5">
-            {(selectedOffer.ReservationOptions ?? []).length === 0 && (
+            {(selectedOffer.Items ?? []).length === 0 && (
               <div className="col-span-full text-white/50 text-sm">
                 No bookable times for that selection.
               </div>
             )}
-            {(selectedOffer.ReservationOptions ?? []).map((slot) => {
-              const time = slot.Datetime.split("T")[1] || "";
-              const on = selectedTime === time;
-              const display = new Date(slot.Datetime).toLocaleTimeString("en-US", {
+            {(selectedOffer.Items ?? []).map((item) => {
+              const on = selectedTime === item.Time && selectedTariffId === item.ItemId;
+              const [hh, mm] = item.Time.split(":");
+              const display = new Date(`${date}T${hh}:${mm}:00`).toLocaleTimeString("en-US", {
                 hour: "numeric",
                 minute: "2-digit",
               });
               return (
                 <button
-                  key={slot.Datetime}
+                  key={`${item.ItemId}:${item.Time}`}
                   type="button"
-                  onClick={() => setSelectedTime(time)}
+                  onClick={() => {
+                    setSelectedTariffId(item.ItemId);
+                    setSelectedTime(item.Time);
+                  }}
                   className="rounded-lg border px-2 py-2 text-sm transition-colors"
                   style={{
                     borderColor: on ? `${CORAL}80` : "rgba(255,255,255,0.10)",
