@@ -294,6 +294,12 @@ interface BowlerSelection {
 // WebOfferTariffId we send on book-for-later. Mirrors the bowling
 // page's `interface OfferItem`.
 
+interface QamfOfferAlternative {
+  Time: string;
+  Total: number;
+  Remaining: number;
+  DateTime?: string;
+}
 interface QamfOfferItem {
   ItemId: number;
   Quantity: number;
@@ -302,12 +308,79 @@ interface QamfOfferItem {
   Total: number;
   Remaining: number;
   Lanes: number;
+  // QAMF returns Reason="LanesNotAvailable" + Alternatives[] when the
+  // probed time has no slots but other times do (Naples KBF only opens
+  // at 11 AM, so a 5 PM probe gives Reason+Alternatives instead of an
+  // empty array). Bowling's flow consumes these to surface a Time
+  // Change modal — this mirrors that exactly.
+  Reason?: string;
+  Alternatives?: QamfOfferAlternative[];
 }
 interface QamfOffer {
   OfferId: number;
   Name: string;
   Description?: string;
   Items?: QamfOfferItem[];
+}
+
+/** HH:MM → minutes since midnight. */
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+/** Within the same hour-window bowling uses for its offer filtering. */
+function isWithinOneHour(itemTime: string, selectedTime: string): boolean {
+  if (!itemTime || !selectedTime) return false;
+  return Math.abs(timeToMinutes(itemTime) - timeToMinutes(selectedTime)) <= 60;
+}
+
+/** Compute the list of bookable (time, tariff, total) tuples for an
+ *  offer. The /api/kbf/offers route already pre-expands every
+ *  QAMF Alternative into a top-level Item (and filters to KBF
+ *  bookable hours), so the wizard just walks Items with Remaining>0.
+ *  Defensive Alternatives branch stays in case the route shape
+ *  changes upstream. */
+interface BookableSlot {
+  time: string;
+  tariffId: number;
+  total: number;
+  isAlternative: boolean;
+}
+function offerBookableSlots(offer: QamfOffer): BookableSlot[] {
+  const out: BookableSlot[] = [];
+  for (const item of offer.Items || []) {
+    if (!item.Reason && item.Remaining > 0 && item.Time) {
+      out.push({
+        time: item.Time,
+        tariffId: item.ItemId,
+        total: item.Total,
+        isAlternative: false,
+      });
+    }
+    for (const alt of item.Alternatives || []) {
+      if (alt.Remaining > 0 && alt.Time) {
+        out.push({
+          time: alt.Time,
+          tariffId: item.ItemId,
+          total: alt.Total,
+          isAlternative: true,
+        });
+      }
+    }
+  }
+  // Dedupe by time — prefer the direct Item over an Alternative when
+  // both surface the same slot.
+  const byTime = new Map<string, BookableSlot>();
+  for (const s of out) {
+    const existing = byTime.get(s.time);
+    if (!existing || (existing.isAlternative && !s.isAlternative)) {
+      byTime.set(s.time, s);
+    }
+  }
+  return [...byTime.values()].sort((a, b) =>
+    timeToMinutes(a.time) - timeToMinutes(b.time),
+  );
 }
 
 /** QAMF /offers/extras response — laser tag, gel blasters, etc. */
@@ -1683,6 +1756,8 @@ export default function KidsBowlFreePage() {
               selectedTariffId={selectedTariffId}
               setSelectedTariffId={setSelectedTariffId}
               selectedTime={selectedTime}
+              setSelectedTime={setSelectedTime}
+              setPendingOffer={setPendingOffer}
               date={date}
               busy={busy}
               onContinue={handleOfferContinue}
@@ -1826,6 +1901,67 @@ export default function KidsBowlFreePage() {
           </div>
         );
       })()}
+
+      {/* Time Change confirmation modal — verbatim from /book/bowling.
+          Surfaces when a parent picks a time-pill on the offer card
+          whose Time differs from their pre-pick on the datetime step
+          (Naples KBF probe at 1 PM → only 12:10 PM and 3:55 PM on
+          May 14, etc.). Forces an explicit acknowledgment before we
+          fire book-for-later, which prevents the silent 409s. */}
+      {pendingOffer && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
+          {...modalBackdropProps(() => setPendingOffer(null))}
+        >
+          <div
+            className="rounded-lg p-6 max-w-sm w-full text-center"
+            style={{
+              backgroundColor: "#0a1628",
+              border: `1.78px dashed ${GOLD}40`,
+            }}
+          >
+            <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
+              Time Change
+            </h3>
+            <p className="font-body text-white/60 text-sm mb-4">
+              <strong>{pendingOffer.offerName}</strong> is not available at{" "}
+              {formatTimeLabel(pendingOffer.fromTime)} but is available at:
+            </p>
+            <p
+              className="font-heading text-2xl mb-6"
+              style={{ color: GOLD }}
+            >
+              {formatTimeLabel(pendingOffer.newTime)}
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingOffer(null)}
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer border border-white/20 hover:border-white/40 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { offerId, tariffId, newTime } = pendingOffer;
+                  setSelectedOfferId(offerId);
+                  setSelectedTariffId(tariffId);
+                  setSelectedTime(newTime);
+                  setPendingOffer(null);
+                }}
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] cursor-pointer transition-all hover:scale-[1.02]"
+                style={{
+                  backgroundColor: GOLD,
+                  boxShadow: `0 0 16px ${GOLD}30`,
+                }}
+              >
+                Accept {formatTimeLabel(pendingOffer.newTime)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3012,6 +3148,8 @@ function OfferStep({
   selectedTariffId,
   setSelectedTariffId,
   selectedTime,
+  setSelectedTime,
+  setPendingOffer,
   date,
   busy,
   onContinue,
@@ -3023,6 +3161,14 @@ function OfferStep({
   selectedTariffId: number | null;
   setSelectedTariffId: (n: number | null) => void;
   selectedTime: string;
+  setSelectedTime: (s: string) => void;
+  setPendingOffer: (p: {
+    offerId: number;
+    offerName: string;
+    tariffId: number;
+    newTime: string;
+    fromTime: string;
+  } | null) => void;
   date: string;
   busy: boolean;
   onContinue: () => void;
@@ -3051,7 +3197,8 @@ function OfferStep({
         selectedTariffId={selectedTariffId}
         setSelectedTariffId={setSelectedTariffId}
         selectedTime={selectedTime}
-        setSelectedTime={() => { /* time fixed by datetime step */ }}
+        setSelectedTime={setSelectedTime}
+        setPendingOffer={setPendingOffer}
         busy={busy}
         date={date}
       />
@@ -3120,6 +3267,7 @@ function OfferTimeStepBody({
   setSelectedTariffId,
   selectedTime,
   setSelectedTime,
+  setPendingOffer,
   busy,
   date,
 }: {
@@ -3130,17 +3278,24 @@ function OfferTimeStepBody({
   setSelectedTariffId: (n: number | null) => void;
   selectedTime: string;
   setSelectedTime: (s: string) => void;
+  setPendingOffer: (p: {
+    offerId: number;
+    offerName: string;
+    tariffId: number;
+    newTime: string;
+    fromTime: string;
+  } | null) => void;
   busy: boolean;
   date: string;
 }) {
+  void selectedTariffId;
+  void date;
   // Pin Regular first, VIP second by inferring from the offer name.
   const ordered = [...offers].sort((a, b) => {
     const av = /vip/i.test(a.Name) ? 1 : 0;
     const bv = /vip/i.test(b.Name) ? 1 : 0;
     return av - bv;
   });
-
-  const selectedOffer = offers.find((o) => o.OfferId === selectedOfferId);
 
   return (
     <div className="space-y-6">
@@ -3158,9 +3313,19 @@ function OfferTimeStepBody({
           const on = selectedOfferId === o.OfferId;
           const isVip = /vip/i.test(o.Name);
           const accent = isVip ? GOLD : CORAL;
-          const firstItem = o.Items?.[0];
-          const isFree = !!firstItem && firstItem.Total === 0;
-          const slotCount = o.Items?.length ?? 0;
+          // Bookable slots = direct Items with Remaining>0 + any
+          // Alternatives surfaced on Reason'd Items (the Naples
+          // "LanesNotAvailable + Alternatives[]" path), filtered to
+          // within an hour of the parent's pre-picked time. Same
+          // shape as bowling's filterOfferItems → handleSelectItem.
+          const slots = offerBookableSlots(o);
+          const firstSlot = slots[0];
+          // Price chip — pull from the cheapest bookable slot, not
+          // a Reason'd Item that may carry a stale price.
+          const minPrice = slots.length
+            ? Math.min(...slots.map((s) => s.total))
+            : 0;
+          const isFree = slots.length > 0 && minPrice === 0;
           const features = isVip
             ? [
                 "VIP lounge & dedicated lanes",
@@ -3181,36 +3346,41 @@ function OfferTimeStepBody({
           const mediaUrl = isVip
             ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
             : `${BLOB}/videos/headpinz-bowling.mp4`;
+
+          // Pill click — bowling's handleSelectItem semantics. Snap
+          // state directly when the slot's time already matches the
+          // parent's pre-picked time, otherwise route through the
+          // Time Change modal so they have to acknowledge the shift.
+          function pickSlot(slot: BookableSlot) {
+            if (slot.time === selectedTime) {
+              setSelectedOfferId(o.OfferId);
+              setSelectedTariffId(slot.tariffId);
+              setSelectedTime(slot.time);
+              return;
+            }
+            setPendingOffer({
+              offerId: o.OfferId,
+              offerName: isVip ? "Kids Bowl Free VIP" : "Kids Bowl Free Regular",
+              tariffId: slot.tariffId,
+              newTime: slot.time,
+              fromTime: selectedTime,
+            });
+          }
+
           return (
-            <button
+            <div
               key={o.OfferId}
-              type="button"
-              onClick={() => {
-                setSelectedOfferId(o.OfferId);
-                // Clamp selectedTime + tariffId to the FIRST Item's
-                // actual bookable slot. The user's pre-pick from the
-                // datetime step might not match QAMF's offered slot
-                // (Naples KBF only opens at 11 AM even if the user
-                // probed at 5 PM); using the Item's Time prevents
-                // book-for-later 409 / "QResourceNotAvailable".
-                if (firstItem) {
-                  setSelectedTariffId(firstItem.ItemId);
-                  setSelectedTime(firstItem.Time);
-                } else {
-                  setSelectedTariffId(null);
-                  setSelectedTime("");
-                }
-              }}
               // 1:1 visual mirror of the bowling lane-type card —
               // dashed accent border, slate bg, image/video on the
               // left, content on the right with title text-shadow,
-              // small dot bullets, and a filled action pill at the
-              // bottom that reflects state (selected vs sold out
-              // vs CTA).
-              className={`w-full rounded-lg overflow-hidden text-left transition-all ${slotCount === 0 ? "opacity-50" : "hover:scale-[1.01]"}`}
+              // small dot bullets, and a per-time pill row at the
+              // bottom (replaces the single CTA pill so parents see
+              // every alternative time at a glance, the way
+              // mybowlingpassport.com does it).
+              className={`w-full rounded-lg overflow-hidden transition-all ${slots.length === 0 ? "opacity-50" : ""}`}
               style={{
                 backgroundColor: "rgba(7,16,39,0.5)",
-                border: `1.78px dashed ${slotCount === 0 ? "rgba(253,91,86,0.3)" : on ? accent + "AA" : accent + "35"}`,
+                border: `1.78px dashed ${slots.length === 0 ? "rgba(253,91,86,0.3)" : on ? accent + "AA" : accent + "35"}`,
                 boxShadow: on ? `0 0 24px ${accent}25` : undefined,
               }}
             >
@@ -3254,7 +3424,7 @@ function OfferTimeStepBody({
                         Free
                       </span>
                     )}
-                    {!isFree && firstItem && (
+                    {!isFree && firstSlot && (
                       <span
                         className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
                         style={{
@@ -3263,10 +3433,10 @@ function OfferTimeStepBody({
                           border: `1px solid ${accent}55`,
                         }}
                       >
-                        ${firstItem.Total.toFixed(2)} / lane
+                        ${minPrice.toFixed(2)} / lane
                       </span>
                     )}
-                    {slotCount === 0 && (
+                    {slots.length === 0 && (
                       <span
                         className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
                         style={{
@@ -3297,20 +3467,44 @@ function OfferTimeStepBody({
                       ))}
                     </div>
                   )}
-                  {/* Filled action pill — matches bowling's "{count}
-                      packages available →" CTA when bookable, "Sold
-                      Out" tone when not. */}
-                  {slotCount > 0 ? (
-                    <span
-                      className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full"
-                      style={{
-                        backgroundColor: on ? accent : `${accent}26`,
-                        color: on ? "#0a1628" : accent,
-                        border: on ? "none" : `1px solid ${accent}55`,
-                      }}
-                    >
-                      {on ? "Selected ✓" : isVip ? "Pick VIP →" : "Pick Regular →"}
-                    </span>
+                  {/* Time-pill row — one button per bookable slot.
+                      Mirrors mybowlingpassport.com's UX where every
+                      alternative time gets surfaced as a click target,
+                      and matches bowling's per-Item button grid. */}
+                  {slots.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {slots.map((slot) => {
+                        const pillSelected =
+                          on && selectedTime === slot.time;
+                        const isAlt = slot.time !== selectedTime;
+                        return (
+                          <button
+                            key={`${slot.time}-${slot.tariffId}`}
+                            type="button"
+                            onClick={() => pickSlot(slot)}
+                            className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02] cursor-pointer"
+                            style={{
+                              backgroundColor: pillSelected
+                                ? accent
+                                : `${accent}1a`,
+                              color: pillSelected ? "#0a1628" : accent,
+                              border: `1px solid ${
+                                pillSelected
+                                  ? accent
+                                  : isAlt
+                                    ? `${accent}55`
+                                    : `${accent}55`
+                              }`,
+                            }}
+                          >
+                            {formatTimeLabel(slot.time)}
+                            {pillSelected && (
+                              <span className="ml-1.5">✓</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <span
                       className="font-body text-xs font-bold uppercase tracking-wider"
@@ -3321,7 +3515,7 @@ function OfferTimeStepBody({
                   )}
                 </div>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

@@ -1134,8 +1134,20 @@ export default function BowlingBookingPage() {
           ? qamf(baseUrl(`${selectedDate}T23:30`)).catch(() => [])
           : Promise.resolve([]),
       ]);
-      const primaryOffers: Offer[] = Array.isArray(primary) ? primary : [];
-      const lateOffers: Offer[] = Array.isArray(late) ? late : [];
+      // Strip Kids Bowl Free offers — they're surfaced server-side by
+      // QAMF in the same /offers-availability response on the Naples
+      // tariff list and would otherwise pollute the regular booking
+      // flow. KBF has its own dedicated wizard at /hp/book/kids-bowl-free.
+      const isKbfOffer = (n: string) =>
+        /kids?\s*bowl\s*free|\bkbf\b/i.test(n);
+      const stripKbf = (arr: Offer[]) =>
+        arr.filter((o) => !isKbfOffer(o.Name));
+      const primaryOffers: Offer[] = stripKbf(
+        Array.isArray(primary) ? primary : [],
+      );
+      const lateOffers: Offer[] = stripKbf(
+        Array.isArray(late) ? late : [],
+      );
 
       // Merge: keep everything from primary, add Midnight Madness
       // offers from the late probe that aren't already in primary
