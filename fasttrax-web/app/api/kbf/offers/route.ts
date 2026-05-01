@@ -30,10 +30,24 @@ const CENTER_TO_LOCATION: Record<string, "fortmyers" | "naples"> = {
   "3148": "naples",
 };
 
-/** Per-center KBF offer IDs. Each value is a comma-separated list
- *  of QAMF WebOfferIds — Regular + VIP for that center. We accept
- *  multiple ids per env var so the same env var schema works if a
- *  center introduces a third KBF tariff later. */
+/**
+ * Per-center KBF offer IDs.
+ *
+ * Defaults baked in (verified against QAMF /offers-availability):
+ *   Fort Myers — 150 = "Kids Bowl Free Regular", 151 = "Kids Bowl Free VIP"
+ *   Naples     — 116 + 117 (both come back labeled "Kids Bowl Free
+ *                Regular" in QAMF's admin — label typo on their side;
+ *                one is functionally Regular, the other VIP)
+ *
+ * Env vars `KBF_WEBOFFER_{REGULAR,VIP}_{FORTMYERS,NAPLES}` override
+ * the defaults if set (comma- or space-separated for multi-tariff
+ * centers). Leaving them unset is the supported common case.
+ */
+const KBF_OFFER_DEFAULTS: Record<string, number[]> = {
+  "9172": [150, 151],
+  "3148": [116, 117],
+};
+
 function kbfOfferIdsFor(centerId: string): Set<number> {
   const ids = new Set<number>();
   const loc = CENTER_TO_LOCATION[centerId];
@@ -42,12 +56,20 @@ function kbfOfferIdsFor(centerId: string): Set<number> {
     loc === "fortmyers"
       ? ["KBF_WEBOFFER_REGULAR_FORTMYERS", "KBF_WEBOFFER_VIP_FORTMYERS"]
       : ["KBF_WEBOFFER_REGULAR_NAPLES", "KBF_WEBOFFER_VIP_NAPLES"];
+  let envSet = false;
   for (const k of envKeys) {
     const raw = process.env[k] || "";
     for (const part of raw.split(/[,\s]+/)) {
       const n = parseInt(part, 10);
-      if (Number.isFinite(n)) ids.add(n);
+      if (Number.isFinite(n)) {
+        ids.add(n);
+        envSet = true;
+      }
     }
+  }
+  // Fall back to baked-in defaults if no env override provided.
+  if (!envSet) {
+    for (const id of KBF_OFFER_DEFAULTS[centerId] ?? []) ids.add(id);
   }
   return ids;
 }
