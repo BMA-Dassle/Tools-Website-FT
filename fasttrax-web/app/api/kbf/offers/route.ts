@@ -84,15 +84,23 @@ function kbfOfferIdsFor(centerId: string): Set<number> {
  * Same shape the bowling page consumes (see app/hp/book/bowling/page.tsx
  * `interface OfferItem`).
  */
+interface QamfAlternative {
+  DateTime?: string;
+  Time: string;
+  Total: number;
+  Remaining: number;
+}
+
 interface QamfOfferItem {
   ItemId: number;
   Quantity: number;
   QuantityType: string;     // "Games" | "Minutes"
   Time: string;             // "17:00" — HH:MM ET local
   Total: number;            // price in dollars
-  Remaining: number;        // open lanes
+  Remaining: number;        // open lanes; 0 means probe time was bad
   Lanes: number;
-  Reason?: string;
+  Reason?: string;          // e.g. "TimeTooEarly", "LanesNotAvailable"
+  Alternatives?: QamfAlternative[] | null;
 }
 
 interface QamfOffer {
@@ -170,19 +178,58 @@ export async function GET(req: NextRequest) {
     const raw = (await res.json()) as QamfOffer[] | unknown;
     const allOffers: QamfOffer[] = Array.isArray(raw) ? raw : [];
 
-    // Filter to only the KBF offers this center is allowed to surface,
-    // and to slots that pass the Fri-5pm cutoff. Each Item is a
-    // (tariff, slot) tuple — Items[].Time is HH:MM ET local, paired
-    // with the request `date` to form the per-slot ISO timestamp.
+    // Expand each offer's Items into the full list of bookable
+    // (tariff, slot) tuples for the day. QAMF behavior:
+    //   - If the probe datetime is before center open (or after a
+    //     bookable slot), the primary Item comes back with Remaining=0
+    //     and a Reason like "TimeTooEarly". The actual bookable times
+    //     live in Items[i].Alternatives[].
+    //   - If the probe time is mid-day, the primary Item is the slot
+    //     at that time, and Alternatives[] enumerates other slots.
+    // We ignore the probe-time slot (it's just an echo) and walk the
+    // alternatives. If no alternatives are present (some offer types
+    // are static, e.g. "Time Bowling" with one slot), keep the
+    // primary as long as it's actually bookable.
     const kbfOffers = allOffers
       .filter((o) => allowed.has(o.OfferId))
       .map((o) => {
-        const items = (o.Items ?? []).filter((it) => {
-          if (!it.Time) return false;
-          // Hide soldout slots — Remaining=0 means no lanes free.
-          if (it.Remaining != null && it.Remaining <= 0) return false;
-          return isKbfBookableTime(`${date}T${it.Time}`);
+        const expanded: QamfOfferItem[] = [];
+        for (const it of o.Items ?? []) {
+          const alternatives = it.Alternatives ?? [];
+          if (alternatives.length > 0) {
+            // Reshape each alternative into a same-shape Item so the
+            // wizard can consume them uniformly. ItemId carries over
+            // (it's the WebOfferTariffId for book-for-later).
+            for (const alt of alternatives) {
+              if (!alt.Time) continue;
+              if ((alt.Remaining ?? 0) <= 0) continue;
+              if (!isKbfBookableTime(`${date}T${alt.Time}`)) continue;
+              expanded.push({
+                ItemId: it.ItemId,
+                Quantity: it.Quantity,
+                QuantityType: it.QuantityType,
+                Time: alt.Time,
+                Total: alt.Total ?? it.Total,
+                Remaining: alt.Remaining,
+                Lanes: it.Lanes,
+              });
+            }
+          } else {
+            // No alternatives — primary is the only candidate.
+            if (!it.Time) continue;
+            if ((it.Remaining ?? 0) <= 0) continue;
+            if (!isKbfBookableTime(`${date}T${it.Time}`)) continue;
+            expanded.push(it);
+          }
+        }
+        // Dedupe by Time keeping the first occurrence.
+        const seen = new Set<string>();
+        const items = expanded.filter((it) => {
+          if (seen.has(it.Time)) return false;
+          seen.add(it.Time);
+          return true;
         });
+        items.sort((a, b) => a.Time.localeCompare(b.Time));
         return { ...o, Items: items };
       })
       .filter((o) => (o.Items?.length ?? 0) > 0);
