@@ -655,7 +655,14 @@ export default function KidsBowlFreePage() {
 
       try {
         const data = await extrasRes?.json();
-        setExtras(Array.isArray(data) ? data : []);
+        const all: QamfExtra[] = Array.isArray(data) ? data : [];
+        // KBF only surfaces the two attraction add-ons today —
+        // laser tag and gel blasters. Everything else QAMF returns
+        // (bumpers, golf, etc.) is hidden so the page stays focused.
+        const filtered = all.filter((x) =>
+          /laser\s*tag|gel\s*blaster/i.test(x.Name || ""),
+        );
+        setExtras(filtered);
       } catch {
         setExtras([]);
       }
