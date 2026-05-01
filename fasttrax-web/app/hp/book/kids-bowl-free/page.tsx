@@ -176,19 +176,37 @@ export default function KidsBowlFreePage() {
   const preLaunch = useMemo(() => isKbfPreLaunchPeriod(), []);
   const dateOptions = useMemo(() => bookableDateRange(), []);
 
-  // Build the bowler list from passes (parent + kids + adults)
+  // Does any pass have family-pass status? Drives whether the
+  // account holder can put themselves on a lane — KBF Regular passes
+  // only cover the registered kids; the parent only bowls free if
+  // they upgraded to Families Bowl Free.
+  const hasFamilyPass = useMemo(() => passes.some((p) => p.fpass), [passes]);
+
+  // Always available so we can render the booking-guest header even
+  // when the parent isn't a bowler.
+  const accountHolderName = useMemo(() => {
+    const primary = passes[0];
+    if (!primary) return "";
+    return `${primary.firstName} ${primary.lastName}`.trim();
+  }, [passes]);
+
+  // Build the bowler list from passes. The account holder is only
+  // surfaced as a selectable bowler when they have Families Bowl Free;
+  // otherwise the wizard renders them as the booking guest only.
   const bowlerKeys: BowlerKey[] = useMemo(() => {
     if (passes.length === 0) return [];
     const list: BowlerKey[] = [];
     const primary = passes[0];
-    list.push({
-      key: "parent",
-      passId: 0,
-      memberSlot: 0,
-      relation: "parent",
-      displayName: `${primary.firstName} ${primary.lastName}`.trim(),
-      isParent: true,
-    });
+    if (hasFamilyPass) {
+      list.push({
+        key: "parent",
+        passId: 0,
+        memberSlot: 0,
+        relation: "parent",
+        displayName: `${primary.firstName} ${primary.lastName}`.trim(),
+        isParent: true,
+      });
+    }
     for (const p of passes) {
       for (const m of p.members) {
         list.push({
@@ -202,7 +220,7 @@ export default function KidsBowlFreePage() {
       }
     }
     return list;
-  }, [passes]);
+  }, [passes, hasFamilyPass]);
 
   // Initialize bowler selections when passes load. Defaults:
   //   selected: false (parent must opt themselves in)
@@ -212,13 +230,17 @@ export default function KidsBowlFreePage() {
     if (passes.length === 0) return;
     const init: Record<string, BowlerSelection> = {};
     const primary = passes[0];
-    init["parent"] = {
-      selected: false,
-      wantShoes: true,
-      shoeSizeId: null,
-      shoeSizeLabel: null,
-      wantBumpers: false,
-    };
+    // Only seed a "parent" selection when they have Families Bowl Free.
+    // Without it, the parent only appears as the booking guest.
+    if (hasFamilyPass) {
+      init["parent"] = {
+        selected: false,
+        wantShoes: true,
+        shoeSizeId: null,
+        shoeSizeLabel: null,
+        wantBumpers: false,
+      };
+    }
     for (const p of passes) {
       for (const m of p.members) {
         const key = `${m.relation}:${p.id}:${m.slot}`;
@@ -238,7 +260,7 @@ export default function KidsBowlFreePage() {
     setGuestName(`${primary.firstName} ${primary.lastName}`.trim());
     setGuestEmail(primary.email);
     setGuestPhone(primary.phone ?? "");
-  }, [passes]);
+  }, [passes, hasFamilyPass]);
 
   const selectedBowlers = useMemo(
     () => bowlerKeys.filter((b) => bowlerSelections[b.key]?.selected),
@@ -559,6 +581,8 @@ export default function KidsBowlFreePage() {
               selections={bowlerSelections}
               setSelections={setBowlerSelections}
               shoeCatalog={shoeCatalog}
+              accountHolderName={accountHolderName}
+              hasFamilyPass={hasFamilyPass}
               onContinue={goToCenterStep}
               onBack={() => setStep("verify")}
             />
@@ -851,6 +875,8 @@ function BowlersStep({
   selections,
   setSelections,
   shoeCatalog,
+  accountHolderName,
+  hasFamilyPass,
   onContinue,
   onBack,
 }: {
@@ -858,6 +884,8 @@ function BowlersStep({
   selections: Record<string, BowlerSelection>;
   setSelections: (s: Record<string, BowlerSelection>) => void;
   shoeCatalog: { id: number; label: string; categoryName: string }[];
+  accountHolderName: string;
+  hasFamilyPass: boolean;
   onContinue: () => void;
   onBack: () => void;
 }) {
@@ -868,10 +896,43 @@ function BowlersStep({
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-      <p className="text-white/70 text-sm mb-4 leading-relaxed">
+      <p className="text-white/70 text-sm mb-3 leading-relaxed">
         Check who&apos;s bowling. Shoe rental defaults to on for everyone — uncheck
         if a kid is bringing their own. Saved sizes auto-fill from your last visit.
       </p>
+
+      {/* Booking-guest header — always shown so the parent knows the
+          reservation is under their name even when they can't bowl. */}
+      {accountHolderName && (
+        <div
+          className="mb-4 rounded-xl border px-3.5 py-3 text-xs"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.02)",
+            borderColor: "rgba(255,255,255,0.10)",
+          }}
+        >
+          <div className="text-white/45 uppercase tracking-wider mb-0.5">
+            Booking under
+          </div>
+          <div className="text-white/85 font-semibold text-sm">
+            {accountHolderName}
+          </div>
+          {!hasFamilyPass && (
+            <div className="text-white/55 mt-1.5 leading-relaxed">
+              Kids Bowl Free covers your registered kids. Add{" "}
+              <a
+                href="https://www.kidsbowlfree.com/family.php"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-white"
+              >
+                Families Bowl Free
+              </a>{" "}
+              to put yourself on a lane too.
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-2.5">
         {bowlerKeys.map((b) => {
