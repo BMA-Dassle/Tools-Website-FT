@@ -685,16 +685,23 @@ export default function KidsBowlFreePage() {
    * complete `Size: { Id, Name, CategoryId }` object QAMF expects on
    * PATCH /players (rather than the partial { Id, Name } that QAMF
    * may sometimes treat as a free-text size).
+   *
+   * Naples currently returns an empty CategoriesShoesSizes array
+   * (verified by probing QAMF directly) — fall back to Fort Myers'
+   * catalog when the chosen center is empty so the dropdown still
+   * populates. Shoe size ids are universal across QAMF centers.
    */
   const loadShoeCatalog = useCallback(async (chosenCenterId: string) => {
-    try {
-      const res = await fetch(`/api/qamf/centers/${chosenCenterId}/ShoesSize`, { cache: "no-store" });
-      if (!res.ok) return;
+    type ShoeRow = { id: number; label: string; categoryId: number | null; categoryName: string };
+    const fetchCatalog = async (cid: string): Promise<ShoeRow[]> => {
+      const res = await fetch(`/api/qamf/centers/${cid}/ShoesSize`, { cache: "no-store" });
+      if (!res.ok) return [];
       const data = await res.json();
-      const flat: { id: number; label: string; categoryId: number | null; categoryName: string }[] = [];
-      const cats: Array<{ Id?: number; DisplayName?: string; ShoesSize?: unknown }> =
+      const flat: ShoeRow[] = [];
+      const cats: Array<{ Id?: number; DisplayName?: string; Active?: boolean; ShoesSize?: unknown }> =
         data?.CategoriesShoesSizes || [];
       for (const c of cats) {
+        if (c.Active === false) continue;
         const sizes = Array.isArray(c.ShoesSize) ? c.ShoesSize : [];
         for (const s of sizes) {
           if (typeof s === "object" && s && "Id" in s && "Name" in s) {
@@ -710,7 +717,16 @@ export default function KidsBowlFreePage() {
           }
         }
       }
-      setShoeCatalog(flat);
+      return flat;
+    };
+    try {
+      let list = await fetchCatalog(chosenCenterId);
+      if (list.length === 0 && chosenCenterId !== "9172") {
+        // Naples (or any future empty-catalog center) → fall back
+        // to Fort Myers. Shoe size ids are universal in QAMF.
+        list = await fetchCatalog("9172");
+      }
+      setShoeCatalog(list);
     } catch {
       // Non-fatal — shoe size remains a free-text label.
     }
