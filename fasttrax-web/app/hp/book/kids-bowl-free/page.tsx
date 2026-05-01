@@ -18,6 +18,7 @@ import {
   syncLocationFromUrl,
 } from "@/lib/booking-location";
 import { bookAttractionSlot, type BmiProposal } from "@/lib/attractions-data";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /**
  * Kids Bowl Free booking wizard.
@@ -322,7 +323,7 @@ interface QamfExtra {
 
 // ── Step keys ───────────────────────────────────────────────────────────────
 
-type Step = "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "addons" | "review" | "details" | "submitting";
+type Step = "location" | "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "addons" | "review" | "details" | "submitting";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -349,9 +350,17 @@ export default function KidsBowlFreePage() {
   }, []);
 
   // ── Top-level state ────────────────────────────────────────────
-  const [step, setStep] = useState<Step>("lookup");
+  // First step is "location" — same shape bowling shows. Parent confirms
+  // which center they're booking at (with a one-click switch) before the
+  // sign-in form ever appears, so a wrong-center mis-click is caught
+  // before any OTP fires.
+  const [step, setStep] = useState<Step>("location");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Bowling-style confirm-location modal. Continue on the location step
+  // opens this; the modal's "Yes, this is correct" button is what
+  // actually advances to "lookup".
+  const [showLocationConfirm, setShowLocationConfirm] = useState(false);
 
   // Lookup + verify
   const [contact, setContact] = useState("");
@@ -416,6 +425,17 @@ export default function KidsBowlFreePage() {
   // again (which would 409 — QAMF already has a hold for this
   // session at that slot).
   const [heldFor, setHeldFor] = useState<{ offerId: number; tariffId: number; time: string } | null>(null);
+  // Bowling's "Time Change" modal — surfaces when the parent picks
+  // an offer card whose first Item is at a different time than
+  // their date+time pick (e.g., they probed 5 PM but Naples only
+  // has 11 AM). Exact mirror of bowling's pendingOffer state.
+  const [pendingOffer, setPendingOffer] = useState<{
+    offerId: number;
+    offerName: string;
+    tariffId: number;
+    newTime: string;
+    fromTime: string;
+  } | null>(null);
 
   /**
    * Whenever we land on the lookup step (initial mount, back-nav,
@@ -426,7 +446,10 @@ export default function KidsBowlFreePage() {
    */
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (step !== "lookup") return;
+    // Both the location and lookup screens are pre-auth — clear the
+    // QAMF + BMI session on either so a back-nav from any later step
+    // can't carry a stale x-sessiontoken into the next book-for-later.
+    if (step !== "lookup" && step !== "location") return;
     if (typeof window === "undefined") return;
     setReservationKey("");
     setHeldFor(null);
@@ -1544,6 +1567,56 @@ export default function KidsBowlFreePage() {
             </div>
           )}
 
+          {step === "location" && (() => {
+            const center = CENTERS.find((c) => c.id === centerId);
+            const other = CENTERS.find((c) => c.id !== centerId);
+            if (!center) return null;
+            return (
+              <div className="text-center">
+                <div
+                  className="rounded-lg p-6 mb-6"
+                  style={{
+                    backgroundColor: "rgba(7,16,39,0.5)",
+                    border: `1.78px dashed ${GOLD}30`,
+                  }}
+                >
+                  <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
+                    You&apos;re booking at
+                  </p>
+                  <h3
+                    className="font-heading uppercase text-white text-xl tracking-wider"
+                    style={{ textShadow: `0 0 20px ${GOLD}25` }}
+                  >
+                    {center.name}
+                  </h3>
+                  <p className="font-body text-white/40 text-sm mt-1">
+                    {center.address}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowLocationConfirm(true)}
+                  className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
+                >
+                  Continue
+                </button>
+                {other && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCenterId(other.id);
+                      setBookingLocation(other.locationKey);
+                    }}
+                    className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+                  >
+                    Switch to {other.name}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {step === "lookup" && (
             <LookupStep
               tab={lookupTab}
@@ -1552,13 +1625,6 @@ export default function KidsBowlFreePage() {
               setPhoneInput={setPhoneInput}
               emailInput={emailInput}
               setEmailInput={setEmailInput}
-              centerId={centerId}
-              onSwitchCenter={() => {
-                const other = CENTERS.find((c) => c.id !== centerId);
-                if (!other) return;
-                setCenterId(other.id);
-                setBookingLocation(other.locationKey);
-              }}
               busy={busy}
               onLookup={handleLookup}
             />
@@ -1711,6 +1777,55 @@ export default function KidsBowlFreePage() {
           )}
         </div>
       </main>
+
+      {/* Location confirmation modal — verbatim from /book/bowling so
+          a parent has to actively confirm the center before any OTP
+          fires. "Yes, this is correct" advances to the lookup step. */}
+      {showLocationConfirm && (() => {
+        const center = CENTERS.find((c) => c.id === centerId);
+        if (!center) return null;
+        return (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
+            {...modalBackdropProps(() => setShowLocationConfirm(false))}
+          >
+            <div
+              className="rounded-lg p-6 max-w-sm w-full text-center"
+              style={{
+                backgroundColor: "#0a1628",
+                border: `1.78px dashed ${CORAL}40`,
+              }}
+            >
+              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
+                Confirm Location
+              </h3>
+              <p className="font-body text-white/60 text-sm mb-1">
+                You&apos;re booking at:
+              </p>
+              <p
+                className="font-heading font-black uppercase text-white text-xl mb-1"
+                style={{ textShadow: `0 0 20px ${CORAL}30` }}
+              >
+                {center.name}
+              </p>
+              <p className="font-body text-white/40 text-xs mb-6">
+                {center.address}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLocationConfirm(false);
+                  setStep("lookup");
+                }}
+                className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
+              >
+                Yes, this is correct
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1813,8 +1928,14 @@ function KbfStepBar({
     { key: "details", label: "Confirm" },
   ];
   // Map sub-states to their parent step for the bar's "current" hit.
+  // `location` and `verify` both collapse under the visible "Sign-in"
+  // step so the breadcrumb stays steady through the auth pre-amble.
   const currentKey: Step =
-    step === "verify" ? "lookup" : step === "submitting" ? "details" : step;
+    step === "location" || step === "verify"
+      ? "lookup"
+      : step === "submitting"
+        ? "details"
+        : step;
   const currentIdx = visible.findIndex((v) => v.key === currentKey);
 
   return (
@@ -1900,6 +2021,7 @@ function KbfStepBar({
 
 function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
   const stepLabels: Record<Step, string> = {
+    location: "Confirm your center",
     lookup: "Sign in",
     verify: "Verify",
     bowlers: "Who's bowling?",
@@ -1928,7 +2050,7 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
       >
         {stepLabels[step]}
       </h1>
-      {preLaunch && step === "lookup" && (
+      {preLaunch && (step === "lookup" || step === "location") && (
         <div
           className="mt-3 rounded-xl px-4 py-3"
           style={{
@@ -1982,8 +2104,6 @@ function LookupStep({
   setPhoneInput,
   emailInput,
   setEmailInput,
-  centerId,
-  onSwitchCenter,
   busy,
   onLookup,
 }: {
@@ -1993,13 +2113,9 @@ function LookupStep({
   setPhoneInput: (s: string) => void;
   emailInput: string;
   setEmailInput: (s: string) => void;
-  centerId: string;
-  onSwitchCenter: () => void;
   busy: boolean;
   onLookup: () => void;
 }) {
-  const center = CENTERS.find((c) => c.id === centerId);
-  const otherCenter = CENTERS.find((c) => c.id !== centerId);
   const formatPhoneDisplay = (raw: string): string => {
     const d = raw.replace(/\D/g, "").slice(0, 10);
     if (d.length < 4) return d;
@@ -2007,45 +2123,10 @@ function LookupStep({
     return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   };
 
+  // Location card is rendered on the dedicated `step === "location"`
+  // screen now (mirrors bowling). LookupStep just handles sign-in.
   return (
     <div className="space-y-4">
-      {/* Location confirmation card — same shape bowling shows on
-          its first step. Confirms which center the parent is about
-          to book at + offers a one-click switch to the other. */}
-      {center && (
-        <div className="text-center">
-          <div
-            className="rounded-lg p-5"
-            style={{
-              backgroundColor: "rgba(7,16,39,0.5)",
-              border: `1.78px dashed ${GOLD}30`,
-            }}
-          >
-            <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
-              You&apos;re booking at
-            </p>
-            <h3
-              className="font-heading uppercase text-white text-xl tracking-wider"
-              style={{ textShadow: `0 0 20px ${GOLD}25` }}
-            >
-              {center.name}
-            </h3>
-            <p className="font-body text-white/40 text-sm mt-1">
-              {center.address}
-            </p>
-            {otherCenter && (
-              <button
-                type="button"
-                onClick={onSwitchCenter}
-                className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/70 transition-colors"
-              >
-                Switch to {otherCenter.name}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
       <p className="text-white/65 text-sm leading-relaxed">
         Kids Bowl Free — kids 15 and under bowl two free games per day,
