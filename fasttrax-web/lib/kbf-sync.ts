@@ -108,6 +108,11 @@ interface ParsedRow {
  * Returns the raw CSV string. Throws on auth failure / non-CSV
  * response (e.g. KBF redirected us back to the login page because
  * the password expired).
+ *
+ * KBF auth state is bound to the PHPSESSID cookie returned by the
+ * login response — we capture it and forward it on the report POST.
+ * Without the cookie, KBF responds 200 with content-type=csv but
+ * an empty body (silent auth failure).
  */
 export async function downloadKbfCsv(): Promise<string> {
   const password = process.env.KBF_PASSWORD || "";
@@ -133,6 +138,16 @@ export async function downloadKbfCsv(): Promise<string> {
     throw new Error(`KBF login failed: HTTP ${loginRes.status}`);
   }
 
+  // Pull PHPSESSID off the login response and forward it. Without
+  // this the report POST silently returns an empty CSV.
+  const setCookie = loginRes.headers.get("set-cookie") || "";
+  const phpSessId = /PHPSESSID=([^;]+)/.exec(setCookie)?.[1] || "";
+  if (!phpSessId) {
+    throw new Error(
+      "KBF login did not issue PHPSESSID cookie — re-check KBF_PASSWORD",
+    );
+  }
+
   const reportRes = await fetch(`${KBF_BASE}${KBF_REPORT_PATH}`, {
     method: "POST",
     headers: {
@@ -140,6 +155,7 @@ export async function downloadKbfCsv(): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
       "Origin": KBF_BASE,
       "Referer": `${KBF_BASE}${KBF_REPORT_PATH}`,
+      "Cookie": `PHPSESSID=${phpSessId}`,
     },
     body: "form=report",
     cache: "no-store",
@@ -153,7 +169,13 @@ export async function downloadKbfCsv(): Promise<string> {
     // Surface this loudly so the cron alert points at the right thing.
     throw new Error(`KBF report unexpected content-type: ${ct} (auth likely lapsed — re-check KBF_PASSWORD)`);
   }
-  return await reportRes.text();
+  const body = await reportRes.text();
+  if (body.length === 0) {
+    throw new Error(
+      "KBF report returned empty CSV — session cookie likely rejected (re-check KBF_PASSWORD)",
+    );
+  }
+  return body;
 }
 
 // ── CSV parsing ─────────────────────────────────────────────────────────────
