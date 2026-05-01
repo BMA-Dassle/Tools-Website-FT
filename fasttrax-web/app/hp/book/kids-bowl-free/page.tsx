@@ -13,6 +13,7 @@ import {
   KBF_PROGRAM_START_YMD,
 } from "@/lib/kbf-schedule";
 import {
+  getBookingLocation,
   setBookingLocation,
   syncLocationFromUrl,
 } from "@/lib/booking-location";
@@ -130,7 +131,7 @@ interface QamfOffer {
 
 // ── Step keys ───────────────────────────────────────────────────────────────
 
-type Step = "lookup" | "verify" | "bowlers" | "center" | "datetime" | "review" | "submitting";
+type Step = "lookup" | "verify" | "bowlers" | "datetime" | "review" | "submitting";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -139,8 +140,21 @@ export default function KidsBowlFreePage() {
   const searchParams = useSearchParams();
 
   // Sync ?location=naples on mount so we can preselect the center.
+  // KBF auto-detects the center — no UI step. Priority: ?location=
+  // query param > sessionStorage from prior page > default Fort Myers.
   useEffect(() => {
     syncLocationFromUrl();
+    const fromUrl = searchParams.get("location");
+    let resolved: string | null = null;
+    if (fromUrl === "naples") resolved = "3148";
+    else if (fromUrl === "fortmyers" || fromUrl === "fort-myers") resolved = "9172";
+    else {
+      const stored = getBookingLocation();
+      if (stored === "naples") resolved = "3148";
+      else if (stored === "headpinz") resolved = "9172";
+    }
+    setCenterId(resolved ?? "9172"); // default Fort Myers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Top-level state ────────────────────────────────────────────
@@ -333,28 +347,10 @@ export default function KidsBowlFreePage() {
     }
   }, [contact, code, savePhoneOptIn, savePhoneValue]);
 
-  const goToCenterStep = useCallback(() => {
-    if (selectedBowlers.length === 0) {
-      setError("Pick at least one bowler");
-      return;
-    }
-    setError(null);
-
-    // Pre-select center if URL param hinted one, or if the parent's
-    // pass row is for a specific center.
-    if (!centerId) {
-      const urlLoc = searchParams.get("location");
-      if (urlLoc === "naples") setCenterId("3148");
-      else if (urlLoc === "fortmyers" || urlLoc === "fort-myers") setCenterId("9172");
-      else {
-        // Inherit from the parent's pass center.
-        const cn = passes[0]?.centerName?.toLowerCase() || "";
-        if (cn.includes("naples")) setCenterId("3148");
-        else if (cn.includes("fort myers")) setCenterId("9172");
-      }
-    }
-    setStep("center");
-  }, [centerId, passes, searchParams, selectedBowlers.length]);
+  // No center step — auto-resolve on mount. After the bowlers step we
+  // jump straight into datetime (calendar + tariff cards + time grid).
+  // Default date = first bookable date (which is opening day during
+  // the pre-launch promo, then today + 0/1/2 once we're past launch).
 
   const loadOffers = useCallback(
     async (chosenCenterId: string, chosenDate: string) => {
@@ -428,6 +424,26 @@ export default function KidsBowlFreePage() {
     },
     [loadOffers, loadShoeCatalog],
   );
+
+  /**
+   * From bowlers → datetime. Auto-defaults the date to the first
+   * bookable option (opening day during pre-launch, today otherwise),
+   * pulls the shoe catalog, and fetches offers in one shot.
+   */
+  const handleBowlersContinue = useCallback(async () => {
+    if (selectedBowlers.length === 0) {
+      setError("Pick at least one bowler");
+      return;
+    }
+    setError(null);
+    const resolvedCenter = centerId || "9172";
+    const resolvedDate = date || dateOptions[0] || "";
+    if (!resolvedDate) {
+      setError("No bookable dates right now. Check back tomorrow.");
+      return;
+    }
+    await goToDateTime(resolvedCenter, resolvedDate);
+  }, [centerId, date, dateOptions, goToDateTime, selectedBowlers.length]);
 
   const goToReview = useCallback(() => {
     if (!selectedOfferId || !selectedTariffId || !selectedTime) {
@@ -621,34 +637,24 @@ export default function KidsBowlFreePage() {
               shoeCatalog={shoeCatalog}
               accountHolderName={accountHolderName}
               hasFamilyPass={hasFamilyPass}
-              onContinue={goToCenterStep}
+              onContinue={handleBowlersContinue}
               onBack={() => setStep("verify")}
             />
           )}
 
-          {step === "center" && (
-            <CenterStep
+          {step === "datetime" && (
+            <DateTimeStep
+              offers={offers}
               centerId={centerId}
-              setCenterId={(id) => setCenterId(id)}
+              setCenterId={setCenterId}
               dateOptions={dateOptions}
               date={date}
-              setDate={setDate}
-              onContinue={async () => {
-                if (!centerId || !date) {
-                  setError("Pick a center and a date");
-                  return;
-                }
-                setError(null);
-                await goToDateTime(centerId, date);
+              onChangeDate={async (ymd) => {
+                setSelectedOfferId(null);
+                setSelectedTariffId(null);
+                setSelectedTime("");
+                await goToDateTime(centerId, ymd);
               }}
-              onBack={() => setStep("bowlers")}
-              busy={busy}
-            />
-          )}
-
-          {step === "datetime" && (
-            <OfferTimeStep
-              offers={offers}
               selectedOfferId={selectedOfferId}
               setSelectedOfferId={setSelectedOfferId}
               selectedTariffId={selectedTariffId}
@@ -656,9 +662,8 @@ export default function KidsBowlFreePage() {
               selectedTime={selectedTime}
               setSelectedTime={setSelectedTime}
               onContinue={goToReview}
-              onBack={() => setStep("center")}
+              onBack={() => setStep("bowlers")}
               busy={busy}
-              date={date}
             />
           )}
 
@@ -708,8 +713,7 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
     lookup: "Sign in",
     verify: "Verify",
     bowlers: "Who's bowling?",
-    center: "When & where",
-    datetime: "Pick a time",
+    datetime: "When & where",
     review: "Review",
     submitting: "Confirming…",
   };
@@ -1112,120 +1116,19 @@ function BowlersStep({
   );
 }
 
-// ── Step: center ───────────────────────────────────────────────────────────
+// ── Step: datetime (calendar + tariff cards + time grid) ──────────────────
 
-function CenterStep({
+/**
+ * Date pills + Center toggle + Regular/VIP cards + time grid in one
+ * step. Mirrors the lane-type/offer/date pattern from /book/bowling.
+ */
+function DateTimeStep({
+  offers,
   centerId,
   setCenterId,
   dateOptions,
   date,
-  setDate,
-  onContinue,
-  onBack,
-  busy,
-}: {
-  centerId: string;
-  setCenterId: (id: string) => void;
-  dateOptions: string[];
-  date: string;
-  setDate: (s: string) => void;
-  onContinue: () => void;
-  onBack: () => void;
-  busy: boolean;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-      <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-3">
-        Center
-      </h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
-        {CENTERS.map((c) => {
-          const on = centerId === c.id;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setCenterId(c.id)}
-              className="rounded-xl border p-4 text-left transition-colors"
-              style={{
-                borderColor: on ? `${CORAL}80` : "rgba(255,255,255,0.10)",
-                backgroundColor: on ? "rgba(253,91,86,0.08)" : "rgba(255,255,255,0.02)",
-              }}
-            >
-              <div className="text-white font-semibold text-sm">{c.name}</div>
-              <div className="text-white/45 text-xs mt-0.5">{c.address}</div>
-            </button>
-          );
-        })}
-      </div>
-
-      <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-3">
-        Date
-      </h3>
-      <div className="flex flex-col gap-2 mb-5">
-        {dateOptions.length === 0 && (
-          <div className="text-white/50 text-sm">
-            No bookable dates right now. Check back tomorrow.
-          </div>
-        )}
-        {dateOptions.map((ymd) => {
-          const on = date === ymd;
-          const display = new Date(`${ymd}T12:00:00`).toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "short",
-            day: "numeric",
-          });
-          return (
-            <button
-              key={ymd}
-              type="button"
-              onClick={() => setDate(ymd)}
-              className="rounded-xl border px-4 py-3 text-left transition-colors"
-              style={{
-                borderColor: on ? `${CORAL}80` : "rgba(255,255,255,0.10)",
-                backgroundColor: on ? "rgba(253,91,86,0.08)" : "rgba(255,255,255,0.02)",
-              }}
-            >
-              <div className="text-white font-semibold text-sm">{display}</div>
-              {ymd === KBF_PROGRAM_START_YMD && (
-                <div
-                  className="text-xs uppercase tracking-wider mt-0.5"
-                  style={{ color: GOLD }}
-                >
-                  Opening day
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
-        >
-          Back
-        </button>
-        <button
-          type="button"
-          onClick={onContinue}
-          disabled={busy || !centerId || !date || !isKbfBookableDate(date)}
-          className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
-          style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-        >
-          {busy ? "Loading…" : "See times"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Step: offer + time ─────────────────────────────────────────────────────
-
-function OfferTimeStep({
-  offers,
+  onChangeDate,
   selectedOfferId,
   setSelectedOfferId,
   selectedTariffId,
@@ -1235,9 +1138,13 @@ function OfferTimeStep({
   onContinue,
   onBack,
   busy,
-  date,
 }: {
   offers: QamfOffer[];
+  centerId: string;
+  setCenterId: (id: string) => void;
+  dateOptions: string[];
+  date: string;
+  onChangeDate: (ymd: string) => Promise<void>;
   selectedOfferId: number | null;
   setSelectedOfferId: (n: number | null) => void;
   selectedTariffId: number | null;
@@ -1247,92 +1154,105 @@ function OfferTimeStep({
   onContinue: () => void;
   onBack: () => void;
   busy: boolean;
-  date: string;
 }) {
-  const selectedOffer = offers.find((o) => o.OfferId === selectedOfferId);
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-      <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-3">
-        Tariff
-      </h3>
-      {offers.length === 0 && !busy && (
-        <div className="text-white/55 text-sm mb-4">
-          No Kids Bowl Free times available for that date.
-        </div>
-      )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
-        {offers.map((o) => {
-          const on = selectedOfferId === o.OfferId;
-          const firstItem = o.Items?.[0];
-          return (
-            <button
-              key={o.OfferId}
-              type="button"
-              onClick={() => {
-                setSelectedOfferId(o.OfferId);
-                // ItemId doubles as WebOfferTariffId on book-for-later.
-                setSelectedTariffId(firstItem?.ItemId ?? null);
-                setSelectedTime("");
-              }}
-              className="rounded-xl border p-4 text-left transition-colors"
-              style={{
-                borderColor: on ? `${CORAL}80` : "rgba(255,255,255,0.10)",
-                backgroundColor: on ? "rgba(253,91,86,0.08)" : "rgba(255,255,255,0.02)",
-              }}
-            >
-              <div className="text-white font-semibold text-sm">{o.Name}</div>
-              {firstItem && (
-                <div className="text-white/55 text-xs mt-0.5">
-                  {firstItem.Quantity} {firstItem.QuantityType}
-                  {firstItem.Total > 0 ? ` · $${firstItem.Total.toFixed(2)}` : " · Free"}
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {selectedOffer && (
-        <>
-          <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-3">
-            Time
+    <div className="space-y-6">
+      {/* Date pills — only the bookable days during the rolling window
+          (or opening week during pre-launch). Tap to switch dates. */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-white text-sm uppercase tracking-wider font-bold">
+            Date
           </h3>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-5">
-            {(selectedOffer.Items ?? []).length === 0 && (
-              <div className="col-span-full text-white/50 text-sm">
-                No bookable times for that selection.
-              </div>
-            )}
-            {(selectedOffer.Items ?? []).map((item) => {
-              const on = selectedTime === item.Time && selectedTariffId === item.ItemId;
-              const [hh, mm] = item.Time.split(":");
-              const display = new Date(`${date}T${hh}:${mm}:00`).toLocaleTimeString("en-US", {
-                hour: "numeric",
-                minute: "2-digit",
-              });
+          <span className="text-[11px] text-white/40 uppercase tracking-wider">
+            {CENTERS.find((c) => c.id === centerId)?.name ?? ""}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {dateOptions.length === 0 && (
+            <div className="text-white/50 text-sm">
+              No bookable dates right now. Check back tomorrow.
+            </div>
+          )}
+          {dateOptions.map((ymd) => {
+            const on = date === ymd;
+            const d = new Date(`${ymd}T12:00:00`);
+            const wk = d.toLocaleDateString("en-US", { weekday: "short" });
+            const md = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            const isOpening = ymd === KBF_PROGRAM_START_YMD;
+            return (
+              <button
+                key={ymd}
+                type="button"
+                disabled={busy || !isKbfBookableDate(ymd)}
+                onClick={() => onChangeDate(ymd)}
+                className="rounded-xl border px-3.5 py-2.5 text-left transition-colors disabled:opacity-40"
+                style={{
+                  borderColor: on ? `${CORAL}90` : "rgba(255,255,255,0.10)",
+                  backgroundColor: on ? `${CORAL}14` : "rgba(255,255,255,0.02)",
+                  minWidth: "112px",
+                }}
+              >
+                <div className="text-white/55 text-[10px] uppercase tracking-[2px]">{wk}</div>
+                <div className="text-white font-semibold text-sm">{md}</div>
+                {isOpening && (
+                  <div
+                    className="text-[10px] uppercase tracking-wider mt-0.5"
+                    style={{ color: GOLD }}
+                  >
+                    Opening day
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {/* Compact center toggle (auto-detected, but user can override) */}
+        <div className="mt-4 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[2px] text-white/35">
+            Center
+          </span>
+          <div className="flex gap-1 bg-white/5 rounded-lg p-1">
+            {CENTERS.map((c) => {
+              const on = centerId === c.id;
               return (
                 <button
-                  key={`${item.ItemId}:${item.Time}`}
+                  key={c.id}
                   type="button"
                   onClick={() => {
-                    setSelectedTariffId(item.ItemId);
-                    setSelectedTime(item.Time);
+                    setCenterId(c.id);
+                    setBookingLocation(c.locationKey);
+                    setSelectedOfferId(null);
+                    setSelectedTariffId(null);
+                    setSelectedTime("");
+                    if (date) void onChangeDate(date);
                   }}
-                  className="rounded-lg border px-2 py-2 text-sm transition-colors"
+                  className="px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors"
                   style={{
-                    borderColor: on ? `${CORAL}80` : "rgba(255,255,255,0.10)",
-                    backgroundColor: on ? "rgba(253,91,86,0.10)" : "rgba(255,255,255,0.02)",
-                    color: on ? "#fff" : "rgba(255,255,255,0.7)",
-                    fontWeight: on ? 700 : 500,
+                    backgroundColor: on ? CORAL : "transparent",
+                    color: on ? "#fff" : "rgba(255,255,255,0.55)",
                   }}
                 >
-                  {display}
+                  {c.locationKey === "naples" ? "Naples" : "Fort Myers"}
                 </button>
               );
             })}
           </div>
-        </>
-      )}
+        </div>
+      </div>
+
+      {/* Tariff (Regular / VIP) + time grid */}
+      <OfferTimeStepBody
+        offers={offers}
+        selectedOfferId={selectedOfferId}
+        setSelectedOfferId={setSelectedOfferId}
+        selectedTariffId={selectedTariffId}
+        setSelectedTariffId={setSelectedTariffId}
+        selectedTime={selectedTime}
+        setSelectedTime={setSelectedTime}
+        busy={busy}
+        date={date}
+      />
 
       <div className="flex gap-2">
         <button
@@ -1352,9 +1272,213 @@ function OfferTimeStep({
           Continue
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Tariff cards + time grid (extracted for reuse from DateTimeStep) ───────
+
+/**
+ * Tariff/time picker — mirrors the visual treatment of the bowling
+ * page's `lane-type` step. Two big horizontal cards (Regular / VIP),
+ * each showing what's included, a "FREE" badge on Regular, and a
+ * time-slot grid that filters to the selected tariff.
+ */
+function OfferTimeStepBody({
+  offers,
+  selectedOfferId,
+  setSelectedOfferId,
+  selectedTariffId,
+  setSelectedTariffId,
+  selectedTime,
+  setSelectedTime,
+  busy,
+  date,
+}: {
+  offers: QamfOffer[];
+  selectedOfferId: number | null;
+  setSelectedOfferId: (n: number | null) => void;
+  selectedTariffId: number | null;
+  setSelectedTariffId: (n: number | null) => void;
+  selectedTime: string;
+  setSelectedTime: (s: string) => void;
+  busy: boolean;
+  date: string;
+}) {
+  // Pin Regular first, VIP second by inferring from the offer name.
+  const ordered = [...offers].sort((a, b) => {
+    const av = /vip/i.test(a.Name) ? 1 : 0;
+    const bv = /vip/i.test(b.Name) ? 1 : 0;
+    return av - bv;
+  });
+
+  const selectedOffer = offers.find((o) => o.OfferId === selectedOfferId);
+
+  return (
+    <div className="space-y-6">
+      {offers.length === 0 && !busy && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
+          <p className="text-white/55 text-sm">
+            No Kids Bowl Free times available for that date.
+          </p>
+        </div>
+      )}
+
+      {/* Two big cards — Regular / VIP. Mirrors the bowling lane-type step. */}
+      <div className="space-y-3">
+        {ordered.map((o) => {
+          const on = selectedOfferId === o.OfferId;
+          const isVip = /vip/i.test(o.Name);
+          const accent = isVip ? GOLD : CORAL;
+          const firstItem = o.Items?.[0];
+          const isFree = !!firstItem && firstItem.Total === 0;
+          const slotCount = o.Items?.length ?? 0;
+          const features = isVip
+            ? [
+                "VIP lounge & dedicated lanes",
+                "NeoVerse video walls",
+                "Priority check-in",
+                "Up to 6 bowlers per lane",
+              ]
+            : [
+                "Standard HeadPinz lanes",
+                "Up to 6 bowlers per lane",
+                "Glow lighting in the evenings",
+                "Bring your KBF coupon to check in",
+              ];
+          return (
+            <button
+              key={o.OfferId}
+              type="button"
+              onClick={() => {
+                setSelectedOfferId(o.OfferId);
+                setSelectedTariffId(firstItem?.ItemId ?? null);
+                setSelectedTime("");
+              }}
+              className="w-full text-left rounded-2xl border overflow-hidden transition-all hover:scale-[1.005]"
+              style={{
+                borderColor: on ? `${accent}90` : "rgba(255,255,255,0.10)",
+                backgroundColor: on
+                  ? `${accent}14`
+                  : "rgba(255,255,255,0.025)",
+                boxShadow: on ? `0 0 24px ${accent}25` : undefined,
+              }}
+            >
+              <div className="flex gap-4 p-5">
+                {/* Accent bar */}
+                <div
+                  className="hidden sm:block w-1 rounded-full"
+                  style={{ backgroundColor: accent }}
+                />
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                    <h3
+                      className="font-heading uppercase text-white text-base tracking-wider"
+                      style={{ textShadow: `0 0 14px ${accent}30` }}
+                    >
+                      {isVip ? "Kids Bowl Free VIP" : "Kids Bowl Free Regular"}
+                    </h3>
+                    {isFree && (
+                      <span
+                        className="text-[10px] uppercase tracking-[2px] px-2 py-0.5 rounded-full font-bold"
+                        style={{
+                          backgroundColor: "rgba(34,197,94,0.18)",
+                          color: "#4ade80",
+                          border: "1px solid rgba(74,222,128,0.4)",
+                        }}
+                      >
+                        Free
+                      </span>
+                    )}
+                    {!isFree && firstItem && (
+                      <span
+                        className="text-[10px] uppercase tracking-[2px] px-2 py-0.5 rounded-full font-bold"
+                        style={{
+                          backgroundColor: `${accent}26`,
+                          color: accent,
+                          border: `1px solid ${accent}55`,
+                        }}
+                      >
+                        ${firstItem.Total.toFixed(2)} / lane
+                      </span>
+                    )}
+                    <span className="text-[11px] uppercase tracking-wider text-white/45">
+                      {firstItem
+                        ? `${firstItem.Quantity} ${firstItem.QuantityType.toLowerCase()}`
+                        : ""}
+                    </span>
+                  </div>
+                  <p className="font-body text-white/55 text-xs leading-relaxed mb-3">
+                    {isVip
+                      ? "Upgrade your free bowling to the VIP suite — same coupon, premium lanes."
+                      : "Two free games per kid per day on participating weekdays."}
+                  </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {features.map((f) => (
+                      <span key={f} className="flex items-center gap-1.5">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: accent }}
+                        />
+                        <span className="font-body text-white/45 text-xs">{f}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3 text-[11px] uppercase tracking-wider" style={{ color: accent }}>
+                    {slotCount === 0
+                      ? "Sold out"
+                      : on
+                        ? `Selected · pick a time below`
+                        : `${slotCount} time${slotCount === 1 ? "" : "s"} available →`}
+                  </div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Time grid for the chosen tariff */}
+      {selectedOffer && (selectedOffer.Items ?? []).length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-3">
+            Pick a start time
+          </h3>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {(selectedOffer.Items ?? []).map((item) => {
+              const on = selectedTime === item.Time && selectedTariffId === item.ItemId;
+              const [hh, mm] = item.Time.split(":");
+              const display = new Date(`${date}T${hh}:${mm}:00`).toLocaleTimeString("en-US", {
+                hour: "numeric",
+                minute: "2-digit",
+              });
+              const accent = /vip/i.test(selectedOffer.Name) ? GOLD : CORAL;
+              return (
+                <button
+                  key={`${item.ItemId}:${item.Time}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTariffId(item.ItemId);
+                    setSelectedTime(item.Time);
+                  }}
+                  className="rounded-lg border px-2 py-2.5 text-sm transition-colors"
+                  style={{
+                    borderColor: on ? accent : "rgba(255,255,255,0.10)",
+                    backgroundColor: on ? `${accent}20` : "rgba(255,255,255,0.02)",
+                    color: on ? "#fff" : "rgba(255,255,255,0.7)",
+                    fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {display}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {date && (
-        <div className="mt-4 text-[11px] text-white/35 text-center">
+        <div className="text-[11px] text-white/35 text-center">
           {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
             weekday: "long",
             month: "long",

@@ -213,7 +213,14 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     description: "Free bowling for registered kids — Mon–Fri",
     building: "HeadPinz",
     durationLabel: "Mon–Fri only",
-    products: [],
+    // Placeholder per-location products so the hub's
+    // `products.some(p => p.location === "naples")` filter keeps the
+    // KBF tile visible on the Naples view. Pricing/booking happens
+    // through /api/kbf/* — these rows are display-only.
+    products: [
+      { productId: "kbf-headpinz", name: "Kids Bowl Free", price: 0, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 8 },
+      { productId: "kbf-naples", name: "Kids Bowl Free", price: 0, location: "naples", durationMin: 60, isCombo: false, maxPerBooking: 8 },
+    ],
   },
 };
 
