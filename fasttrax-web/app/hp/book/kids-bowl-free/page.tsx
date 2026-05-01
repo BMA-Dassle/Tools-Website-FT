@@ -177,6 +177,35 @@ export default function KidsBowlFreePage() {
   // LookupStep renders. Kept in the parent so a back-nav from the
   // verify step preserves the user's chosen tab.
   const [lookupTab, setLookupTab] = useState<"phone" | "email" | "new">("phone");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [emailInput, setEmailInput] = useState("");
+  // "New" tab — minimum viable KBF registration form. Optional
+  // password fields the wizard sends through to /api/kbf/register so
+  // the side-effect can also create the account on kidsbowlfree.com.
+  const [newPerson, setNewPerson] = useState<{
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    password: string;
+    address: string;
+    city: string;
+    state: string;
+    zip: string;
+  }>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    password: "",
+    address: "",
+    city: "",
+    state: "FL",
+    zip: "",
+  });
+  const [newKids, setNewKids] = useState<{ firstName: string; lastName: string; birthday: string }[]>([
+    { firstName: "", lastName: "", birthday: "" },
+  ]);
 
   // Family roster from /api/kbf/verify
   const [passes, setPasses] = useState<PassWithMembers[]>([]);
@@ -299,14 +328,35 @@ export default function KidsBowlFreePage() {
 
   // ── Step transitions ───────────────────────────────────────────
 
+  /**
+   * Phone/Email tab → POST /api/kbf/lookup. Resolves the contact
+   * value from whichever tab is active so the parent typing into
+   * a tab's specific field doesn't have to be mirrored into a
+   * shared `contact` state.
+   */
   const handleLookup = useCallback(async () => {
+    const tabContact =
+      lookupTab === "phone" ? phoneInput.replace(/\D/g, "") : emailInput.trim();
+    if (!tabContact) {
+      setError(lookupTab === "phone" ? "Enter your phone" : "Enter your email");
+      return;
+    }
+    if (lookupTab === "phone" && tabContact.length < 10) {
+      setError("Enter a 10-digit phone");
+      return;
+    }
+    if (lookupTab === "email" && !tabContact.includes("@")) {
+      setError("Enter a valid email");
+      return;
+    }
+    setContact(tabContact);
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/kbf/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contact: contact.trim() }),
+        body: JSON.stringify({ contact: tabContact }),
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
@@ -327,7 +377,57 @@ export default function KidsBowlFreePage() {
     } finally {
       setBusy(false);
     }
-  }, [contact]);
+  }, [emailInput, lookupTab, phoneInput]);
+
+  /**
+   * "New" tab → POST /api/kbf/register. On success the route returns
+   * the same `passes` payload as /api/kbf/verify so we can drop into
+   * the bowlers step without an OTP round-trip. Side-effect: also
+   * creates the account on kidsbowlfree.com when password is set.
+   */
+  const handleRegister = useCallback(async () => {
+    if (!newPerson.firstName.trim() || !newPerson.lastName.trim()) {
+      setError("Parent name required");
+      return;
+    }
+    if (!newPerson.email.includes("@")) {
+      setError("Valid email required");
+      return;
+    }
+    if (newPerson.phone.replace(/\D/g, "").length < 10) {
+      setError("Valid 10-digit phone required");
+      return;
+    }
+    const cleanKids = newKids.filter((k) => k.firstName.trim());
+    if (cleanKids.length === 0) {
+      setError("Add at least one kid");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/kbf/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          centerId: centerId || "9172",
+          parent: newPerson,
+          kids: cleanKids,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setError(data.error || "Registration failed");
+        return;
+      }
+      setPasses(data.passes ?? []);
+      setStep("bowlers");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed");
+    } finally {
+      setBusy(false);
+    }
+  }, [centerId, newKids, newPerson]);
 
   const handleVerify = useCallback(async () => {
     setBusy(true);
@@ -653,11 +753,19 @@ export default function KidsBowlFreePage() {
 
           {step === "lookup" && (
             <LookupStep
-              contact={contact}
-              setContact={setContact}
+              tab={lookupTab}
+              setTab={setLookupTab}
+              phoneInput={phoneInput}
+              setPhoneInput={setPhoneInput}
+              emailInput={emailInput}
+              setEmailInput={setEmailInput}
+              newPerson={newPerson}
+              setNewPerson={setNewPerson}
+              newKids={newKids}
+              setNewKids={setNewKids}
               busy={busy}
-              onSubmit={handleLookup}
-              preLaunch={preLaunch}
+              onLookup={handleLookup}
+              onRegister={handleRegister}
             />
           )}
 
@@ -848,58 +956,293 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
 
 // ── Step: lookup ───────────────────────────────────────────────────────────
 
-function LookupStep({
-  contact,
-  setContact,
-  busy,
-  onSubmit,
-  preLaunch,
-}: {
-  contact: string;
-  setContact: (s: string) => void;
-  busy: boolean;
-  onSubmit: () => void;
-  preLaunch: boolean;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-      <p className="text-white/70 text-sm mb-4 leading-relaxed">
-        Kids Bowl Free is a summer program — kids 15 and under bowl two free
-        games per day, Mon–Thu open to close, Fri until 5pm. Sign in with the
-        email or phone on your KBF account.
-      </p>
-      <label className="block">
-        <span className="block text-xs uppercase tracking-wider text-white/55 mb-1.5">
-          Email or phone
-        </span>
-        <input
-          type="text"
-          autoComplete="email"
-          inputMode="email"
-          value={contact}
-          onChange={(e) => setContact(e.target.value)}
-          placeholder="parent@example.com or 2391234567"
-          className="w-full rounded-lg bg-white/[0.05] border border-white/10 px-3 py-3 text-white text-sm focus:outline-none focus:border-white/30"
-        />
-      </label>
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={busy || !contact.trim()}
-        className="mt-5 w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
-        style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-      >
-        {busy ? "Looking up…" : "Continue"}
-      </button>
+/**
+ * Tabbed sign-in (Phone | Email | New) — mirrors the race-pack
+ * lookup flow. The Phone/Email tabs both end up at /api/kbf/lookup
+ * and route through the OTP verify step. The New tab takes a fresh
+ * registration form and POSTs to /api/kbf/register, which writes to
+ * Neon immediately (so the family can book today) and best-effort
+ * mirrors the signup to kidsbowlfree.com when alley_id + password
+ * are configured.
+ */
+interface NewPersonForm {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  password: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+}
+interface NewKidForm {
+  firstName: string;
+  lastName: string;
+  birthday: string;
+}
 
-      <div className="mt-6 pt-5 border-t border-white/10 text-xs text-white/55">
-        Don&apos;t have a Kids Bowl Free account yet?{" "}
-        <Link href="/hp/kids-bowl-free/register" className="underline hover:text-white">
-          Sign up at kidsbowlfree.com
-        </Link>{" "}
-        — new accounts take ~24h to show up here, except during opening day{" "}
-        {preLaunch ? "(today: book opening day directly!)" : "promotions"}.
+function LookupStep({
+  tab,
+  setTab,
+  phoneInput,
+  setPhoneInput,
+  emailInput,
+  setEmailInput,
+  newPerson,
+  setNewPerson,
+  newKids,
+  setNewKids,
+  busy,
+  onLookup,
+  onRegister,
+}: {
+  tab: "phone" | "email" | "new";
+  setTab: (t: "phone" | "email" | "new") => void;
+  phoneInput: string;
+  setPhoneInput: (s: string) => void;
+  emailInput: string;
+  setEmailInput: (s: string) => void;
+  newPerson: NewPersonForm;
+  setNewPerson: (updater: (p: NewPersonForm) => NewPersonForm) => void;
+  newKids: NewKidForm[];
+  setNewKids: (updater: (k: NewKidForm[]) => NewKidForm[]) => void;
+  busy: boolean;
+  onLookup: () => void;
+  onRegister: () => void;
+}) {
+  const formatPhoneDisplay = (raw: string): string => {
+    const d = raw.replace(/\D/g, "").slice(0, 10);
+    if (d.length < 4) return d;
+    if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
+      <p className="text-white/65 text-sm leading-relaxed">
+        Kids Bowl Free — kids 15 and under bowl two free games per day,
+        Mon–Thu open to close, Fri until 5 PM. Sign in below or register
+        in under 30 seconds.
+      </p>
+
+      {/* Tabs — race-pack style (segmented, accent fill on active) */}
+      <div className="flex gap-1 bg-white/5 rounded-lg p-1">
+        {(["phone", "email", "new"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setTab(m)}
+            className="flex-1 py-2 rounded-md text-xs font-semibold transition-colors uppercase tracking-wider"
+            style={{
+              backgroundColor: tab === m ? CORAL : "transparent",
+              color: tab === m ? "#0a1628" : "rgba(255,255,255,0.45)",
+              fontWeight: tab === m ? 800 : 600,
+            }}
+          >
+            {m === "new" ? "New" : m === "phone" ? "Phone" : "Email"}
+          </button>
+        ))}
       </div>
+
+      {/* Phone tab */}
+      {tab === "phone" && (
+        <div className="space-y-3">
+          <input
+            type="tel"
+            autoComplete="tel"
+            inputMode="tel"
+            value={phoneInput}
+            onChange={(e) => setPhoneInput(formatPhoneDisplay(e.target.value))}
+            onKeyDown={(e) => e.key === "Enter" && onLookup()}
+            placeholder="(239) 555-1234"
+            className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 focus:outline-none focus:border-coral"
+            style={{ borderColor: "rgba(253,91,86,0.30)" }}
+          />
+          <button
+            type="button"
+            onClick={onLookup}
+            disabled={busy || phoneInput.replace(/\D/g, "").length !== 10}
+            className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+          >
+            {busy ? "Looking up…" : "Send verification code"}
+          </button>
+        </div>
+      )}
+
+      {/* Email tab */}
+      {tab === "email" && (
+        <div className="space-y-3">
+          <input
+            type="email"
+            autoComplete="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onLookup()}
+            placeholder="parent@example.com"
+            className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm placeholder:text-white/25 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={onLookup}
+            disabled={busy || !emailInput.includes("@")}
+            className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+          >
+            {busy ? "Looking up…" : "Send verification code"}
+          </button>
+        </div>
+      )}
+
+      {/* New tab — full registration form */}
+      {tab === "new" && (
+        <div className="space-y-3">
+          <p className="text-white/55 text-xs leading-relaxed">
+            Quick KBF registration. We&apos;ll create your account in our
+            booking system right away so you can book today, and (if you
+            set a password) also register you on kidsbowlfree.com to
+            receive weekly coupons.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              value={newPerson.firstName}
+              onChange={(e) => setNewPerson((p) => ({ ...p, firstName: e.target.value }))}
+              placeholder="Parent first name"
+              className="rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+            />
+            <input
+              value={newPerson.lastName}
+              onChange={(e) => setNewPerson((p) => ({ ...p, lastName: e.target.value }))}
+              placeholder="Last name"
+              className="rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+            />
+          </div>
+          <input
+            value={newPerson.email}
+            onChange={(e) => setNewPerson((p) => ({ ...p, email: e.target.value }))}
+            placeholder="Email"
+            type="email"
+            autoComplete="email"
+            className="w-full rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+          />
+          <input
+            value={newPerson.phone}
+            onChange={(e) => setNewPerson((p) => ({ ...p, phone: formatPhoneDisplay(e.target.value) }))}
+            placeholder="Mobile phone"
+            type="tel"
+            autoComplete="tel"
+            className="w-full rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+          />
+          <input
+            value={newPerson.password}
+            onChange={(e) => setNewPerson((p) => ({ ...p, password: e.target.value }))}
+            placeholder="Password (creates kidsbowlfree.com login — optional)"
+            type="password"
+            autoComplete="new-password"
+            className="w-full rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+          />
+          <div className="grid grid-cols-3 gap-2">
+            <input
+              value={newPerson.address}
+              onChange={(e) => setNewPerson((p) => ({ ...p, address: e.target.value }))}
+              placeholder="Address"
+              className="col-span-3 rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+            />
+            <input
+              value={newPerson.city}
+              onChange={(e) => setNewPerson((p) => ({ ...p, city: e.target.value }))}
+              placeholder="City"
+              className="col-span-2 rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+            />
+            <input
+              value={newPerson.zip}
+              onChange={(e) => setNewPerson((p) => ({ ...p, zip: e.target.value.replace(/\D/g, "").slice(0, 5) }))}
+              placeholder="Zip"
+              inputMode="numeric"
+              className="rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
+            />
+          </div>
+
+          <div
+            className="rounded-xl p-3"
+            style={{
+              backgroundColor: "rgba(253,91,86,0.06)",
+              border: "1px solid rgba(253,91,86,0.20)",
+            }}
+          >
+            <div
+              className="font-heading uppercase text-[10px] tracking-[3px] mb-2"
+              style={{ color: CORAL }}
+            >
+              Kids
+            </div>
+            <div className="space-y-2">
+              {newKids.map((k, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                  <input
+                    value={k.firstName}
+                    onChange={(e) =>
+                      setNewKids((arr) => arr.map((row, ix) => (ix === i ? { ...row, firstName: e.target.value } : row)))
+                    }
+                    placeholder="First"
+                    className="col-span-4 rounded-lg bg-white/5 border border-white/10 px-2 py-2 text-white text-xs placeholder:text-white/25 focus:outline-none"
+                  />
+                  <input
+                    value={k.lastName}
+                    onChange={(e) =>
+                      setNewKids((arr) => arr.map((row, ix) => (ix === i ? { ...row, lastName: e.target.value } : row)))
+                    }
+                    placeholder="Last"
+                    className="col-span-3 rounded-lg bg-white/5 border border-white/10 px-2 py-2 text-white text-xs placeholder:text-white/25 focus:outline-none"
+                  />
+                  <input
+                    type="date"
+                    value={k.birthday}
+                    onChange={(e) =>
+                      setNewKids((arr) => arr.map((row, ix) => (ix === i ? { ...row, birthday: e.target.value } : row)))
+                    }
+                    className="col-span-4 rounded-lg bg-white/5 border border-white/10 px-2 py-2 text-white text-xs focus:outline-none"
+                    style={{ colorScheme: "dark" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setNewKids((arr) => arr.filter((_, ix) => ix !== i))}
+                    disabled={newKids.length === 1}
+                    aria-label="Remove kid"
+                    className="col-span-1 text-white/40 hover:text-white text-lg font-bold disabled:opacity-25"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            {newKids.length < 3 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setNewKids((arr) => [...arr, { firstName: "", lastName: "", birthday: "" }])
+                }
+                className="mt-2 text-xs uppercase tracking-wider"
+                style={{ color: CORAL }}
+              >
+                + Add another kid
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={onRegister}
+            disabled={busy}
+            className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+          >
+            {busy ? "Creating…" : "Register & continue"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
