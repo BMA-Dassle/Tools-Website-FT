@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
@@ -17,6 +17,7 @@ import {
   setBookingLocation,
   syncLocationFromUrl,
 } from "@/lib/booking-location";
+import { bookAttractionSlot, type BmiProposal } from "@/lib/attractions-data";
 
 /**
  * Kids Bowl Free booking wizard.
@@ -80,6 +81,103 @@ async function qamf(path: string, options?: RequestInit): Promise<unknown> {
   } catch {
     return text;
   }
+}
+
+// ── BMI add-ons (verbatim copy of bowling's BMI_ADDONS_BY_CENTER) ─────────
+// Same productIds, qamfExtraIds, accent colors, and per-person flags as
+// the bowling page so KBF and bowling share BMI infrastructure 1:1.
+// Only laser tag + gel blaster surface in KBF (bowling also has shuffly).
+
+const BLOB_BASE = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+
+interface BmiAddon {
+  productId: string;
+  name: string;
+  shortName: string;
+  desc: string;
+  price: number;
+  perPerson: boolean;
+  qamfExtraId: number;
+  image: string;
+  accent: string;
+  maxPerGroup?: number;
+}
+
+const BMI_ADDONS_FM: BmiAddon[] = [
+  {
+    productId: "43370936",
+    name: "Nexus Gel Blaster",
+    shortName: "Gel Blasters",
+    desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
+    price: 12,
+    perPerson: true,
+    qamfExtraId: 13751,
+    image: `${BLOB_BASE}/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg`,
+    accent: "#39FF14",
+  },
+  {
+    productId: "43370955",
+    name: "Nexus Laser Tag Arena",
+    shortName: "Laser Tag",
+    desc: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena.",
+    price: 10,
+    perPerson: true,
+    qamfExtraId: 13678,
+    image: `${BLOB_BASE}/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg`,
+    accent: "#E41C1D",
+  },
+];
+
+const BMI_ADDONS_NAP: BmiAddon[] = [
+  {
+    productId: "7565025",
+    name: "Nexus Gel Blaster",
+    shortName: "Gel Blasters",
+    desc: "High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets.",
+    price: 12,
+    perPerson: true,
+    qamfExtraId: 23093,
+    image: `${BLOB_BASE}/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg`,
+    accent: "#39FF14",
+  },
+  {
+    productId: "7565567",
+    name: "Nexus Laser Tag Arena",
+    shortName: "Laser Tag",
+    desc: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena.",
+    price: 10,
+    perPerson: true,
+    qamfExtraId: 23091,
+    image: `${BLOB_BASE}/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg`,
+    accent: "#E41C1D",
+  },
+];
+
+const BMI_ADDONS_BY_CENTER: Record<string, { page: string; clientKey?: string; addons: BmiAddon[] }> = {
+  "9172": { page: "43370985", clientKey: undefined, addons: BMI_ADDONS_FM },
+  "3148": { page: "7583597", clientKey: "headpinznaples", addons: BMI_ADDONS_NAP },
+};
+
+interface BmiTimeSlot {
+  start: string;
+  stop: string;
+  name: string;
+  freeSpots: number;
+  proposal: BmiProposal;
+  block: { start: string; stop: string; name: string; freeSpots: number; resourceId: number };
+}
+
+interface BmiAddonSelection {
+  productId: string;
+  name: string;
+  shortName: string;
+  quantity: number;
+  price: number;
+  perPerson: boolean;
+  selectedTime: string;
+  block: BmiTimeSlot["block"] | null;
+  proposal: BmiProposal | null;
+  qamfExtraId: number;
 }
 
 // ── Center metadata ─────────────────────────────────────────────────────────
@@ -282,13 +380,19 @@ export default function KidsBowlFreePage() {
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [shoeCatalog, setShoeCatalog] = useState<{ id: number; label: string; categoryId: number | null; categoryName: string }[]>([]);
 
-  // QAMF extras (laser tag, gel blasters, paid shoes upgrades, etc.)
-  // fetched after the parent picks Regular vs VIP. Stored quantities
-  // forward into the reserve route's Cart.Items list.
-  const [extras, setExtras] = useState<QamfExtra[]>([]);
-  const [extraQty, setExtraQty] = useState<Record<number, number>>({});
-  const [wantPaidShoes, setWantPaidShoes] = useState(false);
-  const [paidShoeOption, setPaidShoeOption] = useState<{ priceKeyId: number; price: number; name: string } | null>(null);
+  // BMI add-ons (laser tag + gel blaster) — same data layer the
+  // bowling page uses. bmiAddonOrderIdRef holds the shared BMI
+  // order id so all add-ons share one bill (matches bowling).
+  const [bmiAddonQty, setBmiAddonQty] = useState<Record<string, number>>({});
+  const [bmiTimeSlots, setBmiTimeSlots] = useState<Record<string, BmiTimeSlot[]>>({});
+  const [bmiSelectedTime, setBmiSelectedTime] = useState<Record<string, number>>({});
+  const [bmiLoadingSlots, setBmiLoadingSlots] = useState<Record<string, boolean>>({});
+  const bmiAddonOrderIdRef = useRef<string | null>(null);
+  const bmiAddonLineIdsRef = useRef<Record<string, string>>({});
+  // Paid-shoes state — kept in case we re-enable later, but the
+  // wizard no longer surfaces a UI control for it. Always false.
+  const [wantPaidShoes] = useState(false);
+  const [paidShoeOption] = useState<{ priceKeyId: number; price: number; name: string } | null>(null);
 
   // Review
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
@@ -688,8 +792,6 @@ export default function KidsBowlFreePage() {
     setError(null);
     setBusy(true);
     try {
-      const dt = `${date}T${selectedTime}`;
-
       // ── 1. book-for-later — mirrors bowling's selectOffer call.
       try {
         const reservation = (await qamf(
@@ -698,7 +800,7 @@ export default function KidsBowlFreePage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              DateFrom: dt,
+              DateFrom: `${date}T${selectedTime}`,
               WebOfferId: selectedOfferId,
               WebOfferTariffId: selectedTariffId,
               PlayersList: [{ TypeId: 1, Number: playerCount || 1 }],
@@ -715,58 +817,18 @@ export default function KidsBowlFreePage() {
         return;
       }
 
-      // Fetch QAMF extras + paid shoes in parallel. Both are
-      // attraction-style add-ons sold through QAMF for this center.
-      const [extrasRes, shoesRes] = await Promise.all([
-        fetch(
-          `/api/qamf/centers/${centerId}/offers/extras?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&offerId=${selectedOfferId}&page=1&itemsPerPage=50`,
-          { cache: "no-store" },
-        ).catch(() => null),
-        fetch(
-          `/api/qamf/centers/${centerId}/offers/${selectedOfferId}/shoes-socks-offer?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&offerId=${selectedOfferId}&page=1&itemsPerPage=50`,
-          { cache: "no-store" },
-        ).catch(() => null),
-      ]);
-
-      try {
-        const data = await extrasRes?.json();
-        const all: QamfExtra[] = Array.isArray(data) ? data : [];
-        // KBF only surfaces the two attraction add-ons today —
-        // laser tag and gel blasters. Everything else QAMF returns
-        // (bumpers, golf, etc.) is hidden so the page stays focused.
-        const filtered = all.filter((x) =>
-          /laser\s*tag|gel\s*blaster/i.test(x.Name || ""),
-        );
-        setExtras(filtered);
-      } catch {
-        setExtras([]);
-      }
-
-      try {
-        const data = await shoesRes?.json();
-        const first = Array.isArray(data?.Shoes) && data.Shoes.length > 0 ? data.Shoes[0] : null;
-        if (first && typeof first === "object") {
-          const shoe = first as { Name?: string; Price?: number; PriceKeyId?: number };
-          if (shoe.PriceKeyId && shoe.Price !== undefined) {
-            setPaidShoeOption({
-              priceKeyId: shoe.PriceKeyId,
-              price: shoe.Price,
-              name: shoe.Name ?? "Bowling Shoes",
-            });
-          }
-        }
-      } catch {
-        // Non-fatal — paid shoes are a nice-to-have, not required.
-      }
-
+      // Add-ons (laser tag, gel blasters) are now BMI products
+      // fetched lazily from the AddonsStep itself when the parent
+      // toggles a card on — see `fetchBmiTimeSlots` below. No
+      // up-front prefetch.
       setStep("addons");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't load add-ons");
+      setError(err instanceof Error ? err.message : "Couldn't continue");
       setStep("addons");
     } finally {
       setBusy(false);
     }
-  }, [centerId, date, selectedOfferId, selectedTariffId, selectedTime]);
+  }, [centerId, date, playerCount, selectedOfferId, selectedTariffId, selectedTime]);
 
   /**
    * From addons → review. Optional step — the parent can have zero
@@ -776,6 +838,196 @@ export default function KidsBowlFreePage() {
     setError(null);
     setStep("review");
   }, []);
+
+  // ── BMI add-on helpers (verbatim port of bowling's pattern) ──────
+
+  /**
+   * Conflict-detect a candidate BMI slot against the bowling
+   * reservation window. Mirrors bowling's check — bowling reserves
+   * a 60-min window starting at the chosen tariff time, and any
+   * BMI slot whose [start, stop] overlaps that window conflicts.
+   */
+  const conflictsWithBowling = useCallback(
+    (bmiStart: string, bmiStop: string): boolean => {
+      if (!date || !selectedTime) return false;
+      const bowlMs = new Date(`${date}T${selectedTime}:00`).getTime();
+      const bowlStop = bowlMs + 60 * 60 * 1000; // 60 min default
+      const bs = Date.parse(bmiStart);
+      const be = Date.parse(bmiStop);
+      if (!Number.isFinite(bs) || !Number.isFinite(be)) return false;
+      // overlap check
+      return bs < bowlStop && be > bowlMs;
+    },
+    [date, selectedTime],
+  );
+
+  /**
+   * Fetch BMI proposal time slots for a given add-on productId at
+   * the wizard's selected date. Walks 6 sample probe times across
+   * the day, dedupes by `block.start`, and filters out anything
+   * that conflicts with the bowling window. Mirrors bowling's
+   * `fetchBmiTimeSlots` verbatim.
+   */
+  const fetchBmiTimeSlots = useCallback(
+    async (productId: string, qty: number) => {
+      const ckCfg = BMI_ADDONS_BY_CENTER[centerId];
+      if (!ckCfg || !date) return;
+      setBmiLoadingSlots((p) => ({ ...p, [productId]: true }));
+      try {
+        const allSlots: BmiTimeSlot[] = [];
+        const seen = new Set<string>();
+        const searchHours = [11, 13, 15, 17, 19, 21];
+        for (const hour of searchHours) {
+          const h = String(hour).padStart(2, "0");
+          const utcTime = `${date}T${h}:00:00.000Z`;
+          try {
+            const smsUrl = ckCfg.clientKey
+              ? `/api/sms?endpoint=dayplanner%2Fdayplanner&clientKey=${ckCfg.clientKey}`
+              : "/api/sms?endpoint=dayplanner%2Fdayplanner";
+            const res = await fetch(smsUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                productId,
+                pageId: ckCfg.page,
+                quantity: qty,
+                dynamicLines: null,
+                date: utcTime,
+              }),
+            });
+            if (!res.ok) continue;
+            const data = (await res.json()) as { proposals?: unknown };
+            const props = Array.isArray(data?.proposals) ? data.proposals : [];
+            for (const rawP of props) {
+              const p = rawP as BmiProposal;
+              const block = p.blocks?.[0]?.block;
+              if (!block) continue;
+              if (seen.has(block.start)) continue;
+              seen.add(block.start);
+              if (conflictsWithBowling(block.start, block.stop)) continue;
+              allSlots.push({
+                start: block.start,
+                stop: block.stop,
+                name: block.name,
+                freeSpots: block.freeSpots,
+                proposal: p,
+                block: {
+                  start: block.start,
+                  stop: block.stop,
+                  name: block.name,
+                  freeSpots: block.freeSpots,
+                  resourceId: Number(block.resourceId) || -1,
+                },
+              });
+            }
+          } catch {
+            // skip — try next probe
+          }
+        }
+        allSlots.sort((a, b) => a.start.localeCompare(b.start));
+        setBmiTimeSlots((p) => ({ ...p, [productId]: allSlots }));
+      } catch {
+        setBmiTimeSlots((p) => ({ ...p, [productId]: [] }));
+      } finally {
+        setBmiLoadingSlots((p) => ({ ...p, [productId]: false }));
+      }
+    },
+    [centerId, conflictsWithBowling, date],
+  );
+
+  /**
+   * Set the qty for a BMI add-on. Auto-fires the slot probe so the
+   * time picker has data when the parent expands the card.
+   */
+  const setBmiQty = useCallback(
+    (productId: string, qty: number) => {
+      const clamped = Math.max(0, Math.min(20, qty));
+      setBmiAddonQty((prev) => {
+        const next = { ...prev };
+        if (clamped <= 0) delete next[productId];
+        else next[productId] = clamped;
+        return next;
+      });
+      if (clamped > 0) void fetchBmiTimeSlots(productId, clamped);
+      else {
+        setBmiSelectedTime((p) => {
+          const n = { ...p };
+          delete n[productId];
+          return n;
+        });
+      }
+    },
+    [fetchBmiTimeSlots],
+  );
+
+  /**
+   * Hold a chosen time slot on BMI. Creates (or extends) the shared
+   * BMI order id so all add-ons land on one bill, mirroring
+   * bowling's holdAddonSlot exactly.
+   */
+  const holdAddonSlot = useCallback(
+    async (productId: string, slotIdx: number) => {
+      const slots = bmiTimeSlots[productId];
+      if (!slots || !slots[slotIdx]) return;
+      const slot = slots[slotIdx];
+      const qty = bmiAddonQty[productId] || 1;
+      const ck = BMI_ADDONS_BY_CENTER[centerId]?.clientKey;
+      try {
+        // If this addon already had a line, remove it first so
+        // re-picking a time doesn't double-bill.
+        const prevLineId = bmiAddonLineIdsRef.current[productId];
+        if (prevLineId && bmiAddonOrderIdRef.current) {
+          const rmCk = ck ? `&clientKey=${ck}` : "";
+          await fetch(`/api/bmi?endpoint=booking%2FremoveItem${rmCk}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: `{"OrderItemId":${prevLineId},"OrderId":${bmiAddonOrderIdRef.current}}`,
+          }).catch(() => {});
+          delete bmiAddonLineIdsRef.current[productId];
+        }
+        const { rawOrderId, billLineId } = await bookAttractionSlot(
+          productId,
+          qty,
+          slot.proposal,
+          bmiAddonOrderIdRef.current,
+          null,
+          ck,
+        );
+        bmiAddonOrderIdRef.current = rawOrderId;
+        if (billLineId) bmiAddonLineIdsRef.current[productId] = billLineId;
+        setBmiSelectedTime((p) => ({ ...p, [productId]: slotIdx }));
+      } catch (err) {
+        console.error("[kbf] holdAddonSlot failed:", err);
+      }
+    },
+    [bmiAddonQty, bmiTimeSlots, centerId],
+  );
+
+  /** Build the canonical add-on summary the bowling-confirmation page
+   *  reads from sessionStorage to register the BMI bill on the
+   *  reservation. Same shape bowling produces. */
+  const getBmiAddons = useCallback((): BmiAddonSelection[] => {
+    const list = BMI_ADDONS_BY_CENTER[centerId]?.addons ?? [];
+    return list
+      .filter((a) => (bmiAddonQty[a.productId] ?? 0) > 0)
+      .map<BmiAddonSelection>((a) => {
+        const slots = bmiTimeSlots[a.productId] ?? [];
+        const idx = bmiSelectedTime[a.productId];
+        const slot = typeof idx === "number" ? slots[idx] : undefined;
+        return {
+          productId: a.productId,
+          name: a.name,
+          shortName: a.shortName,
+          quantity: bmiAddonQty[a.productId] || 0,
+          price: a.price,
+          perPerson: a.perPerson,
+          selectedTime: slot?.start ?? "",
+          block: slot?.block ?? null,
+          proposal: slot?.proposal ?? null,
+          qamfExtraId: a.qamfExtraId,
+        };
+      });
+  }, [bmiAddonQty, bmiSelectedTime, bmiTimeSlots, centerId]);
 
   /**
    * Final submit — fires PATCH players + Cart/CreateSummary +
@@ -856,17 +1108,19 @@ export default function KidsBowlFreePage() {
 
       // ── 3. POST /Cart/CreateSummary ────────────────────────────
       const shoeQty = selectedBowlers.filter((b) => bowlerSelections[b.key]?.wantShoes).length;
-      const extraItems = Object.entries(extraQty)
-        .filter(([, q]) => q > 0)
-        .map(([id, q]) => {
-          const x = extras.find((e) => e.Id === parseInt(id, 10));
-          return {
-            PriceKeyId: x?.PriceKeyId ?? x?.Id ?? parseInt(id, 10),
-            Quantity: q,
-            UnitPrice: x?.Price ?? 0,
-            Note: "",
-          };
-        });
+      // BMI add-ons (laser tag / gel blaster) charge through QAMF
+      // via their qamfExtraId line items — same pattern bowling
+      // uses. The actual booking against BMI is held already by
+      // holdAddonSlot; here we just bill QAMF for the extra.
+      const bmiAddonsList = BMI_ADDONS_BY_CENTER[centerId]?.addons ?? [];
+      const extraItems = bmiAddonsList
+        .filter((a) => (bmiAddonQty[a.productId] ?? 0) > 0)
+        .map((a) => ({
+          PriceKeyId: a.qamfExtraId,
+          Quantity: bmiAddonQty[a.productId] || 0,
+          UnitPrice: a.price,
+          Note: "",
+        }));
       const shoesItems =
         shoeQty > 0 && wantPaidShoes && paidShoeOption
           ? [
@@ -928,15 +1182,15 @@ export default function KidsBowlFreePage() {
           UnitPrice: paidShoeOption.price,
         });
       }
-      for (const [id, q] of Object.entries(extraQty)) {
+      for (const a of bmiAddonsList) {
+        const q = bmiAddonQty[a.productId] ?? 0;
         if (q <= 0) continue;
-        const x = extras.find((e) => e.Id === parseInt(id, 10));
         cartItems.push({
-          Name: x?.Name ?? "Extra",
+          Name: a.name,
           Type: "Extras",
-          PriceKeyId: x?.PriceKeyId ?? x?.Id ?? parseInt(id, 10),
+          PriceKeyId: a.qamfExtraId,
           Quantity: q,
-          UnitPrice: x?.Price ?? 0,
+          UnitPrice: a.price,
         });
       }
 
@@ -976,6 +1230,41 @@ export default function KidsBowlFreePage() {
       // (sales_log + member-prefs persistence moves to a /api/kbf
       // server endpoint in a follow-up — booking succeeds without it.)
 
+      // Stash BMI add-ons for the bowling-confirmation page's
+      // createBmiBill() — same key + shape bowling itself sets so
+      // the confirmation page registers the BMI bill against the
+      // reservation, registers the contact, and confirms a
+      // zero-balance payment via depositKind=0.
+      if (typeof window !== "undefined") {
+        const bmiAddons = getBmiAddons().filter((a) => a.selectedTime);
+        if (bmiAddons.length > 0) {
+          sessionStorage.setItem(
+            "qamf_bmi_addons",
+            JSON.stringify({
+              addons: bmiAddons.map((a) => ({
+                productId: a.productId,
+                name: a.name,
+                shortName: a.shortName,
+                quantity: a.quantity,
+                price: a.price,
+                perPerson: a.perPerson,
+                selectedTime: a.selectedTime,
+                block: a.block,
+                proposal: a.proposal,
+              })),
+              guest: {
+                name: guestName,
+                email: guestEmail,
+                phone: guestPhone.replace(/\D/g, ""),
+              },
+              bmiOrderId: bmiAddonOrderIdRef.current,
+            }),
+          );
+        } else {
+          sessionStorage.removeItem("qamf_bmi_addons");
+        }
+      }
+
       // Stash reservation context for the bowling confirmation page —
       // it reads `qamf_reservation` for the headline summary and
       // `qamf_confirm_data` to know which reservation key to status-poll.
@@ -995,12 +1284,12 @@ export default function KidsBowlFreePage() {
             tariffPrice: item.Total,
             shoes: wantPaidShoes,
             shoePrice: paidShoeOption?.price ?? 0,
-            addons: Object.entries(extraQty)
-              .filter(([, q]) => q > 0)
-              .map(([id, q]) => {
-                const x = extras.find((e) => e.Id === parseInt(id, 10));
-                return { name: x?.Name ?? "Extra", qty: q, price: x?.Price ?? 0 };
-              }),
+            addons: getBmiAddons().map((a) => ({
+              name: a.name,
+              qty: a.quantity,
+              price: a.price,
+              time: a.selectedTime,
+            })),
             guestName,
             guestEmail,
           }),
@@ -1032,23 +1321,21 @@ export default function KidsBowlFreePage() {
       setBusy(false);
     }
   }, [
+    bmiAddonQty,
     bowlerSelections,
     centerId,
     date,
-    extraQty,
-    extras,
+    getBmiAddons,
     guestEmail,
     guestName,
     guestPhone,
     offers,
-    paidShoeOption,
     reservationKey,
     router,
     selectedBowlers,
     selectedOfferId,
     selectedTariffId,
     selectedTime,
-    wantPaidShoes,
   ]);
 
   // ── Render ─────────────────────────────────────────────────────
@@ -1152,13 +1439,15 @@ export default function KidsBowlFreePage() {
 
           {step === "addons" && (
             <AddonsStep
-              extras={extras}
-              extraQty={extraQty}
-              setExtraQty={setExtraQty}
-              paidShoeOption={paidShoeOption}
-              wantPaidShoes={wantPaidShoes}
-              setWantPaidShoes={setWantPaidShoes}
+              centerId={centerId}
+              bmiAddonQty={bmiAddonQty}
+              setBmiQty={setBmiQty}
+              bmiTimeSlots={bmiTimeSlots}
+              bmiSelectedTime={bmiSelectedTime}
+              bmiLoadingSlots={bmiLoadingSlots}
+              onPickSlot={holdAddonSlot}
               playerCount={playerCount}
+              bowlingTime={selectedTime}
               busy={busy}
               onContinue={handleAddonsContinue}
               onBack={() => setStep("offer")}
@@ -1186,10 +1475,8 @@ export default function KidsBowlFreePage() {
                 return item ? `${item.Quantity} ${item.QuantityType}` : "";
               })()}
               bowlerCount={playerCount}
-              extras={extras}
-              extraQty={extraQty}
-              wantPaidShoes={wantPaidShoes}
-              paidShoeOption={paidShoeOption}
+              bmiAddons={getBmiAddons()}
+              shoeQty={selectedBowlers.filter((b) => bowlerSelections[b.key]?.wantShoes).length}
               onContinue={() => setStep("details")}
               onBack={() => setStep("addons")}
             />
@@ -1985,6 +2272,35 @@ function BowlersStep({
         })}
       </div>
 
+      {/* Bowlers with "Need shoes" on but no shoe size picked —
+          shoe rental REQUIRES a size on the BMI/QAMF call. List
+          out the names so the parent knows who needs a size. */}
+      {(() => {
+        const missingSizes = bowlerKeys.filter(
+          (b) =>
+            selections[b.key]?.selected &&
+            selections[b.key]?.wantShoes &&
+            !selections[b.key]?.shoeSizeId,
+        );
+        if (missingSizes.length === 0) return null;
+        return (
+          <div
+            className="rounded-xl border px-3 py-2.5 text-xs"
+            style={{
+              backgroundColor: "rgba(245,158,11,0.08)",
+              borderColor: "rgba(245,158,11,0.35)",
+              color: "rgba(252,211,77,0.95)",
+            }}
+          >
+            Pick a shoe size for{" "}
+            <strong>
+              {missingSizes.map((b) => b.displayName || "(unnamed)").join(", ")}
+            </strong>{" "}
+            before continuing.
+          </div>
+        );
+      })()}
+
       <div className="text-xs text-white/55 text-center">
         {selectedCount} bowler{selectedCount === 1 ? "" : "s"} selected
       </div>
@@ -2000,7 +2316,18 @@ function BowlersStep({
         <button
           type="button"
           onClick={onContinue}
-          disabled={selectedCount === 0}
+          disabled={(() => {
+            if (selectedCount === 0) return true;
+            // Every selected bowler with shoe rental on must have
+            // a size. Mirrors the bowling confirmation page's
+            // PATCH /players requirement.
+            for (const b of bowlerKeys) {
+              const sel = selections[b.key];
+              if (!sel?.selected) continue;
+              if (sel.wantShoes && !sel.shoeSizeId) return true;
+            }
+            return false;
+          })()}
           className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
           style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
         >
@@ -2383,6 +2710,25 @@ function OfferStep({
   );
 }
 
+/** Format an ISO BMI start timestamp ("2026-05-14T17:00:00") as a
+ *  short locale time string ("5:00 PM"). */
+function formatBmiTimeLabel(iso: string): string {
+  try {
+    const clean = iso.replace(/Z$/, "");
+    const [datePart, timePart] = clean.split("T");
+    if (!timePart) return iso;
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [h, min] = timePart.split(":").map(Number);
+    return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function formatTimeLabel(t: string): string {
   if (!/^\d{2}:\d{2}$/.test(t)) return t;
   const [h, m] = t.split(":").map(Number);
@@ -2630,117 +2976,169 @@ function OfferTimeStepBody({
  * +/- quantity controls. Skipping is fine — the parent can continue
  * straight to review without picking anything.
  */
+/**
+ * Add-ons step — bowling-style BMI add-ons with proposal-based time
+ * pickers. Each card (laser tag / gel blaster) shows the add-on
+ * image with a colored ribbon, per-person price, +/- quantity
+ * controls, and a time-slot grid that fetches BMI proposals for
+ * the chosen date. Picking a slot fires holdAddonSlot which
+ * pre-creates a BMI hold sharing one bmiAddonOrderId across all
+ * add-ons. The bowling-confirmation page consumes
+ * `qamf_bmi_addons` sessionStorage to register the contact + run
+ * payment confirm with depositKind=0 (zero-balance).
+ */
 function AddonsStep({
-  extras,
-  extraQty,
-  setExtraQty,
-  paidShoeOption,
-  wantPaidShoes,
-  setWantPaidShoes,
+  centerId,
+  bmiAddonQty,
+  setBmiQty,
+  bmiTimeSlots,
+  bmiSelectedTime,
+  bmiLoadingSlots,
+  onPickSlot,
   playerCount,
+  bowlingTime,
   busy,
   onContinue,
   onBack,
 }: {
-  extras: QamfExtra[];
-  extraQty: Record<number, number>;
-  setExtraQty: (updater: (q: Record<number, number>) => Record<number, number>) => void;
-  paidShoeOption: { priceKeyId: number; price: number; name: string } | null;
-  wantPaidShoes: boolean;
-  setWantPaidShoes: (b: boolean) => void;
+  centerId: string;
+  bmiAddonQty: Record<string, number>;
+  setBmiQty: (productId: string, qty: number) => void;
+  bmiTimeSlots: Record<string, BmiTimeSlot[]>;
+  bmiSelectedTime: Record<string, number>;
+  bmiLoadingSlots: Record<string, boolean>;
+  onPickSlot: (productId: string, slotIdx: number) => Promise<void>;
   playerCount: number;
+  bowlingTime: string;
   busy: boolean;
   onContinue: () => void;
   onBack: () => void;
 }) {
-  const setQty = (id: number, qty: number) => {
-    const clamped = Math.max(0, Math.min(playerCount * 2, qty));
-    setExtraQty((prev) => {
-      const next = { ...prev };
-      if (clamped <= 0) delete next[id];
-      else next[id] = clamped;
-      return next;
-    });
-  };
+  const addons = BMI_ADDONS_BY_CENTER[centerId]?.addons ?? [];
 
-  const totalAddOns = Object.values(extraQty).reduce((s, q) => s + q, 0);
+  const totalSelected = addons.reduce(
+    (s, a) => s + (bmiAddonQty[a.productId] ?? 0),
+    0,
+  );
+
+  const formatBmiTime = (iso: string): string => {
+    try {
+      const clean = iso.replace(/Z$/, "");
+      const [datePart, timePart] = clean.split("T");
+      if (!timePart) return iso;
+      const [y, m, d] = datePart.split("-").map(Number);
+      const [h, min] = timePart.split(":").map(Number);
+      return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return iso;
+    }
+  };
+  const formatBowlingTime = (t: string): string => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+  };
 
   return (
     <div className="space-y-5">
       <p className="text-center text-white/45 text-xs">
-        Add laser tag, gel blasters, or rental shoes to your visit. Skip
-        and continue if you don&apos;t need anything.
+        Pair your bowling slot with NEXUS Laser Tag or Gel Blasters.
+        Times are limited to slots that don&apos;t conflict with your
+        bowling reservation. Skip and continue if you don&apos;t need
+        anything.
       </p>
 
-      {/* Paid shoes toggle removed — shoe rental belongs on the
-          per-bowler card, not as a single line at the top of the
-          add-ons step. paidShoeOption / wantPaidShoes still wired
-          through the reserve route in case we re-enable later. */}
-
-      {/* Extras grid (laser tag, gel blasters, etc.) */}
-      {extras.length > 0 ? (
+      {addons.length === 0 ? (
+        <div
+          className="rounded-lg p-6 text-center"
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: "1.78px dashed rgba(255,255,255,0.10)",
+          }}
+        >
+          <p className="font-body text-white/40 text-xs uppercase tracking-[0.2em]">
+            No add-ons available at this center
+          </p>
+        </div>
+      ) : (
         <div className="space-y-3">
-          {extras.map((x) => {
-            const qty = extraQty[x.Id] || 0;
-            const isOn = qty > 0;
+          {addons.map((addon) => {
+            const qty = bmiAddonQty[addon.productId] || 0;
+            const isSelected = qty > 0;
+            const slots = bmiTimeSlots[addon.productId] || [];
+            const selectedIdx = bmiSelectedTime[addon.productId];
+            const isLoading = bmiLoadingSlots[addon.productId];
             return (
               <div
-                key={x.Id}
+                key={addon.productId}
                 className="rounded-lg overflow-hidden transition-all"
                 style={{
-                  backgroundColor: isOn ? "rgba(253,91,86,0.08)" : "rgba(7,16,39,0.5)",
-                  border: `1.78px dashed ${isOn ? `${CORAL}50` : "rgba(255,255,255,0.10)"}`,
+                  backgroundColor: isSelected
+                    ? `${addon.accent}08`
+                    : "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${
+                    isSelected ? `${addon.accent}50` : "rgba(255,255,255,0.10)"
+                  }`,
                 }}
               >
                 <div className="flex flex-col sm:flex-row">
-                  {x.ImageUrl && (
-                    <div className="relative w-full sm:w-36 h-28 sm:h-auto shrink-0 overflow-hidden">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={x.ImageUrl}
-                        alt={x.Name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
+                  <div className="relative w-full sm:w-36 h-28 sm:h-auto shrink-0 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={addon.image}
+                      alt={addon.shortName}
+                      className="w-full h-full object-cover"
+                    />
+                    <span
+                      className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold text-white"
+                      style={{ backgroundColor: addon.accent }}
+                    >
+                      {addon.shortName}
+                    </span>
+                  </div>
+
                   <div className="flex-1 p-4">
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <h3 className="font-body text-white font-bold text-sm">
-                        {x.Name}
+                        {addon.name}
                       </h3>
                       <span
                         className="font-body text-sm font-bold shrink-0"
-                        style={{ color: CORAL }}
+                        style={{ color: addon.accent }}
                       >
-                        ${x.Price.toFixed(2)}
+                        ${addon.price}/person
                       </span>
                     </div>
-                    {x.Description && (
-                      <p className="font-body text-white/45 text-xs mb-3">
-                        {x.Description}
-                      </p>
-                    )}
+                    <p className="font-body text-white/45 text-xs mb-3">
+                      {addon.desc}
+                    </p>
+
                     {qty === 0 ? (
                       <button
                         type="button"
-                        onClick={() => setQty(x.Id, playerCount || 1)}
+                        onClick={() => setBmiQty(addon.productId, playerCount || 1)}
                         className="w-full py-2.5 rounded-lg text-xs font-bold font-body transition-colors uppercase tracking-wider"
                         style={{
-                          backgroundColor: `${CORAL}15`,
-                          color: CORAL,
-                          border: `1px solid ${CORAL}30`,
+                          backgroundColor: `${addon.accent}15`,
+                          color: addon.accent,
+                          border: `1px solid ${addon.accent}30`,
                         }}
                       >
                         Add for all {playerCount || 1} bowler
                         {(playerCount || 1) === 1 ? "" : "s"} — $
-                        {(x.Price * (playerCount || 1)).toFixed(2)}
+                        {(addon.price * (playerCount || 1)).toFixed(2)}
                       </button>
                     ) : (
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => setQty(x.Id, qty - 1)}
+                            onClick={() => setBmiQty(addon.productId, qty - 1)}
                             className="w-7 h-7 rounded border border-white/20 text-white/60 hover:text-white text-sm flex items-center justify-center"
                             aria-label="Decrease quantity"
                           >
@@ -2751,22 +3149,81 @@ function AddonsStep({
                           </span>
                           <button
                             type="button"
-                            onClick={() => setQty(x.Id, qty + 1)}
+                            onClick={() => setBmiQty(addon.productId, qty + 1)}
                             className="w-7 h-7 rounded border border-white/20 text-white/60 hover:text-white text-sm flex items-center justify-center"
                             aria-label="Increase quantity"
                           >
                             +
                           </button>
                           <span className="font-body text-white/35 text-xs">
-                            {qty} {qty === 1 ? "pass" : "passes"}
+                            {qty} {qty === 1 ? "person" : "people"}
                           </span>
                         </div>
                         <span
                           className="font-body text-sm font-bold"
-                          style={{ color: CORAL }}
+                          style={{ color: addon.accent }}
                         >
-                          ${(x.Price * qty).toFixed(2)}
+                          ${(addon.price * qty).toFixed(2)}
                         </span>
+                      </div>
+                    )}
+
+                    {/* Time picker — only when this add-on has a qty selected. */}
+                    {isSelected && (
+                      <div className="mt-3 pt-3 border-t border-white/10">
+                        {isLoading ? (
+                          <div className="flex items-center gap-2 font-body text-white/40 text-xs">
+                            <div className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin" />
+                            Loading times…
+                          </div>
+                        ) : slots.length === 0 ? (
+                          <p className="font-body text-amber-400/70 text-xs">
+                            No times available on this date that don&apos;t
+                            conflict with your bowling slot.
+                          </p>
+                        ) : (
+                          <div>
+                            <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
+                              Select a time
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              <span
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold font-body"
+                                style={{
+                                  backgroundColor: `${CORAL}20`,
+                                  color: CORAL,
+                                  border: `1px solid ${CORAL}40`,
+                                }}
+                              >
+                                {formatBowlingTime(bowlingTime)} Bowling
+                              </span>
+                              {slots.map((slot, idx) => {
+                                const on = selectedIdx === idx;
+                                return (
+                                  <button
+                                    key={slot.start}
+                                    type="button"
+                                    onClick={() => void onPickSlot(addon.productId, idx)}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-bold font-body transition-all"
+                                    style={{
+                                      backgroundColor: on
+                                        ? addon.accent
+                                        : "rgba(7,16,39,0.5)",
+                                      color: on
+                                        ? "#0a1628"
+                                        : "rgba(255,255,255,0.6)",
+                                      border: `1px solid ${
+                                        on ? addon.accent : "rgba(255,255,255,0.10)"
+                                      }`,
+                                    }}
+                                  >
+                                    {formatBmiTime(slot.start)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2774,21 +3231,6 @@ function AddonsStep({
               </div>
             );
           })}
-        </div>
-      ) : (
-        <div
-          className="rounded-lg p-6 text-center"
-          style={{
-            backgroundColor: "rgba(7,16,39,0.5)",
-            border: "1.78px dashed rgba(255,255,255,0.10)",
-          }}
-        >
-          <p className="font-body text-white/40 text-xs uppercase tracking-[0.2em]">
-            No add-ons available for this slot
-          </p>
-          <p className="font-body text-white/30 text-[11px] mt-1.5">
-            Continue to review.
-          </p>
         </div>
       )}
 
@@ -2807,7 +3249,7 @@ function AddonsStep({
           className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
           style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
         >
-          {totalAddOns > 0 || wantPaidShoes ? "Continue with add-ons" : "Skip add-ons"}
+          {totalSelected > 0 ? "Continue with add-ons" : "Skip add-ons"}
         </button>
       </div>
     </div>
@@ -2828,10 +3270,8 @@ function ReviewStep({
   offerPrice,
   tariffName,
   bowlerCount,
-  extras,
-  extraQty,
-  wantPaidShoes,
-  paidShoeOption,
+  bmiAddons,
+  shoeQty,
   onContinue,
   onBack,
 }: {
@@ -2842,10 +3282,8 @@ function ReviewStep({
   offerPrice: number;
   tariffName: string;
   bowlerCount: number;
-  extras: QamfExtra[];
-  extraQty: Record<number, number>;
-  wantPaidShoes: boolean;
-  paidShoeOption: { priceKeyId: number; price: number; name: string } | null;
+  bmiAddons: BmiAddonSelection[];
+  shoeQty: number;
   onContinue: () => void;
   onBack: () => void;
 }) {
@@ -2864,15 +3302,15 @@ function ReviewStep({
       })
     : "";
 
-  const shoesTotal =
-    wantPaidShoes && paidShoeOption ? paidShoeOption.price * bowlerCount : 0;
-  const extrasLines = extras
-    .filter((x) => (extraQty[x.Id] ?? 0) > 0)
-    .map((x) => ({
-      name: x.Name,
-      qty: extraQty[x.Id]!,
-      lineTotal: x.Price * extraQty[x.Id]!,
-    }));
+  // Bowling shoes are FREE on KBF; we surface the line as a $0
+  // savings indicator rather than charging for them.
+  const shoesTotal = 0;
+  const extrasLines = bmiAddons.map((a) => ({
+    name: a.name,
+    qty: a.quantity,
+    lineTotal: a.price * a.quantity,
+    selectedTime: a.selectedTime,
+  }));
   const extrasTotal = extrasLines.reduce((s, l) => s + l.lineTotal, 0);
   const subtotal = offerPrice + shoesTotal + extrasTotal;
   // KBF doesn't run our cart through Square — most bookings are
@@ -2908,19 +3346,19 @@ function ReviewStep({
           {tariffName && (
             <p className="font-body text-white/35 text-[11px]">{tariffName}</p>
           )}
-          {wantPaidShoes && paidShoeOption && (
+          {shoeQty > 0 && (
             <div className="flex justify-between mt-1">
               <span className="font-body text-white/70 text-sm">
-                Bowling Shoes ×{bowlerCount}
+                Bowling Shoes ×{shoeQty}
               </span>
-              <span className="font-body text-white/70 text-sm">
-                ${shoesTotal.toFixed(2)}
+              <span className="font-body text-sm" style={{ color: GOLD }}>
+                FREE
               </span>
             </div>
           )}
         </div>
 
-        {/* Extras */}
+        {/* BMI add-ons (laser tag, gel blasters) — show held time */}
         {extrasLines.length > 0 && (
           <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
             <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-2">
@@ -2929,7 +3367,7 @@ function ReviewStep({
             {extrasLines.map((l) => (
               <div key={l.name} className="flex justify-between">
                 <span className="font-body text-white/70 text-sm">
-                  {l.name} ×{l.qty}
+                  {l.name} {l.selectedTime ? `at ${formatBmiTimeLabel(l.selectedTime)}` : ""} ×{l.qty}
                 </span>
                 <span className="font-body text-white text-sm">
                   ${l.lineTotal.toFixed(2)}
