@@ -262,7 +262,7 @@ export default function KBFRegisterPage() {
             Already Registered?
           </h2>
           <p className="font-body text-white/60 text-sm mb-6">
-            Step 2: Reserve your lane up to 24 hours in advance
+            Step 2: Reserve your lane up to 48 hours in advance
           </p>
           <Link
             href="/hp/kids-bowl-free/book"

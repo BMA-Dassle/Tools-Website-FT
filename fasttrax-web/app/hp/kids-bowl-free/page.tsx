@@ -136,7 +136,7 @@ export default function KidsBowlFreePage() {
             {[
               { step: "1", title: "Register Your Kids", desc: "Sign up through the Kids Bowl Free portal. Each child must be registered individually. Ages 15 and under.", accent: "#fd5b56" },
               { step: "2", title: "Get Weekly Passes", desc: "You'll receive weekly passes via email or in the Kids Bowl Free mobile app throughout the summer.", accent: "#FFD700" },
-              { step: "3", title: "Book & Bowl", desc: "Reserve a lane online up to 24 hours in advance. Show your pass at check-in and enjoy 2 free games!", accent: "#00E2E5" },
+              { step: "3", title: "Book & Bowl", desc: "Reserve a lane online up to 48 hours in advance. Show your pass at check-in and enjoy 2 free games!", accent: "#00E2E5" },
             ].map((s) => (
               <div
                 key={s.step}

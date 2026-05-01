@@ -50,7 +50,11 @@ function AttractionCard({
       ? naplesMode
         ? "/hp/book/bowling?location=naples"
         : "/hp/book/bowling"
-      : `/book/${attraction.slug}${naplesMode ? "?location=naples" : ""}`;
+      : attraction.slug === "kids-bowl-free"
+        ? naplesMode
+          ? "/hp/book/kids-bowl-free?location=naples"
+          : "/hp/book/kids-bowl-free"
+        : `/book/${attraction.slug}${naplesMode ? "?location=naples" : ""}`;
 
   const locationLabel = naplesMode ? "HeadPinz Naples" : "HeadPinz Fort Myers";
 
@@ -141,29 +145,40 @@ export default function HeadPinzBookLandingPage() {
 
   const [showClearCartConfirm, setShowClearCartConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
+  // Tracks which QAMF flow the cart-clearing modal is gating —
+  // bowling vs kids-bowl-free, so the confirm button knows where
+  // to route after the clear lands.
+  const [pendingDestination, setPendingDestination] = useState<string | null>(null);
 
-  // Bowling runs on a separate QAMF session from the attractions BMI
-  // cart. If the guest has a live attractions cart, warn + clear before
-  // handing them off to bowling — otherwise their old hold lingers as a
-  // ghost BMI order and the next flow is confusing.
-  function handleBowlingClick() {
+  const kbfHref = naplesMode
+    ? "/hp/book/kids-bowl-free?location=naples"
+    : "/hp/book/kids-bowl-free";
+
+  // Bowling + Kids Bowl Free run on a separate QAMF session from the
+  // attractions BMI cart. If the guest has a live attractions cart,
+  // warn + clear before handing them off — otherwise their old hold
+  // lingers as a ghost BMI order and the next flow is confusing.
+  function handleQamfFlowClick(dest: string) {
     if (hasActiveCart()) {
+      setPendingDestination(dest);
       setShowClearCartConfirm(true);
     } else {
-      router.push(bowlingHref);
+      router.push(dest);
     }
   }
 
-  async function confirmClearAndGoBowling() {
+  async function confirmClearAndGoToQamfFlow() {
     setClearing(true);
     await clearAllCarts();
-    router.push(bowlingHref);
+    router.push(pendingDestination ?? bowlingHref);
   }
 
-  // Explicit HP attraction order: bowling first (not in ATTRACTION_LIST —
-  // it has its own QAMF flow), then the multi-location attractions.
+  // Explicit HP attraction order: bowling first (own QAMF flow),
+  // then Kids Bowl Free (also QAMF, gated by pass lookup), then the
+  // multi-location attractions on the shared BMI flow.
   const hpAttractions: AttractionConfig[] = [
     ATTRACTIONS.bowling,
+    ATTRACTIONS["kids-bowl-free"],
     ATTRACTIONS.shuffly,
     ATTRACTIONS["laser-tag"],
     ATTRACTIONS["gel-blaster"],
@@ -217,7 +232,13 @@ export default function HeadPinzBookLandingPage() {
                 key={a.slug}
                 attraction={a}
                 bookingLoc={bookingLoc}
-                onClick={a.slug === "bowling" ? handleBowlingClick : undefined}
+                onClick={
+                  a.slug === "bowling"
+                    ? () => handleQamfFlowClick(bowlingHref)
+                    : a.slug === "kids-bowl-free"
+                      ? () => handleQamfFlowClick(kbfHref)
+                      : undefined
+                }
               />
             ))}
           </div>
@@ -267,7 +288,7 @@ export default function HeadPinzBookLandingPage() {
         </div>
       </section>
 
-      {/* Cart-clear confirmation (bowling uses a separate QAMF session). */}
+      {/* Cart-clear confirmation (bowling + KBF use separate QAMF sessions). */}
       {showClearCartConfirm && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
@@ -289,20 +310,20 @@ export default function HeadPinzBookLandingPage() {
               className="font-heading font-black uppercase italic text-white mb-3"
               style={{ fontSize: "22px", lineHeight: 1.15, letterSpacing: "-0.3px" }}
             >
-              Start a bowling booking?
+              {pendingDestination === kbfHref ? "Start a Kids Bowl Free booking?" : "Start a bowling booking?"}
             </h3>
             <p
               className="font-body text-white/75 mb-2"
               style={{ fontSize: "14px", lineHeight: 1.6 }}
             >
-              Bowling runs on its own reservation flow, so we&apos;ll need to clear
+              {pendingDestination === kbfHref ? "Kids Bowl Free" : "Bowling"} runs on its own reservation flow, so we&apos;ll need to clear
               what&apos;s in your current cart to continue.
             </p>
             <p
               className="font-body text-white/60 mb-5"
               style={{ fontSize: "13px", lineHeight: 1.55 }}
             >
-              Don&apos;t worry — inside the bowling booking you&apos;ll be able to add on
+              Don&apos;t worry — inside the booking you&apos;ll be able to add on
               laser tag, gel blasters, pizza and drinks.
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -316,12 +337,12 @@ export default function HeadPinzBookLandingPage() {
               </button>
               <button
                 type="button"
-                onClick={confirmClearAndGoBowling}
+                onClick={confirmClearAndGoToQamfFlow}
                 disabled={clearing}
                 className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-transform hover:scale-[1.02] disabled:opacity-60 disabled:scale-100"
                 style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
               >
-                {clearing ? "Clearing…" : "Clear & book bowling"}
+                {clearing ? "Clearing…" : pendingDestination === kbfHref ? "Clear & book Kids Bowl Free" : "Clear & book bowling"}
               </button>
             </div>
           </div>

@@ -5,7 +5,7 @@
 
 // ── Attraction Types ──────────────────────────────────────────────────────────
 
-export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly" | "racing" | "bowling";
+export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly" | "racing" | "bowling" | "kids-bowl-free";
 export type BookingMode = "per-person" | "per-slot";
 export type LocationKey = "fasttrax" | "headpinz" | "naples";
 
@@ -195,6 +195,25 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       { productId: "qamf-9172", name: "Bowling", price: 0, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 8 },
       { productId: "qamf-3148", name: "Bowling", price: 0, location: "naples", durationMin: 60, isCombo: false, maxPerBooking: 8 },
     ],
+  },
+  "kids-bowl-free": {
+    slug: "kids-bowl-free",
+    name: "Kids Bowl Free",
+    shortName: "Kids Bowl Free",
+    location: "both",
+    // QAMF center IDs — same as bowling. Excluded from ATTRACTION_LIST
+    // because it has its own wizard at /hp/book/kids-bowl-free, not
+    // the generic per-slot booking flow.
+    pageIds: { headpinz: "qamf-9172", naples: "qamf-3148" },
+    bookingMode: "per-slot",
+    maxGroupSize: 8,
+    showWaiverPrompt: false,
+    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    color: "#FFD700",
+    description: "Free bowling for registered kids — Mon–Fri",
+    building: "HeadPinz",
+    durationLabel: "Mon–Fri only",
+    products: [],
   },
 };
 

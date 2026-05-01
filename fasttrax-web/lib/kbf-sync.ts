@@ -67,6 +67,16 @@ export interface KbfPass {
   birthYear: number | null;
   specialCode: string;
   mailLink: string;
+  /** Phone number (digits only). Optional — only set after the parent
+   *  opts into SMS 2FA by saving their phone during a KBF booking. */
+  phone?: string | null;
+  /** Which channel to deliver the 2FA OTP on. 'email' is always
+   *  available (we have email from the CSV); 'sms' is opt-in.
+   *  Defaults to 'email' for legacy rows. */
+  preferred2fa?: "sms" | "email";
+  /** Demo / test row — bypasses the OTP step entirely so internal
+   *  staff can demo from any device without a real KBF account. */
+  isTest?: boolean;
 }
 
 export interface KbfPassMember {
@@ -328,6 +338,15 @@ export async function ensureKbfSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS kbf_passes_email_idx ON kbf_passes((lower(email)))`;
   await q`CREATE INDEX IF NOT EXISTS kbf_passes_date_added_idx ON kbf_passes(date_added DESC)`;
   await q`CREATE INDEX IF NOT EXISTS kbf_passes_center_idx ON kbf_passes(center_name)`;
+  // Forward-compatible additions for the in-app KBF booking flow.
+  // ALTER ADD COLUMN IF NOT EXISTS is idempotent — safe to run on
+  // every cold start.
+  await q`ALTER TABLE kbf_passes ADD COLUMN IF NOT EXISTS phone TEXT`;
+  await q`ALTER TABLE kbf_passes ADD COLUMN IF NOT EXISTS preferred_2fa TEXT DEFAULT 'email'`;
+  await q`ALTER TABLE kbf_passes ADD COLUMN IF NOT EXISTS is_test BOOLEAN DEFAULT FALSE`;
+  // Phone-lookup index — supports the booking flow's phone-based login
+  // path. Partial index since most legacy rows have NULL phone.
+  await q`CREATE INDEX IF NOT EXISTS kbf_passes_phone_idx ON kbf_passes(phone) WHERE phone IS NOT NULL`;
 
   await q`
     CREATE TABLE IF NOT EXISTS kbf_pass_members (

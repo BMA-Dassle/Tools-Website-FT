@@ -1,13 +1,12 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-
-const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+import { isKbfPreLaunchPeriod, KBF_PROGRAM_START_YMD } from "@/lib/kbf-schedule";
 
 export const metadata: Metadata = {
-  title: "Book Kids Bowl Free Lane | HeadPinz & FastTrax",
+  title: "Book Kids Bowl Free Lane | HeadPinz",
   description:
-    "Reserve your Kids Bowl Free lane online up to 24 hours in advance. Available at HeadPinz Fort Myers, HeadPinz Naples, and FastTrax Fort Myers.",
+    "Reserve your Kids Bowl Free lane online up to 48 hours in advance. Available at HeadPinz Fort Myers and HeadPinz Naples.",
   keywords: [
     "book kids bowl free",
     "reserve bowling lane kids",
@@ -17,44 +16,85 @@ export const metadata: Metadata = {
   alternates: { canonical: "https://headpinz.com/kids-bowl-free/book" },
 };
 
-const locations = [
+interface KbfLocation {
+  name: string;
+  address: string;
+  phone: string;
+  /** Internal booking-flow URL — null when the location is "coming soon". */
+  bookingUrl: string | null;
+  /** Coming-soon flag flips the card into a disabled state with a label. */
+  comingSoon?: boolean;
+  accent: string;
+}
+
+const locations: KbfLocation[] = [
   {
     name: "HeadPinz Fort Myers",
     address: "14513 Global Pkwy, Fort Myers, FL 33913",
     phone: "(239) 302-2155",
-    bookingUrl: "https://www.mybowlingpassport.com/2/9172/book",
+    bookingUrl: "/hp/book/kids-bowl-free?location=fortmyers",
     accent: "#fd5b56",
   },
   {
     name: "HeadPinz Naples",
     address: "8525 Radio Ln, Naples, FL 34104",
     phone: "(239) 455-3755",
-    bookingUrl: "https://www.mybowlingpassport.com/2/3148/book",
+    bookingUrl: "/hp/book/kids-bowl-free?location=naples",
     accent: "#FFD700",
   },
   {
     name: "FastTrax Fort Myers",
     address: "14501 Global Pkwy, Fort Myers, FL 33913",
     phone: "(239) 481-9666",
-    bookingUrl: "https://www.mybowlingpassport.com/2/9172/book",
+    bookingUrl: null,
+    comingSoon: true,
     accent: "#00E2E5",
   },
 ];
 
 const steps = [
   "Select 'Book Now' next to your preferred location below",
-  "Choose your date, time, and number of bowlers",
-  "Scroll to the bottom of the booking page and select 1 or 2 games",
-  "Complete checkout to reserve your lane",
+  "Sign in with your Kids Bowl Free email or phone (we'll text or email a code)",
+  "Pick which kids are bowling — saved shoe sizes auto-fill",
+  "Choose your date and time, then confirm — your free lane is locked in",
 ];
 
 export default function KBFBookPage() {
+  const preLaunch = isKbfPreLaunchPeriod();
   return (
     <div className="bg-[#0a1628]">
+      {preLaunch && (
+        <section className="px-4 pt-32 sm:pt-36">
+          <div className="max-w-3xl mx-auto">
+            <div
+              className="rounded-xl px-5 py-4 text-center"
+              style={{
+                backgroundColor: "rgba(255,215,0,0.08)",
+                border: "1.78px solid rgba(255,215,0,0.45)",
+              }}
+            >
+              <div
+                className="font-heading uppercase text-[11px] tracking-[3px] mb-1"
+                style={{ color: "#FFD700" }}
+              >
+                Special — Opening Day
+              </div>
+              <p className="font-body text-white/85 text-sm">
+                Reserve your spot for{" "}
+                <strong className="text-white">{KBF_PROGRAM_START_YMD}</strong>{" "}
+                right now. Normally Kids Bowl Free reservations open 48 hours in
+                advance — for opening day, we&apos;re lifting the cap so families
+                can lock in their lane today.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ====== HERO ====== */}
       <section
         className="relative flex flex-col items-center justify-center text-center px-4"
-        style={{ paddingTop: "clamp(120px, 18vw, 180px)", paddingBottom: "clamp(40px, 6vw, 60px)" }}
+        style={{ paddingTop: preLaunch ? "clamp(20px, 3vw, 40px)" : "clamp(120px, 18vw, 180px)", paddingBottom: "clamp(40px, 6vw, 60px)" }}
       >
         <div className="relative mb-4" style={{ width: "80px", height: "80px" }}>
           <Image src={`https://www.kidsbowlfree.com/img/kbf-logo-23.png`} alt="Kids Bowl Free" fill className="object-contain" sizes="80px" unoptimized />
@@ -67,7 +107,7 @@ export default function KBFBookPage() {
           Book a Lane
         </h1>
         <p className="font-body text-white/60 text-sm max-w-lg mx-auto mb-2">
-          After you&apos;ve completed your Kids Bowl Free registration, reserve a lane online up to 24 hours in advance.
+          After you&apos;ve completed your Kids Bowl Free registration, reserve a lane online up to 48 hours in advance.
         </p>
         <div className="mx-auto h-1 w-24 rounded-full mt-4" style={{ background: "linear-gradient(90deg, #fd5b56, #FFD700)" }} />
       </section>
@@ -111,7 +151,7 @@ export default function KBFBookPage() {
               "Available Monday\u2013Thursday: Open to Close",
               "Available Friday: Open to 5 PM only",
               "Not available on weekends",
-              "Reservations accepted only up to 24 hours in advance",
+              "Reservations accepted up to 48 hours in advance",
               "Lanes are held for 5 minutes past your start time",
               "Call the center if you\u2019re running late",
               "Kids Bowl Free coupon must be presented at check-in (email or KBF app)",
@@ -144,22 +184,37 @@ export default function KBFBookPage() {
               <div
                 key={loc.name}
                 className="rounded-lg p-6 text-center flex flex-col"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${loc.accent}30` }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${loc.accent}30`,
+                  opacity: loc.comingSoon ? 0.65 : 1,
+                }}
               >
                 <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-2">
                   {loc.name}
                 </h3>
                 <p className="font-body text-white/50 text-xs mb-1">{loc.address}</p>
                 <p className="font-body text-white/50 text-xs mb-5">{loc.phone}</p>
-                <a
-                  href={loc.bookingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-auto inline-flex items-center justify-center text-white font-body font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105"
-                  style={{ backgroundColor: loc.accent, boxShadow: `0 0 16px ${loc.accent}30` }}
-                >
-                  Book Now
-                </a>
+                {loc.comingSoon || !loc.bookingUrl ? (
+                  <span
+                    className="mt-auto inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full"
+                    style={{
+                      color: loc.accent,
+                      border: `1.5px solid ${loc.accent}55`,
+                      backgroundColor: "transparent",
+                    }}
+                  >
+                    Coming Soon
+                  </span>
+                ) : (
+                  <Link
+                    href={loc.bookingUrl}
+                    className="mt-auto inline-flex items-center justify-center text-white font-body font-bold text-sm uppercase tracking-wider px-6 py-3 rounded-full transition-all hover:scale-105"
+                    style={{ backgroundColor: loc.accent, boxShadow: `0 0 16px ${loc.accent}30` }}
+                  >
+                    Book Now
+                  </Link>
+                )}
               </div>
             ))}
           </div>
