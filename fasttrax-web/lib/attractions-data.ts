@@ -208,7 +208,10 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-slot",
     maxGroupSize: 8,
     showWaiverPrompt: false,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    // Same hero image used at the top of /hp/fort-myers/birthdays —
+    // the girl with the bowling ball reads as a kid-focused KBF
+    // tile better than the generic gallery-bowling photo.
+    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
     color: "#FFD700",
     description: "Free bowling for registered kids — Mon–Fri",
     building: "HeadPinz",
