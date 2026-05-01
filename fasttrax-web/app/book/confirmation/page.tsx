@@ -632,6 +632,15 @@ export default function ConfirmationPage() {
               // link for the actual code (we don't leak the code in
               // forwarded messages).
               rookiePack,
+              // Forward the packageId from the saved booking record so
+              // sales_log captures it (Ultimate Qualifier, Rookie Pack,
+              // future packages). Without this, /api/admin/sales/list
+              // counts package bookings as 0 because rows are inserted
+              // with package_id = NULL. The notifications endpoint
+              // already accepts a `packageId` field — see
+              // app/api/notifications/booking-confirmation/route.ts:161.
+              packageId:
+                (bookingRecord?.package as string | null | undefined) ?? undefined,
             }),
           }).catch(() => {});
         }
