@@ -132,9 +132,20 @@ interface QamfOffer {
   Items?: QamfOfferItem[];
 }
 
+/** QAMF /offers/extras response — laser tag, gel blasters, etc. */
+interface QamfExtra {
+  Id: number;
+  Name: string;
+  Price: number;
+  Description?: string;
+  ImageUrl?: string;
+  ItemType?: string;
+  PriceKeyId?: number;
+}
+
 // ── Step keys ───────────────────────────────────────────────────────────────
 
-type Step = "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "review" | "submitting";
+type Step = "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "addons" | "review" | "submitting";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -176,11 +187,11 @@ export default function KidsBowlFreePage() {
   // Tabbed sign-in (Phone | Email | New) — drives which form
   // LookupStep renders. Kept in the parent so a back-nav from the
   // verify step preserves the user's chosen tab.
-  // "New"-tab in-app registration is parked behind a feature flag
-  // for now — surface the external kidsbowlfree.com/bowland link
-  // instead. The /api/kbf/register route + handler below stay
-  // wired up for when we re-enable it.
-  const [lookupTab, setLookupTab] = useState<"phone" | "email">("email");
+  // Tabs: Email (default) | SMS | New. The "New" tab currently shows
+  // an external kidsbowlfree.com/bowland CTA — in-app registration is
+  // parked behind a feature flag, but /api/kbf/register and the
+  // wizard's handleRegister stay wired up for when we re-enable it.
+  const [lookupTab, setLookupTab] = useState<"phone" | "email" | "new">("email");
   const [phoneInput, setPhoneInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
   // "New" tab — minimum viable KBF registration form. Optional
@@ -225,6 +236,14 @@ export default function KidsBowlFreePage() {
   const [selectedTariffId, setSelectedTariffId] = useState<number | null>(null);
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [shoeCatalog, setShoeCatalog] = useState<{ id: number; label: string; categoryId: number | null; categoryName: string }[]>([]);
+
+  // QAMF extras (laser tag, gel blasters, paid shoes upgrades, etc.)
+  // fetched after the parent picks Regular vs VIP. Stored quantities
+  // forward into the reserve route's Cart.Items list.
+  const [extras, setExtras] = useState<QamfExtra[]>([]);
+  const [extraQty, setExtraQty] = useState<Record<number, number>>({});
+  const [wantPaidShoes, setWantPaidShoes] = useState(false);
+  const [paidShoeOption, setPaidShoeOption] = useState<{ priceKeyId: number; price: number; name: string } | null>(null);
 
   // Review
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
@@ -607,17 +626,74 @@ export default function KidsBowlFreePage() {
   }, [centerId, date, loadOffers, selectedTime]);
 
   /**
-   * From offer → review. The user has chosen Regular or VIP; we
-   * already have offer + tariff + time so this is just a step bump.
+   * From offer → addons. Fetches QAMF extras (laser tag, gel blasters,
+   * paid shoe rental etc.) keyed to the chosen offer + datetime. The
+   * extras step is optional — even an empty list is valid (KBF-only
+   * means the family can skip straight to review).
    */
-  const handleOfferContinue = useCallback(() => {
+  const handleOfferContinue = useCallback(async () => {
     if (!selectedOfferId || !selectedTariffId || !selectedTime) {
       setError("Pick a package");
       return;
     }
     setError(null);
+    setBusy(true);
+    try {
+      const dt = `${date}T${selectedTime}`;
+      // Fetch QAMF extras + paid shoes in parallel. Both are
+      // attraction-style add-ons sold through QAMF for this center.
+      const [extrasRes, shoesRes] = await Promise.all([
+        fetch(
+          `/api/qamf/centers/${centerId}/offers/extras?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&offerId=${selectedOfferId}&page=1&itemsPerPage=50`,
+          { cache: "no-store" },
+        ).catch(() => null),
+        fetch(
+          `/api/qamf/centers/${centerId}/offers/${selectedOfferId}/shoes-socks-offer?systemId=${centerId}&datetime=${encodeURIComponent(dt)}&offerId=${selectedOfferId}&page=1&itemsPerPage=50`,
+          { cache: "no-store" },
+        ).catch(() => null),
+      ]);
+
+      try {
+        const data = await extrasRes?.json();
+        setExtras(Array.isArray(data) ? data : []);
+      } catch {
+        setExtras([]);
+      }
+
+      try {
+        const data = await shoesRes?.json();
+        const first = Array.isArray(data?.Shoes) && data.Shoes.length > 0 ? data.Shoes[0] : null;
+        if (first && typeof first === "object") {
+          const shoe = first as { Name?: string; Price?: number; PriceKeyId?: number };
+          if (shoe.PriceKeyId && shoe.Price !== undefined) {
+            setPaidShoeOption({
+              priceKeyId: shoe.PriceKeyId,
+              price: shoe.Price,
+              name: shoe.Name ?? "Bowling Shoes",
+            });
+          }
+        }
+      } catch {
+        // Non-fatal — paid shoes are a nice-to-have, not required.
+      }
+
+      setStep("addons");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't load add-ons");
+      setStep("addons");
+    } finally {
+      setBusy(false);
+    }
+  }, [centerId, date, selectedOfferId, selectedTariffId, selectedTime]);
+
+  /**
+   * From addons → review. Optional step — the parent can have zero
+   * extras and still continue.
+   */
+  const handleAddonsContinue = useCallback(() => {
+    setError(null);
     setStep("review");
-  }, [selectedOfferId, selectedTariffId, selectedTime]);
+  }, []);
 
   const submitReservation = useCallback(async () => {
     setBusy(true);
@@ -926,6 +1002,7 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
     bowlers: "Who's bowling?",
     datetime: "When do you want to bowl?",
     offer: "Choose a package",
+    addons: "Level up your visit",
     review: "Review",
     submitting: "Confirming…",
   };
@@ -1004,8 +1081,8 @@ function LookupStep({
   busy,
   onLookup,
 }: {
-  tab: "phone" | "email";
-  setTab: (t: "phone" | "email") => void;
+  tab: "phone" | "email" | "new";
+  setTab: (t: "phone" | "email" | "new") => void;
   phoneInput: string;
   setPhoneInput: (s: string) => void;
   emailInput: string;
@@ -1030,7 +1107,7 @@ function LookupStep({
 
       {/* Tabs — race-pack style (segmented, accent fill on active) */}
       <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-        {(["email", "phone"] as const).map((m) => (
+        {(["email", "phone", "new"] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -1042,7 +1119,7 @@ function LookupStep({
               fontWeight: tab === m ? 800 : 600,
             }}
           >
-            {m === "phone" ? "SMS" : "Email"}
+            {m === "phone" ? "SMS" : m === "new" ? "New" : "Email"}
           </button>
         ))}
       </div>
@@ -1280,15 +1357,13 @@ function BowlersStep({
     return (first + last).toUpperCase();
   };
 
-  // All family members bowling on the KBF / FBF program share the
-  // HeadPinz coral primary — it's the program color so a kid and a
-  // family-pass adult chip read as the same family unit. The
-  // account holder gets a navy-derived blue to set them apart as
-  // the booking guest. Saturated gold on adults felt out of place
-  // next to the coral kids; the relation chip carries the "Family
-  // Pass Adult" label and that's enough to differentiate.
-  const accentFor = (rel: BowlerKey["relation"]): string =>
-    rel === "parent" ? "#6b8ec7" : CORAL;
+  // Single navy-derived blue across every bowler card. Earlier
+  // attempts mixed coral / gold by relation but read as out of
+  // place — the relation chip + program header carry enough
+  // information that visual differentiation by hue isn't worth the
+  // chroma cost. Action buttons stay coral (page-level CTA color).
+  const KBF_BLUE = "#6b8ec7";
+  const accentFor = (_rel: BowlerKey["relation"]): string => KBF_BLUE;
 
   // KBF rule: every booking needs at least one kid. Adults (parent
   // with Families Bowl Free + family-pass adults) only get a free
@@ -1316,23 +1391,21 @@ function BowlersStep({
 
   return (
     <div className="space-y-4">
-      {/* Program eyebrow — Kids Bowl Free vs Families Bowl Free */}
+      {/* Program eyebrow — Kids Bowl Free vs Families Bowl Free.
+          Single blue across both tiers; the label tells the parent
+          which program tier they're on without piling on chroma. */}
       <div
         className="rounded-2xl px-4 py-3 flex items-center gap-3"
         style={{
-          backgroundColor: hasFamilyPass
-            ? "rgba(255,215,0,0.08)"
-            : "rgba(253,91,86,0.06)",
-          border: hasFamilyPass
-            ? "1.78px solid rgba(255,215,0,0.40)"
-            : "1.78px solid rgba(253,91,86,0.30)",
+          backgroundColor: `${KBF_BLUE}14`,
+          border: `1.78px solid ${KBF_BLUE}55`,
         }}
       >
         <div
           className="w-9 h-9 rounded-full flex items-center justify-center font-heading font-black"
           style={{
-            backgroundColor: hasFamilyPass ? "rgba(255,215,0,0.20)" : "rgba(253,91,86,0.18)",
-            color: hasFamilyPass ? GOLD : CORAL,
+            backgroundColor: `${KBF_BLUE}26`,
+            color: KBF_BLUE,
           }}
         >
           ★
@@ -1340,7 +1413,7 @@ function BowlersStep({
         <div className="flex-1 min-w-0">
           <div
             className="font-heading uppercase tracking-[3px] text-[10px] mb-0.5"
-            style={{ color: hasFamilyPass ? GOLD : CORAL }}
+            style={{ color: KBF_BLUE }}
           >
             {hasFamilyPass ? "Families Bowl Free" : "Kids Bowl Free"}
           </div>
