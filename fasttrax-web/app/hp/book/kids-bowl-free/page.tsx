@@ -176,7 +176,11 @@ export default function KidsBowlFreePage() {
   // Tabbed sign-in (Phone | Email | New) — drives which form
   // LookupStep renders. Kept in the parent so a back-nav from the
   // verify step preserves the user's chosen tab.
-  const [lookupTab, setLookupTab] = useState<"phone" | "email" | "new">("phone");
+  // "New"-tab in-app registration is parked behind a feature flag
+  // for now — surface the external kidsbowlfree.com/bowland link
+  // instead. The /api/kbf/register route + handler below stay
+  // wired up for when we re-enable it.
+  const [lookupTab, setLookupTab] = useState<"phone" | "email">("email");
   const [phoneInput, setPhoneInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
   // "New" tab — minimum viable KBF registration form. Optional
@@ -759,13 +763,8 @@ export default function KidsBowlFreePage() {
               setPhoneInput={setPhoneInput}
               emailInput={emailInput}
               setEmailInput={setEmailInput}
-              newPerson={newPerson}
-              setNewPerson={setNewPerson}
-              newKids={newKids}
-              setNewKids={setNewKids}
               busy={busy}
               onLookup={handleLookup}
-              onRegister={handleRegister}
             />
           )}
 
@@ -989,27 +988,17 @@ function LookupStep({
   setPhoneInput,
   emailInput,
   setEmailInput,
-  newPerson,
-  setNewPerson,
-  newKids,
-  setNewKids,
   busy,
   onLookup,
-  onRegister,
 }: {
-  tab: "phone" | "email" | "new";
-  setTab: (t: "phone" | "email" | "new") => void;
+  tab: "phone" | "email";
+  setTab: (t: "phone" | "email") => void;
   phoneInput: string;
   setPhoneInput: (s: string) => void;
   emailInput: string;
   setEmailInput: (s: string) => void;
-  newPerson: NewPersonForm;
-  setNewPerson: (updater: (p: NewPersonForm) => NewPersonForm) => void;
-  newKids: NewKidForm[];
-  setNewKids: (updater: (k: NewKidForm[]) => NewKidForm[]) => void;
   busy: boolean;
   onLookup: () => void;
-  onRegister: () => void;
 }) {
   const formatPhoneDisplay = (raw: string): string => {
     const d = raw.replace(/\D/g, "").slice(0, 10);
@@ -1028,7 +1017,7 @@ function LookupStep({
 
       {/* Tabs — race-pack style (segmented, accent fill on active) */}
       <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-        {(["phone", "email", "new"] as const).map((m) => (
+        {(["email", "phone"] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -1040,7 +1029,7 @@ function LookupStep({
               fontWeight: tab === m ? 800 : 600,
             }}
           >
-            {m === "new" ? "New" : m === "phone" ? "Phone" : "Email"}
+            {m === "phone" ? "SMS" : "Email"}
           </button>
         ))}
       </div>
@@ -1095,154 +1084,50 @@ function LookupStep({
         </div>
       )}
 
-      {/* New tab — full registration form */}
-      {tab === "new" && (
-        <div className="space-y-3">
-          <p className="text-white/55 text-xs leading-relaxed">
-            Quick KBF registration. We&apos;ll create your account in our
-            booking system right away so you can book today, and (if you
-            set a password) also register you on kidsbowlfree.com to
-            receive weekly coupons.
-          </p>
-
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              value={newPerson.firstName}
-              onChange={(e) => setNewPerson((p) => ({ ...p, firstName: e.target.value }))}
-              placeholder="Parent first name"
-              className="rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-            />
-            <input
-              value={newPerson.lastName}
-              onChange={(e) => setNewPerson((p) => ({ ...p, lastName: e.target.value }))}
-              placeholder="Last name"
-              className="rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-            />
-          </div>
-          <input
-            value={newPerson.email}
-            onChange={(e) => setNewPerson((p) => ({ ...p, email: e.target.value }))}
-            placeholder="Email"
-            type="email"
-            autoComplete="email"
-            className="w-full rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-          />
-          <input
-            value={newPerson.phone}
-            onChange={(e) => setNewPerson((p) => ({ ...p, phone: formatPhoneDisplay(e.target.value) }))}
-            placeholder="Mobile phone"
-            type="tel"
-            autoComplete="tel"
-            className="w-full rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-          />
-          <input
-            value={newPerson.password}
-            onChange={(e) => setNewPerson((p) => ({ ...p, password: e.target.value }))}
-            placeholder="Password (creates kidsbowlfree.com login — optional)"
-            type="password"
-            autoComplete="new-password"
-            className="w-full rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-          />
-          <div className="grid grid-cols-3 gap-2">
-            <input
-              value={newPerson.address}
-              onChange={(e) => setNewPerson((p) => ({ ...p, address: e.target.value }))}
-              placeholder="Address"
-              className="col-span-3 rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-            />
-            <input
-              value={newPerson.city}
-              onChange={(e) => setNewPerson((p) => ({ ...p, city: e.target.value }))}
-              placeholder="City"
-              className="col-span-2 rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-            />
-            <input
-              value={newPerson.zip}
-              onChange={(e) => setNewPerson((p) => ({ ...p, zip: e.target.value.replace(/\D/g, "").slice(0, 5) }))}
-              placeholder="Zip"
-              inputMode="numeric"
-              className="rounded-xl bg-white/5 border border-white/15 px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none"
-            />
-          </div>
-
+      {/* External sign-up CTA — in-app registration is parked for now.
+          Direct new families to kidsbowlfree.com/bowland and warn them
+          about the ~1 hour delay before lane bookings work. */}
+      <div className="pt-3 mt-2 border-t border-white/10">
+        <div
+          className="rounded-xl px-4 py-3"
+          style={{
+            backgroundColor: "rgba(253,91,86,0.05)",
+            border: "1px solid rgba(253,91,86,0.20)",
+          }}
+        >
           <div
-            className="rounded-xl p-3"
+            className="font-heading uppercase text-[10px] tracking-[3px] mb-1"
+            style={{ color: CORAL }}
+          >
+            New to Kids Bowl Free?
+          </div>
+          <p className="text-white/65 text-xs leading-relaxed mb-3">
+            Sign up at{" "}
+            <a
+              href="https://www.kidsbowlfree.com/bowland"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-white"
+            >
+              kidsbowlfree.com/bowland
+            </a>{" "}
+            and you&apos;ll be able to reserve a lane here within an hour.
+          </p>
+          <a
+            href="https://www.kidsbowlfree.com/bowland"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center w-full py-2.5 rounded-full font-body font-bold text-xs uppercase tracking-wider text-white transition-all hover:scale-[1.01]"
             style={{
-              backgroundColor: "rgba(253,91,86,0.06)",
-              border: "1px solid rgba(253,91,86,0.20)",
+              backgroundColor: "rgba(253,91,86,0.20)",
+              border: `1px solid ${CORAL}60`,
+              color: CORAL,
             }}
           >
-            <div
-              className="font-heading uppercase text-[10px] tracking-[3px] mb-2"
-              style={{ color: CORAL }}
-            >
-              Kids
-            </div>
-            <div className="space-y-2">
-              {newKids.map((k, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <input
-                    value={k.firstName}
-                    onChange={(e) =>
-                      setNewKids((arr) => arr.map((row, ix) => (ix === i ? { ...row, firstName: e.target.value } : row)))
-                    }
-                    placeholder="First"
-                    className="col-span-4 rounded-lg bg-white/5 border border-white/10 px-2 py-2 text-white text-xs placeholder:text-white/25 focus:outline-none"
-                  />
-                  <input
-                    value={k.lastName}
-                    onChange={(e) =>
-                      setNewKids((arr) => arr.map((row, ix) => (ix === i ? { ...row, lastName: e.target.value } : row)))
-                    }
-                    placeholder="Last"
-                    className="col-span-3 rounded-lg bg-white/5 border border-white/10 px-2 py-2 text-white text-xs placeholder:text-white/25 focus:outline-none"
-                  />
-                  <input
-                    type="date"
-                    value={k.birthday}
-                    onChange={(e) =>
-                      setNewKids((arr) => arr.map((row, ix) => (ix === i ? { ...row, birthday: e.target.value } : row)))
-                    }
-                    className="col-span-4 rounded-lg bg-white/5 border border-white/10 px-2 py-2 text-white text-xs focus:outline-none"
-                    style={{ colorScheme: "dark" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setNewKids((arr) => arr.filter((_, ix) => ix !== i))}
-                    disabled={newKids.length === 1}
-                    aria-label="Remove kid"
-                    className="col-span-1 text-white/40 hover:text-white text-lg font-bold disabled:opacity-25"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-            {newKids.length < 3 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setNewKids((arr) => [...arr, { firstName: "", lastName: "", birthday: "" }])
-                }
-                className="mt-2 text-xs uppercase tracking-wider"
-                style={{ color: CORAL }}
-              >
-                + Add another kid
-              </button>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={onRegister}
-            disabled={busy}
-            className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
-            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-          >
-            {busy ? "Creating…" : "Register & continue"}
-          </button>
+            Register at kidsbowlfree.com →
+          </a>
         </div>
-      )}
+      </div>
     </div>
   );
 }
