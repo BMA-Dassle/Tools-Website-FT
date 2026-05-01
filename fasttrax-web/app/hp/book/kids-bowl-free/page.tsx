@@ -174,9 +174,11 @@ export default function KidsBowlFreePage() {
   const [passes, setPasses] = useState<PassWithMembers[]>([]);
   const [bowlerSelections, setBowlerSelections] = useState<Record<string, BowlerSelection>>({});
 
-  // Center + date + offer
+  // Center + date + offer. `date` defaults to the first bookable
+  // option (opening day during pre-launch, today otherwise) so the
+  // wizard never lands on a blank date selector.
   const [centerId, setCenterId] = useState<string>("");
-  const [date, setDate] = useState<string>("");
+  const [date, setDate] = useState<string>(() => bookableDateRange()[0] ?? "");
   const [offers, setOffers] = useState<QamfOffer[]>([]);
   const [selectedOfferId, setSelectedOfferId] = useState<number | null>(null);
   const [selectedTariffId, setSelectedTariffId] = useState<number | null>(null);
@@ -708,6 +710,38 @@ export default function KidsBowlFreePage() {
 
 // ── Header ─────────────────────────────────────────────────────────────────
 
+/**
+ * Compact on/off pill — used inside the bowler-selection card for
+ * "Need shoes" + "Bumpers" toggles. Matches the visual rhythm of the
+ * tariff pills below (filled accent when on, faded outline when off).
+ */
+function PillToggle({
+  label,
+  on,
+  onChange,
+  accent,
+}: {
+  label: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+  accent: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      className="rounded-full px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors"
+      style={{
+        backgroundColor: on ? accent : "rgba(255,255,255,0.04)",
+        color: on ? "#0a1628" : "rgba(255,255,255,0.55)",
+        border: on ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.10)",
+      }}
+    >
+      {on ? `✓ ${label}` : label}
+    </button>
+  );
+}
+
 function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
   const stepLabels: Record<Step, string> = {
     lookup: "Sign in",
@@ -938,111 +972,182 @@ function BowlersStep({
   };
   const selectedCount = bowlerKeys.filter((b) => selections[b.key]?.selected).length;
 
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-      <p className="text-white/70 text-sm mb-3 leading-relaxed">
-        Check who&apos;s bowling. Shoe rental defaults to on for everyone — uncheck
-        if a kid is bringing their own. Saved sizes auto-fill from your last visit.
-      </p>
+  // Initials for the avatar pip (e.g. "Ava Test" → "AT").
+  const initialsOf = (name: string): string => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    const first = parts[0]?.[0] ?? "";
+    const last = parts[parts.length - 1]?.[0] ?? "";
+    return (first + last).toUpperCase();
+  };
 
-      {/* Booking-guest header — always shown so the parent knows the
-          reservation is under their name even when they can't bowl. */}
-      {accountHolderName && (
+  // Color the avatar by relation so kids/family/parent are visually distinct.
+  const accentFor = (rel: BowlerKey["relation"]): string =>
+    rel === "kid" ? CORAL : rel === "family" ? GOLD : "#7dd3fc";
+
+  return (
+    <div className="space-y-4">
+      {/* Program eyebrow — Kids Bowl Free vs Families Bowl Free */}
+      <div
+        className="rounded-2xl px-4 py-3 flex items-center gap-3"
+        style={{
+          backgroundColor: hasFamilyPass
+            ? "rgba(255,215,0,0.08)"
+            : "rgba(253,91,86,0.06)",
+          border: hasFamilyPass
+            ? "1.78px solid rgba(255,215,0,0.40)"
+            : "1.78px solid rgba(253,91,86,0.30)",
+        }}
+      >
         <div
-          className="mb-4 rounded-xl border px-3.5 py-3 text-xs"
+          className="w-9 h-9 rounded-full flex items-center justify-center font-heading font-black"
           style={{
-            backgroundColor: "rgba(255,255,255,0.02)",
-            borderColor: "rgba(255,255,255,0.10)",
+            backgroundColor: hasFamilyPass ? "rgba(255,215,0,0.20)" : "rgba(253,91,86,0.18)",
+            color: hasFamilyPass ? GOLD : CORAL,
           }}
         >
-          <div className="text-white/45 uppercase tracking-wider mb-0.5">
-            Booking under
-          </div>
-          <div className="text-white/85 font-semibold text-sm">
-            {accountHolderName}
-          </div>
-          {!hasFamilyPass && (
-            <div className="text-white/55 mt-1.5 leading-relaxed">
-              Kids Bowl Free covers your registered kids. Add{" "}
-              <a
-                href="https://www.kidsbowlfree.com/family.php"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:text-white"
-              >
-                Families Bowl Free
-              </a>{" "}
-              to put yourself on a lane too.
-            </div>
-          )}
+          ★
         </div>
+        <div className="flex-1 min-w-0">
+          <div
+            className="font-heading uppercase tracking-[3px] text-[10px] mb-0.5"
+            style={{ color: hasFamilyPass ? GOLD : CORAL }}
+          >
+            {hasFamilyPass ? "Families Bowl Free" : "Kids Bowl Free"}
+          </div>
+          <div className="text-white/85 text-sm font-semibold truncate">
+            {accountHolderName || "Booking guest"}
+          </div>
+        </div>
+      </div>
+
+      {/* Helper copy + family-pass upgrade nudge */}
+      <p className="text-white/65 text-sm leading-relaxed">
+        Check who&apos;s bowling. Shoe rental and bumpers default to on — uncheck
+        as needed. Saved sizes auto-fill from your last visit.
+      </p>
+      {!hasFamilyPass && (
+        <p className="text-white/45 text-xs leading-relaxed">
+          Kids Bowl Free covers your registered kids. Add{" "}
+          <a
+            href="https://www.kidsbowlfree.com/family.php"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-white"
+          >
+            Families Bowl Free
+          </a>{" "}
+          to put yourself on a lane too.
+        </p>
       )}
 
-      <div className="space-y-2.5">
+      <div className="space-y-2">
         {bowlerKeys.map((b) => {
           const sel = selections[b.key];
           if (!sel) return null;
           const isOn = sel.selected;
+          const accent = accentFor(b.relation);
+          const relationLabel =
+            b.relation === "parent"
+              ? "Account holder"
+              : b.relation === "kid"
+                ? "Kid"
+                : "Family pass adult";
           return (
             <div
               key={b.key}
-              className="rounded-xl border bg-white/[0.02] p-3.5 transition-colors"
+              className="rounded-2xl border bg-white/[0.02] transition-all"
               style={{
-                borderColor: isOn ? `${CORAL}60` : "rgba(255,255,255,0.10)",
-                backgroundColor: isOn ? "rgba(253,91,86,0.06)" : "rgba(255,255,255,0.02)",
+                borderColor: isOn ? `${accent}80` : "rgba(255,255,255,0.10)",
+                backgroundColor: isOn
+                  ? `${accent}12`
+                  : "rgba(255,255,255,0.025)",
+                boxShadow: isOn ? `0 0 22px ${accent}20` : undefined,
               }}
             >
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isOn}
-                  onChange={(e) => update(b.key, { selected: e.target.checked })}
-                  aria-label={`Bowling: ${b.displayName || "unnamed bowler"}`}
-                  className="w-5 h-5 accent-coral"
-                />
-                <div className="flex-1">
-                  <div className="text-white font-semibold text-sm">
+              {/* Header row — clickable, big tappable area */}
+              <button
+                type="button"
+                onClick={() => update(b.key, { selected: !isOn })}
+                aria-label={`Toggle bowler ${b.displayName || "unnamed"}`}
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+              >
+                {/* Avatar */}
+                <div
+                  className="w-11 h-11 rounded-full flex items-center justify-center font-heading font-black text-sm shrink-0"
+                  style={{
+                    backgroundColor: `${accent}22`,
+                    color: accent,
+                    border: `1.78px solid ${accent}55`,
+                  }}
+                >
+                  {initialsOf(b.displayName)}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-semibold text-sm truncate">
                     {b.displayName || "(no name on file)"}
                   </div>
-                  <div className="text-white/45 text-xs uppercase tracking-wider mt-0.5">
-                    {b.relation === "parent"
-                      ? "Account holder"
-                      : b.relation === "kid"
-                        ? "Kid"
-                        : "Family pass adult"}
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span
+                      className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                      style={{
+                        backgroundColor: `${accent}22`,
+                        color: accent,
+                      }}
+                    >
+                      {relationLabel}
+                    </span>
                     {sel.shoeSizeLabel && (
-                      <>
-                        <span className="mx-1.5 text-white/25">·</span>
-                        Saved shoe: <span className="text-white/70">{sel.shoeSizeLabel}</span>
-                      </>
+                      <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white/10 text-white/60">
+                        Shoe {sel.shoeSizeLabel}
+                      </span>
+                    )}
+                    {sel.wantBumpers && (
+                      <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white/10 text-white/60">
+                        Bumpers
+                      </span>
                     )}
                   </div>
                 </div>
-              </label>
 
+                {/* State pill — replaces the bare checkbox with a clearer
+                    BOWLING / TAP TO ADD pill that mirrors the race-pack
+                    "Select" affordance. */}
+                <div
+                  className="text-[10px] uppercase tracking-[2px] font-bold px-3 py-1.5 rounded-full shrink-0"
+                  style={{
+                    backgroundColor: isOn ? accent : "rgba(255,255,255,0.06)",
+                    color: isOn ? "#0a1628" : "rgba(255,255,255,0.45)",
+                    border: isOn ? "none" : "1px solid rgba(255,255,255,0.10)",
+                  }}
+                >
+                  {isOn ? "Bowling" : "Add"}
+                </div>
+              </button>
+
+              {/* Expanded controls — only when selected. Tighter
+                  visuals than before: shoe + bumpers as pill toggles
+                  side by side; size selector below as a separate row. */}
               {isOn && (
-                <div className="mt-3 pl-8 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <label className="flex items-center gap-2 text-xs text-white/75 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={sel.wantShoes}
-                      onChange={(e) => update(b.key, { wantShoes: e.target.checked })}
-                      className="w-4 h-4 accent-coral"
+                <div className="border-t border-white/10 px-4 py-3 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <PillToggle
+                      label="Need shoes"
+                      on={sel.wantShoes}
+                      onChange={(v) => update(b.key, { wantShoes: v })}
+                      accent={accent}
                     />
-                    <span>Need rental shoes</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-white/75 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={sel.wantBumpers}
-                      onChange={(e) => update(b.key, { wantBumpers: e.target.checked })}
-                      className="w-4 h-4 accent-coral"
+                    <PillToggle
+                      label="Bumpers"
+                      on={sel.wantBumpers}
+                      onChange={(v) => update(b.key, { wantBumpers: v })}
+                      accent={accent}
                     />
-                    <span>Bumpers</span>
-                  </label>
+                  </div>
 
                   {sel.wantShoes && shoeCatalog.length > 0 && (
-                    <label className="col-span-1 sm:col-span-2 block">
+                    <label className="block">
                       <span className="block text-[10px] uppercase tracking-wider text-white/45 mb-1">
                         Shoe size
                       </span>
@@ -1056,10 +1161,6 @@ function BowlersStep({
                             shoeSizeLabel: found ? found.label : null,
                           });
                         }}
-                        // Native <select> options inherit OS theme — on dark
-                        // mode that turns into white-on-white. Force a dark
-                        // background + light text on both the trigger and
-                        // every option so it's readable everywhere.
                         style={{
                           backgroundColor: "#0a1628",
                           color: "#fff",
@@ -1090,11 +1191,11 @@ function BowlersStep({
         })}
       </div>
 
-      <div className="mt-3 text-xs text-white/55">
+      <div className="text-xs text-white/55 text-center">
         {selectedCount} bowler{selectedCount === 1 ? "" : "s"} selected
       </div>
 
-      <div className="mt-5 flex gap-2">
+      <div className="flex gap-2">
         <button
           type="button"
           onClick={onBack}
