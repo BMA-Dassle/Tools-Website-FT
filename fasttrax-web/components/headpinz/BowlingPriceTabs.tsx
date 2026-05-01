@@ -45,14 +45,15 @@ export default function BowlingPriceTabs({ tables }: { tables: BowlingPriceTable
 
   return (
     <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-8">
-      {/* Tab strip — equal-width buttons so titles wrap nicely on
-          narrow screens. Active tab gets the table's accent color
-          as a soft tint + bottom underline; inactive tabs read as
-          muted greys so the active one pops. */}
+      {/* Tab strip.
+          Mobile: vertical pill segmented control with explicit
+          borders + filled active background — reads unambiguously
+          as a switcher. Desktop: equal-width row with bottom
+          underline + soft tint, same as before. */}
       <div
         role="tablist"
         aria-label="Bowling pricing tiers"
-        className="flex flex-col sm:flex-row border-b border-white/10 bg-black/30"
+        className="flex flex-col sm:flex-row gap-2 sm:gap-0 p-2 sm:p-0 sm:border-b sm:border-white/10 bg-black/30"
       >
         {tables.map((t, i) => {
           const isActive = i === activeIdx;
@@ -65,15 +66,25 @@ export default function BowlingPriceTabs({ tables }: { tables: BowlingPriceTable
               aria-controls={`bowling-tab-panel-${i}`}
               id={`bowling-tab-${i}`}
               onClick={() => setActiveIdx(i)}
-              className="flex-1 px-3 py-3 sm:py-4 text-xs sm:text-sm font-heading font-black uppercase tracking-wider transition-all cursor-pointer"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-3 sm:py-4 text-xs sm:text-sm font-heading font-black uppercase tracking-wider transition-all cursor-pointer rounded-lg sm:rounded-none border sm:border-0 sm:border-b-2"
               style={{
-                color: isActive ? "#fff" : "rgba(255,255,255,0.5)",
-                backgroundColor: isActive ? `${t.color}20` : "transparent",
-                borderBottom: isActive ? `2px solid ${t.color}` : "2px solid transparent",
+                color: isActive ? "#fff" : "rgba(255,255,255,0.7)",
+                backgroundColor: isActive ? `${t.color}30` : "rgba(255,255,255,0.04)",
+                borderColor: isActive ? t.color : "rgba(255,255,255,0.12)",
                 letterSpacing: "0.5px",
               }}
             >
-              {t.title}
+              {/* Color dot — extra cue on mobile that this is a switcher
+                  with three options, each with its own brand chroma. */}
+              <span
+                aria-hidden="true"
+                className="inline-block w-2 h-2 rounded-full shrink-0"
+                style={{
+                  backgroundColor: t.color,
+                  opacity: isActive ? 1 : 0.6,
+                }}
+              />
+              <span>{t.title}</span>
             </button>
           );
         })}
@@ -109,12 +120,15 @@ export default function BowlingPriceTabs({ tables }: { tables: BowlingPriceTable
             {active.rows.map((r, i) => (
               <tr
                 key={r.period}
-                style={{ backgroundColor: i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)" }}
+                style={{
+                  backgroundColor: i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)",
+                  borderLeft: `3px solid ${active.color}`,
+                }}
               >
-                <td className="px-4 py-3 text-white/80 font-medium">{r.period}</td>
-                <td className="px-4 py-3 font-semibold text-center" style={{ color: active.color }}>{r.h15}</td>
-                <td className="px-4 py-3 font-semibold text-center" style={{ color: active.color }}>{r.h2}</td>
-                <td className="px-4 py-3 font-semibold text-center" style={{ color: active.color }}>{r.h3}</td>
+                <td className="px-4 py-3 text-white font-semibold">{r.period}</td>
+                <td className="px-4 py-3 text-white font-bold text-base text-center">{r.h15}</td>
+                <td className="px-4 py-3 text-white font-bold text-base text-center">{r.h2}</td>
+                <td className="px-4 py-3 text-white font-bold text-base text-center">{r.h3}</td>
               </tr>
             ))}
           </tbody>
