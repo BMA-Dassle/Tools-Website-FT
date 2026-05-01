@@ -61,6 +61,43 @@ function setQamfSessionToken(tok: string) {
   else sessionStorage.removeItem("qamf_session_token");
 }
 
+/** Custom error from the qamf wrapper that exposes the HTTP status
+ *  so callers can map it to a friendly message instead of leaking
+ *  raw "QAMF 409" strings into the UI. */
+class QamfError extends Error {
+  status: number;
+  constructor(status: number, message?: string) {
+    super(message ?? `QAMF ${status}`);
+    this.status = status;
+    this.name = "QamfError";
+  }
+}
+
+/** Translate a thrown error into a user-readable string for the
+ *  wizard's error banner. Only friendly text — never raw status
+ *  codes or stack-trace strings. */
+function friendlyQamfError(err: unknown, fallback: string): string {
+  if (err instanceof QamfError) {
+    if (err.status === 409) {
+      return "That time slot was just taken or your previous hold is still active. Pick another time and try again.";
+    }
+    if (err.status === 401 || err.status === 403) {
+      return "Your session expired. Please refresh and try again.";
+    }
+    if (err.status === 404) {
+      return "We couldn't find that reservation any more. Pick your time again.";
+    }
+    if (err.status >= 500) {
+      return "The reservation system hiccuped. Please try again in a moment.";
+    }
+    return fallback;
+  }
+  if (err instanceof Error && err.message && !/^QAMF\s/.test(err.message)) {
+    return err.message;
+  }
+  return fallback;
+}
+
 async function qamf(path: string, options?: RequestInit): Promise<unknown> {
   const headers: Record<string, string> = {
     ...((options?.headers as Record<string, string>) || {}),
@@ -69,7 +106,7 @@ async function qamf(path: string, options?: RequestInit): Promise<unknown> {
   if (token) headers["x-sessiontoken"] = token;
 
   const res = await fetch(`${QAMF_API}/${path}`, { ...options, headers });
-  if (!res.ok) throw new Error(`QAMF ${res.status}`);
+  if (!res.ok) throw new QamfError(res.status);
 
   const tok = res.headers.get("x-sessiontoken");
   if (tok) setQamfSessionToken(tok);
@@ -374,6 +411,32 @@ export default function KidsBowlFreePage() {
   // QAMF reservation key returned by book-for-later. Held for ~10
   // minutes by QAMF; if the parent abandons it auto-releases.
   const [reservationKey, setReservationKey] = useState<string>("");
+  // Tracks which (offerId, tariffId, time) the held key is for so
+  // a re-click on the same selection doesn't fire book-for-later
+  // again (which would 409 — QAMF already has a hold for this
+  // session at that slot).
+  const [heldFor, setHeldFor] = useState<{ offerId: number; tariffId: number; time: string } | null>(null);
+
+  /**
+   * Drop the QAMF session token + any in-flight reservation context.
+   * Called when the parent back-navigates to the lookup screen or
+   * changes their offer/time selection — without this the leftover
+   * x-sessiontoken on the next book-for-later makes QAMF think
+   * we're trying to create a second hold in the same session and it
+   * answers 409 ("QAMF 409" was the raw leak the user reported).
+   */
+  const clearReservationState = useCallback(() => {
+    setReservationKey("");
+    setHeldFor(null);
+    bmiAddonOrderIdRef.current = null;
+    bmiAddonLineIdsRef.current = {};
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("qamf_session_token");
+      sessionStorage.removeItem("qamf_reservation");
+      sessionStorage.removeItem("qamf_confirm_data");
+      sessionStorage.removeItem("qamf_bmi_addons");
+    }
+  }, []);
   const [offers, setOffers] = useState<QamfOffer[]>([]);
   const [selectedOfferId, setSelectedOfferId] = useState<number | null>(null);
   const [selectedTariffId, setSelectedTariffId] = useState<number | null>(null);
@@ -809,28 +872,44 @@ export default function KidsBowlFreePage() {
     setBusy(true);
     try {
       // ── 1. book-for-later — mirrors bowling's selectOffer call.
-      try {
-        const reservation = (await qamf(
-          `centers/${centerId}/reservations/temporary-request/book-for-later`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              DateFrom: `${date}T${selectedTime}`,
-              WebOfferId: selectedOfferId,
-              WebOfferTariffId: selectedTariffId,
-              PlayersList: [{ TypeId: 1, Number: playerCount || 1 }],
-            }),
-          },
-        )) as { ReservationKey?: string } | null;
-        if (!reservation?.ReservationKey) {
-          throw new Error("Reservation key missing in QAMF response");
+      // Skip the QAMF call entirely if we already hold a lane for
+      // this exact (offer, tariff, time) — re-clicking Continue
+      // shouldn't ask QAMF for a second hold (409 territory).
+      const sameSelection =
+        reservationKey &&
+        heldFor &&
+        heldFor.offerId === selectedOfferId &&
+        heldFor.tariffId === selectedTariffId &&
+        heldFor.time === selectedTime;
+      if (!sameSelection) {
+        try {
+          const reservation = (await qamf(
+            `centers/${centerId}/reservations/temporary-request/book-for-later`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                DateFrom: `${date}T${selectedTime}`,
+                WebOfferId: selectedOfferId,
+                WebOfferTariffId: selectedTariffId,
+                PlayersList: [{ TypeId: 1, Number: playerCount || 1 }],
+              }),
+            },
+          )) as { ReservationKey?: string } | null;
+          if (!reservation?.ReservationKey) {
+            throw new Error("Reservation key missing in QAMF response");
+          }
+          setReservationKey(reservation.ReservationKey);
+          setHeldFor({
+            offerId: selectedOfferId!,
+            tariffId: selectedTariffId!,
+            time: selectedTime,
+          });
+        } catch (err) {
+          setError(friendlyQamfError(err, "Couldn't hold the lane"));
+          setBusy(false);
+          return;
         }
-        setReservationKey(reservation.ReservationKey);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't hold the lane");
-        setBusy(false);
-        return;
       }
 
       // Add-ons (laser tag, gel blasters) are now BMI products
@@ -1361,7 +1440,7 @@ export default function KidsBowlFreePage() {
         router.push(redirect);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reservation failed");
+      setError(friendlyQamfError(err, "Reservation failed"));
       setStep("details");
     } finally {
       setBusy(false);
@@ -1398,7 +1477,19 @@ export default function KidsBowlFreePage() {
           Sign-in → Bowlers → When → Package → Extras → Review.
           Verify is collapsed under Sign-in (it's just an extension
           of the same step) and Submitting collapses under Review. */}
-      <KbfStepBar step={step} onJump={(target) => setStep(target)} />
+      <KbfStepBar
+        step={step}
+        onJump={(target) => {
+          // Back to lookup = sign-out semantics. Drop everything
+          // QAMF-side so the next sign-in starts clean and won't
+          // 409 on book-for-later. Mirrors bowling's clearReservation
+          // intent for the lane-held × button.
+          if (target === "lookup") clearReservationState();
+          setStep(target);
+        }}
+        reservationHeld={!!reservationKey}
+        onClearHeld={clearReservationState}
+      />
 
       <main className="pb-20 px-4 mt-4">
         <div className="max-w-4xl mx-auto">
@@ -1654,9 +1745,13 @@ function PillToggle({
 function KbfStepBar({
   step,
   onJump,
+  reservationHeld,
+  onClearHeld,
 }: {
   step: Step;
   onJump: (s: Step) => void;
+  reservationHeld: boolean;
+  onClearHeld: () => void;
 }) {
   const visible: { key: Step; label: string }[] = [
     { key: "lookup", label: "Sign-in" },
@@ -1675,7 +1770,7 @@ function KbfStepBar({
   return (
     <div className="sticky top-[72px] sm:top-[80px] z-30">
       <div className="border-b border-white/8 bg-[#0a1628]">
-        <div className="max-w-4xl mx-auto px-3 py-2.5">
+        <div className="max-w-4xl mx-auto px-3 py-2.5 relative">
           <div className="flex items-center justify-center gap-0 flex-nowrap">
             {visible.map((s, i) => {
               const isPast = i < currentIdx;
@@ -1724,6 +1819,29 @@ function KbfStepBar({
               );
             })}
           </div>
+          {/* Held-lane indicator with × to manually drop the QAMF
+              hold + session token — mirrors bowling's clearReservation
+              escape hatch on its sticky step bar. */}
+          {reservationHeld && (
+            <span
+              className="hidden sm:inline-flex items-center gap-1 font-body text-[10px] px-2 py-0.5 rounded-full shrink-0 absolute right-3 top-1/2 -translate-y-1/2"
+              style={{
+                backgroundColor: "rgba(255,215,0,0.10)",
+                color: GOLD,
+                border: `1px solid ${GOLD}40`,
+              }}
+            >
+              Lane held
+              <button
+                type="button"
+                onClick={onClearHeld}
+                aria-label="Drop the held lane"
+                className="ml-0.5 text-white/40 hover:text-white"
+              >
+                ×
+              </button>
+            </span>
+          )}
         </div>
       </div>
     </div>
