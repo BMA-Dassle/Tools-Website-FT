@@ -69,6 +69,7 @@ type ListResponse = {
       byReturning: number;
       attachRateNewRacer: number;
       attachRateReturning: number;
+      byTier?: { tier: string; racingCount: number; povCount: number; attachRate: number }[];
     };
     license: { count: number };
     addOnAttachCount: number;
@@ -78,6 +79,17 @@ type ListResponse = {
   attractions: {
     reservations: number;
     topAddOns: { name: string; count: number }[];
+  };
+  videos?: {
+    total: number;
+    purchased: number;
+    viewed: number;
+    smsSent: number;
+    pending: number;
+    purchaseRate: number;
+    smsDeliveryRate: number;
+    byTrack: { track: string; total: number; purchased: number; viewed: number; smsSent: number; purchaseRate: number }[];
+    byRaceType: { raceType: string; total: number; purchased: number; purchaseRate: number }[];
   };
   byDay: { ymd: string; reservations: number; racers: number }[];
   entries: SaleEntry[];
@@ -313,6 +325,10 @@ export default function SalesAdminClient({ token }: { token: string }) {
                       { label: "Attach rate (overall)", value: `${data.racing.pov.attachRate}%` },
                       { label: "  · new racers", value: `${data.racing.pov.byNewRacer} (${data.racing.pov.attachRateNewRacer}%)` },
                       { label: "  · returning", value: `${data.racing.pov.byReturning} (${data.racing.pov.attachRateReturning}%)` },
+                      ...(data.racing.pov.byTier ?? []).map((t) => ({
+                        label: `  · ${t.tier}`,
+                        value: `${t.povCount} / ${t.racingCount} (${t.attachRate}%)`,
+                      })),
                     ]}
                   />
                   <Tile
@@ -356,6 +372,69 @@ export default function SalesAdminClient({ token }: { token: string }) {
                 </div>
                 {data.attractions.topAddOns.length > 0 && (
                   <CountList title="Top attractions / add-ons" rows={data.attractions.topAddOns} />
+                )}
+              </Section>
+            )}
+
+            {/* ── Video post-sale breakdown ── */}
+            {data.videos && data.videos.total > 0 && (
+              <Section title="Videos · Post-Race">
+                {/* Top-line counts */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+                  <MiniStat label="Matched" value={data.videos.total} />
+                  <MiniStat label="Purchased" value={`${data.videos.purchased} (${data.videos.purchaseRate}%)`} />
+                  <MiniStat label="Viewed" value={data.videos.viewed} />
+                  <MiniStat label="SMS sent" value={`${data.videos.smsSent} (${data.videos.smsDeliveryRate}%)`} />
+                  <MiniStat label="Pending notify" value={data.videos.pending} />
+                </div>
+
+                {/* By track */}
+                {data.videos.byTrack.length > 0 && (
+                  <div className="mb-4">
+                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2">By track</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {data.videos.byTrack.map((t) => (
+                        <Tile
+                          key={t.track}
+                          title={`${t.track} Track`}
+                          primary={`${t.purchased}`}
+                          primarySubtle={`/ ${t.total} matched`}
+                          rows={[
+                            { label: "Purchase rate", value: `${t.purchaseRate}%` },
+                            { label: "Viewed", value: `${t.viewed}` },
+                            { label: "SMS sent", value: `${t.smsSent}` },
+                          ]}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* By race type */}
+                {data.videos.byRaceType.length > 0 && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2.5">By race type</div>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-white/40 uppercase tracking-wider">
+                          <th className="text-left pb-2 font-medium">Race type</th>
+                          <th className="text-right pb-2 font-medium">Matched</th>
+                          <th className="text-right pb-2 font-medium">Purchased</th>
+                          <th className="text-right pb-2 font-medium">Buy rate</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {data.videos.byRaceType.map((r) => (
+                          <tr key={r.raceType}>
+                            <td className="py-1.5 text-white/80">{r.raceType}</td>
+                            <td className="py-1.5 text-right font-mono text-white/60">{r.total}</td>
+                            <td className="py-1.5 text-right font-mono text-white/80">{r.purchased}</td>
+                            <td className="py-1.5 text-right font-mono text-[#00E2E5]">{r.purchaseRate}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </Section>
             )}

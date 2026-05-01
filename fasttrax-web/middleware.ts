@@ -287,7 +287,8 @@ export function middleware(request: NextRequest) {
   // domains without /hp rewriting — e.g. /accessibility (host-aware
   // metadata renders the right brand per request).
   const isSharedTopLevelRoute =
-    pathname === "/accessibility" || pathname.startsWith("/accessibility/");
+    pathname === "/accessibility" || pathname.startsWith("/accessibility/") ||
+    pathname === "/cancellation-policy" || pathname.startsWith("/cancellation-policy/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&

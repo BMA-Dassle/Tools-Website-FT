@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSalesRange, readDailyTotals, type SaleEntry, type BookingType } from "@/lib/sales-log";
+import { listMatchesInRange } from "@/lib/video-match";
 
 /**
  * GET /api/admin/sales/list
@@ -118,6 +119,23 @@ export async function GET(req: NextRequest) {
     const povQtySum = racingAll.reduce((s, e) => s + (e.povQty ?? 0), 0);
     const povNewRacer = racingAll.filter((e) => e.povPurchased && e.isNewRacer === true).length;
     const povReturning = racingAll.filter((e) => e.povPurchased && e.isNewRacer === false).length;
+
+    // POV by race tier — inferred from verbatim product names
+    function inferTier(e: SaleEntry): "Starter" | "Intermediate" | "Pro" | null {
+      const names = (e.raceProductNames ?? []).join(" ").toLowerCase();
+      if (!names) return null;
+      if (names.includes("pro")) return "Pro";
+      if (names.includes("intermediate")) return "Intermediate";
+      if (names.includes("starter")) return "Starter";
+      return null;
+    }
+    const POV_TIERS = ["Starter", "Intermediate", "Pro"] as const;
+    const povByTier = POV_TIERS.map((tier) => {
+      const inTier = racingAll.filter((e) => inferTier(e) === tier);
+      const povInTier = inTier.filter((e) => e.povPurchased === true);
+      return { tier, racingCount: inTier.length, povCount: povInTier.length, attachRate: pct(povInTier.length, inTier.length) };
+    }).filter((t) => t.racingCount > 0);
+
     const licenseCount = racingAll.filter((e) => e.licensePurchased === true).length;
     const expressLaneCount = racingAll.filter((e) => e.expressLane === true).length;
     // "Add-on attach" = racing booking that also had attraction line
@@ -150,6 +168,7 @@ export async function GET(req: NextRequest) {
         byReturning: povReturning,
         attachRateNewRacer: pct(povNewRacer, racingNew.length),
         attachRateReturning: pct(povReturning, racingReturning.length),
+        byTier: povByTier,
       },
       license: {
         count: licenseCount,
@@ -166,6 +185,85 @@ export async function GET(req: NextRequest) {
     const attractions = {
       reservations: attractionAll.length,
       topAddOns: topByName(all.flatMap((e) => e.addOnNames || []), 10),
+    };
+
+    // ── Video post-sale data (from Redis video-match log) ──────────
+    // Fetch video matches whose `matchedAt` falls in the same ET day
+    // window. Indexed by matchedAt (the moment the cron linked the
+    // video to the racer), which is close enough to race day for
+    // dashboard purposes.
+    //
+    // Helper: YYYY-MM-DD (ET) → epoch ms for the start of that day.
+    // Uses Intl to resolve the actual UTC offset (handles DST).
+    function etDayStartMs(ymd: string): number {
+      const probe = new Date(`${ymd}T12:00:00.000Z`);
+      const etHour = parseInt(
+        probe.toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }),
+        10,
+      );
+      // utcOffset is how many hours ET is BEHIND UTC (4 for EDT, 5 for EST)
+      const utcOffset = 12 - etHour;
+      return new Date(`${ymd}T00:00:00.000Z`).getTime() + utcOffset * 3_600_000;
+    }
+
+    const videoStartMs = etDayStartMs(from);
+    const videoEndMs   = etDayStartMs(to) + 86_400_000 - 1; // end of `to` day in ET
+
+    const videoMatches = await listMatchesInRange({
+      startMs: videoStartMs,
+      endMs:   videoEndMs,
+      limit:   2000,
+    }).catch(() => []); // non-fatal — sales page must not break if Redis is down
+
+    // Exclude blocked and manual-send synthetics
+    const realMatches = videoMatches.filter(
+      (m) => String(m.sessionId) !== "manual" && !m.blocked,
+    );
+
+    const videoTotal     = realMatches.length;
+    const videoPurchased = realMatches.filter((m) => m.purchased === true).length;
+    const videoViewed    = realMatches.filter((m) => m.viewed === true).length;
+    const videoSmsSent   = realMatches.filter((m) => m.notifySmsOk === true).length;
+    const videoPending   = realMatches.filter((m) => m.pendingNotify === true).length;
+
+    // Group by track — normalize "Red Track" → "Red" etc.
+    const trackMap = new Map<string, { total: number; purchased: number; viewed: number; smsSent: number }>();
+    for (const m of realMatches) {
+      const track = (m.track || "Unknown").replace(/\s*track\s*/i, "").trim() || "Unknown";
+      const s = trackMap.get(track) ?? { total: 0, purchased: 0, viewed: 0, smsSent: 0 };
+      s.total++;
+      if (m.purchased)    s.purchased++;
+      if (m.viewed)       s.viewed++;
+      if (m.notifySmsOk)  s.smsSent++;
+      trackMap.set(track, s);
+    }
+    const videosByTrack = Array.from(trackMap.entries())
+      .map(([track, s]) => ({ track, ...s, purchaseRate: pct(s.purchased, s.total) }))
+      .sort((a, b) => b.total - a.total);
+
+    // Group by race type (Starter / Intermediate / Pro / unknown)
+    const raceTypeMap = new Map<string, { total: number; purchased: number }>();
+    for (const m of realMatches) {
+      const rt = m.raceType || "Unknown";
+      const s = raceTypeMap.get(rt) ?? { total: 0, purchased: 0 };
+      s.total++;
+      if (m.purchased) s.purchased++;
+      raceTypeMap.set(rt, s);
+    }
+    const videosByRaceType = Array.from(raceTypeMap.entries())
+      .map(([raceType, s]) => ({ raceType, ...s, purchaseRate: pct(s.purchased, s.total) }))
+      .sort((a, b) => b.total - a.total);
+
+    const videos = {
+      total:           videoTotal,
+      purchased:       videoPurchased,
+      viewed:          videoViewed,
+      smsSent:         videoSmsSent,
+      pending:         videoPending,
+      purchaseRate:    pct(videoPurchased, videoTotal),
+      smsDeliveryRate: pct(videoSmsSent, videoTotal),
+      byTrack:         videosByTrack,
+      byRaceType:      videosByRaceType,
     };
 
     // ── Per-day breakdown for chart rendering ─────────────────────
