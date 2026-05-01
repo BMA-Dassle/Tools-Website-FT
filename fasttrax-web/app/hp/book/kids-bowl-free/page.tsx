@@ -834,7 +834,17 @@ export default function KidsBowlFreePage() {
     <div style={{ backgroundColor: BG }} className="min-h-screen">
       <HeadPinzNav />
 
-      <main className="pt-28 sm:pt-36 pb-20 px-4">
+      {/* Spacer for fixed nav, mirrors bowling */}
+      <div className="pt-28 sm:pt-32" />
+
+      {/* Sticky step nav — same shape + sticky behavior as bowling,
+          but the step list is refactored for KBF's flow:
+          Sign-in → Bowlers → When → Package → Extras → Review.
+          Verify is collapsed under Sign-in (it's just an extension
+          of the same step) and Submitting collapses under Review. */}
+      <KbfStepBar step={step} onJump={(target) => setStep(target)} />
+
+      <main className="pb-20 px-4 mt-4">
         <div className="max-w-2xl mx-auto">
           <Header step={step} preLaunch={preLaunch} />
 
@@ -992,6 +1002,95 @@ function PillToggle({
     >
       {on ? `✓ ${label}` : label}
     </button>
+  );
+}
+
+/**
+ * Sticky step breadcrumb — same chrome as the /book/bowling step
+ * bar (numbered pills, chevrons, sticky positioning under the
+ * fixed nav, click-to-jump-back on completed steps).
+ *
+ * KBF flow has 6 visible steps:
+ *   1 Sign-in · 2 Bowlers · 3 When · 4 Package · 5 Extras · 6 Review
+ *
+ * `verify` is treated as part of "Sign-in" (sub-state of the auth
+ * step), and `submitting` is treated as part of "Review".
+ */
+function KbfStepBar({
+  step,
+  onJump,
+}: {
+  step: Step;
+  onJump: (s: Step) => void;
+}) {
+  const visible: { key: Step; label: string }[] = [
+    { key: "lookup", label: "Sign-in" },
+    { key: "bowlers", label: "Bowlers" },
+    { key: "datetime", label: "When" },
+    { key: "offer", label: "Package" },
+    { key: "addons", label: "Extras" },
+    { key: "review", label: "Review" },
+  ];
+  // Map sub-states to their parent step for the bar's "current" hit.
+  const currentKey: Step =
+    step === "verify" ? "lookup" : step === "submitting" ? "review" : step;
+  const currentIdx = visible.findIndex((v) => v.key === currentKey);
+
+  return (
+    <div className="sticky top-[72px] sm:top-[80px] z-30">
+      <div className="border-b border-white/8 bg-[#0a1628]">
+        <div className="max-w-4xl mx-auto px-3 py-2.5">
+          <div className="flex items-center justify-center gap-0 flex-nowrap">
+            {visible.map((s, i) => {
+              const isPast = i < currentIdx;
+              const isCurrent = i === currentIdx;
+              const isFuture = i > currentIdx;
+              return (
+                <div key={s.key} className="flex items-center min-w-0">
+                  <button
+                    onClick={() => isPast && onJump(s.key)}
+                    disabled={isFuture || isCurrent}
+                    type="button"
+                    className={`flex items-center gap-1 px-1 py-0.5 rounded text-[11px] font-body font-bold transition-all whitespace-nowrap ${
+                      isCurrent
+                        ? ""
+                        : isPast
+                          ? "text-white/60 hover:text-white/90 cursor-pointer"
+                          : "text-white/25 cursor-not-allowed"
+                    }`}
+                    style={{ color: isCurrent ? CORAL : undefined }}
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shrink-0"
+                      style={{
+                        backgroundColor: isCurrent
+                          ? CORAL
+                          : isPast
+                            ? "rgba(255,255,255,0.2)"
+                            : "rgba(255,255,255,0.08)",
+                        color: isCurrent
+                          ? "#fff"
+                          : isPast
+                            ? "#fff"
+                            : "rgba(255,255,255,0.3)",
+                      }}
+                    >
+                      {isPast ? "✓" : i + 1}
+                    </span>
+                    <span className="hidden md:inline">{s.label}</span>
+                  </button>
+                  {i < visible.length - 1 && (
+                    <span className="text-white/15 px-0.5 text-xs shrink-0">
+                      &rsaquo;
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
