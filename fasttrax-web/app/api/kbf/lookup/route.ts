@@ -78,6 +78,10 @@ async function sendEmailOtp(to: string, code: string): Promise<boolean> {
     console.error("[kbf/lookup] Missing SENDGRID_API_KEY");
     return false;
   }
+  // Mirror the race-pack OTP template verbatim — clean white card on
+  // a light bg, dark heading, soft-grey code chip. Race-pack emails
+  // deliver reliably through Gmail/Outlook spam filters; the dark
+  // KBF-themed template I had earlier was getting flagged as junk.
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: {
@@ -91,17 +95,11 @@ async function sendEmailOtp(to: string, code: string): Promise<boolean> {
       content: [
         {
           type: "text/plain",
-          value: `Your HeadPinz Kids Bowl Free code is: ${code}\n\nThis code expires in 5 minutes.`,
+          value: `Your Kids Bowl Free verification code is: ${code}\n\nThis code expires in 5 minutes.`,
         },
         {
           type: "text/html",
-          value:
-            `<div style="font-family:Arial,sans-serif;max-width:420px;margin:0 auto;padding:24px;background:#0a1628;color:#fff;border-radius:14px">` +
-            `<div style="font-size:11px;letter-spacing:3px;color:#fd5b56;text-transform:uppercase;font-weight:800;margin-bottom:8px">HeadPinz Kids Bowl Free</div>` +
-            `<h2 style="margin:0 0 14px 0;font-size:18px">Your verification code</h2>` +
-            `<div style="background:#123075;border-radius:10px;padding:18px;text-align:center;font-size:30px;letter-spacing:10px;font-weight:800;color:#fff">${code}</div>` +
-            `<p style="color:#94a3b8;font-size:12px;margin-top:14px">This code expires in 5 minutes.</p>` +
-            `</div>`,
+          value: `<div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px"><h2 style="color:#000418">Kids Bowl Free Verification</h2><p>Your verification code is:</p><div style="background:#f0f0f0;border-radius:8px;padding:20px;text-align:center;font-size:32px;letter-spacing:8px;font-weight:bold;color:#000418">${code}</div><p style="color:#666;font-size:12px;margin-top:16px">This code expires in 5 minutes.</p></div>`,
         },
       ],
     }),
