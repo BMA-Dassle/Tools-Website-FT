@@ -1273,12 +1273,11 @@ function LookupStep({
         </div>
       )}
 
-      {/* External sign-up CTA — in-app registration is parked for now.
-          Direct new families to kidsbowlfree.com/bowland and warn them
-          about the ~1 hour delay before lane bookings work. */}
-      <div className="pt-3 mt-2 border-t border-white/10">
+      {/* External sign-up CTA — only shown on the "New" tab so it
+          doesn't visually attach itself to Email or SMS sign-in. */}
+      {tab === "new" && (
         <div
-          className="rounded-xl px-4 py-3"
+          className="rounded-xl px-4 py-4"
           style={{
             backgroundColor: "rgba(253,91,86,0.05)",
             border: "1px solid rgba(253,91,86,0.20)",
@@ -1300,13 +1299,15 @@ function LookupStep({
             >
               kidsbowlfree.com/bowland
             </a>{" "}
-            and you&apos;ll be able to reserve a lane here within an hour.
+            — new accounts take about an hour to be reservable here. Once
+            you&apos;re registered, come back and use the Email tab to
+            sign in.
           </p>
           <a
             href="https://www.kidsbowlfree.com/bowland"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center justify-center w-full py-2.5 rounded-full font-body font-bold text-xs uppercase tracking-wider text-white transition-all hover:scale-[1.01]"
+            className="inline-flex items-center justify-center w-full py-2.5 rounded-full font-body font-bold text-xs uppercase tracking-wider transition-all hover:scale-[1.01]"
             style={{
               backgroundColor: "rgba(253,91,86,0.20)",
               border: `1px solid ${CORAL}60`,
@@ -1316,7 +1317,7 @@ function LookupStep({
             Register at kidsbowlfree.com →
           </a>
         </div>
-      </div>
+      )}
     </div>
   );
 }
