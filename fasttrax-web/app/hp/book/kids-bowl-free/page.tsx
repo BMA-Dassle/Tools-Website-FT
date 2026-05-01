@@ -1596,19 +1596,46 @@ function PillToggle({
     <button
       type="button"
       onClick={() => onChange(!on)}
-      className="rounded-full px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors"
+      role="switch"
+      aria-checked={on}
+      className="rounded-full px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-2"
       style={{
-        // Tinted on-state — full-saturation accent fill was visually
-        // overpowering. Use a translucent tint with accent-colored text
-        // so the pill still reads "active" without shouting.
-        backgroundColor: on ? `${accent}22` : "rgba(255,255,255,0.04)",
-        color: on ? accent : "rgba(255,255,255,0.55)",
+        // Inverted on-state — filled accent bg with dark navy text
+        // is far more legible at a glance than the faint-tint vs
+        // faint-tint distinction we had before. Off-state stays
+        // outline-only so the contrast between the two is obvious.
+        backgroundColor: on ? accent : "transparent",
+        color: on ? "#0a1628" : "rgba(255,255,255,0.55)",
         border: on
-          ? `1px solid ${accent}80`
-          : "1px solid rgba(255,255,255,0.10)",
+          ? `1.5px solid ${accent}`
+          : "1.5px solid rgba(255,255,255,0.18)",
       }}
     >
-      {on ? `✓ ${label}` : label}
+      {/* Checkbox-style glyph — empty square when off, filled
+          square with a green checkmark when on. Bright green
+          stays legible against the dark navy fill of the box. */}
+      <span
+        aria-hidden="true"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-[3px] shrink-0"
+        style={{
+          backgroundColor: on ? "#0a1628" : "transparent",
+          border: on
+            ? "1.5px solid #0a1628"
+            : "1.5px solid rgba(255,255,255,0.45)",
+          color: on ? "#22c55e" : "transparent",
+        }}
+      >
+        <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none">
+          <path
+            d="M3 8.5L6.5 12L13 4"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -2275,8 +2302,9 @@ function BowlersStep({
 
                   {sel.wantShoes && shoeCatalog.length > 0 && (
                     <label className="block">
-                      <span className="block text-[10px] uppercase tracking-wider text-white/45 mb-1">
-                        Shoe size
+                      <span className="flex items-center justify-between text-[10px] uppercase tracking-wider text-white/45 mb-1">
+                        <span>Shoe size</span>
+                        <span style={{ color: "#22c55e" }}>$5 + tax</span>
                       </span>
                       <select
                         value={sel.shoeSizeId ?? ""}
