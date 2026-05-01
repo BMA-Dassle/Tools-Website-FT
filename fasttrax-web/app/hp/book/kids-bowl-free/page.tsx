@@ -105,6 +105,9 @@ interface BowlerSelection {
   wantShoes: boolean;
   shoeSizeId: number | null;
   shoeSizeLabel: string | null;
+  /** QAMF shoe-size category id (Adult M/F vs Kids M/F). Required
+   *  on `Size: { Id, Name, CategoryId }` for PATCH /players. */
+  shoeCategoryId: number | null;
   wantBumpers: boolean;
 }
 
@@ -170,6 +173,11 @@ export default function KidsBowlFreePage() {
   const [savePhoneOptIn, setSavePhoneOptIn] = useState(false);
   const [savePhoneValue, setSavePhoneValue] = useState("");
 
+  // Tabbed sign-in (Phone | Email | New) — drives which form
+  // LookupStep renders. Kept in the parent so a back-nav from the
+  // verify step preserves the user's chosen tab.
+  const [lookupTab, setLookupTab] = useState<"phone" | "email" | "new">("phone");
+
   // Family roster from /api/kbf/verify
   const [passes, setPasses] = useState<PassWithMembers[]>([]);
   const [bowlerSelections, setBowlerSelections] = useState<Record<string, BowlerSelection>>({});
@@ -183,7 +191,7 @@ export default function KidsBowlFreePage() {
   const [selectedOfferId, setSelectedOfferId] = useState<number | null>(null);
   const [selectedTariffId, setSelectedTariffId] = useState<number | null>(null);
   const [selectedTime, setSelectedTime] = useState<string>("");
-  const [shoeCatalog, setShoeCatalog] = useState<{ id: number; label: string; categoryName: string }[]>([]);
+  const [shoeCatalog, setShoeCatalog] = useState<{ id: number; label: string; categoryId: number | null; categoryName: string }[]>([]);
 
   // Review
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
@@ -257,6 +265,7 @@ export default function KidsBowlFreePage() {
         wantShoes: true,
         shoeSizeId: null,
         shoeSizeLabel: null,
+        shoeCategoryId: null,
         wantBumpers: false,
       };
     }
@@ -269,6 +278,7 @@ export default function KidsBowlFreePage() {
           wantShoes: pref?.wantShoes ?? true,
           shoeSizeId: pref?.shoeSizeId ?? null,
           shoeSizeLabel: pref?.shoeSizeLabel ?? null,
+          shoeCategoryId: null,
           wantBumpers: pref?.wantBumpers ?? (m.relation === "kid"),
         };
       }
@@ -384,13 +394,19 @@ export default function KidsBowlFreePage() {
     [playerCount],
   );
 
-  // Lazy-load shoe catalog the first time we hit the center step.
+  /**
+   * Lazy-load the QAMF shoe-size catalog. Captures the QAMF
+   * CategoryId on each size so the reserve route can send the
+   * complete `Size: { Id, Name, CategoryId }` object QAMF expects on
+   * PATCH /players (rather than the partial { Id, Name } that QAMF
+   * may sometimes treat as a free-text size).
+   */
   const loadShoeCatalog = useCallback(async (chosenCenterId: string) => {
     try {
       const res = await fetch(`/api/qamf/centers/${chosenCenterId}/ShoesSize`, { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
-      const flat: { id: number; label: string; categoryName: string }[] = [];
+      const flat: { id: number; label: string; categoryId: number | null; categoryName: string }[] = [];
       const cats: Array<{ Id?: number; DisplayName?: string; ShoesSize?: unknown }> =
         data?.CategoriesShoesSizes || [];
       for (const c of cats) {
@@ -402,6 +418,7 @@ export default function KidsBowlFreePage() {
               flat.push({
                 id: obj.Id,
                 label: obj.Name,
+                categoryId: typeof c.Id === "number" ? c.Id : null,
                 categoryName: c.DisplayName ?? "",
               });
             }
@@ -413,6 +430,19 @@ export default function KidsBowlFreePage() {
       // Non-fatal — shoe size remains a free-text label.
     }
   }, []);
+
+  /**
+   * Pre-fetch the shoe catalog the moment we hit the bowlers step
+   * and we know the center. Before this effect, the catalog was only
+   * loaded on bowlers-continue, which left the size dropdown empty
+   * on first paint and only populated after navigating away + back.
+   */
+  useEffect(() => {
+    if (step !== "bowlers") return;
+    if (shoeCatalog.length > 0) return;
+    if (!centerId) return;
+    void loadShoeCatalog(centerId);
+  }, [step, centerId, shoeCatalog.length, loadShoeCatalog]);
 
   /**
    * From bowlers → datetime. Auto-defaults the date to the first
@@ -754,9 +784,14 @@ function PillToggle({
       onClick={() => onChange(!on)}
       className="rounded-full px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors"
       style={{
-        backgroundColor: on ? accent : "rgba(255,255,255,0.04)",
-        color: on ? "#0a1628" : "rgba(255,255,255,0.55)",
-        border: on ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.10)",
+        // Tinted on-state — full-saturation accent fill was visually
+        // overpowering. Use a translucent tint with accent-colored text
+        // so the pill still reads "active" without shouting.
+        backgroundColor: on ? `${accent}22` : "rgba(255,255,255,0.04)",
+        color: on ? accent : "rgba(255,255,255,0.55)",
+        border: on
+          ? `1px solid ${accent}80`
+          : "1px solid rgba(255,255,255,0.10)",
       }}
     >
       {on ? `✓ ${label}` : label}
@@ -1004,13 +1039,15 @@ function BowlersStep({
     return (first + last).toUpperCase();
   };
 
-  // Color the avatar by relation. Kept inside the HeadPinz brand
-  // palette: coral (CORAL) for kids, gold (GOLD) for family-pass
-  // adults, and a navy-derived blue for the account holder so the
-  // parent's chip ties back to NAVY rather than the off-brand sky
-  // blue we tried first.
+  // All family members bowling on the KBF / FBF program share the
+  // HeadPinz coral primary — it's the program color so a kid and a
+  // family-pass adult chip read as the same family unit. The
+  // account holder gets a navy-derived blue to set them apart as
+  // the booking guest. Saturated gold on adults felt out of place
+  // next to the coral kids; the relation chip carries the "Family
+  // Pass Adult" label and that's enough to differentiate.
   const accentFor = (rel: BowlerKey["relation"]): string =>
-    rel === "kid" ? CORAL : rel === "family" ? GOLD : "#6b8ec7";
+    rel === "parent" ? "#6b8ec7" : CORAL;
 
   // KBF rule: every booking needs at least one kid. Adults (parent
   // with Families Bowl Free + family-pass adults) only get a free
@@ -1106,10 +1143,12 @@ function BowlersStep({
           const adultLocked = isAdult && !anyKidSelected;
           const relationLabel =
             b.relation === "parent"
-              ? "Account holder"
+              ? hasFamilyPass
+                ? "Family Pass Adult"
+                : "Account holder"
               : b.relation === "kid"
-                ? "Kid"
-                : "Family pass adult";
+                ? "Kids Bowl Free"
+                : "Family Pass Adult";
           return (
             <div
               key={b.key}
@@ -1180,9 +1219,11 @@ function BowlersStep({
                 <div
                   className="text-[10px] uppercase tracking-[2px] font-bold px-3 py-1.5 rounded-full shrink-0"
                   style={{
-                    backgroundColor: isOn ? accent : "rgba(255,255,255,0.06)",
-                    color: isOn ? "#0a1628" : "rgba(255,255,255,0.45)",
-                    border: isOn ? "none" : "1px solid rgba(255,255,255,0.10)",
+                    backgroundColor: isOn ? `${accent}26` : "rgba(255,255,255,0.06)",
+                    color: isOn ? accent : "rgba(255,255,255,0.45)",
+                    border: isOn
+                      ? `1px solid ${accent}80`
+                      : "1px solid rgba(255,255,255,0.10)",
                   }}
                 >
                   {adultLocked ? "Kid required" : isOn ? "Bowling" : "Add"}
@@ -1745,12 +1786,16 @@ function OfferTimeStepBody({
                 setSelectedTariffId(firstItem?.ItemId ?? null);
                 setSelectedTime("");
               }}
-              className="w-full text-left rounded-2xl border overflow-hidden transition-all hover:scale-[1.005]"
+              // 1:1 visual mirror of the bowling lane-type card —
+              // dashed accent border, slate bg, image/video on the
+              // left, content on the right with title text-shadow,
+              // small dot bullets, and a filled action pill at the
+              // bottom that reflects state (selected vs sold out
+              // vs CTA).
+              className={`w-full rounded-lg overflow-hidden text-left transition-all ${slotCount === 0 ? "opacity-50" : "hover:scale-[1.01]"}`}
               style={{
-                borderColor: on ? `${accent}90` : "rgba(255,255,255,0.10)",
-                backgroundColor: on
-                  ? `${accent}14`
-                  : "rgba(255,255,255,0.025)",
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: `1.78px dashed ${slotCount === 0 ? "rgba(253,91,86,0.3)" : on ? accent + "AA" : accent + "35"}`,
                 boxShadow: on ? `0 0 24px ${accent}25` : undefined,
               }}
             >
@@ -1776,23 +1821,22 @@ function OfferTimeStepBody({
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   )}
-                  {/* Right-edge gradient fade so the media meets the
-                      content card cleanly without a hard seam. */}
-                  <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#0a1628]/70 pointer-events-none" />
+                  {/* Gradient fade — matches the bowling card seam. */}
+                  <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70 pointer-events-none" />
                 </div>
 
                 {/* Content side */}
                 <div className="flex-1 p-5">
-                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  <div className="flex items-center gap-2 mb-1">
                     <h3
                       className="font-heading uppercase text-white text-base tracking-wider"
-                      style={{ textShadow: `0 0 14px ${accent}30` }}
+                      style={{ textShadow: `0 0 15px ${accent}25` }}
                     >
                       {isVip ? "Kids Bowl Free VIP" : "Kids Bowl Free Regular"}
                     </h3>
                     {isFree && (
                       <span
-                        className="text-[10px] uppercase tracking-[2px] px-2 py-0.5 rounded-full font-bold"
+                        className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
                         style={{
                           backgroundColor: "rgba(34,197,94,0.18)",
                           color: "#4ade80",
@@ -1804,7 +1848,7 @@ function OfferTimeStepBody({
                     )}
                     {!isFree && firstItem && (
                       <span
-                        className="text-[10px] uppercase tracking-[2px] px-2 py-0.5 rounded-full font-bold"
+                        className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
                         style={{
                           backgroundColor: `${accent}26`,
                           color: accent,
@@ -1814,35 +1858,59 @@ function OfferTimeStepBody({
                         ${firstItem.Total.toFixed(2)} / lane
                       </span>
                     )}
-                    <span className="text-[11px] uppercase tracking-wider text-white/45">
-                      {firstItem
-                        ? `${firstItem.Quantity} ${firstItem.QuantityType.toLowerCase()}`
-                        : ""}
-                    </span>
-                  </div>
-                  <p className="font-body text-white/55 text-xs leading-relaxed mb-3">
-                    {isVip
-                      ? "Upgrade your free bowling to the VIP suite — same coupon, premium lanes."
-                      : "Two free games per kid per day on participating weekdays."}
-                  </p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    {features.map((f) => (
-                      <span key={f} className="flex items-center gap-1.5">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: accent }}
-                        />
-                        <span className="font-body text-white/45 text-xs">{f}</span>
+                    {slotCount === 0 && (
+                      <span
+                        className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                        style={{
+                          backgroundColor: "rgba(253,91,86,0.2)",
+                          color: CORAL,
+                          border: `1px solid ${CORAL}40`,
+                        }}
+                      >
+                        Sold Out
                       </span>
-                    ))}
+                    )}
                   </div>
-                  <div className="mt-3 text-[11px] uppercase tracking-wider" style={{ color: accent }}>
-                    {slotCount === 0
-                      ? "Sold out"
-                      : on
-                        ? `Selected · pick a time below`
-                        : `${slotCount} time${slotCount === 1 ? "" : "s"} available →`}
-                  </div>
+                  <p className="font-body text-white/60 text-sm mb-3">
+                    {isVip
+                      ? "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling."
+                      : "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk."}
+                  </p>
+                  {features.length > 0 && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
+                      {features.map((f) => (
+                        <span key={f} className="flex items-center gap-1.5">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ backgroundColor: accent }}
+                          />
+                          <span className="font-body text-white/40 text-xs">{f}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Filled action pill — matches bowling's "{count}
+                      packages available →" CTA when bookable, "Sold
+                      Out" tone when not. */}
+                  {slotCount > 0 ? (
+                    <span
+                      className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-5 py-2.5 rounded-full"
+                      style={{
+                        backgroundColor: on ? accent : `${accent}26`,
+                        color: on ? "#0a1628" : accent,
+                        border: on ? "none" : `1px solid ${accent}55`,
+                      }}
+                    >
+                      {on ? "Selected ✓" : isVip ? "Pick VIP →" : "Pick Regular →"}
+                    </span>
+                  ) : (
+                    <span
+                      className="font-body text-xs font-bold uppercase tracking-wider"
+                      style={{ color: CORAL }}
+                    >
+                      Not available at this time
+                    </span>
+                  )}
                 </div>
               </div>
             </button>
@@ -1850,44 +1918,10 @@ function OfferTimeStepBody({
         })}
       </div>
 
-      {/* Time grid for the chosen tariff */}
-      {selectedOffer && (selectedOffer.Items ?? []).length > 0 && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h3 className="text-white text-sm uppercase tracking-wider font-bold mb-3">
-            Pick a start time
-          </h3>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            {(selectedOffer.Items ?? []).map((item) => {
-              const on = selectedTime === item.Time && selectedTariffId === item.ItemId;
-              const [hh, mm] = item.Time.split(":");
-              const display = new Date(`${date}T${hh}:${mm}:00`).toLocaleTimeString("en-US", {
-                hour: "numeric",
-                minute: "2-digit",
-              });
-              const accent = /vip/i.test(selectedOffer.Name) ? GOLD : CORAL;
-              return (
-                <button
-                  key={`${item.ItemId}:${item.Time}`}
-                  type="button"
-                  onClick={() => {
-                    setSelectedTariffId(item.ItemId);
-                    setSelectedTime(item.Time);
-                  }}
-                  className="rounded-lg border px-2 py-2.5 text-sm transition-colors"
-                  style={{
-                    borderColor: on ? accent : "rgba(255,255,255,0.10)",
-                    backgroundColor: on ? `${accent}20` : "rgba(255,255,255,0.02)",
-                    color: on ? "#fff" : "rgba(255,255,255,0.7)",
-                    fontWeight: on ? 700 : 500,
-                  }}
-                >
-                  {display}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* (Time grid removed — the parent already picked a time on
+          the previous datetime step. The card click handler below
+          auto-binds selectedTariffId to the matching Item for the
+          chosen time, so there's nothing left to pick here.) */}
 
       {date && (
         <div className="text-[11px] text-white/35 text-center">
