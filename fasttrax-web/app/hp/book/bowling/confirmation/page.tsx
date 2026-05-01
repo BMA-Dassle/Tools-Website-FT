@@ -80,6 +80,17 @@ export default function BowlingConfirmationPage() {
   const [bmiStatus, setBmiStatus] = useState<"" | "booking" | "done" | "error">("");
   const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
 
+  // Default waiver URL — always points at the event-waiver landing
+  // page for the chosen center. The event-waiver type is what
+  // we want for laser tag / gel blaster (and KBF) participants.
+  // BMI add-ons that fire createBmiBill below override this with a
+  // project-scoped event-waiver URL via setWaiverUrl.
+  const fallbackWaiverUrl = (() => {
+    const loc = getBookingLocation();
+    const ck = loc === "naples" ? "headpinznaples" : "headpinzftmyers";
+    return `https://kiosk.sms-timing.com/${ck}/subscribe/event`;
+  })();
+
   // Player form state
   const [shoeCategories, setShoeCategories] = useState<ShoeCategory[]>([]);
   const [players, setPlayers] = useState<PlayerEntry[]>([]);
@@ -335,7 +346,7 @@ export default function BowlingConfirmationPage() {
                       All participants must complete a waiver before playing laser tag or gel blasters. You can do this online ahead of time or at the check-in kiosk.
                     </p>
                     <a
-                      href={waiverUrl || "https://kiosk.bmileisure.com/headpinzftmyers"}
+                      href={waiverUrl || fallbackWaiverUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 mt-3 font-body text-amber-300 text-xs font-bold hover:text-amber-200 transition-colors"
