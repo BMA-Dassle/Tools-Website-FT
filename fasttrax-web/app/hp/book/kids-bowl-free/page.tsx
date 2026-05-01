@@ -40,6 +40,48 @@ const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
 const BG = "#0a1628";
 
+// ── QAMF client helpers (verbatim copy from /book/bowling) ─────────────────
+// All four QAMF calls (book-for-later, PATCH players, CreateSummary,
+// guest/confirm) fire from the wizard CLIENT through the /api/qamf
+// catch-all proxy, mirroring bowling's progressive lane-hold UX.
+// Session token shuttles via sessionStorage so the lane stays held
+// even if the user back-navigates between steps.
+
+const QAMF_API = "/api/qamf";
+
+function getQamfSessionToken(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem("qamf_session_token") || "";
+}
+
+function setQamfSessionToken(tok: string) {
+  if (typeof window === "undefined") return;
+  if (tok) sessionStorage.setItem("qamf_session_token", tok);
+  else sessionStorage.removeItem("qamf_session_token");
+}
+
+async function qamf(path: string, options?: RequestInit): Promise<unknown> {
+  const headers: Record<string, string> = {
+    ...((options?.headers as Record<string, string>) || {}),
+  };
+  const token = getQamfSessionToken();
+  if (token) headers["x-sessiontoken"] = token;
+
+  const res = await fetch(`${QAMF_API}/${path}`, { ...options, headers });
+  if (!res.ok) throw new Error(`QAMF ${res.status}`);
+
+  const tok = res.headers.get("x-sessiontoken");
+  if (tok) setQamfSessionToken(tok);
+
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 // ── Center metadata ─────────────────────────────────────────────────────────
 
 const CENTERS: { id: string; locationKey: "headpinz" | "naples"; name: string; address: string }[] = [
@@ -231,6 +273,9 @@ export default function KidsBowlFreePage() {
   // wizard never lands on a blank date selector.
   const [centerId, setCenterId] = useState<string>("");
   const [date, setDate] = useState<string>(() => bookableDateRange()[0] ?? "");
+  // QAMF reservation key returned by book-for-later. Held for ~10
+  // minutes by QAMF; if the parent abandons it auto-releases.
+  const [reservationKey, setReservationKey] = useState<string>("");
   const [offers, setOffers] = useState<QamfOffer[]>([]);
   const [selectedOfferId, setSelectedOfferId] = useState<number | null>(null);
   const [selectedTariffId, setSelectedTariffId] = useState<number | null>(null);
@@ -626,10 +671,14 @@ export default function KidsBowlFreePage() {
   }, [centerId, date, loadOffers, selectedTime]);
 
   /**
-   * From offer → addons. Fetches QAMF extras (laser tag, gel blasters,
-   * paid shoe rental etc.) keyed to the chosen offer + datetime. The
-   * extras step is optional — even an empty list is valid (KBF-only
-   * means the family can skip straight to review).
+   * From offer → addons. Now mirrors bowling's progressive flow:
+   *   1. POST book-for-later to QAMF (lane is held immediately)
+   *   2. Fetch extras + paid-shoe option for the addons step
+   *
+   * The reservationKey + sessionToken stick around in component +
+   * sessionStorage state so subsequent steps reuse them and the
+   * Confirm submit can fire PATCH players + guest/confirm against
+   * the SAME held lane (no double-create).
    */
   const handleOfferContinue = useCallback(async () => {
     if (!selectedOfferId || !selectedTariffId || !selectedTime) {
@@ -640,6 +689,32 @@ export default function KidsBowlFreePage() {
     setBusy(true);
     try {
       const dt = `${date}T${selectedTime}`;
+
+      // ── 1. book-for-later — mirrors bowling's selectOffer call.
+      try {
+        const reservation = (await qamf(
+          `centers/${centerId}/reservations/temporary-request/book-for-later`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              DateFrom: dt,
+              WebOfferId: selectedOfferId,
+              WebOfferTariffId: selectedTariffId,
+              PlayersList: [{ TypeId: 1, Number: playerCount || 1 }],
+            }),
+          },
+        )) as { ReservationKey?: string } | null;
+        if (!reservation?.ReservationKey) {
+          throw new Error("Reservation key missing in QAMF response");
+        }
+        setReservationKey(reservation.ReservationKey);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't hold the lane");
+        setBusy(false);
+        return;
+      }
+
       // Fetch QAMF extras + paid shoes in parallel. Both are
       // attraction-style add-ons sold through QAMF for this center.
       const [extrasRes, shoesRes] = await Promise.all([
@@ -702,14 +777,20 @@ export default function KidsBowlFreePage() {
     setStep("review");
   }, []);
 
+  /**
+   * Final submit — fires PATCH players + Cart/CreateSummary +
+   * guest/confirm against the lane that was already held by
+   * handleOfferContinue. All three calls go straight through
+   * /api/qamf from the client (verbatim copy of bowling's pattern)
+   * so QAMF sees the lifecycle progress live, not in one server-
+   * side burst.
+   */
   const submitReservation = useCallback(async () => {
     setBusy(true);
     setStep("submitting");
     setError(null);
     try {
       const offer = offers.find((o) => o.OfferId === selectedOfferId);
-      // selectedTariffId is the chosen Item's ItemId — pull the
-      // matching Item to recover price + slot duration.
       const item = offer?.Items?.find(
         (i) => i.ItemId === selectedTariffId && i.Time === selectedTime,
       );
@@ -718,22 +799,13 @@ export default function KidsBowlFreePage() {
         setStep("review");
         return;
       }
+      if (!reservationKey) {
+        setError("Lane hold expired — go back and pick your time again");
+        setStep("offer");
+        return;
+      }
 
-      const bowlersPayload = selectedBowlers.map((b) => {
-        const sel = bowlerSelections[b.key];
-        return {
-          passId: b.passId,
-          memberSlot: b.memberSlot,
-          relation: b.relation,
-          name: b.displayName,
-          wantShoes: sel.wantShoes,
-          shoeSizeId: sel.shoeSizeId,
-          shoeSizeLabel: sel.shoeSizeLabel,
-          wantBumpers: sel.wantBumpers,
-        };
-      });
-
-      // Fire-and-forget clickwrap log (non-fatal)
+      // Fire-and-forget clickwrap log (non-fatal).
       void fetch("/api/clickwrap/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -748,94 +820,214 @@ export default function KidsBowlFreePage() {
         }),
       }).catch(() => {});
 
-      // Build extras payload from the addons step (laser tag, gel
-      // blasters, etc). Paid shoes — when toggled — get sent through
-      // the existing shoePriceKeyId / shoeUnitPrice path the reserve
-      // route already supports.
-      const extrasPayload = Object.entries(extraQty)
-        .filter(([, qty]) => qty > 0)
-        .map(([id, qty]) => {
-          const extra = extras.find((x) => x.Id === parseInt(id, 10));
+      const dt = `${date}T${selectedTime}`;
+
+      // ── 2. PATCH /reservations/{key}/players ──────────────────
+      const playersPayload = selectedBowlers.map((b) => {
+        const sel = bowlerSelections[b.key];
+        return {
+          Name: b.displayName || null,
+          ShoeSize: sel.wantShoes && sel.shoeSizeLabel ? sel.shoeSizeLabel : null,
+          WantBumpers: sel.wantBumpers === true,
+          Size:
+            sel.wantShoes && sel.shoeSizeId && sel.shoeSizeLabel
+              ? {
+                  Id: sel.shoeSizeId,
+                  Name: sel.shoeSizeLabel,
+                  CategoryId: sel.shoeCategoryId ?? null,
+                }
+              : null,
+        };
+      });
+      try {
+        await qamf(
+          `centers/${centerId}/reservations/${encodeURIComponent(reservationKey)}/players`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ Players: playersPayload }),
+          },
+        );
+      } catch (err) {
+        // Non-fatal — names/shoes/bumpers can still be edited on the
+        // confirmation page. Continue to summary + confirm.
+        console.error("[kbf] players PATCH failed (non-fatal):", err);
+      }
+
+      // ── 3. POST /Cart/CreateSummary ────────────────────────────
+      const shoeQty = selectedBowlers.filter((b) => bowlerSelections[b.key]?.wantShoes).length;
+      const extraItems = Object.entries(extraQty)
+        .filter(([, q]) => q > 0)
+        .map(([id, q]) => {
+          const x = extras.find((e) => e.Id === parseInt(id, 10));
           return {
-            id: parseInt(id, 10),
-            name: extra?.Name ?? "Extra",
-            unitPrice: extra?.Price ?? 0,
-            quantity: qty,
-            priceKeyId: extra?.PriceKeyId ?? extra?.Id ?? parseInt(id, 10),
+            PriceKeyId: x?.PriceKeyId ?? x?.Id ?? parseInt(id, 10),
+            Quantity: q,
+            UnitPrice: x?.Price ?? 0,
+            Note: "",
           };
         });
-
-      const res = await fetch("/api/kbf/reserve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          centerId,
-          date,
-          time: selectedTime,
-          offerId: offer.OfferId,
-          tariffId: item.ItemId,
-          offerName: offer.Name,
-          tariffPrice: item.Total,
-          bowlers: bowlersPayload,
-          extras: extrasPayload,
-          shoePriceKeyId: wantPaidShoes && paidShoeOption ? paidShoeOption.priceKeyId : undefined,
-          shoeUnitPrice: wantPaidShoes && paidShoeOption ? paidShoeOption.price : undefined,
-          guest: {
-            firstName: guestName.split(" ")[0] || guestName,
-            lastName: guestName.split(" ").slice(1).join(" ") || "",
-            email: guestEmail,
-            phone: guestPhone,
-          },
-          primaryPassId: passes[0]?.id,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data.error || "Reservation failed");
-        setStep("review");
-        return;
+      const shoesItems =
+        shoeQty > 0 && wantPaidShoes && paidShoeOption
+          ? [
+              {
+                PriceKeyId: paidShoeOption.priceKeyId,
+                Quantity: shoeQty,
+                UnitPrice: paidShoeOption.price,
+                Note: "",
+              },
+            ]
+          : [];
+      let summary: { Total?: number; AddedTaxes?: number; TotalItems?: number; Fee?: number; AutoGratuity?: number; TotalWithoutTaxes?: number; Deposit?: number } = {};
+      try {
+        summary = (await qamf(`centers/${centerId}/Cart/CreateSummary`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            Time: dt,
+            Items: {
+              Extra: extraItems,
+              FoodAndBeverage: [],
+              ShoesSocks: shoesItems,
+              WebOffer: {
+                Id: offer.OfferId,
+                UnitPrice: item.Total,
+                WebOfferTariffId: item.ItemId,
+              },
+            },
+            Players: [{ TypeId: 1, Number: selectedBowlers.length || 1 }],
+          }),
+        })) as typeof summary;
+      } catch {
+        // Non-fatal — guest/confirm will reject if pricing is bad,
+        // and we surface that error to the user.
       }
+
+      // ── 4. POST /reservations/{key}/guest/confirm ──────────────
+      const cartItems: Array<{
+        Name: string;
+        Type: string;
+        PriceKeyId: number;
+        Quantity: number;
+        UnitPrice: number;
+      }> = [
+        {
+          Name: offer.Name,
+          Type: "WebOffer",
+          PriceKeyId: offer.OfferId,
+          Quantity: 1,
+          UnitPrice: item.Total,
+        },
+      ];
+      if (shoeQty > 0 && wantPaidShoes && paidShoeOption) {
+        cartItems.push({
+          Name: "Bowling Shoes",
+          Type: "ShoesSocks",
+          PriceKeyId: paidShoeOption.priceKeyId,
+          Quantity: shoeQty,
+          UnitPrice: paidShoeOption.price,
+        });
+      }
+      for (const [id, q] of Object.entries(extraQty)) {
+        if (q <= 0) continue;
+        const x = extras.find((e) => e.Id === parseInt(id, 10));
+        cartItems.push({
+          Name: x?.Name ?? "Extra",
+          Type: "Extras",
+          PriceKeyId: x?.PriceKeyId ?? x?.Id ?? parseInt(id, 10),
+          Quantity: q,
+          UnitPrice: x?.Price ?? 0,
+        });
+      }
+
+      const returnUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/hp/book/bowling/confirmation?key=${encodeURIComponent(reservationKey)}&center=${centerId}`
+          : "";
+
+      const result = (await qamf(
+        `centers/${centerId}/reservations/${encodeURIComponent(reservationKey)}/guest/confirm`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            GuestDetails: {
+              Email: guestEmail,
+              PhoneNumber: guestPhone.replace(/\D/g, ""),
+              ReferentName: guestName,
+            },
+            Cart: {
+              ReturnUrl: returnUrl,
+              Items: cartItems,
+              Summary: {
+                AddedTaxes: summary.AddedTaxes ?? 0,
+                Deposit: summary.Deposit ?? 0,
+                Fee: summary.Fee ?? 0,
+                Total: summary.Total ?? 0,
+                TotalItems: summary.TotalItems ?? 0,
+                AutoGratuity: summary.AutoGratuity ?? 0,
+                TotalWithoutTaxes: summary.TotalWithoutTaxes ?? 0,
+              },
+            },
+          }),
+        },
+      )) as { NeedPayment?: boolean; ApprovePayment?: { Url?: string } | null; OperationId?: string | null } | null;
+
+      // (sales_log + member-prefs persistence moves to a /api/kbf
+      // server endpoint in a follow-up — booking succeeds without it.)
 
       // Stash reservation context for the bowling confirmation page —
       // it reads `qamf_reservation` for the headline summary and
       // `qamf_confirm_data` to know which reservation key to status-poll.
-      // Mirrors the keys bowling itself sets.
-      if (typeof window !== "undefined" && data.reservationKey) {
-        const center = CENTERS.find((c) => c.id === data.centerId);
+      if (typeof window !== "undefined") {
+        const center = CENTERS.find((c) => c.id === centerId);
         sessionStorage.setItem(
           "qamf_reservation",
           JSON.stringify({
-            key: data.reservationKey,
-            centerId: data.centerId,
+            key: reservationKey,
+            centerId,
             centerName: center?.name ?? "",
+            operationId: result?.OperationId ?? null,
             offer: offer.Name,
             date,
             time: selectedTime,
             players: selectedBowlers.length,
             tariffPrice: item.Total,
-            shoes: false,
-            shoePrice: 0,
-            addons: [],
+            shoes: wantPaidShoes,
+            shoePrice: paidShoeOption?.price ?? 0,
+            addons: Object.entries(extraQty)
+              .filter(([, q]) => q > 0)
+              .map(([id, q]) => {
+                const x = extras.find((e) => e.Id === parseInt(id, 10));
+                return { name: x?.Name ?? "Extra", qty: q, price: x?.Price ?? 0 };
+              }),
             guestName,
             guestEmail,
           }),
         );
         sessionStorage.setItem(
           "qamf_confirm_data",
-          JSON.stringify({ key: data.reservationKey, center: data.centerId, transactionId: "" }),
+          JSON.stringify({
+            key: reservationKey,
+            center: centerId,
+            transactionId: "",
+          }),
         );
       }
 
-      // Server returns either an internal redirect (zero-balance) or
-      // an external Square URL (paid extras). Either way, navigate.
+      const redirect =
+        result?.NeedPayment && result.ApprovePayment?.Url
+          ? result.ApprovePayment.Url
+          : `/hp/book/bowling/confirmation?key=${encodeURIComponent(reservationKey)}&center=${centerId}`;
+
       if (typeof window !== "undefined") {
-        window.location.href = data.redirect;
+        window.location.href = redirect;
       } else {
-        router.push(data.redirect);
+        router.push(redirect);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reservation failed");
-      setStep("review");
+      setStep("details");
     } finally {
       setBusy(false);
     }
@@ -850,7 +1042,7 @@ export default function KidsBowlFreePage() {
     guestPhone,
     offers,
     paidShoeOption,
-    passes,
+    reservationKey,
     router,
     selectedBowlers,
     selectedOfferId,
