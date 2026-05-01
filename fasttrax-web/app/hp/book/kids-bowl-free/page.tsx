@@ -845,7 +845,7 @@ export default function KidsBowlFreePage() {
       <KbfStepBar step={step} onJump={(target) => setStep(target)} />
 
       <main className="pb-20 px-4 mt-4">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <Header step={step} preLaunch={preLaunch} />
 
           {error && (
@@ -2183,13 +2183,13 @@ function OfferTimeStepBody({
                 "Glow lighting in the evenings",
                 "Bring your KBF coupon to check in",
               ];
-          // Mirror /book/bowling lane-type media — VIP gets an autoplay
-          // NeoVerse video, Regular gets a still bowling photo. Same
-          // CDN assets the bowling page uses.
+          // Mirror /book/bowling lane-type media — both tariffs get
+          // autoplay videos (Regular = bowling lanes, VIP = NeoVerse).
+          // Same CDN assets the bowling page uses verbatim.
           const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
           const mediaUrl = isVip
             ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
-            : `${BLOB}/images/headpinz/gallery-bowling.webp`;
+            : `${BLOB}/videos/headpinz-bowling.mp4`;
           return (
             <button
               key={o.OfferId}
@@ -2213,27 +2213,20 @@ function OfferTimeStepBody({
               }}
             >
               <div className="flex flex-col sm:flex-row">
-                {/* Media side — video for VIP (NeoVerse) or photo for Regular. */}
+                {/* Media side — autoplay video on both tariffs.
+                    Regular: HeadPinz bowling lanes. VIP: NeoVerse. */}
                 <div className="relative w-full sm:w-56 h-36 sm:h-auto shrink-0 overflow-hidden">
-                  {isVip ? (
-                    <video
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
-                      className="absolute inset-0 w-full h-full object-cover"
-                    >
-                      <source src={mediaUrl} type="video/mp4" />
-                    </video>
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={mediaUrl}
-                      alt={isVip ? "VIP NeoVerse lanes" : "HeadPinz bowling lanes"}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  )}
+                  <video
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    className="absolute inset-0 w-full h-full object-cover"
+                    key={mediaUrl}
+                  >
+                    <source src={mediaUrl} type="video/mp4" />
+                  </video>
                   {/* Gradient fade — matches the bowling card seam. */}
                   <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70 pointer-events-none" />
                 </div>
