@@ -981,9 +981,13 @@ function BowlersStep({
     return (first + last).toUpperCase();
   };
 
-  // Color the avatar by relation so kids/family/parent are visually distinct.
+  // Color the avatar by relation. Kept inside the HeadPinz brand
+  // palette: coral (CORAL) for kids, gold (GOLD) for family-pass
+  // adults, and a navy-derived blue for the account holder so the
+  // parent's chip ties back to NAVY rather than the off-brand sky
+  // blue we tried first.
   const accentFor = (rel: BowlerKey["relation"]): string =>
-    rel === "kid" ? CORAL : rel === "family" ? GOLD : "#7dd3fc";
+    rel === "kid" ? CORAL : rel === "family" ? GOLD : "#6b8ec7";
 
   return (
     <div className="space-y-4">
@@ -1308,38 +1312,6 @@ function DateTimeStep({
             );
           })}
         </div>
-        {/* Compact center toggle (auto-detected, but user can override) */}
-        <div className="mt-4 flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-[2px] text-white/35">
-            Center
-          </span>
-          <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-            {CENTERS.map((c) => {
-              const on = centerId === c.id;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setCenterId(c.id);
-                    setBookingLocation(c.locationKey);
-                    setSelectedOfferId(null);
-                    setSelectedTariffId(null);
-                    setSelectedTime("");
-                    if (date) void onChangeDate(date);
-                  }}
-                  className="px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors"
-                  style={{
-                    backgroundColor: on ? CORAL : "transparent",
-                    color: on ? "#fff" : "rgba(255,255,255,0.55)",
-                  }}
-                >
-                  {c.locationKey === "naples" ? "Naples" : "Fort Myers"}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       {/* Tariff (Regular / VIP) + time grid */}
@@ -1447,6 +1419,13 @@ function OfferTimeStepBody({
                 "Glow lighting in the evenings",
                 "Bring your KBF coupon to check in",
               ];
+          // Mirror /book/bowling lane-type media — VIP gets an autoplay
+          // NeoVerse video, Regular gets a still bowling photo. Same
+          // CDN assets the bowling page uses.
+          const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+          const mediaUrl = isVip
+            ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
+            : `${BLOB}/images/headpinz/gallery-bowling.webp`;
           return (
             <button
               key={o.OfferId}
@@ -1465,13 +1444,35 @@ function OfferTimeStepBody({
                 boxShadow: on ? `0 0 24px ${accent}25` : undefined,
               }}
             >
-              <div className="flex gap-4 p-5">
-                {/* Accent bar */}
-                <div
-                  className="hidden sm:block w-1 rounded-full"
-                  style={{ backgroundColor: accent }}
-                />
-                <div className="flex-1">
+              <div className="flex flex-col sm:flex-row">
+                {/* Media side — video for VIP (NeoVerse) or photo for Regular. */}
+                <div className="relative w-full sm:w-56 h-36 sm:h-auto shrink-0 overflow-hidden">
+                  {isVip ? (
+                    <video
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    >
+                      <source src={mediaUrl} type="video/mp4" />
+                    </video>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={mediaUrl}
+                      alt={isVip ? "VIP NeoVerse lanes" : "HeadPinz bowling lanes"}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )}
+                  {/* Right-edge gradient fade so the media meets the
+                      content card cleanly without a hard seam. */}
+                  <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#0a1628]/70 pointer-events-none" />
+                </div>
+
+                {/* Content side */}
+                <div className="flex-1 p-5">
                   <div className="flex flex-wrap items-center gap-2 mb-1.5">
                     <h3
                       className="font-heading uppercase text-white text-base tracking-wider"
