@@ -159,6 +159,11 @@ interface OrderLine {
    *  because some legacy stored overviews predate this field. */
   productId?: string | number;
   quantity: number;
+  /** Number of racers on this line. For an Ultimate Qualifier with
+   *  4 racers, both the Starter and Intermediate lines have
+   *  persons=4. Drives the sales-log participantCount math via the
+   *  scheduledItems payload — see route.ts. */
+  persons?: number;
   totalPrice: { amount: number; depositKind: number }[];
   scheduledTime?: { start: string; stop: string } | null;
   schedules?: Schedule[];
@@ -406,9 +411,25 @@ export default function ConfirmationPage() {
               reservationCode: primaryRes.resCode || "",
               billId: id || "",
               productNames: sourceLines.map(l => displayLineName(l)),
+              // Include `persons` (or `quantity` fallback) so the
+              // sales-log participantCount math can take the MAX
+              // across karting lines instead of counting lines —
+              // counting lines double-counted Ultimate Qualifier
+              // bookings (Starter + Intermediate = 2 lines per
+              // racer). See app/api/notifications/booking-
+              // confirmation/route.ts for the math.
               scheduledItems: sourceLines
                 .filter(l => l.scheduledTime?.start)
-                .map(l => ({ name: displayLineName(l), start: l.scheduledTime!.start }))
+                .map((l) => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const persons = (l as any).persons as number | undefined;
+                  return {
+                    name: displayLineName(l),
+                    start: l.scheduledTime!.start,
+                    persons: typeof persons === "number" ? persons : undefined,
+                    quantity: l.quantity,
+                  };
+                })
                 .sort((a, b) => a.start.localeCompare(b.start)),
             };
           })();

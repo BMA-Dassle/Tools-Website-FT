@@ -220,7 +220,12 @@ export async function POST(req: NextRequest) {
           ? "rookie-pack"
           : undefined;
     const products: string[] = Array.isArray(productNames) ? productNames : [];
-    const scheduled: { name: string; start: string }[] = Array.isArray(scheduledItems) ? scheduledItems : [];
+    // scheduledItems is forwarded from the confirmation page. Older
+    // callers send `{name, start}` only; newer ones include `persons`
+    // and `quantity` so the participantCount math below can use them.
+    // Both fields default to undefined-ish so legacy callers still work.
+    const scheduled: { name: string; start: string; persons?: number; quantity?: number }[] =
+      Array.isArray(scheduledItems) ? scheduledItems : [];
     const isExpressLane = !!expressLane;
 
     if (!email || !reservationNumber) {
@@ -272,14 +277,39 @@ export async function POST(req: NextRequest) {
       const hasLicense = allNames.some((n) => lower(n).includes("license"));
       const hasPov = allNames.some((n) => /pov/i.test(n)) || codes.length > 0;
 
-      // Best-effort participant count — number of scheduled racing
-      // line items, or fall back to the count of distinct race-product
-      // names. Not always exact (group bookings collapse) but useful
-      // for dashboard averages.
-      const participantCount = scheduled.filter((s) => {
+      // Participant count — MAX of `persons` (or `quantity` fallback)
+      // across distinct karting scheduled lines. Not the COUNT of lines.
+      //
+      // Why max: a single-racer Ultimate Qualifier creates 2 karting
+      // lines (Starter + Intermediate), each with persons=1. Counting
+      // lines reported it as 2 racers — inflated every UQ booking.
+      // A 4-racer UQ creates 2 lines with persons=4 each; max=4 is the
+      // correct racer count. Same shape for race packs (3 lines, same
+      // persons) and individual races.
+      //
+      // Edge case: split-track bookings (2 racers on Red + 2 on Blue at
+      // the same time) create 2 lines, persons=2 each → max=2,
+      // undercounting the true 4. Rare and the BMI bill's top-level
+      // `Persons` field would be the proper signal — not exposed in
+      // bill/overview today. Leaving the trade-off for now.
+      const kartingScheduled = scheduled.filter((s) => {
         const x = lower(s.name);
         return x.includes("race") || x.includes("kart") || /(blue|red|mega).*track/i.test(s.name);
-      }).length || raceNames.length || undefined;
+      });
+      const participantCount = (() => {
+        if (kartingScheduled.length === 0) {
+          return raceNames.length || undefined;
+        }
+        const counts = kartingScheduled
+          .map((s) => Number(s.persons ?? s.quantity ?? 0))
+          .filter((n) => n > 0);
+        if (counts.length === 0) {
+          // Legacy callers didn't forward persons/quantity — fall back to
+          // the old line-count behavior so we don't suddenly report 0.
+          return kartingScheduled.length || raceNames.length || undefined;
+        }
+        return Math.max(...counts);
+      })();
 
       await logSale({
         ts: new Date().toISOString(),
