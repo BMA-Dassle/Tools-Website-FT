@@ -211,7 +211,10 @@ function packageFamilyLabel(familyId: string): string {
 }
 
 export default function SalesAdminClient({ token }: { token: string }) {
-  const [from, setFrom] = useState(todayET());
+  // Default range: last 7 days (today minus 6, inclusive). Was "today
+  // only" which made the dashboard feel empty most of the time —
+  // operators are usually trying to read the trend, not just today.
+  const [from, setFrom] = useState(() => shiftDays(todayET(), -6));
   const [to, setTo] = useState(todayET());
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -255,18 +258,39 @@ export default function SalesAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Preset buttons
-  function preset(kind: "today" | "yesterday" | "7d" | "30d" | "mtd") {
+  // Preset buttons. `presetFor(kind)` returns the {from, to} pair the
+  // preset would set — used both by the click handler AND by the
+  // active-state check, so the highlight logic can't drift from the
+  // setter logic.
+  type PresetKind = "today" | "yesterday" | "7d" | "30d" | "mtd";
+  function presetFor(kind: PresetKind): { from: string; to: string } {
     const today = todayET();
-    if (kind === "today") { setFrom(today); setTo(today); return; }
+    if (kind === "today") return { from: today, to: today };
     if (kind === "yesterday") {
       const y = shiftDays(today, -1);
-      setFrom(y); setTo(y); return;
+      return { from: y, to: y };
     }
-    if (kind === "7d") { setFrom(shiftDays(today, -6)); setTo(today); return; }
-    if (kind === "30d") { setFrom(shiftDays(today, -29)); setTo(today); return; }
-    if (kind === "mtd") { setFrom(startOfMonthET()); setTo(today); return; }
+    if (kind === "7d") return { from: shiftDays(today, -6), to: today };
+    if (kind === "30d") return { from: shiftDays(today, -29), to: today };
+    return { from: startOfMonthET(), to: today };
   }
+  function preset(kind: PresetKind) {
+    const r = presetFor(kind);
+    setFrom(r.from);
+    setTo(r.to);
+  }
+  // Which preset (if any) matches the current from/to? Returns null
+  // when the user has typed a custom range — the "Custom" pill in the
+  // filter bar lights up instead.
+  const activePreset = useMemo<PresetKind | null>(() => {
+    const kinds: PresetKind[] = ["today", "yesterday", "7d", "30d", "mtd"];
+    for (const k of kinds) {
+      const r = presetFor(k);
+      if (r.from === from && r.to === to) return k;
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to]);
 
   const maxDay = useMemo(() => {
     if (!data?.byDay) return 1;
@@ -328,16 +352,47 @@ export default function SalesAdminClient({ token }: { token: string }) {
               { k: "7d", l: "Last 7d" },
               { k: "30d", l: "Last 30d" },
               { k: "mtd", l: "MTD" },
-            ] as const).map((p) => (
-              <button
-                key={p.k}
-                type="button"
-                onClick={() => preset(p.k)}
-                className="px-3 py-1.5 text-xs font-semibold rounded-full border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 hover:border-white/25 transition-colors"
+            ] as const).map((p) => {
+              const active = activePreset === p.k;
+              return (
+                <button
+                  key={p.k}
+                  type="button"
+                  onClick={() => preset(p.k)}
+                  aria-pressed={active}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors"
+                  style={
+                    active
+                      ? {
+                          background: ACCENTS.cyan.glow,
+                          color: ACCENTS.cyan.fg,
+                          borderColor: ACCENTS.cyan.border,
+                          boxShadow: `0 0 10px ${ACCENTS.cyan.glow}`,
+                        }
+                      : {
+                          background: "rgba(255,255,255,0.02)",
+                          color: "rgba(255,255,255,0.7)",
+                          borderColor: "rgba(255,255,255,0.15)",
+                        }
+                  }
+                >
+                  {p.l}
+                </button>
+              );
+            })}
+            {activePreset === null && (
+              <span
+                className="px-3 py-1.5 text-xs font-semibold rounded-full border italic"
+                style={{
+                  background: ACCENTS.amber.glow,
+                  color: ACCENTS.amber.fg,
+                  borderColor: ACCENTS.amber.border,
+                }}
+                title="Date range doesn't match any preset"
               >
-                {p.l}
-              </button>
-            ))}
+                Custom
+              </span>
+            )}
             <button
               type="button"
               onClick={load}
@@ -786,8 +841,16 @@ export default function SalesAdminClient({ token }: { token: string }) {
             })()}
 
             {/* ── Raw entries ── */}
+            {/* Two layouts depending on viewport:
+                  - md+ (≥768px): the original table — dense, sortable
+                    by eye, fast to scan column-by-column.
+                  - <md (mobile): stacked cards. The table was forcing
+                    horizontal scroll on phones (8 columns × ~80px each)
+                    which made the data effectively unreadable. Cards
+                    show the same fields in a scannable vertical layout. */}
             <Section title={`Reservations (${data.entries.length})`} icon="📋">
-              <div className="rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
+              {/* Desktop / tablet table */}
+              <div className="hidden md:block rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-white/5 text-xs uppercase text-white/50">
@@ -845,6 +908,97 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* Mobile card stack */}
+              <div className="md:hidden space-y-2">
+                {data.entries.map((e, i) => {
+                  const packTag = e.packageId
+                    ? e.packageId === "rookie-pack"
+                      ? "ROOKIE"
+                      : e.packageId === "ultimate-qualifier-mega"
+                        ? "ULT-Q"
+                        : e.packageId.toUpperCase().slice(0, 10)
+                    : null;
+                  return (
+                    <div
+                      key={`${e.billId ?? i}-${e.ts}`}
+                      className="rounded-lg border border-white/10 bg-white/[0.02] p-3"
+                    >
+                      {/* Top row: bill # · time · type pill */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <span className="font-mono font-bold text-sm text-white truncate">
+                            {e.reservationNumber || e.billId?.slice(-8) || "—"}
+                          </span>
+                          <span className="text-[11px] text-white/50 whitespace-nowrap">
+                            {formatTs(e.ts)}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[10px] uppercase px-1.5 py-0.5 rounded shrink-0 ${bookingTypeColor(e.bookingType)}`}
+                        >
+                          {bookingTypeLabel(e.bookingType)}
+                        </span>
+                      </div>
+
+                      {/* Racers + new/returning row */}
+                      <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap">
+                        <span className="text-white/85">
+                          <span className="font-bold">{e.participantCount ?? "—"}</span>
+                          <span className="text-white/45 ml-1">
+                            racer{e.participantCount === 1 ? "" : "s"}
+                          </span>
+                        </span>
+                        {e.isNewRacer === true && (
+                          <span className="text-emerald-300 text-[10px] uppercase tracking-wider">· new</span>
+                        )}
+                        {e.isNewRacer === false && (
+                          <span className="text-white/40 text-[10px] uppercase tracking-wider">· returning</span>
+                        )}
+                      </div>
+
+                      {/* Tag chips: package / POV / license */}
+                      {(packTag || e.povPurchased || e.licensePurchased) && (
+                        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                          {packTag && (
+                            <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                              {packTag}
+                            </span>
+                          )}
+                          {e.povPurchased && (
+                            <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-purple-400/15 text-purple-300 border border-purple-400/30">
+                              POV{e.povQty ? `×${e.povQty}` : ""}
+                            </span>
+                          )}
+                          {e.licensePurchased && (
+                            <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-400/15 text-blue-300 border border-blue-400/30">
+                              LIC
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Products + add-ons (only show when present) */}
+                      {(e.raceProductNames?.length || e.addOnNames?.length) ? (
+                        <div className="space-y-0.5 text-[11px] text-white/65">
+                          {e.raceProductNames?.length ? (
+                            <div className="flex gap-1.5">
+                              <span className="text-white/35 shrink-0">🏎</span>
+                              <span className="truncate">{e.raceProductNames.join(", ")}</span>
+                            </div>
+                          ) : null}
+                          {e.addOnNames?.length ? (
+                            <div className="flex gap-1.5">
+                              <span className="text-white/35 shrink-0">🎯</span>
+                              <span className="truncate">{e.addOnNames.join(", ")}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </Section>
           </>
