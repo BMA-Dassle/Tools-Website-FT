@@ -35,6 +35,43 @@ export function middleware(request: NextRequest) {
   if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
     const expected = process.env.ADMIN_CAMERA_TOKEN || "";
 
+    // ── Public OpenAPI spec ───────────────────────────────────────────
+    // The spec itself contains no customer data — just request/response
+    // schemas. Exposing it lets Swagger UI / external SDK generators /
+    // the HeadPinz portal devs discover the API surface without needing
+    // a key first. Calls to documented endpoints still require a key.
+    if (pathname === "/api/admin/sales/openapi.json") {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-admin-via", "public-spec");
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
+    // ── External API-key auth for read-only sales endpoints ──────────────
+    // The HeadPinz portal (and any future external consumer) authenticates
+    // with `x-api-key` instead of the operator admin token. Only the
+    // `/api/admin/sales/*` and `/api/admin/sales/openapi.json` routes are
+    // exposed this way — the operator-mutating endpoints (camera-assign
+    // block, video resend, e-ticket resend, sms-quota drain) keep the
+    // strict admin-token gate. Multiple keys are supported (comma-
+    // separated env var) so we can rotate without breaking integrations.
+    if (pathname.startsWith("/api/admin/sales/")) {
+      const provided = request.headers.get("x-api-key") || request.nextUrl.searchParams.get("apiKey");
+      const validKeys = (process.env.SALES_API_KEYS || "")
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean);
+      if (provided && validKeys.length > 0 && validKeys.includes(provided)) {
+        // Forward into the route handler with the admin-route flag so
+        // the layout still strips public nav. No token check needed.
+        const requestHeaders = new Headers(request.headers);
+        requestHeaders.set("x-admin-route", "1");
+        requestHeaders.set("x-admin-via", "api-key");
+        return NextResponse.next({ request: { headers: requestHeaders } });
+      }
+      // No api-key OR wrong api-key → fall through to the standard
+      // admin-token check below. Operator UI keeps working unchanged.
+    }
+
     // Token extraction: for /admin/{token}/..., token is the 2nd
     // path segment. For /api/admin/..., we accept header
     // `x-admin-token` OR query `?token=...`.
