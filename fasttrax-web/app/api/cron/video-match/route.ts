@@ -277,9 +277,15 @@ export async function GET(req: NextRequest) {
         //
         // We suppress this pass during dry runs so the counters stay
         // honest without hitting VT3 or Voxtelesys.
-        // Allowlist gate — only fire when VT3 explicitly says the
-        // preview is viewable. Missing/unknown status holds.
-        const vt3Ready = isVideoReadyForNotify(v.status);
+        // Sample-based gate — fire as soon as VT3 has uploaded the
+        // preview clip (sampleUploadTime != null). Status name acts
+        // as a fallback only. The /check endpoint's `sample.url`
+        // mirrors sampleUploadTime, so this matches what the public
+        // viewer at vt3.io/?code=X will actually play.
+        const vt3Ready = isVideoReadyForNotify({
+          status: v.status,
+          sampleUploadTime: v.sampleUploadTime,
+        });
         const shouldFireNow =
           !existing.blocked &&
           existing.pendingNotify === true &&
@@ -312,6 +318,8 @@ export async function GET(req: NextRequest) {
               }
             }
             existing.videoStatus = v.status;
+            existing.sampleUploadTime = v.sampleUploadTime ?? undefined;
+            existing.uploadTime = v.uploadTime ?? undefined;
             await fireNotify(existing); // also updates the record
             if (blockChanged) unblockedAndSent++;
             else deferredSent++;
@@ -336,10 +344,14 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Held until VT3 confirms the preview is viewable. Allowlist —
-      // any status not in VIDEO_READY_STATUSES (including ENCODING and
-      // any future state VT3 adds) keeps the match in pending-notify.
-      const notReady = !isVideoReadyForNotify(v.status);
+      // Held until VT3 has uploaded the preview clip. Sample-based
+      // gate — sampleUploadTime presence means the public viewer can
+      // play SOMETHING, so racer SMS won't land on a "still processing"
+      // page. Status fallback covers older-style videos.
+      const notReady = !isVideoReadyForNotify({
+        status: v.status,
+        sampleUploadTime: v.sampleUploadTime,
+      });
 
       // -----------------------------------------------------------------
       // PATH 1: existing match (prior cron run already created a record).
@@ -372,8 +384,16 @@ export async function GET(req: NextRequest) {
           // was reported as videos "stuck on Pending Upload" when VT3
           // had actually moved them along. Skip persist when nothing
           // changed to keep Redis writes minimal.
-          if (existing.videoStatus !== v.status) {
+          const newSample = v.sampleUploadTime ?? undefined;
+          const newUpload = v.uploadTime ?? undefined;
+          if (
+            existing.videoStatus !== v.status ||
+            existing.sampleUploadTime !== newSample ||
+            existing.uploadTime !== newUpload
+          ) {
             existing.videoStatus = v.status;
+            existing.sampleUploadTime = newSample;
+            existing.uploadTime = newUpload;
             await updateVideoMatch(existing).catch(() => void 0);
           }
           skippedNotReady++;
@@ -409,6 +429,8 @@ export async function GET(req: NextRequest) {
           }
         }
         existing.videoStatus = v.status;
+        existing.sampleUploadTime = v.sampleUploadTime ?? undefined;
+        existing.uploadTime = v.uploadTime ?? undefined;
         await fireNotify(existing);
         if (v.id > highestId) highestId = v.id;
         deferredSent++;
@@ -507,6 +529,8 @@ export async function GET(req: NextRequest) {
           // UI's "pending upload" chip honest.
           pendingNotify: notReady && !blockState.blocked,
           videoStatus: v.status,
+          sampleUploadTime: v.sampleUploadTime ?? undefined,
+          uploadTime: v.uploadTime ?? undefined,
           blocked: blockState.blocked || undefined,
           blockLevel: blockState.level,
           blockReason: blockState.reason,

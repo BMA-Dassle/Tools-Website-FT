@@ -121,7 +121,10 @@ async function applyToExistingMatches(
 
         // Backfill notify if never sent + VT3 ready.
         const neverNotified = !match.notifySmsSentAt && !match.notifyEmailSentAt;
-        const vt3Ready = isVideoReadyForNotify(match.videoStatus);
+        const vt3Ready = isVideoReadyForNotify({
+          status: match.videoStatus,
+          sampleUploadTime: match.sampleUploadTime,
+        });
         if (neverNotified && vt3Ready) {
           if (match.email && !match.vt3CustomerLinked) {
             try {

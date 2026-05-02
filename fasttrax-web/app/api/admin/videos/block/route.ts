@@ -109,7 +109,10 @@ export async function POST(req: NextRequest) {
       existing.blockedAt = undefined;
 
       const neverNotified = !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
-      const vt3Ready = isVideoReadyForNotify(existing.videoStatus);
+      const vt3Ready = isVideoReadyForNotify({
+        status: existing.videoStatus,
+        sampleUploadTime: existing.sampleUploadTime,
+      });
 
       if (neverNotified && vt3Ready) {
         // Push email to VT3 customer profile first, then fire notify.
