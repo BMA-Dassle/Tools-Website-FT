@@ -194,21 +194,24 @@ export async function GET(req: NextRequest) {
 
   // Hard timeout on the upstream Pandora fetch. Three tiers:
   //
-  //   - `?warm=1` (cron) → 30s. Cron warmups every 1-2 min, no
-  //     user waits — let Pandora take its time on heavy rosters
-  //     (Heat 41 took 19s, Heat 44 took 23s during the outage).
+  //   - `?warm=1` (cron) → 45s. Cron warmups every 1-2 min, no
+  //     user waits — let Pandora take its time on heavy rosters.
+  //     Bumped from 30s after tonight's outage where some heats
+  //     pushed past 30s and forced cron to fall back to stale
+  //     cache; 45s gives Pandora more headroom on bad nights
+  //     while staying inside Vercel's 60s function ceiling.
   //
-  //   - `?fresh=1` (manual refresh button) → 30s. Staff explicitly
+  //   - `?fresh=1` (manual refresh button) → 45s. Staff explicitly
   //     tapped Refresh — they're already waiting. Fail-fast at 6s
   //     was leaving them stuck on cold-cache slow heats; better to
-  //     show a spinner for 20s and land real data.
+  //     show a spinner for 30+s and land real data.
   //
   //   - Default (e-ticket polls, etc.) → 6s. Implicit/background
   //     calls fail-fast so they don't stack up if Pandora is slow.
   //     Camera-assign auto-poll uses cacheOnly=1 so it doesn't
   //     even reach this path.
   const isWarmCall = searchParams.get("warm") === "1";
-  const timeoutMs = isWarmCall || forceFresh ? 30_000 : 6_000;
+  const timeoutMs = isWarmCall || forceFresh ? 45_000 : 6_000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

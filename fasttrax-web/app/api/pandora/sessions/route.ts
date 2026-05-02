@@ -144,11 +144,14 @@ export async function GET(req: NextRequest) {
    *  4. Surface upstream body slices in the JSON for debugging.
    */
   // Three-tier timeout (mirrors the participants proxy):
-  //   - warm=1 (cron) → 30s; no user waits, populates cache
-  //   - fresh=1 (manual refresh button) → 30s; staff explicitly
+  //   - warm=1 (cron) → 45s; no user waits, populates cache. Bumped
+  //     from 30s after the 5/2 Pandora slowdown — some session-list
+  //     fetches were pushing past 30s and falling to stale cache.
+  //     Stays inside Vercel's 60s function ceiling.
+  //   - fresh=1 (manual refresh button) → 45s; staff explicitly
   //     waiting, give Pandora time to land real data
   //   - default → 6s; background calls fail-fast
-  const timeoutMs = isWarmCall || forceFresh ? 30_000 : 6_000;
+  const timeoutMs = isWarmCall || forceFresh ? 45_000 : 6_000;
 
   async function fetchOnce(): Promise<{ ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }> {
     const controller = new AbortController();
