@@ -633,14 +633,28 @@ export default function ConfirmationPage() {
           } catch { /* non-fatal */ }
         }
 
-        // Claim POV codes if POV was purchased
+        // Claim POV codes if POV was purchased.
+        //
+        // Cascade overview sources — `overview` is the live BMI fetch
+        // earlier in this function and is the authoritative state of
+        // the bill. `parsedOverviews` is the pre-payment snapshot
+        // saved by OrderSummary, which sometimes hasn't been written
+        // yet for fast checkouts (Rookie Pack W33861, Ultimate
+        // Qualifier W33835 both hit this). Looking ONLY at
+        // parsedOverviews silently dropped the POV claim when
+        // OrderSummary's save was racing with the confirmation page
+        // load, leaving racers without their POV codes AND skipping
+        // the BMI memo write below since both gate on
+        // claimedPovCodes.length > 0.
         let claimedPovCodes: string[] = [];
         try {
-          // Check stored overviews for POV line items (use local var, not state)
-          const allOverviewLines = parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-          const povLine = allOverviewLines.find((l: unknown) =>
-            String((l as { productId: string }).productId) === "43746981"
-          ) as OrderLine | undefined;
+          const claimSourceLines: OrderLine[] =
+            (overview?.lines && overview.lines.length > 0)
+              ? overview.lines
+              : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+          const povLine = claimSourceLines.find(
+            (l) => String((l as { productId?: string | number }).productId) === "43746981",
+          );
           if (povLine && povLine.quantity > 0) {
             const claimRes = await fetch(`/api/pov-codes?action=claim&qty=${povLine.quantity}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`);
             if (claimRes.ok) {
@@ -649,6 +663,11 @@ export default function ConfirmationPage() {
               setPovCodes(claimedPovCodes);
               console.log("[POV codes] claimed:", claimedPovCodes);
             }
+          } else {
+            console.log("[POV codes] no POV line found in overview", {
+              liveLines: overview?.lines?.length ?? 0,
+              storedLines: claimSourceLines.length,
+            });
           }
         } catch (err) {
           console.warn("[POV codes] claim failed:", err);
