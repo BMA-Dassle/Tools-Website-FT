@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSalesRange, readDailyTotals, type SaleEntry, type BookingType } from "@/lib/sales-log";
 import { listMatchesInRange } from "@/lib/video-match";
+import { readSmsCountsRange, type SmsDailyCounts } from "@/lib/sms-log";
 
 /**
  * GET /api/admin/sales/list
@@ -271,6 +272,37 @@ export async function GET(req: NextRequest) {
     // to ET calendar day stays in one place.
     const days = await readDailyTotals(from, to);
 
+    // ── SMS volume per day, by source ─────────────────────────────
+    // Pulls the daily sms:log:{ymd} lists and buckets each entry's
+    // `source` into the four dashboard categories — booking
+    // confirmations, e-tickets, check-ins, videos. Helps ops track
+    // notification volume + spot dropouts (e.g., booking-confirm
+    // suddenly going to zero would mean the route stopped logging).
+    const smsByDay: SmsDailyCounts[] = await readSmsCountsRange(from, to);
+    const smsTotals = smsByDay.reduce(
+      (acc, d) => {
+        acc.attempts += d.attempts;
+        acc.ok += d.ok;
+        acc.delivered += d.delivered;
+        acc.bookingConfirm += d.bySource.bookingConfirm;
+        acc.eTicket += d.bySource.eTicket;
+        acc.checkIn += d.bySource.checkIn;
+        acc.video += d.bySource.video;
+        acc.other += d.bySource.other;
+        return acc;
+      },
+      {
+        attempts: 0,
+        ok: 0,
+        delivered: 0,
+        bookingConfirm: 0,
+        eTicket: 0,
+        checkIn: 0,
+        video: 0,
+        other: 0,
+      },
+    );
+
     // ── Page out raw entries newest-first ──────────────────────────
     const entries = all.slice(0, limit);
 
@@ -281,6 +313,7 @@ export async function GET(req: NextRequest) {
         racing,
         attractions,
         byDay: days,
+        sms: { totals: smsTotals, byDay: smsByDay },
         entries,
       },
       { headers: { "Cache-Control": "no-store" } },

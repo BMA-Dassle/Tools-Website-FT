@@ -92,6 +92,34 @@ type ListResponse = {
     byRaceType: { raceType: string; total: number; purchased: number; purchaseRate: number }[];
   };
   byDay: { ymd: string; reservations: number; racers: number }[];
+  /** SMS volume per day + range totals. Sources bucketed into the
+   *  dashboard's four categories — booking confirmations, e-tickets,
+   *  check-ins, videos — plus an "other" catch-all. */
+  sms?: {
+    totals: {
+      attempts: number;
+      ok: number;
+      delivered: number;
+      bookingConfirm: number;
+      eTicket: number;
+      checkIn: number;
+      video: number;
+      other: number;
+    };
+    byDay: {
+      date: string;
+      attempts: number;
+      ok: number;
+      delivered: number;
+      bySource: {
+        bookingConfirm: number;
+        eTicket: number;
+        checkIn: number;
+        video: number;
+        other: number;
+      };
+    }[];
+  };
   entries: SaleEntry[];
 };
 
@@ -580,6 +608,85 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     );
                   })}
                 </div>
+              </Section>
+            )}
+
+            {/* ── SMS volume by day + source ── */}
+            {data.sms && data.sms.totals.attempts > 0 && (
+              <Section title="SMS volume">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                  <MiniStat
+                    label="Booking confirmations"
+                    value={data.sms.totals.bookingConfirm}
+                  />
+                  <MiniStat label="E-tickets" value={data.sms.totals.eTicket} />
+                  <MiniStat label="Check-ins" value={data.sms.totals.checkIn} />
+                  <MiniStat label="Videos" value={data.sms.totals.video} />
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <MiniStat
+                    label="Total attempts"
+                    value={data.sms.totals.attempts}
+                  />
+                  <MiniStat
+                    label="Provider OK"
+                    value={`${data.sms.totals.ok} (${pctText(data.sms.totals.ok, data.sms.totals.attempts)})`}
+                  />
+                  <MiniStat
+                    label="Carrier delivered"
+                    value={`${data.sms.totals.delivered} (${pctText(data.sms.totals.delivered, data.sms.totals.attempts)})`}
+                  />
+                </div>
+                {data.sms.byDay.length > 0 && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-white/5 text-xs uppercase text-white/50">
+                          <tr>
+                            <th className="text-left px-3 py-2">Date</th>
+                            <th className="text-right px-3 py-2">Booking</th>
+                            <th className="text-right px-3 py-2">E-ticket</th>
+                            <th className="text-right px-3 py-2">Check-in</th>
+                            <th className="text-right px-3 py-2">Video</th>
+                            <th className="text-right px-3 py-2 text-white/40">Other</th>
+                            <th className="text-right px-3 py-2">Total</th>
+                            <th className="text-right px-3 py-2">Delivered</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...data.sms.byDay].reverse().map((d) => (
+                            <tr key={d.date} className="border-t border-white/5">
+                              <td className="px-3 py-2 text-white/80 whitespace-nowrap">
+                                {formatDate(d.date)}
+                              </td>
+                              <td className="px-3 py-2 text-right text-white/85 font-mono">
+                                {d.bySource.bookingConfirm || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-right text-white/85 font-mono">
+                                {d.bySource.eTicket || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-right text-white/85 font-mono">
+                                {d.bySource.checkIn || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-right text-white/85 font-mono">
+                                {d.bySource.video || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-right text-white/40 font-mono">
+                                {d.bySource.other || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-right text-white font-mono font-semibold">
+                                {d.attempts}
+                              </td>
+                              <td className="px-3 py-2 text-right text-emerald-300/80 font-mono text-xs">
+                                {d.delivered}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </Section>
             )}
 

@@ -105,13 +105,32 @@ async function sendSms(to: string, body: string, fromNumber?: string): Promise<b
   }
   const toFormatted = to.length === 10 ? `+1${to}` : `+${to}`;
   const from = fromNumber || VOX_FROM_FASTTRAX;
+  const ts = new Date().toISOString();
 
   // Lazy-load to avoid pulling Redis into the route's import chain
   // until we actually need to send.
   const { voxSend } = await import("@/lib/sms-retry");
+  const { logSms } = await import("@/lib/sms-log");
   const result = await voxSend(toFormatted, body, { fromOverride: from });
 
-  if (result.ok) return true;
+  if (result.ok) {
+    // Log the successful booking-confirm send so the sales admin can
+    // count daily SMS volume by source. Other paths (pre-race-cron,
+    // checkin-cron, video-match, admin-resend) already log; this was
+    // the gap — booking-confirmation was firing untracked.
+    await logSms({
+      ts,
+      phone: toFormatted,
+      source: "booking-confirm",
+      status: result.status,
+      ok: true,
+      body,
+      provider: result.provider,
+      failedOver: result.failedOver,
+      providerMessageId: result.voxId || result.twilioSid,
+    }).catch(() => void 0);
+    return true;
+  }
 
   if (result.skipped || result.quotaHit) {
     const { quotaEnqueue } = await import("@/lib/sms-quota");
@@ -122,12 +141,38 @@ async function sendSms(to: string, body: string, fromNumber?: string): Promise<b
       source: "booking-confirm",
       queuedAt: new Date().toISOString(),
     });
+    // Log the queued attempt — quota-queue worker will log the eventual
+    // delivery, but tracking the QUEUED state at attempt time means
+    // dashboards reflect "we tried to send a confirmation today" even
+    // when the actual delivery slips into the next quota window.
+    await logSms({
+      ts,
+      phone: toFormatted,
+      source: "booking-confirm",
+      status: result.status,
+      ok: false,
+      error: result.error,
+      body,
+      provider: result.provider,
+    }).catch(() => void 0);
     console.warn("[booking-confirmation] queued SMS for next quota reset:", toFormatted, result.error);
     // Treat as "we'll get it sent eventually" — not a customer-facing
     // failure, since email already delivered.
     return true;
   }
 
+  // Hard failure — bad phone, missing config, etc. Still log it so the
+  // dashboard surfaces the failure rate per source.
+  await logSms({
+    ts,
+    phone: toFormatted,
+    source: "booking-confirm",
+    status: result.status,
+    ok: false,
+    error: result.error,
+    body,
+    provider: result.provider,
+  }).catch(() => void 0);
   console.error("[booking-confirmation] Voxtelesys error:", result.status, result.error);
   return false;
 }

@@ -124,6 +124,124 @@ export async function readSmsLog(
 }
 
 /**
+ * Aggregate SMS counts per ET-day across an inclusive date range.
+ *
+ * Returns one entry per day with a breakdown by source category, keyed
+ * to what the sales admin board surfaces:
+ *   - bookingConfirm  ← `source: "booking-confirm"`     (booking confirmations)
+ *   - eTicket         ← `source: "pre-race-cron"`        (pre-race e-ticket SMS)
+ *   - checkIn         ← `source: "checkin-cron"`         (heat check-in alerts)
+ *   - video           ← `source: "video-match"`          (race-video ready notifications)
+ *   - other           ← anything else (admin-resend, level-up, other)
+ *
+ * Each per-day row also tracks `attempts` (every entry, ok or not) and
+ * `delivered` (provider DLR confirmed `delivered`). `attempts - ok`
+ * lets the dashboard surface failure rate.
+ *
+ * O(N) scan over each day's list — bounded by MAX_PER_DAY (10k), so
+ * worst case ~10k entries per call. Fine for a dashboard refresh; no
+ * indexing needed.
+ */
+export interface SmsDailyCounts {
+  /** ISO date in ET, YYYY-MM-DD */
+  date: string;
+  /** Total log entries for the day (every send attempt) */
+  attempts: number;
+  /** Provider accepted (res.ok was true at send time) */
+  ok: number;
+  /** Carrier confirmed handset receipt (DLR = delivered) */
+  delivered: number;
+  /** Per-source breakdown of `attempts`. Other sources roll into `other`. */
+  bySource: {
+    bookingConfirm: number;
+    eTicket: number;
+    checkIn: number;
+    video: number;
+    other: number;
+  };
+}
+
+/** Map a raw `source` field onto the dashboard's category buckets. */
+function bucketSource(s: string | undefined): keyof SmsDailyCounts["bySource"] {
+  switch (s) {
+    case "booking-confirm":
+      return "bookingConfirm";
+    case "pre-race-cron":
+      return "eTicket";
+    case "checkin-cron":
+      return "checkIn";
+    case "video-match":
+      return "video";
+    default:
+      return "other";
+  }
+}
+
+/** ET-localized YYYY-MM-DD strings between `from` and `to` inclusive.
+ *  Mirrors the dayKey() formatter so the keys we read are aligned to
+ *  the same ET-bucketing the writer used. */
+function etDateRange(from: string, to: string): string[] {
+  const out: string[] = [];
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  // Anchor at midnight UTC of the from-date and walk forward day by day.
+  // Comparing the formatted ET string lets us cleanly stop at `to`.
+  let cursor = new Date(from + "T12:00:00Z");
+  const end = fmt.format(new Date(to + "T12:00:00Z"));
+  // Hard cap at 366 to avoid an unbounded loop on a malformed range.
+  for (let i = 0; i < 366; i++) {
+    const ymd = fmt.format(cursor);
+    out.push(ymd);
+    if (ymd === end) break;
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return out;
+}
+
+export async function readSmsCountsRange(
+  fromYmdEt: string,
+  toYmdEt: string,
+): Promise<SmsDailyCounts[]> {
+  const days = etDateRange(fromYmdEt, toYmdEt);
+  const out: SmsDailyCounts[] = [];
+  for (const ymd of days) {
+    const key = `sms:log:${ymd}`;
+    const raw = await redis.lrange(key, 0, -1);
+    const counts: SmsDailyCounts = {
+      date: ymd,
+      attempts: 0,
+      ok: 0,
+      delivered: 0,
+      bySource: {
+        bookingConfirm: 0,
+        eTicket: 0,
+        checkIn: 0,
+        video: 0,
+        other: 0,
+      },
+    };
+    for (const s of raw) {
+      let e: SmsLogEntry;
+      try {
+        e = JSON.parse(s) as SmsLogEntry;
+      } catch {
+        continue;
+      }
+      counts.attempts++;
+      if (e.ok) counts.ok++;
+      if (e.deliveryStatus === "delivered") counts.delivered++;
+      counts.bySource[bucketSource(e.source)]++;
+    }
+    out.push(counts);
+  }
+  return out;
+}
+
+/**
  * Cron-run log — one entry per cron invocation, regardless of whether any SMS
  * went out. Answers "did the cron actually fire?" when the SMS log is quiet.
  *
