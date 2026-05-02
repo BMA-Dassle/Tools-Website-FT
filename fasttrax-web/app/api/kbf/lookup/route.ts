@@ -163,16 +163,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
     }
 
-    // Pick the OTP channel. If the parent looked up by phone, use SMS
-    // (they have the phone, no need to bounce them to email). If they
-    // looked up by email, honor `preferred_2fa` — defaults to 'email'
-    // and only flips to 'sms' after they've opted in on a previous
-    // booking.
-    const channel: "sms" | "email" = useEmail
-      ? passes[0].preferred2fa === "sms" && passes[0].phone
-        ? "sms"
-        : "email"
-      : "sms";
+    // Pick the OTP channel from what the parent typed. The contact
+    // input IS the explicit channel choice — typing an email means
+    // they want the code via email, typing a phone means SMS. The
+    // saved `preferred_2fa` field used to override this when set to
+    // "sms" but that surprised users who explicitly switched to the
+    // email tab and then got a text anyway. preferred_2fa now only
+    // exists as a UX hint for which tab to default to on the next
+    // visit, not a server-side override.
+    const channel: "sms" | "email" = useEmail ? "email" : "sms";
 
     const code = String(randomInt(100000, 999999));
     const passIds = passes.map((p) => p.id);

@@ -1339,20 +1339,21 @@ export default function KidsBowlFreePage() {
       const dt = `${date}T${selectedTime}`;
 
       // ── 2. PATCH /reservations/{key}/players ──────────────────
+      // Don't send ShoeSize / Size here — when those fields are set,
+      // QAMF auto-attaches a $0 "Bowling Shoes" line to the
+      // reservation under the assumption that shoes are bundled
+      // (which they are for the included KBF tariff). That auto-
+      // line then dedupes our paid ShoesSocks cart item below, so
+      // the rental fee never bills. Bowling never PATCHes shoe
+      // info for the same reason — shoes go through the cart only.
+      // The per-bowler size still saves into our kbf_member_prefs
+      // table for staff lookup at the counter; QAMF just doesn't
+      // need it on the reservation.
       const playersPayload = selectedBowlers.map((b) => {
         const sel = bowlerSelections[b.key];
         return {
           Name: b.displayName || null,
-          ShoeSize: sel.wantShoes && sel.shoeSizeLabel ? sel.shoeSizeLabel : null,
           WantBumpers: sel.wantBumpers === true,
-          Size:
-            sel.wantShoes && sel.shoeSizeId && sel.shoeSizeLabel
-              ? {
-                  Id: sel.shoeSizeId,
-                  Name: sel.shoeSizeLabel,
-                  CategoryId: sel.shoeCategoryId ?? null,
-                }
-              : null,
         };
       });
       try {
