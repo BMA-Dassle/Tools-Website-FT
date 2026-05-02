@@ -25,87 +25,36 @@ const TTL_SECONDS = 60 * 60 * 24 * TTL_DAYS;
 
 /**
  * Whether the racer-facing public viewer (vt3.io/?code=X) can play
- * something for this video. Confirmed empirically by hitting
- * `https://sys.vt3.io/videos/code/{code}/check` — its `sample.url`
- * field (the signed R2 link the player consumes) is populated as
- * soon as VT3 finishes uploading the low-res sample, regardless of
- * which encoding state the full HD version is in.
+ * something for this video.
  *
- * The right gate is therefore `sampleUploadTime != null`, NOT a
- * status-name allowlist. Status alone is unreliable because:
- *   - VT3 added FOR_ENCODING / IS_ENCODING after our original allowlist
- *     shipped — those serve the sample fine but were getting held.
- *   - The same video can show different status names depending on the
- *     encoder pipeline path (some videos go ...→ FOR_ENCODING →
- *     PENDING_ACTIVATION; others skip straight to UPLOADED).
+ * Single rule: `sampleUploadTime` is set on the VT3 record. That
+ * field's signed R2 URL is exactly what `sys.vt3.io/videos/code/{code}/check`
+ * returns as `sample.url`, which is what the public player consumes.
+ * If the field is set, the racer's link works. If it's not, the page
+ * shows "still processing".
  *
- * Status reference (documentation only — gate uses sampleUploadTime):
- *   TRANSFERRING / PENDING_UPLOAD       — kart upload in flight
- *   TRANSFERRED                          — kart upload done, sample TBD
- *   SAMPLING / PROCESSING                — generating preview
- *   FOR_ENCODING / IS_ENCODING / ENCODING — encoder queue / active
- *   PENDING_ACTIVATION                   — activation pending
- *   UPLOADED / ACTIVE / READY            — full HD also done
- *
- * Status-name allowlist kept as a fallback for callers (admin block
- * routes) that only have the saved match record without a fresh VT3
- * sampleUploadTime probe. Now widened to include the encoding states
- * we've verified serve the sample — see VT3_READY_STATUSES below.
+ * We deliberately ignore the `status` name. VT3 has 7+ status values
+ * across the upload pipeline (TRANSFERRING / PENDING_UPLOAD /
+ * TRANSFERRED / SAMPLING / PROCESSING / FOR_ENCODING / IS_ENCODING /
+ * ENCODING / PENDING_ACTIVATION / UPLOADED / ACTIVE / READY), the set
+ * isn't documented, and it changes without notice — earlier blocklist
+ * AND allowlist approaches both leaked. sampleUploadTime is the actual
+ * data signal the public viewer uses, so use that.
  */
-export const VIDEO_READY_STATUSES = new Set<string>([
-  "PENDING_ACTIVATION",
-  "UPLOADED",
-  "ACTIVE",
-  "READY",
-  // Encoding states all have sampleUploadTime set when reached, and
-  // sys.vt3.io/videos/code/{code}/check returns a playable sample.url
-  // for them — the public viewer plays the low-res preview while VT3
-  // works on the full HD encode.
-  "FOR_ENCODING",
-  "IS_ENCODING",
-  "ENCODING",
-]);
-
-/** Subset of a VT3 video record that's enough to gate notify. Both
- *  the cron (with the full Vt3Video) and the admin block routes
- *  (with a saved VideoMatch) can pass into `isVideoReadyForNotify`. */
 export interface NotifyReadinessSignals {
+  /** Optional status, kept for logs / admin UI labels — IGNORED by the
+   *  gate. Don't add it back to the readiness check; see above. */
   status?: string | null;
+  /** ISO timestamp from VT3's `sampleUploadTime`. Presence == ready. */
   sampleUploadTime?: string | null;
 }
 
-/** True when the public viewer at vt3.io/?code=X can serve at least
- *  the low-res sample preview for this video. Two-tier check:
- *
- *    1. Primary: `sampleUploadTime` is set on the VT3 record. This
- *       is the field the public /check endpoint uses to populate
- *       `sample.url` — if it's there, the racer's link works.
- *    2. Fallback: `status` is in the allowlist. Used by callers
- *       that haven't probed VT3 fresh (admin block routes that read
- *       the saved match record). The allowlist now covers the
- *       encoding states that serve samples, so these still get
- *       SMS without waiting for the next cron tick.
- *
- *  Empty inputs → not ready. Was previously "permissive on missing
- *  status"; that quietly let pre-sample states through.
- *
- *  Backwards-compat: also accepts a bare status string, since several
- *  admin routes still pass `match.videoStatus` directly. */
+/** True when the public viewer can serve the sample preview. */
 export function isVideoReadyForNotify(
-  signals: NotifyReadinessSignals | string | undefined | null,
+  signals: NotifyReadinessSignals | undefined | null,
 ): boolean {
-  if (signals == null) return false;
-  // Bare-string overload — legacy callers passing match.videoStatus.
-  if (typeof signals === "string") {
-    return VIDEO_READY_STATUSES.has(signals);
-  }
-  // Sample-uploaded → racer can definitely play the preview.
-  if (signals.sampleUploadTime) return true;
-  // No sample yet, but status name says it should be playable.
-  // (Defensive: covers cases where we haven't observed sampleUploadTime
-  //  but a downstream pipeline tells us the video is live.)
-  if (signals.status && VIDEO_READY_STATUSES.has(signals.status)) return true;
-  return false;
+  if (!signals) return false;
+  return !!signals.sampleUploadTime;
 }
 
 export interface VideoMatch {
