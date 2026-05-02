@@ -593,7 +593,17 @@ export async function POST(req: NextRequest) {
 
           // ASCII-only label for the link CTA — em-dashes / curly quotes
           // would force UCS-2 encoding, halving the per-segment budget.
-          const cta = isExpressLane ? "View pass + check-in" : "View + waiver";
+          // Mention POV codes when this booking includes them so racers
+          // know where to find the redemption codes (we no longer send
+          // codes as separate SMS — they live on the confirmation page).
+          const hasPovCodes = codes.length > 0;
+          const cta = isExpressLane
+            ? hasPovCodes
+              ? "Pass, check-in + POV codes"
+              : "View pass + check-in"
+            : hasPovCodes
+              ? "View, waiver + POV codes"
+              : "View + waiver";
 
           const smsBody = shortConfirm
             ? `${brandName}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
@@ -602,16 +612,10 @@ export async function POST(req: NextRequest) {
           const smsFrom = location === "naples" ? VOX_FROM_NAPLES : isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
           results.sms = await sendSms(normalized, smsBody, smsFrom);
 
-          // POV codes still go as separate single-character-set SMS so
-          // racers can copy/paste each one. No preamble — the
-          // confirmation page already explains them. Each code SMS is
-          // ~10 chars = 1 segment.
-          if (codes.length > 0) {
-            await new Promise(r => setTimeout(r, 5000));
-            for (const code of codes) {
-              await sendSms(normalized, code, smsFrom);
-            }
-          }
+          // POV codes are now displayed on the confirmation page only —
+          // no separate per-code SMS. Cuts N+1 outbound messages per
+          // booking (where N = video count, typically 1-4) down to 1.
+          // The CTA above tells racers to tap the URL for the codes.
         }
       } catch (err) {
         console.error("[booking-confirmation] sms failed:", err);

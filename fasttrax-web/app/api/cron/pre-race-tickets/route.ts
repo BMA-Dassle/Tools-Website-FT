@@ -241,7 +241,7 @@ function formatTimeET(iso: string): string {
 // ASCII-only — the prior "↑" arrow forced UCS-2 encoding (67 chars
 // per segment instead of 153), turning every pre-race-cron SMS into
 // 2-3 billed segments. Same intent, GSM-7 safe.
-const SHORT_CTA = `Open for check-in info`;
+const SHORT_CTA = `Have open for check-in`;
 
 function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
