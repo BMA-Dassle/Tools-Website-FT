@@ -10,6 +10,7 @@ import {
 import {
   getMatch,
   updateVideoMatch,
+  isVideoReadyForNotify,
   type VideoMatch,
 } from "@/lib/video-match";
 import { setVideoDisabled, linkCustomerEmail } from "@/lib/vt3";
@@ -44,12 +45,11 @@ import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notif
  * Auth: middleware.ts gates /api/admin/camera-assign/* on ADMIN_CAMERA_TOKEN.
  */
 
-const NOT_READY_STATUSES = new Set([
-  "TRANSFERRING",
-  "SAMPLING",
-  "PENDING_UPLOAD",
-  "PROCESSING",
-]);
+// VT3 ready/not-ready uses the shared allowlist —
+// see lib/video-match.ts:VIDEO_READY_STATUSES. Anything not on the
+// allowlist (including the ENCODING state that recently snuck through
+// our prior blocklist) holds; the next cron tick fires inline notify
+// once VT3 transitions.
 
 /**
  * Walk a list of (sessionId, personId) pairs, fetch the match record
@@ -121,7 +121,7 @@ async function applyToExistingMatches(
 
         // Backfill notify if never sent + VT3 ready.
         const neverNotified = !match.notifySmsSentAt && !match.notifyEmailSentAt;
-        const vt3Ready = !match.videoStatus || !NOT_READY_STATUSES.has(match.videoStatus);
+        const vt3Ready = isVideoReadyForNotify(match.videoStatus);
         if (neverNotified && vt3Ready) {
           if (match.email && !match.vt3CustomerLinked) {
             try {

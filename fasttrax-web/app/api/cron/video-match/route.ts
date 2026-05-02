@@ -8,6 +8,7 @@ import {
   getMatchByVideoCode,
   getLastSeenVideoId,
   setLastSeenVideoId,
+  isVideoReadyForNotify,
   type VideoMatch,
 } from "@/lib/video-match";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
@@ -138,29 +139,12 @@ export async function GET(req: NextRequest) {
   let vt3DisabledFlips = 0;       // successful PUT /videos/by-code/{code} disabled:{bool} calls
   let errors = 0;
 
-  /**
-   * VT3 video status values seen in the wild:
-   *   TRANSFERRING       — upload in progress, preview NOT viewable yet
-   *   SAMPLING           — generating preview, still not viewable by staff
-   *   TRANSFERRED        — upload complete
-   *   PENDING_ACTIVATION — activation pending but preview MP4 IS viewable
-   *   UPLOADED / ACTIVE  — fully available
-   *
-   * We hold off notifying racers until the status reaches a state where
-   * tapping the link in the SMS actually plays something. Staff reported
-   * a race condition where texts were landing while vt3.io/?code=X was
-   * still showing 'processing'.
-   *
-   * Blocklist of known "too early" statuses; everything else passes.
-   * Using a blocklist (not allowlist) so VT3 adding a new later state
-   * doesn't silently block the cron.
-   */
-  const NOT_READY_STATUSES = new Set([
-    "TRANSFERRING",
-    "SAMPLING",
-    "PENDING_UPLOAD",
-    "PROCESSING",
-  ]);
+  // Holding rules: notify only fires when VT3 status is one of the
+  // known-viewable states (PENDING_ACTIVATION, UPLOADED, ACTIVE, READY).
+  // ALLOWLIST — any new state VT3 introduces (e.g. ENCODING, which
+  // recently slipped through our prior blocklist and sent SMS for a
+  // still-processing video) holds by default. See
+  // `VIDEO_READY_STATUSES` in lib/video-match.ts for the canonical list.
   const matches: { videoCode: string; systemNumber: string; cameraNumber?: number; racer: string; sessionId: string | number }[] = [];
 
   try {
@@ -293,7 +277,9 @@ export async function GET(req: NextRequest) {
         //
         // We suppress this pass during dry runs so the counters stay
         // honest without hitting VT3 or Voxtelesys.
-        const vt3Ready = !v.status || !NOT_READY_STATUSES.has(v.status);
+        // Allowlist gate — only fire when VT3 explicitly says the
+        // preview is viewable. Missing/unknown status holds.
+        const vt3Ready = isVideoReadyForNotify(v.status);
         const shouldFireNow =
           !existing.blocked &&
           existing.pendingNotify === true &&
@@ -350,7 +336,10 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const notReady = !!v.status && NOT_READY_STATUSES.has(v.status);
+      // Held until VT3 confirms the preview is viewable. Allowlist —
+      // any status not in VIDEO_READY_STATUSES (including ENCODING and
+      // any future state VT3 adds) keeps the match in pending-notify.
+      const notReady = !isVideoReadyForNotify(v.status);
 
       // -----------------------------------------------------------------
       // PATH 1: existing match (prior cron run already created a record).

@@ -23,6 +23,38 @@ import type { GuardianContact } from "@/lib/participant-contact";
 const TTL_DAYS = 90;
 const TTL_SECONDS = 60 * 60 * 24 * TTL_DAYS;
 
+/**
+ * VT3 status values that mean the preview MP4 is actually viewable —
+ * tap-the-SMS-link will play something. ALLOWLIST (not blocklist) so
+ * any new state VT3 introduces holds notify by default. Earlier we
+ * had a blocklist of "not ready" states, but VT3 added `ENCODING`
+ * (and presumably others) without us noticing, and racers were
+ * getting texts pointing at "still processing" pages.
+ *
+ *   PENDING_ACTIVATION — activation pending but preview MP4 IS viewable
+ *   UPLOADED          — upload + sample done, racer can watch + share
+ *   ACTIVE            — fully available
+ *   READY             — fully available (alternate name VT3 sometimes uses)
+ *
+ * Known-not-ready (kept here as documentation, not enforced):
+ *   TRANSFERRING / SAMPLING / PENDING_UPLOAD / PROCESSING / ENCODING /
+ *   TRANSFERRED — preview not yet viewable.
+ */
+export const VIDEO_READY_STATUSES = new Set<string>([
+  "PENDING_ACTIVATION",
+  "UPLOADED",
+  "ACTIVE",
+  "READY",
+]);
+
+/** True when the VT3 status means the preview is viewable. Empty / undefined
+ *  status is treated as "not ready" — a deliberate change from the prior
+ *  blocklist behavior, where missing status would slip through. */
+export function isVideoReadyForNotify(status: string | undefined | null): boolean {
+  if (!status) return false;
+  return VIDEO_READY_STATUSES.has(status);
+}
+
 export interface VideoMatch {
   sessionId: string | number;
   personId: string | number;

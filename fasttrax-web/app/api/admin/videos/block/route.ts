@@ -4,6 +4,7 @@ import { blockVideo, unblockVideo, getBlockState } from "@/lib/video-block";
 import {
   getMatchByVideoCode,
   updateVideoMatch,
+  isVideoReadyForNotify,
 } from "@/lib/video-match";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 
@@ -31,14 +32,10 @@ import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notif
  * Auth: middleware gates /api/admin/videos/* on ADMIN_CAMERA_TOKEN.
  */
 
-// Same blocklist the cron uses — here in case we need to decide whether
-// VT3 is "ready" for inline notify on unblock.
-const NOT_READY_STATUSES = new Set([
-  "TRANSFERRING",
-  "SAMPLING",
-  "PENDING_UPLOAD",
-  "PROCESSING",
-]);
+// Ready/not-ready check uses the shared allowlist — see
+// lib/video-match.ts:VIDEO_READY_STATUSES. Anything not on that
+// allowlist (TRANSFERRING / SAMPLING / PROCESSING / ENCODING / etc.)
+// holds, and the next cron tick fires notify when VT3 transitions.
 
 export async function POST(req: NextRequest) {
   try {
@@ -112,7 +109,7 @@ export async function POST(req: NextRequest) {
       existing.blockedAt = undefined;
 
       const neverNotified = !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
-      const vt3Ready = !existing.videoStatus || !NOT_READY_STATUSES.has(existing.videoStatus);
+      const vt3Ready = isVideoReadyForNotify(existing.videoStatus);
 
       if (neverNotified && vt3Ready) {
         // Push email to VT3 customer profile first, then fire notify.
