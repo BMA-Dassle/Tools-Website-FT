@@ -13,8 +13,18 @@ export default function HeadPinzMobileBookBar() {
   const [showContact, setShowContact] = useState(false);
   const pathname = usePathname();
 
-  // Hide on booking pages and home location selector
+  // Hide on every booking page — user is already inside a booking
+  // flow, a "Book Now" bar would either be a no-op or worse, kick
+  // them back to the start of a different flow.
   if (pathname?.includes("/book/")) return null;
+  if (pathname?.includes("/book")) return null;
+  // Belt-and-suspenders explicit guards for the KBF wizard pages —
+  // every step lives under .../book/kids-bowl-free/* but include
+  // the slug match too in case a future deploy serves the route
+  // from a non-/book/ path. KBF wizard has its own Continue / Back
+  // CTAs at every step, so a floating Book Now bar would just stack
+  // on top.
+  if (pathname?.includes("kids-bowl-free")) return null;
   // Also hide on the booking hub itself (/book or /hp/book) — no point
   // showing a Book Now bar that would just re-load the page you're on.
   if (pathname === "/book" || pathname === "/hp/book") return null;
