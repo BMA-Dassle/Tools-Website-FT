@@ -180,11 +180,14 @@ export async function GET(req: NextRequest) {
 
     // Pre-filter by fields that live on SmsLogEntry directly.
     // Video-match SMS (race-video notifications) belong on the
-    // /admin/{token}/videos board, NOT here. Exclude them from the
-    // default view but respect an explicit `source=video-match`
-    // filter so staff can still drill in if they need to.
+    // /admin/{token}/videos board, NOT here. Booking-confirm SMS
+    // belong on the sales dashboard's SMS volume section, NOT here —
+    // they have no shortCode, no ticket lookup, and just clutter
+    // the per-heat e-ticket view. Exclude both from the default view
+    // but respect an explicit `source=` filter so staff can drill in.
     const preFiltered = pool.filter((e) => {
       if (!source && e.source === "video-match") return false;
+      if (!source && e.source === "booking-confirm") return false;
       if (source && e.source !== source) return false;
       if (phone && e.phone !== phone) return false;
       if (sessionId && !(e.sessionIds || []).map(String).includes(sessionId)) return false;
