@@ -605,9 +605,16 @@ export async function POST(req: NextRequest) {
               ? "View, waiver + POV codes"
               : "View + waiver";
 
+          // Express-lane racers get the brand suffixed with "Express Lane"
+          // so the prefix line is unmistakable at a glance — staff and
+          // racers asked for this so the SMS preview tells them they
+          // bypass Guest Services without needing to open the link.
+          const brandPrefix = isExpressLane
+            ? `${brandName} Express Lane`
+            : brandName;
           const smsBody = shortConfirm
-            ? `${brandName}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
-            : `${brandName}: Booking #${reservationNumber} for ${dateTime}.`;
+            ? `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
+            : `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}.`;
 
           const smsFrom = location === "naples" ? VOX_FROM_NAPLES : isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
           results.sms = await sendSms(normalized, smsBody, smsFrom);
