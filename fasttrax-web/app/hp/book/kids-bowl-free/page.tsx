@@ -569,10 +569,20 @@ export default function KidsBowlFreePage() {
   const [bmiLoadingSlots, setBmiLoadingSlots] = useState<Record<string, boolean>>({});
   const bmiAddonOrderIdRef = useRef<string | null>(null);
   const bmiAddonLineIdsRef = useRef<Record<string, string>>({});
-  // Paid-shoes state — kept in case we re-enable later, but the
-  // wizard no longer surfaces a UI control for it. Always false.
-  const [wantPaidShoes] = useState(false);
-  const [paidShoeOption] = useState<{ priceKeyId: number; price: number; name: string } | null>(null);
+  // Paid-shoes catalog — fetched from QAMF's shoes-socks-offer
+  // endpoint after the lane is held (mirrors how /book/bowling does
+  // it). Each `ShoeOption` becomes a billable line item on
+  // Cart/CreateSummary + guest/confirm. Quantity is the count of
+  // bowlers who toggled "Need shoes" on the bowler-selection step.
+  // No GUI surface — KBF's existing per-bowler shoe toggle drives
+  // whether shoes are added; this catalog just provides the
+  // PriceKeyId / UnitPrice that QAMF needs to bill.
+  const [paidShoes, setPaidShoes] = useState<{
+    Name?: string;
+    Price: number;
+    PriceKeyId: number;
+    PlayerTypeId?: number;
+  }[]>([]);
 
   // Review
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
@@ -1044,6 +1054,26 @@ export default function KidsBowlFreePage() {
             tariffId: selectedTariffId!,
             time: selectedTime,
           });
+
+          // Fetch the paid-shoes catalog for this offer + datetime so
+          // the cart/CreateSummary + guest/confirm calls below can bill
+          // for shoe rentals. KBF's free package already has $0 "shoes
+          // included" lines auto-added by QAMF when ShoeSize is set on
+          // PATCH /players — those are NOT the rental fee. Real rental
+          // is a separate ShoesSocks line item with its own PriceKeyId.
+          // Mirrors /book/bowling's approach exactly. Best-effort: a
+          // miss here just means no shoe charge — booking still
+          // completes (admin can collect at counter).
+          try {
+            const dteParam = encodeURIComponent(`${date}T${selectedTime}`);
+            const shoesData = (await qamf(
+              `centers/${centerId}/offers/${selectedOfferId}/shoes-socks-offer?systemId=${centerId}&datetime=${dteParam}`,
+            )) as { Shoes?: { Name?: string; Price: number; PriceKeyId: number; PlayerTypeId?: number }[] } | null;
+            setPaidShoes(shoesData?.Shoes ?? []);
+          } catch (err) {
+            console.error("[kbf] shoes-socks-offer fetch failed:", err);
+            setPaidShoes([]);
+          }
         } catch (err) {
           setError(friendlyQamfError(err, "Couldn't hold the lane"));
           setBusy(false);
@@ -1355,16 +1385,18 @@ export default function KidsBowlFreePage() {
           UnitPrice: a.price,
           Note: "",
         }));
+      // Build paid-shoe line items from QAMF's shoes-socks-offer
+      // response (fetched after book-for-later). One line per
+      // SKU returned (Adult, Junior, Socks, etc.) × shoeQty —
+      // mirrors bowling's exact pattern.
       const shoesItems =
-        shoeQty > 0 && wantPaidShoes && paidShoeOption
-          ? [
-              {
-                PriceKeyId: paidShoeOption.priceKeyId,
-                Quantity: shoeQty,
-                UnitPrice: paidShoeOption.price,
-                Note: "",
-              },
-            ]
+        shoeQty > 0 && paidShoes.length > 0
+          ? paidShoes.map((s) => ({
+              PriceKeyId: s.PriceKeyId,
+              Quantity: shoeQty,
+              UnitPrice: s.Price,
+              Note: "",
+            }))
           : [];
       let summary: { Total?: number; AddedTaxes?: number; TotalItems?: number; Fee?: number; AutoGratuity?: number; TotalWithoutTaxes?: number; Deposit?: number } = {};
       try {
@@ -1407,14 +1439,20 @@ export default function KidsBowlFreePage() {
           UnitPrice: item.Total,
         },
       ];
-      if (shoeQty > 0 && wantPaidShoes && paidShoeOption) {
-        cartItems.push({
-          Name: "Bowling Shoes",
-          Type: "ShoesSocks",
-          PriceKeyId: paidShoeOption.priceKeyId,
-          Quantity: shoeQty,
-          UnitPrice: paidShoeOption.price,
-        });
+      // One ShoesSocks line per shoe SKU from the catalog × shoeQty.
+      // Mirrors bowling's submitBooking — same Type / shape, same
+      // multiplication. shoeQty is the count of bowlers with
+      // wantShoes=true on the bowler-selection step.
+      if (shoeQty > 0 && paidShoes.length > 0) {
+        for (const s of paidShoes) {
+          cartItems.push({
+            Name: s.Name || "Bowling Shoes",
+            Type: "ShoesSocks",
+            PriceKeyId: s.PriceKeyId,
+            Quantity: shoeQty,
+            UnitPrice: s.Price,
+          });
+        }
       }
       for (const a of bmiAddonsList) {
         const q = bmiAddonQty[a.productId] ?? 0;
@@ -1516,8 +1554,8 @@ export default function KidsBowlFreePage() {
             time: selectedTime,
             players: selectedBowlers.length,
             tariffPrice: item.Total,
-            shoes: wantPaidShoes,
-            shoePrice: paidShoeOption?.price ?? 0,
+            shoes: shoeQty > 0 && paidShoes.length > 0,
+            shoePrice: paidShoes[0]?.Price ?? 0,
             addons: getBmiAddons().map((a) => ({
               name: a.name,
               qty: a.quantity,
