@@ -430,17 +430,22 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
 }
 
+// ── SMS body builders ──────────────────────────────────────────────────────
+// All bodies stay GSM-7 (ASCII only) so each SMS bills as 1 segment in
+// the 160-char window. Previously these used " · " (middle dot,
+// U+00B7) and " — " (em dash, U+2014) which forced UCS-2 encoding —
+// 67 chars/segment — multiplying every check-in SMS by 2-4× at Vox.
+// Same content, just plain hyphens / pipes instead of typographic
+// punctuation. Trimmed the lockers reminder which lived purely to
+// blow segment count anyway.
+
 function buildSingleSmsBody(race: CurrentRace, member: GroupTicketMember, shortUrl: string): string {
   return [
-    `FastTrax · NOW CHECKING IN`,
-    ``,
-    raceHeader(race),
+    `FastTrax: NOW CHECKING IN`,
+    `${race.raceType} Heat ${race.heatNumber} | ${timeET(race.scheduledStart)}`,
     racerLabel(member),
-    ``,
-    `Head to Karting · 1st Floor NOW.`,
-    `Have your e-ticket OPEN and ready: ${shortUrl}`,
-    ``,
-    `Lockers are in the briefing room — no loose items on the track.`,
+    `Head to Karting (1st Floor) now.`,
+    `E-ticket: ${shortUrl}`,
   ].join("\n");
 }
 
@@ -454,18 +459,14 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     if (!bySession.has(k)) bySession.set(k, []);
     bySession.get(k)!.push(m);
   }
-  const lines: string[] = [`FastTrax · NOW CHECKING IN`];
+  const lines: string[] = [`FastTrax: NOW CHECKING IN`];
   for (const group of bySession.values()) {
     const first = group[0];
-    lines.push(``);
-    lines.push(`${first.heatNumber} - ${first.track} ${first.raceType} · ${timeET(first.scheduledStart)}`);
+    lines.push(`${first.heatNumber} - ${first.track} ${first.raceType} | ${timeET(first.scheduledStart)}`);
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
-  lines.push(``);
-  lines.push(`Head to Karting · 1st Floor NOW.`);
-  lines.push(`Have your e-tickets OPEN and ready: ${shortUrl}`);
-  lines.push(``);
-  lines.push(`Lockers are in the briefing room — no loose items on the track.`);
+  lines.push(`Head to Karting (1st Floor) now.`);
+  lines.push(`E-tickets: ${shortUrl}`);
   return lines.join("\n");
 }
 
@@ -476,15 +477,10 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
  */
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
   return [
-    `FastTrax · NOW CHECKING IN`,
-    ``,
-    `Your racer's heat is up — head to Karting · 1st Floor NOW`,
-    ``,
-    `- ${racerLabel(member)} — ${member.track} Heat ${member.heatNumber} · ${timeET(member.scheduledStart)}`,
-    ``,
-    `Have the e-ticket OPEN and ready: ${shortUrl}`,
-    ``,
-    `Lockers are in the briefing room — no loose items on the track.`,
+    `FastTrax: NOW CHECKING IN`,
+    `Your racer's heat is up - head to Karting (1st Floor) now.`,
+    `${racerLabel(member)} | ${member.track} Heat ${member.heatNumber} | ${timeET(member.scheduledStart)}`,
+    `E-ticket: ${shortUrl}`,
   ].join("\n");
 }
 
@@ -498,18 +494,13 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
   const lines: string[] = [
-    `FastTrax · NOW CHECKING IN`,
-    ``,
-    `Your racers are up — head to Karting · 1st Floor NOW`,
-    ``,
+    `FastTrax: NOW CHECKING IN`,
+    `Your racers are up - head to Karting (1st Floor) now.`,
   ];
   for (const m of sorted) {
-    lines.push(`- ${racerLabel(m)} — ${m.track} Heat ${m.heatNumber} · ${timeET(m.scheduledStart)}`);
+    lines.push(`${racerLabel(m)} | ${m.track} Heat ${m.heatNumber} | ${timeET(m.scheduledStart)}`);
   }
-  lines.push(``);
-  lines.push(`Have the e-tickets OPEN and ready: ${shortUrl}`);
-  lines.push(``);
-  lines.push(`Lockers are in the briefing room — no loose items on the track.`);
+  lines.push(`E-tickets: ${shortUrl}`);
   return lines.join("\n");
 }
 

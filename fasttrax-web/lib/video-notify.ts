@@ -51,13 +51,17 @@ function buildVideoSmsBody(
   const racerFirst = (entry.firstName || "").trim();
   const trackLabel = entry.track ? `${entry.track.replace(" Track", "")} Track` : "race";
   const heatLabel = entry.heatNumber ? ` Heat ${entry.heatNumber}` : "";
+  // GSM-7 only — em dashes (U+2014) flip the whole message to UCS-2,
+  // which halves the per-segment budget (67 chars) and was making
+  // every video-match SMS bill as 2 segments. Plain hyphen does the
+  // same job and stays in the 1-segment GSM-7 window.
   if (recipient === "guardian") {
     const racerName = racerFirst || "your racer";
-    lines.push(`FastTrax — race video ready for ${racerName}!`);
+    lines.push(`FastTrax: race video ready for ${racerName}!`);
     lines.push(``);
     lines.push(`${racerName}'s ${trackLabel}${heatLabel} video is live.`);
   } else {
-    lines.push(`FastTrax — your race video is ready!`);
+    lines.push(`FastTrax: your race video is ready!`);
     lines.push(``);
     const who = racerFirst ? `${racerFirst}, your ` : "Your ";
     lines.push(`${who}${trackLabel}${heatLabel} video is live.`);

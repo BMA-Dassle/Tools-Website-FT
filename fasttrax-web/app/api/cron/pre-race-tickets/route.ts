@@ -238,7 +238,10 @@ function formatTimeET(iso: string): string {
 // bodies, which was silently dropping e-tickets to a chunk of
 // recipients. Customers see the full race info when they open the
 // link, which is the expected flow anyway.
-const SHORT_CTA = `Open this for check-in info ↑`;
+// ASCII-only — the prior "↑" arrow forced UCS-2 encoding (67 chars
+// per segment instead of 153), turning every pre-race-cron SMS into
+// 2-3 billed segments. Same intent, GSM-7 safe.
+const SHORT_CTA = `Open for check-in info`;
 
 function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
@@ -296,7 +299,7 @@ function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string)
   return [
     "FastTrax e-ticket for your racer",
     "",
-    `- ${member.firstName} — ${heatLabel}`,
+    `- ${member.firstName} - ${heatLabel}`,
     "",
     shortUrl,
     SHORT_CTA,
@@ -316,7 +319,7 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   const lines = ["FastTrax e-tickets for your racers", ""];
   for (const m of sorted) {
     const heatLabel = `${m.track} Heat ${m.heatNumber} at ${formatTimeET(m.scheduledStart)}`;
-    lines.push(`- ${m.firstName} — ${heatLabel}`);
+    lines.push(`- ${m.firstName} - ${heatLabel}`);
   }
   lines.push("");
   lines.push(shortUrl);
