@@ -123,6 +123,31 @@ const PILL_AMBER = "bg-amber-500/20 text-amber-300";
 const PILL_RED = "bg-red-500/20 text-red-300";
 const PILL_GREY = "bg-white/10 text-white/50";
 
+/** Translate the raw VT3 status into a short, racer-/staff-friendly
+ *  label for the pending-notify chip. Previously the chip always said
+ *  "pending upload" regardless of state, which read as a bug to ops
+ *  when the file was actually queued in VT3's encoder for 30+ minutes
+ *  past upload completion. */
+function pendingPhaseLabel(status: string | undefined): string {
+  switch (status) {
+    case "PENDING_UPLOAD":
+    case "TRANSFERRING":
+      return "uploading";
+    case "TRANSFERRED":
+      return "uploaded · awaiting encode";
+    case "FOR_ENCODING":
+      return "queued for encode";
+    case "IS_ENCODING":
+    case "ENCODING":
+      return "encoding";
+    case "SAMPLING":
+    case "PROCESSING":
+      return "processing";
+    default:
+      return status ? status.toLowerCase().replace(/_/g, " ") : "pending";
+  }
+}
+
 /** SMS-state chip — same shape as the e-ticket admin. Returns
  *  null for passive "not sent" states so the row stays uncluttered;
  *  only renders when there's something the operator needs to see
@@ -420,7 +445,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
                         title={`Matched — waiting for VT3 preview to finish (${e.videoStatus || "status unknown"})`}
                       >
-                        ⏳ pending upload
+                        ⏳ {pendingPhaseLabel(e.videoStatus)}
                       </span>
                     ) : (
                       <>
@@ -590,7 +615,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                               className="text-xs uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
                               title={`Matched — waiting for VT3 preview to finish (${e.videoStatus || "status unknown"})`}
                             >
-                              ⏳ pending upload
+                              ⏳ {pendingPhaseLabel(e.videoStatus)}
                             </span>
                           ) : (
                             <>
