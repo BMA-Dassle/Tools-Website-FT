@@ -274,33 +274,51 @@ export default function SalesAdminClient({ token }: { token: string }) {
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-[#0a1128] text-white">
+    <div
+      className="min-h-screen text-white"
+      style={{
+        background: "radial-gradient(ellipse at top, rgba(0,226,229,0.06) 0%, transparent 50%), #050b1d",
+      }}
+    >
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
-        <header className="mb-3 sm:mb-5">
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Sales · Web Reservations</h1>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
-            Volume + product mix from confirmed bookings. Data starts the day this dashboard shipped — no historical backfill.
+        <header className="mb-5 sm:mb-7">
+          <div className="flex items-baseline gap-3 mb-1.5">
+            <span
+              className="text-xs font-bold uppercase tracking-[0.3em]"
+              style={{ color: ACCENTS.cyan.fg }}
+            >
+              FastTrax · Admin
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-white/30 hidden sm:inline">
+              Web Reservations Dashboard
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+            Sales Overview
+          </h1>
+          <p className="text-white/45 text-xs sm:text-sm mt-1 hidden sm:block">
+            Volume, product mix, and SMS pipeline health — confirmed bookings only.
           </p>
         </header>
 
         {/* Filter bar */}
-        <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+        <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
             From
             <input
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
             To
             <input
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
             />
           </label>
           <div className="col-span-2 flex flex-wrap items-end gap-2">
@@ -315,7 +333,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
                 key={p.k}
                 type="button"
                 onClick={() => preset(p.k)}
-                className="px-2.5 py-1.5 text-xs rounded border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 transition-colors"
+                className="px-3 py-1.5 text-xs font-semibold rounded-full border border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10 hover:border-white/25 transition-colors"
               >
                 {p.l}
               </button>
@@ -323,7 +341,11 @@ export default function SalesAdminClient({ token }: { token: string }) {
             <button
               type="button"
               onClick={load}
-              className="ml-auto px-3 py-1.5 text-xs rounded font-bold bg-[#00E2E5] text-[#000418] hover:bg-white"
+              className="ml-auto px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full text-[#000418] transition-all hover:scale-105"
+              style={{
+                background: `linear-gradient(135deg, ${ACCENTS.cyan.fg} 0%, #38f0f3 100%)`,
+                boxShadow: `0 0 12px ${ACCENTS.cyan.glow}`,
+              }}
             >
               Refresh
             </button>
@@ -350,16 +372,39 @@ export default function SalesAdminClient({ token }: { token: string }) {
         {data && data.totals.reservations > 0 && (
           <>
             {/* ── Top-line cards ── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
-              <Card label="Reservations" value={data.totals.reservations} />
-              <Card label="Racers" value={data.totals.racers} subtle="across bookings" />
-              <Card label="Racing" value={data.totals.racingReservations + data.totals.mixedReservations} subtle={`${pctText(data.totals.racingReservations + data.totals.mixedReservations, data.totals.reservations)} of all`} />
-              <Card label="Attractions" value={data.totals.attractionReservations + data.totals.mixedReservations} subtle={`${pctText(data.totals.attractionReservations + data.totals.mixedReservations, data.totals.reservations)} of all`} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <Card
+                label="Reservations"
+                value={data.totals.reservations}
+                accent="cyan"
+                icon="📋"
+              />
+              <Card
+                label="Racers"
+                value={data.totals.racers}
+                subtle="across bookings"
+                accent="coral"
+                icon="🏁"
+              />
+              <Card
+                label="Racing"
+                value={data.totals.racingReservations + data.totals.mixedReservations}
+                subtle={`${pctText(data.totals.racingReservations + data.totals.mixedReservations, data.totals.reservations)} of all`}
+                accent="blue"
+                icon="🏎"
+              />
+              <Card
+                label="Attractions"
+                value={data.totals.attractionReservations + data.totals.mixedReservations}
+                subtle={`${pctText(data.totals.attractionReservations + data.totals.mixedReservations, data.totals.reservations)} of all`}
+                accent="purple"
+                icon="🎯"
+              />
             </div>
 
             {/* ── Racing breakdown ── */}
             {data.racing.reservations > 0 && (
-              <Section title="Racing">
+              <Section title="Racing" icon="🏎">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
                   <MiniStat label="New racers" value={data.racing.newRacers} />
                   <MiniStat label="Returning" value={data.racing.returningRacers} />
@@ -437,13 +482,14 @@ export default function SalesAdminClient({ token }: { token: string }) {
                           {combineFamilies ? "Combined ✓" : "Show variants"}
                         </button>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         {tiles.map((pkg) => (
                           <Tile
                             key={pkg.id}
                             title={pkg.label}
                             primary={`${pkg.count}`}
                             primarySubtle={`/ ${data.racing.reservations} racing`}
+                            accent="amber"
                             rows={[
                               {
                                 label: "% of racing bookings",
@@ -471,6 +517,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     title="POV Race Video"
                     primary={`${data.racing.pov.count}`}
                     primarySubtle={`bookings · ${data.racing.pov.qty} videos sold`}
+                    accent="purple"
                     rows={[
                       { label: "Attach rate (overall)", value: `${data.racing.pov.attachRate}%` },
                       { label: "  · new racers", value: `${data.racing.pov.byNewRacer} (${data.racing.pov.attachRateNewRacer}%)` },
@@ -485,6 +532,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     title="Packages (all types)"
                     primary={`${data.racing.packages.total}`}
                     primarySubtle="total package sales"
+                    accent="amber"
                     rows={[
                       { label: "% of racing bookings", value: data.racing.reservations > 0 ? `${Math.round((data.racing.packages.total / data.racing.reservations) * 100)}%` : "—" },
                     ]}
@@ -497,11 +545,13 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     title="License sales"
                     primary={`${data.racing.license.count}`}
                     primarySubtle="bookings"
+                    accent="blue"
                   />
                   <Tile
                     title="Add-on attach"
                     primary={`${data.racing.addOnAttachCount}`}
                     primarySubtle={`/${data.racing.reservations} racing bookings`}
+                    accent="emerald"
                     rows={[
                       { label: "Attach rate", value: `${data.racing.addOnAttachRate}%` },
                     ]}
@@ -516,7 +566,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
 
             {/* ── Attractions breakdown ── */}
             {data.attractions.reservations > 0 && (
-              <Section title="Attractions">
+              <Section title="Attractions" icon="🎯">
                 <div className="mb-3 text-xs text-white/60">
                   {data.attractions.reservations} reservation{data.attractions.reservations === 1 ? "" : "s"} included an attraction.
                 </div>
@@ -528,7 +578,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
 
             {/* ── Video post-sale breakdown ── */}
             {data.videos && data.videos.total > 0 && (
-              <Section title="Videos · Post-Race">
+              <Section title="Videos · Post-Race" icon="🎥">
                 {/* Top-line counts */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
                   <MiniStat label="Matched" value={data.videos.total} />
@@ -591,107 +641,152 @@ export default function SalesAdminClient({ token }: { token: string }) {
 
             {/* ── Per-day timeline ── */}
             {data.byDay.length > 1 && (
-              <Section title="Daily volume">
-                <div className="flex items-end gap-1.5 overflow-x-auto pb-2">
-                  {data.byDay.map((d) => {
-                    const h = Math.max(4, Math.round((d.reservations / maxDay) * 100));
-                    return (
-                      <div key={d.ymd} className="flex flex-col items-center gap-1 shrink-0" style={{ width: "44px" }}>
+              <Section title="Daily volume" icon="📈">
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                  <div className="flex items-end gap-2 overflow-x-auto pb-1" style={{ minHeight: 130 }}>
+                    {data.byDay.map((d) => {
+                      const h = Math.max(6, Math.round((d.reservations / maxDay) * 110));
+                      return (
                         <div
-                          className="w-full rounded-t bg-[#00E2E5]/70 hover:bg-[#00E2E5] transition-colors"
-                          style={{ height: `${h}px` }}
-                          title={`${d.reservations} reservation${d.reservations === 1 ? "" : "s"} · ${d.racers} racer${d.racers === 1 ? "" : "s"}`}
-                        />
-                        <div className="text-[10px] text-white/40">{formatDate(d.ymd)}</div>
-                        <div className="text-[10px] text-white/70 font-mono">{d.reservations}</div>
-                      </div>
-                    );
-                  })}
+                          key={d.ymd}
+                          className="flex flex-col items-center gap-1.5 shrink-0 group"
+                          style={{ width: "48px" }}
+                        >
+                          <div className="text-[10px] font-mono text-white/85 group-hover:text-white">
+                            {d.reservations || ""}
+                          </div>
+                          <div
+                            className="w-full rounded-t-md transition-all group-hover:scale-y-105 origin-bottom"
+                            style={{
+                              height: `${h}px`,
+                              background: `linear-gradient(180deg, ${ACCENTS.cyan.fg} 0%, ${ACCENTS.cyan.fg}80 100%)`,
+                              boxShadow: `0 0 14px ${ACCENTS.cyan.glow}`,
+                            }}
+                            title={`${d.reservations} reservation${d.reservations === 1 ? "" : "s"} · ${d.racers} racer${d.racers === 1 ? "" : "s"}`}
+                          />
+                          <div className="text-[10px] text-white/45">{formatDate(d.ymd)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </Section>
             )}
 
             {/* ── SMS volume by day + source ── */}
-            {data.sms && data.sms.totals.attempts > 0 && (
-              <Section title="SMS volume">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                  <MiniStat
-                    label="Booking confirmations"
-                    value={data.sms.totals.bookingConfirm}
-                  />
-                  <MiniStat label="E-tickets" value={data.sms.totals.eTicket} />
-                  <MiniStat label="Check-ins" value={data.sms.totals.checkIn} />
-                  <MiniStat label="Videos" value={data.sms.totals.video} />
-                </div>
-                <div className="grid grid-cols-3 gap-2 mb-4">
-                  <MiniStat
-                    label="Total attempts"
-                    value={data.sms.totals.attempts}
-                  />
-                  <MiniStat
-                    label="Provider OK"
-                    value={`${data.sms.totals.ok} (${pctText(data.sms.totals.ok, data.sms.totals.attempts)})`}
-                  />
-                  <MiniStat
-                    label="Carrier delivered"
-                    value={`${data.sms.totals.delivered} (${pctText(data.sms.totals.delivered, data.sms.totals.attempts)})`}
-                  />
-                </div>
-                {data.sms.byDay.length > 0 && (
-                  <div className="rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-white/5 text-xs uppercase text-white/50">
-                          <tr>
-                            <th className="text-left px-3 py-2">Date</th>
-                            <th className="text-right px-3 py-2">Booking</th>
-                            <th className="text-right px-3 py-2">E-ticket</th>
-                            <th className="text-right px-3 py-2">Check-in</th>
-                            <th className="text-right px-3 py-2">Video</th>
-                            <th className="text-right px-3 py-2 text-white/40">Other</th>
-                            <th className="text-right px-3 py-2">Total</th>
-                            <th className="text-right px-3 py-2">Delivered</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...data.sms.byDay].reverse().map((d) => (
-                            <tr key={d.date} className="border-t border-white/5">
-                              <td className="px-3 py-2 text-white/80 whitespace-nowrap">
-                                {formatDate(d.date)}
-                              </td>
-                              <td className="px-3 py-2 text-right text-white/85 font-mono">
-                                {d.bySource.bookingConfirm || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-right text-white/85 font-mono">
-                                {d.bySource.eTicket || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-right text-white/85 font-mono">
-                                {d.bySource.checkIn || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-right text-white/85 font-mono">
-                                {d.bySource.video || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-right text-white/40 font-mono">
-                                {d.bySource.other || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-right text-white font-mono font-semibold">
-                                {d.attempts}
-                              </td>
-                              <td className="px-3 py-2 text-right text-emerald-300/80 font-mono text-xs">
-                                {d.delivered}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+            {data.sms && data.sms.totals.attempts > 0 && (() => {
+              // Color tokens for the four SMS source buckets — used for
+              // both the per-source KPI tiles AND the stacked-bar chart
+              // below so the legend reads consistently.
+              const SMS_SOURCES = [
+                { key: "bookingConfirm" as const, label: "Booking confirmations", icon: "📋", accent: "cyan"    as AccentKey },
+                { key: "eTicket"        as const, label: "E-tickets",             icon: "🎟",  accent: "coral"   as AccentKey },
+                { key: "checkIn"        as const, label: "Check-ins",             icon: "📣", accent: "amber"   as AccentKey },
+                { key: "video"          as const, label: "Videos",                icon: "🎥", accent: "purple"  as AccentKey },
+              ];
+              const maxDailyAttempts = Math.max(
+                1,
+                ...data.sms!.byDay.map((d) => d.attempts),
+              );
+              return (
+                <Section title="SMS volume" icon="💬">
+                  {/* Per-source headline tiles — color-coded so eye can
+                      jump straight to the bucket it cares about. */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    {SMS_SOURCES.map((src) => (
+                      <Card
+                        key={src.key}
+                        label={src.label}
+                        value={data.sms!.totals[src.key]}
+                        accent={src.accent}
+                        icon={src.icon}
+                      />
+                    ))}
                   </div>
-                )}
-              </Section>
-            )}
+
+                  {/* Total attempts / provider OK / delivered — gives a
+                      health pulse on the entire send pipeline at a glance. */}
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <MiniStat
+                      label="Total attempts"
+                      value={data.sms.totals.attempts}
+                    />
+                    <MiniStat
+                      label="Provider OK"
+                      value={`${data.sms.totals.ok} (${pctText(data.sms.totals.ok, data.sms.totals.attempts)})`}
+                    />
+                    <MiniStat
+                      label="Carrier delivered"
+                      value={`${data.sms.totals.delivered} (${pctText(data.sms.totals.delivered, data.sms.totals.attempts)})`}
+                    />
+                  </div>
+
+                  {/* Stacked-bar per day — replaces the wall-of-numbers
+                      table. Each bar is normalized to the busiest day so
+                      a quiet Sunday doesn't disappear next to a peak
+                      Saturday. Hovering a bar shows the breakdown. */}
+                  {data.sms.byDay.length > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                          Daily breakdown
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider">
+                          {SMS_SOURCES.map((src) => (
+                            <span key={src.key} className="flex items-center gap-1.5 text-white/55">
+                              <span
+                                className="w-2 h-2 rounded-full inline-block"
+                                style={{ backgroundColor: ACCENTS[src.accent].fg }}
+                              />
+                              {src.label.split(" ")[0]}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {[...data.sms.byDay].reverse().map((d) => {
+                          const segments = SMS_SOURCES.map((src) => ({
+                            value: d.bySource[src.key],
+                            color: ACCENTS[src.accent].fg,
+                          }));
+                          const breakdown = SMS_SOURCES
+                            .map((src) => `${src.label.split(" ")[0]}: ${d.bySource[src.key]}`)
+                            .join(" · ");
+                          return (
+                            <div
+                              key={d.date}
+                              className="grid items-center gap-3 text-xs"
+                              style={{ gridTemplateColumns: "70px 1fr 80px" }}
+                              title={breakdown}
+                            >
+                              <div className="text-white/55 font-mono whitespace-nowrap">
+                                {formatDate(d.date)}
+                              </div>
+                              <StackedBar segments={segments} max={maxDailyAttempts} />
+                              <div className="text-right">
+                                <span className="font-mono font-semibold text-white">{d.attempts}</span>
+                                {d.delivered > 0 && d.delivered < d.attempts && (
+                                  <span
+                                    className="ml-1.5 text-[10px] font-mono"
+                                    style={{ color: ACCENTS.emerald.fg }}
+                                    title={`${d.delivered} carrier-delivered`}
+                                  >
+                                    ✓{d.delivered}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </Section>
+              );
+            })()}
 
             {/* ── Raw entries ── */}
-            <Section title={`Reservations (${data.entries.length})`}>
+            <Section title={`Reservations (${data.entries.length})`} icon="📋">
               <div className="rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -764,21 +859,61 @@ function pctText(num: number, denom: number): string {
   return `${Math.round((num / denom) * 100)}%`;
 }
 
-function Card({ label, value, subtle }: { label: string; value: number | string; subtle?: string }) {
+// ── Visual helpers ─────────────────────────────────────────────────────────
+// Color tokens used across the dashboard. Mirrors the team-member-portal
+// approach (semantic per-domain colors) without dragging shadcn into
+// this codebase: cyan = system / racing primary, coral = brand,
+// amber = packages, emerald = ok / delivered, purple = POV / video,
+// blue = informational, red = issues.
+const ACCENTS = {
+  cyan:    { fg: "#00E2E5", glow: "rgba(0,226,229,0.18)", border: "rgba(0,226,229,0.35)" },
+  coral:   { fg: "#fd5b56", glow: "rgba(253,91,86,0.18)", border: "rgba(253,91,86,0.35)" },
+  amber:   { fg: "#fbbf24", glow: "rgba(251,191,36,0.18)", border: "rgba(251,191,36,0.35)" },
+  emerald: { fg: "#34d399", glow: "rgba(52,211,153,0.18)", border: "rgba(52,211,153,0.35)" },
+  purple:  { fg: "#c084fc", glow: "rgba(192,132,252,0.18)", border: "rgba(192,132,252,0.35)" },
+  blue:    { fg: "#60a5fa", glow: "rgba(96,165,250,0.18)", border: "rgba(96,165,250,0.35)" },
+  rose:    { fg: "#fb7185", glow: "rgba(251,113,133,0.18)", border: "rgba(251,113,133,0.35)" },
+  slate:   { fg: "rgba(255,255,255,0.85)", glow: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.12)" },
+} as const;
+type AccentKey = keyof typeof ACCENTS;
+
+function Card({
+  label,
+  value,
+  subtle,
+  accent = "slate",
+  icon,
+}: {
+  label: string;
+  value: number | string;
+  subtle?: string;
+  accent?: AccentKey;
+  icon?: string;
+}) {
+  const c = ACCENTS[accent];
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-      <div className="text-[10px] uppercase tracking-wider text-white/50 mb-1">{label}</div>
-      <div className="text-2xl font-bold text-white">{value}</div>
-      {subtle && <div className="text-[11px] text-white/40 mt-0.5">{subtle}</div>}
+    <div
+      className="rounded-xl px-4 py-3.5 transition-colors"
+      style={{
+        background: `linear-gradient(135deg, ${c.glow} 0%, rgba(255,255,255,0.02) 70%)`,
+        border: `1px solid ${c.border}`,
+      }}
+    >
+      <div className="flex items-start justify-between mb-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-white/55">{label}</div>
+        {icon && <div className="text-base leading-none opacity-70">{icon}</div>}
+      </div>
+      <div className="text-3xl font-extrabold text-white tracking-tight" style={{ color: c.fg }}>{value}</div>
+      {subtle && <div className="text-[11px] text-white/45 mt-1">{subtle}</div>}
     </div>
   );
 }
 
 function MiniStat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded border border-white/10 bg-white/[0.02] px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-white/45">{label}</div>
-      <div className="text-base font-bold text-white">{value}</div>
+    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-white/50 mb-0.5">{label}</div>
+      <div className="text-lg font-bold text-white">{value}</div>
     </div>
   );
 }
@@ -788,23 +923,32 @@ function Tile({
   primary,
   primarySubtle,
   rows,
+  accent = "slate",
 }: {
   title: string;
   primary: string;
   primarySubtle?: string;
   rows?: { label: string; value: string }[];
+  accent?: AccentKey;
 }) {
+  const c = ACCENTS[accent];
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
-      <div className="text-xs uppercase tracking-wider text-white/55 mb-1">{title}</div>
-      <div className="text-3xl font-bold text-white">
+    <div
+      className="rounded-xl p-4 transition-colors"
+      style={{
+        background: `linear-gradient(135deg, ${c.glow} 0%, rgba(255,255,255,0.02) 75%)`,
+        border: `1px solid ${c.border}`,
+      }}
+    >
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-1.5">{title}</div>
+      <div className="text-3xl font-extrabold tracking-tight" style={{ color: c.fg }}>
         {primary}
         {primarySubtle && <span className="text-sm font-normal text-white/40 ml-1.5">{primarySubtle}</span>}
       </div>
       {rows && rows.length > 0 && (
         <div className="mt-3 space-y-1 text-xs">
           {rows.map((r, i) => (
-            <div key={i} className="flex justify-between gap-2 text-white/70">
+            <div key={i} className="flex justify-between gap-2 text-white/65">
               <span>{r.label}</span>
               <span className="font-mono text-white/90">{r.value}</span>
             </div>
@@ -819,18 +963,21 @@ function CountList({ title, rows }: { title: string; rows: { name: string; count
   if (rows.length === 0) return null;
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
-      <div className="text-xs uppercase tracking-wider text-white/55 mb-2.5">{title}</div>
-      <div className="space-y-1.5">
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-3">{title}</div>
+      <div className="space-y-2">
         {rows.map((r) => {
           const w = Math.round((r.count / max) * 100);
           return (
-            <div key={r.name} className="flex items-center gap-2 text-xs">
+            <div key={r.name} className="flex items-center gap-3 text-xs">
               <div className="flex-1 truncate text-white/80">{r.name}</div>
-              <div className="w-32 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                <div className="h-full bg-[#00E2E5]/70" style={{ width: `${w}%` }} />
+              <div className="w-32 h-2 rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full transition-all"
+                  style={{ width: `${w}%`, background: `linear-gradient(90deg, ${ACCENTS.cyan.fg}AA 0%, ${ACCENTS.cyan.fg} 100%)` }}
+                />
               </div>
-              <div className="w-8 text-right font-mono text-white/70">{r.count}</div>
+              <div className="w-10 text-right font-mono font-semibold text-white/85">{r.count}</div>
             </div>
           );
         })}
@@ -839,11 +986,51 @@ function CountList({ title, rows }: { title: string; rows: { name: string; count
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="mb-6">
-      <h2 className="text-sm font-bold uppercase tracking-wider text-white/80 mb-3">{title}</h2>
+      <h2 className="text-sm font-bold uppercase tracking-wider text-white/85 mb-3 flex items-center gap-2">
+        {icon && <span className="text-base">{icon}</span>}
+        {title}
+      </h2>
       {children}
     </section>
+  );
+}
+
+/** Stacked horizontal bar — used in the SMS-volume table to visualize
+ *  per-day source mix. Scales each bar to the busiest day in the window
+ *  so days with little volume don't disappear. */
+function StackedBar({
+  segments,
+  max,
+}: {
+  segments: { value: number; color: string }[];
+  max: number;
+}) {
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  const widthPct = max > 0 ? (total / max) * 100 : 0;
+  return (
+    <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden flex" style={{ width: `${widthPct}%`, minWidth: total > 0 ? "2px" : 0 }}>
+      {segments.map((s, i) => {
+        if (s.value === 0) return null;
+        const segPct = (s.value / total) * 100;
+        return (
+          <div
+            key={i}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${segPct}%`, backgroundColor: s.color }}
+          />
+        );
+      })}
+    </div>
   );
 }
