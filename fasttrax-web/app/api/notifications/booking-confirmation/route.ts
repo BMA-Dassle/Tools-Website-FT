@@ -551,50 +551,61 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Send SMS (if opted in) ──────────────────────────────────────────
+    //
+    // Single-segment policy: SMS is the alert; the confirmation page
+    // carries the schedule, waiver requirement, arrival instructions,
+    // POV codes, appetizer code, and everything else. Voxtelesys bills
+    // per 153-char (GSM-7) or 67-char (UCS-2) segment; the previous
+    // verbose template ran 4–9 segments per send and showed up as ~60k
+    // billed segments over a couple weeks. Holding strict 1-segment
+    // GSM-7 budget per booking SMS — no emoji, no em-dashes, no
+    // bullets, no extra section headers — caps each booking at 1
+    // billed message regardless of number of races, returning vs new,
+    // express vs not.
+    //
+    // Trade-offs: customers don't see the schedule, waiver link, or
+    // POV codes inline. They tap the confirmation URL and see all of
+    // it on the page — including the action-required waiver banner.
     if (smsOptIn && phone) {
       try {
         const normalized = normalizePhone(phone);
         if (normalized.length >= 10) {
           const rawConfirmLink = billId ? signedConfirmationUrl(billId) : "";
-
-          // Shorten long URLs for SMS
-          let shortWaiver = "";
           let shortConfirm = rawConfirmLink;
           try {
-            if (isNewRacer) {
-              const rawWaiverLink = waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
-              shortWaiver = await shortenUrl(rawWaiverLink);
-            }
             if (rawConfirmLink) shortConfirm = await shortenUrl(rawConfirmLink);
-          } catch { /* fall back to full URLs */ }
+          } catch { /* fall back to the full URL */ }
 
-          const schedule = reservationSchedule ? reservationSchedule.replace(/<br\/?>/g, "\n") : "";
-          const confirmSection = shortConfirm ? `\n${isExpressLane ? "View Your Express Pass" : "View your confirmation"}:\n${shortConfirm}` : "";
-          const waiverSection = shortWaiver ? `\nComplete your waiver:\n${shortWaiver}` : "";
-          const smsBody = `${brandName} Booking Confirmed
+          // Compose date/time as a short ASCII string. `reservationDate`
+          // arrives like "Saturday, May 4, 2026" — collapse to "Sat May 4"
+          // to keep the SMS in single-segment range. Drop the "20XX"
+          // year (rarely useful in-context, eats 6 chars).
+          const compactDate = (() => {
+            const raw = reservationDate || "";
+            // "Saturday, May 4, 2026" → "Sat May 4"
+            const m = raw.match(/^(\w+),\s*(\w+)\s+(\d{1,2})/);
+            if (m) {
+              return `${m[1].slice(0, 3)} ${m[2].slice(0, 3)} ${m[3]}`;
+            }
+            return raw;
+          })();
+          const dateTime = [compactDate, reservationTime].filter(Boolean).join(", ");
 
-Reservation: #${reservationNumber}
-${schedule}
+          // ASCII-only label for the link CTA — em-dashes / curly quotes
+          // would force UCS-2 encoding, halving the per-segment budget.
+          const cta = isExpressLane ? "View pass + check-in" : "View + waiver";
 
-${reservationDate || ""}
-${reservationTime || ""}
-
-${isExpressLane ? `EXPRESS CHECK-IN\n\nSkip Guest Services.\nSkip Event Check-In.\nHead straight to Karting! 1st Floor.\n\nArrive 5 min before your race.\nHave your express pass ready on your phone.\n${FT_ADDRESS}\n\nIMPORTANT: If you have other attractions booked, Guest Services check-in is still required for those.` : ""}${!isExpressLane && showFastTrax && !hasBoth ? `Arrive 30 minutes early to check in at FastTrax.\nGuest Services, 2nd Floor\n${FT_ADDRESS}` : ""}${!isExpressLane && isHeadPinz && !hasBoth ? `Arrive 30 minutes early to check in at ${HP_VENUE_NAME}.\nGuest Services\n${HP_ADDRESS}` : ""}${!isExpressLane && hasBoth ? `Arrive 30 minutes early. Check in first at ${isHeadPinz ? `${HP_VENUE_NAME}\n${HP_ADDRESS}` : `FastTrax — Guest Services, 2nd Floor\n${FT_ADDRESS}`}.` : ""}
-${waiverSection}
-${confirmSection}
-${isRookiePack ? "\n🍴 Free appetizer at Nemo's (one per group, race day only) — join us upstairs before or after your race. Coupon code is on your confirmation link above.\n" : ""}${isRacingBooking ? `
-Important information about your race check-in:
-https://fasttraxent.com/racing#racers-journey` : ""}`;
-
-          const povFooter = codes.length > 0
-            ? `\n\n\nYour POV Camera Codes — collect your camera slip after your race to redeem. Videos take 15-30 min to upload. POV Codes below:`
-            : "";
+          const smsBody = shortConfirm
+            ? `${brandName}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
+            : `${brandName}: Booking #${reservationNumber} for ${dateTime}.`;
 
           const smsFrom = location === "naples" ? VOX_FROM_NAPLES : isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
-          results.sms = await sendSms(normalized, smsBody + povFooter, smsFrom);
+          results.sms = await sendSms(normalized, smsBody, smsFrom);
 
-          // Send each POV code as a separate SMS for easy copy/paste
-          // Delay to ensure confirmation SMS arrives first
+          // POV codes still go as separate single-character-set SMS so
+          // racers can copy/paste each one. No preamble — the
+          // confirmation page already explains them. Each code SMS is
+          // ~10 chars = 1 segment.
           if (codes.length > 0) {
             await new Promise(r => setTimeout(r, 5000));
             for (const code of codes) {
