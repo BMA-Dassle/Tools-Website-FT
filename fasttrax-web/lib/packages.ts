@@ -674,6 +674,41 @@ export function getPackageIgnoreFlag(id: string | null | undefined): PackageDefi
   return PACKAGES.find((p) => p.id === id) ?? null;
 }
 
+/**
+ * Resolve a productId from any package's component tracks back to a
+ * customer-friendly race name. We need this because BMI's bill/overview
+ * API returns the wrong public-facing name on some package-only SKUs —
+ * e.g. productId 45811415 (the weekend Intermediate Blue, package-only)
+ * comes back as "Intermediate Race Mega" from BMI even though the kart
+ * is actually Blue Track. The BMI admin tool shows the correct internal
+ * name, but the public API ships a stale label that confuses customers
+ * on confirmation pages and email receipts.
+ *
+ * We override BMI's name when we recognize the productId. Returns null
+ * when the productId isn't part of any package — caller should fall
+ * back to BMI's own name in that case (regular standalone race
+ * bookings are reliable).
+ */
+export function productDisplayNameFromPackages(
+  productId: string | number | null | undefined,
+): string | null {
+  if (!productId) return null;
+  const pid = String(productId);
+  for (const pkg of PACKAGES) {
+    for (const race of pkg.races) {
+      const track = race.tracks.find((t) => String(t.productId) === pid);
+      if (!track) continue;
+      // Tier-cased: "starter" → "Starter", "intermediate" → "Intermediate", "pro" → "Pro".
+      const tier = race.tier.charAt(0).toUpperCase() + race.tier.slice(1);
+      // Junior packages carry that distinction in the rendered name so
+      // a parent reviewing the receipt sees the right label.
+      const juniorPrefix = pkg.category === "junior" ? "Junior " : "";
+      return `${juniorPrefix}${tier} Race ${track.track}`;
+    }
+  }
+  return null;
+}
+
 export interface EligibilityContext {
   racerType: "new" | "existing" | null | undefined;
   schedule: Schedule | null | undefined;

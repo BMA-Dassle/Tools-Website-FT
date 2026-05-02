@@ -371,6 +371,23 @@ function stubRaw(p: StaticRaceProduct): BmiProduct {
   };
 }
 
+/** Look up a race product by its BMI productId. Returns the registered
+ *  display name + track when known. Used at confirmation/email render
+ *  time as a fallback for BMI's own line.name when BMI's public catalog
+ *  ships a stale or wrong public-facing name (the package-only SKU
+ *  45811415 case — BMI's bill/overview returned "Intermediate Race
+ *  Mega" for a Blue Track product). Returns null for unknown ids so
+ *  the caller can fall through to BMI's own name. */
+export function getRaceProductById(
+  productId: string | number | null | undefined,
+): { name: string; track: string | null; tier: RaceTier; category: RaceCategory } | null {
+  if (productId == null) return null;
+  const pid = String(productId);
+  const hit = RACE_PRODUCTS.find((p) => p.productId === pid);
+  if (!hit) return null;
+  return { name: hit.name, track: hit.track, tier: hit.tier, category: hit.category };
+}
+
 /** Get race products for a given date and racer type */
 export function getStaticProducts(date: string, racerType: RacerType = "new"): ClassifiedProduct[] {
   const [y, m, d] = date.split("T")[0].split("-").map(Number);

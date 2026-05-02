@@ -6,10 +6,32 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { getBookingLocation, getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 import BrandNav from "@/components/BrandNav";
-import { bmiGet, bmiPost } from "../race/data";
+import { bmiGet, bmiPost, getRaceProductById } from "../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { modalBackdropProps } from "@/lib/a11y";
+import { productDisplayNameFromPackages } from "@/lib/packages";
+
+/** Resolve a race line's display name from our own registries instead
+ *  of trusting BMI's public-facing name. BMI's bill/overview API has
+ *  shipped wrong public names on package-only SKUs (productId 45811415
+ *  came back as "Intermediate Race Mega" for what's actually a Blue
+ *  Track booking). Cascade:
+ *
+ *    1. PACKAGES (lib/packages.ts) — catches every package-only SKU
+ *       (Ultimate Qualifier, Rookie Pack, etc.) with track-aware names.
+ *    2. RACE_PRODUCTS (app/book/race/data.ts) — catches every standalone
+ *       race SKU. Belt-and-suspenders for any future BMI catalog drift.
+ *    3. BMI's own line.name — fallback for productGroups we don't model
+ *       (License fees, POV, attractions add-ons, etc.).
+ */
+function displayLineName(line: { productId?: string | number; name: string }): string {
+  return (
+    productDisplayNameFromPackages(line.productId) ??
+    getRaceProductById(line.productId)?.name ??
+    line.name
+  );
+}
 
 // Booking type detection — determines which features are active
 type BookingType = "racing" | "attraction";
@@ -132,6 +154,10 @@ interface Schedule {
 
 interface OrderLine {
   name: string;
+  /** BMI productId — used by `displayLineName` to override BMI's
+   *  public-facing line name with our own registry value. Optional
+   *  because some legacy stored overviews predate this field. */
+  productId?: string | number;
   quantity: number;
   totalPrice: { amount: number; depositKind: number }[];
   scheduledTime?: { start: string; stop: string } | null;
@@ -362,7 +388,7 @@ export default function ConfirmationPage() {
               const sched = line.scheduledTime || (line.schedules?.[0] ? { start: line.schedules[0].start, stop: line.schedules[0].stop } : null);
               if (sched?.start) {
                 const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
-                scheduleLines.push(`${line.name}${qty} · ${formatTime(sched.start)}${sched.stop ? ` - ${formatTime(sched.stop)}` : ""}`);
+                scheduleLines.push(`${displayLineName(line)}${qty} · ${formatTime(sched.start)}${sched.stop ? ` - ${formatTime(sched.stop)}` : ""}`);
               }
             }
             const firstHeat = sourceLines.find(l => l.scheduledTime?.start)?.scheduledTime?.start
@@ -379,10 +405,10 @@ export default function ConfirmationPage() {
               reservationSchedule: scheduleLines.join("<br/>"),
               reservationCode: primaryRes.resCode || "",
               billId: id || "",
-              productNames: sourceLines.map(l => l.name),
+              productNames: sourceLines.map(l => displayLineName(l)),
               scheduledItems: sourceLines
                 .filter(l => l.scheduledTime?.start)
-                .map(l => ({ name: l.name, start: l.scheduledTime!.start }))
+                .map(l => ({ name: displayLineName(l), start: l.scheduledTime!.start }))
                 .sort((a, b) => a.start.localeCompare(b.start)),
             };
           })();
@@ -1027,11 +1053,11 @@ export default function ConfirmationPage() {
                     {/* Race list — names and times */}
                     {lines.length > 0 && (
                       <div className="border-t border-white/[0.06] px-4 py-3 space-y-1.5">
-                        {lines.map((line: { name: string; quantity: number; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
+                        {lines.map((line: { name: string; productId?: string | number; quantity: number; scheduledTime?: { start: string }; schedules?: { start: string }[] }, li: number) => {
                           const lineTime = line.scheduledTime?.start || line.schedules?.[0]?.start;
                           return (
                             <div key={li} className="flex items-center justify-between">
-                              <p className="text-white text-sm">{line.name}{line.quantity > 1 ? ` x${line.quantity}` : ""}</p>
+                              <p className="text-white text-sm">{displayLineName(line)}{line.quantity > 1 ? ` x${line.quantity}` : ""}</p>
                               {lineTime && <p className="text-white/40 text-xs">{formatTime(lineTime)}</p>}
                             </div>
                           );
@@ -1042,7 +1068,7 @@ export default function ConfirmationPage() {
                     {/* Fallback if no stored lines */}
                     {lines.length === 0 && raceLine && ci === 0 && (
                       <div className="border-t border-white/[0.06] px-4 py-3">
-                        <p className="text-white text-sm">{raceLine.name}{raceLine.quantity > 1 ? ` x${raceLine.quantity}` : ""}</p>
+                        <p className="text-white text-sm">{displayLineName(raceLine)}{raceLine.quantity > 1 ? ` x${raceLine.quantity}` : ""}</p>
                       </div>
                     )}
                   </div>
