@@ -262,7 +262,12 @@ export default function ConfirmationPage() {
         try {
           for (let i = 0; i < allBillIds.length; i++) {
             const bid = allBillIds[i];
-            const racerName = racerNames[i] || `Racer ${i + 1}`;
+            // No "Racer 1" fallback. New bookings haven't entered guest
+            // names yet — show JUST the reservation number rather than
+            // a phony placeholder that confuses guests on the receipt.
+            // Real name (if any) flows from `racerNames` URL param OR
+            // the booking-record racers fallback further down.
+            const racerName = racerNames[i] || "";
             // Determine amount: for single bill use full amount, for multi-bill check if credit
             let billAmount = amount;
             if (allBillIds.length > 1) {
@@ -287,7 +292,7 @@ export default function ConfirmationPage() {
             const result = await confirmRes.json();
             const resNum = result.reservationNumber || "";
             const resCode = String(result.reservationCode || `r${bid}`);
-            if (resNum) allConfirmations.push({ billId: bid, racerName: racerName || `Racer ${i + 1}`, resNumber: resNum, resCode });
+            if (resNum) allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
             // Keep first as primary
             if (i === 0) {
               if (resCode) setReservationCode(resCode);
@@ -472,9 +477,12 @@ export default function ConfirmationPage() {
 
           setRaceGroups(groups);
 
-          // Also update confirmations with first racer name for backwards compat
-          if (allConfirmations.length === 1 && allConfirmations[0].racerName.startsWith("Racer ")) {
-            allConfirmations[0].racerName = recRacers[0]?.racerName || bookingRecord.contact?.firstName || "Racer";
+          // Backfill racer name from the booking-record racers list
+          // when the URL didn't pass `racerNames`. Only override if a
+          // real name exists — never fall back to synthetic "Racer".
+          if (allConfirmations.length === 1 && !allConfirmations[0].racerName) {
+            const realName = recRacers[0]?.racerName || bookingRecord.contact?.firstName;
+            if (realName) allConfirmations[0].racerName = realName;
           }
           setConfirmations([...allConfirmations]);
         }
@@ -1128,7 +1136,7 @@ export default function ConfirmationPage() {
           {/* Track Status for express lane */}
           {expressLane && bookingType === "racing" && (
             <div className="max-w-2xl mx-auto mt-6">
-              <ExpressTrackStatus />
+              <ExpressTrackStatus liveStatus={liveStatus} />
             </div>
           )}
 
@@ -1191,7 +1199,7 @@ export default function ConfirmationPage() {
           {/* RIGHT: Racer's Journey (racing only, not express lane, only in grid for multi-bill) */}
           {bookingType === "racing" && !expressLane && confirmations.length > 1 && (
             <div className="lg:sticky lg:top-40 lg:self-start">
-              <RacerJourneySteps />
+              <RacerJourneySteps liveStatus={liveStatus} />
             </div>
           )}
           </div>
@@ -1199,7 +1207,7 @@ export default function ConfirmationPage() {
           {/* Journey below for single reservation (racing only, not express lane) */}
           {bookingType === "racing" && !expressLane && confirmations.length <= 1 && (
             <div className="max-w-2xl mx-auto mb-8">
-              <RacerJourneySteps />
+              <RacerJourneySteps liveStatus={liveStatus} />
             </div>
           )}
         </div>
@@ -1253,10 +1261,13 @@ function dotColor(status: string) {
   return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
 }
 
-function ExpressTrackStatus() {
-  const result = useTrackStatus();
-  if (!result) return null;
-  const { trackStatus: trackData, currentRaces } = result;
+function ExpressTrackStatus({
+  liveStatus,
+}: {
+  liveStatus: ReturnType<typeof useTrackStatus>;
+}) {
+  if (!liveStatus) return null;
+  const { trackStatus: trackData, currentRaces } = liveStatus;
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-3">Live Track Status</p>
@@ -1294,10 +1305,13 @@ function ExpressTrackStatus() {
   );
 }
 
-function RacerJourneySteps() {
-  const result = useTrackStatus();
-  const trackData = result?.trackStatus ?? null;
-  const currentRaces = result?.currentRaces ?? null;
+function RacerJourneySteps({
+  liveStatus,
+}: {
+  liveStatus: ReturnType<typeof useTrackStatus>;
+}) {
+  const trackData = liveStatus?.trackStatus ?? null;
+  const currentRaces = liveStatus?.currentRaces ?? null;
 
   return (
     <div className="space-y-4">
