@@ -181,12 +181,31 @@ export default function BowlingConfirmationPage() {
         if (stored) {
           const data = JSON.parse(stored);
           setReservation(data);
-          // Init player entries
+          // Pre-fill players. KBF wizard stashes per-bowler inputs
+          // (names + shoe sizes + bumpers) under `bowlerInputs` so
+          // the confirmation page renders the form already filled
+          // in. Bowling flow stores nothing per-player today and
+          // falls through to the legacy "first row = guest name"
+          // initialization.
           const count = data.players || 1;
-          setPlayers(Array.from({ length: count }, (_, i) => ({
-            name: i === 0 ? (data.guestName || "") : "",
-            shoeSize: "", shoeSizeObj: null, wantBumpers: false,
-          })));
+          if (Array.isArray(data.bowlerInputs) && data.bowlerInputs.length > 0) {
+            setPlayers(
+              data.bowlerInputs.map((b: { name?: string; shoeSize?: string | null; shoeSizeId?: number | null; shoeCategoryId?: number | null; wantBumpers?: boolean }) => ({
+                name: b.name || "",
+                shoeSize: b.shoeSize || "",
+                shoeSizeObj:
+                  b.shoeSizeId && b.shoeSize
+                    ? { Id: b.shoeSizeId, Name: b.shoeSize, CategoryId: b.shoeCategoryId ?? 0, Position: 0 }
+                    : null,
+                wantBumpers: !!b.wantBumpers,
+              })),
+            );
+          } else {
+            setPlayers(Array.from({ length: count }, (_, i) => ({
+              name: i === 0 ? (data.guestName || "") : "",
+              shoeSize: "", shoeSizeObj: null, wantBumpers: false,
+            })));
+          }
         }
         const opId = stored ? JSON.parse(stored).operationId : null;
 
@@ -209,6 +228,31 @@ export default function BowlingConfirmationPage() {
               if (statusData?.PaymentStatus === "COMPLETED" || statusData?.ReservationStatus === "CONFIRMED") {
                 if (pollInterval) clearInterval(pollInterval);
                 try { await qamfCall(`centers/${centerId}/reservations/${key}/SetEndFlow`, { method: "PATCH" }); } catch {}
+                // Auto-PATCH /players with whatever the wizard pre-
+                // filled (KBF stashes bowler inputs in sessionStorage
+                // — see qamf_reservation.bowlerInputs). Mirrors the
+                // QAMF HAR sequence: SetEndFlow → PATCH players right
+                // after payment-confirm. Best-effort; the form on this
+                // page lets the guest edit + re-save afterward.
+                try {
+                  const stash = sessionStorage.getItem("qamf_reservation");
+                  const data = stash ? JSON.parse(stash) : null;
+                  if (data?.bowlerInputs?.length) {
+                    await qamfCall(`centers/${centerId}/reservations/${key}/players`, {
+                      method: "PATCH",
+                      body: JSON.stringify({
+                        Players: data.bowlerInputs.map((b: { name?: string; shoeSize?: string | null; shoeSizeId?: number | null; shoeCategoryId?: number | null; wantBumpers?: boolean }) => ({
+                          Name: b.name || null,
+                          ShoeSize: b.shoeSize || null,
+                          WantBumpers: !!b.wantBumpers,
+                          Size: b.shoeSizeId && b.shoeSize
+                            ? { Id: b.shoeSizeId, Name: b.shoeSize, CategoryId: b.shoeCategoryId ?? 0, Position: 0 }
+                            : null,
+                        })),
+                      }),
+                    });
+                  }
+                } catch { /* non-fatal — guest can save manually */ }
                 createBmiBill();
                 setStatus("confirmed");
                 sessionStorage.removeItem("qamf_session_token");

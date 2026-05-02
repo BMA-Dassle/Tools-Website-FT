@@ -1338,40 +1338,23 @@ export default function KidsBowlFreePage() {
 
       const dt = `${date}T${selectedTime}`;
 
-      // ── 2. PATCH /reservations/{key}/players ──────────────────
-      // Don't send ShoeSize / Size here — when those fields are set,
-      // QAMF auto-attaches a $0 "Bowling Shoes" line to the
-      // reservation under the assumption that shoes are bundled
-      // (which they are for the included KBF tariff). That auto-
-      // line then dedupes our paid ShoesSocks cart item below, so
-      // the rental fee never bills. Bowling never PATCHes shoe
-      // info for the same reason — shoes go through the cart only.
-      // The per-bowler size still saves into our kbf_member_prefs
-      // table for staff lookup at the counter; QAMF just doesn't
-      // need it on the reservation.
-      const playersPayload = selectedBowlers.map((b) => {
-        const sel = bowlerSelections[b.key];
-        return {
-          Name: b.displayName || null,
-          WantBumpers: sel.wantBumpers === true,
-        };
-      });
-      try {
-        await qamf(
-          `centers/${centerId}/reservations/${encodeURIComponent(reservationKey)}/players`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ Players: playersPayload }),
-          },
-        );
-      } catch (err) {
-        // Non-fatal — names/shoes/bumpers can still be edited on the
-        // confirmation page. Continue to summary + confirm.
-        console.error("[kbf] players PATCH failed (non-fatal):", err);
-      }
+      // PATCH /reservations/{key}/players is intentionally NOT done
+      // here. Per the QAMF flow captured in HAR
+      // (`No balance and kids name shoes.har`, `updated example.har`):
+      //
+      //   Cart/CreateSummary → guest/confirm → (Square if NeedPayment)
+      //   → payment-confirm → SetEndFlow → PATCH /players (twice)
+      //
+      // Setting ShoeSize / Size on /players BEFORE confirm causes QAMF
+      // to auto-attach a $0 "Bowling Shoes" line and dedupe the paid
+      // ShoesSocks cart item, so the shoe rental never bills. The
+      // bowling confirmation page already runs SetEndFlow + the names/
+      // shoes/bumpers PATCH after the booking confirms — KBF redirects
+      // there too. Names + shoe sizes + bumpers from the wizard ride
+      // forward in `qamf_reservation.bowlerInputs` (set below) so the
+      // confirmation page can pre-fill its edit form.
 
-      // ── 3. POST /Cart/CreateSummary ────────────────────────────
+      // ── POST /Cart/CreateSummary ───────────────────────────────
       const shoeQty = selectedBowlers.filter((b) => bowlerSelections[b.key]?.wantShoes).length;
       // BMI add-ons (laser tag / gel blaster) charge through QAMF
       // via their qamfExtraId line items — same pattern bowling
@@ -1557,6 +1540,21 @@ export default function KidsBowlFreePage() {
             tariffPrice: item.Total,
             shoes: shoeQty > 0 && paidShoes.length > 0,
             shoePrice: paidShoes[0]?.Price ?? 0,
+            // Per-bowler inputs from the wizard — names, shoe sizes,
+            // and bumper toggles ride forward so the bowling
+            // confirmation page can pre-fill its players form and
+            // fire the post-confirm PATCH /players with these values
+            // (per the HAR-captured QAMF flow).
+            bowlerInputs: selectedBowlers.map((b) => {
+              const sel = bowlerSelections[b.key];
+              return {
+                name: b.displayName || "",
+                wantBumpers: sel?.wantBumpers === true,
+                shoeSize: sel?.wantShoes && sel?.shoeSizeLabel ? sel.shoeSizeLabel : null,
+                shoeSizeId: sel?.wantShoes ? sel?.shoeSizeId ?? null : null,
+                shoeCategoryId: sel?.wantShoes ? sel?.shoeCategoryId ?? null : null,
+              };
+            }),
             addons: getBmiAddons().map((a) => ({
               name: a.name,
               qty: a.quantity,
