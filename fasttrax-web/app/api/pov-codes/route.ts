@@ -34,12 +34,56 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: "unknown" });
     }
 
-    // Claim a code (get next available and mark as used)
+    // Claim N codes for a billId. Idempotent: if codes were already
+    // claimed for this billId (via /admin backfill or a prior call),
+    // return THEM instead of popping new ones from the pool. Without
+    // this guard, a customer revisiting their confirmation page after
+    // staff backfilled codes would see a fresh set on-screen that
+    // doesn't match what's in the BMI memo / what the racer received
+    // via SMS — and we'd silently consume more codes from the pool.
+    //
+    // Lookup: HSCAN pov:used for entries whose value contains this
+    // billId. Cap the scan at COUNT 500 per page; the hash is small
+    // enough (10s of thousands of codes) that this finishes in 1-2
+    // round trips. Returns the matched codes in usedAt order so the
+    // first claim is first in the array (deterministic for re-renders).
     if (action === "claim") {
       const billId = searchParams.get("billId") || "";
       const email = searchParams.get("email") || "";
       const qty = parseInt(searchParams.get("qty") || "1", 10);
 
+      // Idempotency check — only meaningful when a billId is given.
+      if (billId) {
+        const existing: { code: string; usedAt: string }[] = [];
+        let cursor = "0";
+        do {
+          const [next, fields] = await redis.hscan(
+            REDIS_USED_KEY,
+            cursor,
+            "COUNT",
+            500,
+          );
+          cursor = next;
+          for (let i = 0; i < fields.length; i += 2) {
+            try {
+              const v = JSON.parse(fields[i + 1]);
+              if (v && v.billId === billId) {
+                existing.push({ code: fields[i], usedAt: v.usedAt || "" });
+              }
+            } catch { /* skip malformed entries */ }
+          }
+        } while (cursor !== "0");
+        if (existing.length > 0) {
+          existing.sort((a, b) => a.usedAt.localeCompare(b.usedAt));
+          return NextResponse.json({
+            codes: existing.map((e) => e.code),
+            claimed: existing.length,
+            cached: true,
+          });
+        }
+      }
+
+      // No prior claim — pop new codes.
       const codes: string[] = [];
       for (let i = 0; i < qty; i++) {
         const code = await redis.spop(REDIS_KEY);
