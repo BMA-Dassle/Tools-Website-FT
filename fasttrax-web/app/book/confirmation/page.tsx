@@ -802,9 +802,14 @@ export default function ConfirmationPage() {
       {!loading && orderId && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
 
-          {/* Waiver banner — new racers or attractions that require waivers */}
+          {/* Waiver banner — new racers or attractions that require waivers.
+              Wrapped in max-w-2xl so it visually aligns with the reservation
+              card directly below it. The page outer is max-w-6xl, but the
+              reservation card group inside uses max-w-2xl for the single-
+              reservation case (the dominant flow), so anchoring the banner
+              there keeps the column edges consistent. */}
           {waiverUrl && !expressLane && (
-            <div className="rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
+            <div className="max-w-2xl mx-auto rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">
                   <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
