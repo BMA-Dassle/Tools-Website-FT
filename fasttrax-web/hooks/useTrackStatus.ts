@@ -82,10 +82,14 @@ export function useTrackStatus(): TrackStatusResult | null {
     try {
       // Fetch both in parallel. Both endpoints are server-cached:
       //   /api/track-status      — Redis 30s cache around the BMA upstream
-      //   /api/pandora/races-current — 12s in-memory + Redis fallback
+      //   /api/pandora/races-current?prefer=cache — Redis-first read,
+      //     warmed every minute by /api/cron/checkin-alerts. The
+      //     `prefer=cache` mode keeps browser polls off the live
+      //     Pandora call entirely, so a hung Pandora doesn't make the
+      //     confirmation/e-ticket pages feel broken.
       const [statusRes, racesRes] = await Promise.all([
         fetch(TRACK_STATUS_URL, { cache: "no-store", signal }),
-        fetch("/api/pandora/races-current", { cache: "no-store", signal }),
+        fetch("/api/pandora/races-current?prefer=cache", { cache: "no-store", signal }),
       ]);
       if (signal.aborted) return;
 
