@@ -178,6 +178,23 @@ export interface CameraHistoryEntry {
   guardian?: GuardianContact | null;
 }
 
+/** Maximum age, in milliseconds, between an assignment's scan time and
+ *  the video capture time before we consider the assignment stale.
+ *
+ *  Why 8h: the longest legitimate gap is "delayed video upload during
+ *  one operating evening" — VT3 encoder backlogs of 6–8 hours have been
+ *  observed and are normal. A racer's video shouldn't ever lag more
+ *  than that behind their actual heat. Anything longer is almost
+ *  certainly a cross-operating-day bleed-through (e.g., the same camera
+ *  used the next afternoon by a racer who didn't re-scan), which would
+ *  misattribute the new video to whoever last touched the camera.
+ *
+ *  Symptom that motivated this: video 9D4H6EWT5V (kart 7 footage)
+ *  was captured 5/2 17:46 UTC — 14h after Dovydas's 5/1 23:36 ET race —
+ *  and matched to him because his was still the latest entry in
+ *  system-history:47. Bumped his SMS with the wrong video. */
+const MAX_ASSIGNMENT_AGE_MS = 8 * 60 * 60 * 1000;
+
 export async function getAssignmentAtTime(
   systemNumber: string,
   atIso: string,
@@ -186,17 +203,38 @@ export async function getAssignmentAtTime(
     const atMs = new Date(atIso).getTime();
     if (!Number.isFinite(atMs)) return null;
     // ZREVRANGEBYSCORE → all entries ≤ atMs, highest first. LIMIT 0 1
-    // gives us just the one we want.
+    // gives us just the one we want. WITHSCORES so we can also check
+    // the assignment's age relative to atMs (see staleness gate below).
     const result = await redis.zrevrangebyscore(
       historyKey(systemNumber),
       atMs,
       "-inf",
+      "WITHSCORES",
       "LIMIT",
       0,
       1,
     );
-    if (!result || result.length === 0) return null;
-    return JSON.parse(result[0]);
+    if (!result || result.length < 2) return null;
+    const entry = JSON.parse(result[0]) as CameraHistoryEntry;
+    const assignedAtMs = parseInt(result[1], 10);
+    if (!Number.isFinite(assignedAtMs)) return entry; // belt-and-suspenders
+
+    // Staleness gate — see MAX_ASSIGNMENT_AGE_MS doc above. Without
+    // this, a video uploaded long after the assignment was scanned
+    // (typical case: camera was used the next day by a racer who
+    // didn't re-scan) gets matched to whoever was last assigned, even
+    // though the camera has since been on a totally different kart.
+    const ageMs = atMs - assignedAtMs;
+    if (ageMs > MAX_ASSIGNMENT_AGE_MS) {
+      console.log(
+        `[camera-assign] stale assignment for system ${systemNumber}: ` +
+          `${entry.firstName} ${entry.lastName} (heat ${entry.heatNumber}) ` +
+          `was scanned ${Math.round(ageMs / 60000)}min before capture — ` +
+          `cutoff is ${Math.round(MAX_ASSIGNMENT_AGE_MS / 60000)}min — skipping`,
+      );
+      return null;
+    }
+    return entry;
   } catch {
     return null;
   }
