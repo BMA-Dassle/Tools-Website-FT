@@ -365,6 +365,17 @@ export async function GET(req: NextRequest) {
         }
         // Pending match. Is it ready yet?
         if (notReady) {
+          // Refresh the stored VT3 status so the admin UI reflects the
+          // actual upload-pipeline state (TRANSFERRING → FOR_ENCODING →
+          // IS_ENCODING → PENDING_ACTIVATION). Without this the row
+          // would forever show the status we saw on first match — that
+          // was reported as videos "stuck on Pending Upload" when VT3
+          // had actually moved them along. Skip persist when nothing
+          // changed to keep Redis writes minimal.
+          if (existing.videoStatus !== v.status) {
+            existing.videoStatus = v.status;
+            await updateVideoMatch(existing).catch(() => void 0);
+          }
           skippedNotReady++;
           // Don't advance highestId — we'll retry next tick.
           continue;

@@ -27,18 +27,25 @@ const TTL_SECONDS = 60 * 60 * 24 * TTL_DAYS;
  * VT3 status values that mean the preview MP4 is actually viewable —
  * tap-the-SMS-link will play something. ALLOWLIST (not blocklist) so
  * any new state VT3 introduces holds notify by default. Earlier we
- * had a blocklist of "not ready" states, but VT3 added `ENCODING`
- * (and presumably others) without us noticing, and racers were
- * getting texts pointing at "still processing" pages.
+ * had a blocklist of "not ready" states, but VT3 added FOR_ENCODING /
+ * IS_ENCODING / ENCODING / TRANSFERRED without us noticing, and
+ * racers were getting texts pointing at "still processing" pages.
  *
+ * Ready (preview viewable):
  *   PENDING_ACTIVATION — activation pending but preview MP4 IS viewable
  *   UPLOADED          — upload + sample done, racer can watch + share
  *   ACTIVE            — fully available
  *   READY             — fully available (alternate name VT3 sometimes uses)
  *
- * Known-not-ready (kept here as documentation, not enforced):
- *   TRANSFERRING / SAMPLING / PENDING_UPLOAD / PROCESSING / ENCODING /
- *   TRANSFERRED — preview not yet viewable.
+ * Known not-ready (held — documentation only, the allowlist enforces):
+ *   TRANSFERRING       — upload in progress
+ *   PENDING_UPLOAD     — queued for upload
+ *   TRANSFERRED        — upload complete but preview not yet generated
+ *   SAMPLING           — generating preview
+ *   PROCESSING         — generic processing
+ *   ENCODING           — encoding (alternate naming seen in logs)
+ *   FOR_ENCODING       — queued for encoder
+ *   IS_ENCODING        — encoder active
  */
 export const VIDEO_READY_STATUSES = new Set<string>([
   "PENDING_ACTIVATION",
