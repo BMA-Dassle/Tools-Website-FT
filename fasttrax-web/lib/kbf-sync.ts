@@ -103,6 +103,40 @@ interface ParsedRow {
 
 // ── Download ────────────────────────────────────────────────────────────────
 
+/** Fetch with a hard timeout. KBF's Sucuri Cloudproxy regularly
+ *  takes 30-60s during their business hours; without this the cron
+ *  function hits the 60s Vercel ceiling and 504s with no chance to
+ *  retry. Bounded at 25s so we have headroom for one retry within
+ *  the function's 60s budget. */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** True for the kinds of failures we want to retry: timeout aborts,
+ *  network errors, 5xx responses, and the silent-empty-CSV / auth-
+ *  lapse conditions where a fresh login often clears it. Auth-config
+ *  errors (missing env, missing PHPSESSID) are NOT retried — re-
+ *  hitting with the same bad config wastes the budget. */
+function isRetryable(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (err instanceof Error && err.name === "AbortError") return true;
+  if (/HTTP 5\d\d/.test(msg)) return true;
+  if (/empty CSV/i.test(msg)) return true;
+  if (/unexpected content-type/i.test(msg)) return true;
+  if (/fetch failed|network|ECONN|ETIMEDOUT/i.test(msg)) return true;
+  return false;
+}
+
 /**
  * Two-POST sequence: login (form=login) → report (form=report).
  * Returns the raw CSV string. Throws on auth failure / non-CSV
@@ -113,25 +147,66 @@ interface ParsedRow {
  * login response — we capture it and forward it on the report POST.
  * Without the cookie, KBF responds 200 with content-type=csv but
  * an empty body (silent auth failure).
+ *
+ * Retry policy: on timeout / 5xx / silent-empty / content-type-html,
+ * sleep briefly and retry once with a fresh login. KBF's Sucuri
+ * Cloudproxy goes slow during peak business hours (12-21 UTC) and
+ * was timing out the cron repeatedly; one retry on a fresh session
+ * usually clears it without bumping the function ceiling.
  */
 export async function downloadKbfCsv(): Promise<string> {
   const password = process.env.KBF_PASSWORD || "";
   if (!password) throw new Error("KBF_PASSWORD env var not set");
 
+  const PER_REQUEST_TIMEOUT_MS = 25_000;
+  const MAX_ATTEMPTS = 2;
+  const BACKOFF_MS = 2_000;
+
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await downloadKbfCsvOnce(password, PER_REQUEST_TIMEOUT_MS);
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt < MAX_ATTEMPTS && isRetryable(err)) {
+        console.warn(
+          `[kbf-sync] download attempt ${attempt}/${MAX_ATTEMPTS} failed (${msg}); retrying in ${BACKOFF_MS}ms`,
+        );
+        await new Promise((r) => setTimeout(r, BACKOFF_MS));
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable — loop either returns or throws — but TS needs the assertion.
+  throw lastErr instanceof Error ? lastErr : new Error("kbf-sync: download failed");
+}
+
+/** One full login + report attempt. Throws on any non-clean path so
+ *  the wrapper above can decide whether to retry. */
+async function downloadKbfCsvOnce(
+  password: string,
+  timeoutMs: number,
+): Promise<string> {
   const ua = "FastTrax-KBF-Sync/1.0";
 
-  const loginRes = await fetch(`${KBF_BASE}${KBF_REPORT_PATH}`, {
-    method: "POST",
-    headers: {
-      "User-Agent": ua,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Origin": KBF_BASE,
-      "Referer": `${KBF_BASE}${KBF_REPORT_PATH}?logout=1`,
+  const loginRes = await fetchWithTimeout(
+    `${KBF_BASE}${KBF_REPORT_PATH}`,
+    {
+      method: "POST",
+      headers: {
+        "User-Agent": ua,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": KBF_BASE,
+        "Referer": `${KBF_BASE}${KBF_REPORT_PATH}?logout=1`,
+      },
+      body: `form=login&password=${encodeURIComponent(password)}&login=Login`,
+      redirect: "manual", // we don't need to follow; auth state is established server-side
+      cache: "no-store",
     },
-    body: `form=login&password=${encodeURIComponent(password)}&login=Login`,
-    redirect: "manual", // we don't need to follow; auth state is established server-side
-    cache: "no-store",
-  });
+    timeoutMs,
+  );
   // 302 = success (Location: /center-report.php), 200 = also accepted
   // by some Sucuri configurations. Anything else is a hard fail.
   if (loginRes.status !== 302 && !loginRes.ok) {
@@ -148,18 +223,22 @@ export async function downloadKbfCsv(): Promise<string> {
     );
   }
 
-  const reportRes = await fetch(`${KBF_BASE}${KBF_REPORT_PATH}`, {
-    method: "POST",
-    headers: {
-      "User-Agent": ua,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Origin": KBF_BASE,
-      "Referer": `${KBF_BASE}${KBF_REPORT_PATH}`,
-      "Cookie": `PHPSESSID=${phpSessId}`,
+  const reportRes = await fetchWithTimeout(
+    `${KBF_BASE}${KBF_REPORT_PATH}`,
+    {
+      method: "POST",
+      headers: {
+        "User-Agent": ua,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": KBF_BASE,
+        "Referer": `${KBF_BASE}${KBF_REPORT_PATH}`,
+        "Cookie": `PHPSESSID=${phpSessId}`,
+      },
+      body: "form=report",
+      cache: "no-store",
     },
-    body: "form=report",
-    cache: "no-store",
-  });
+    timeoutMs,
+  );
   if (!reportRes.ok) {
     throw new Error(`KBF report fetch failed: HTTP ${reportRes.status}`);
   }
