@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "ioredis";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
+import { addDeposit } from "@/lib/pandora-deposits";
+import redisShared from "@/lib/redis";
+import type { Participant } from "@/lib/participant-contact";
 
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const REDIS_KEY = "pov:codes"; // Redis SET of available codes
@@ -25,8 +28,6 @@ function claimKey(personId: string): string {
   return `pov:claimed:person:${personId}`;
 }
 
-const SITE_BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-const PANDORA_INTERNAL_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 // Hardcoded BMI deposit-kind ID for "Credit - Viewpoint" — verified
 // 2026-05-03 against /v2/bmi/deposits balance overview at FastTrax
 // (OUT_DPK_ID 46322806, OUT_DPK_NAME "Credit - Viewpoint"). Env var
@@ -50,36 +51,46 @@ interface ClaimRecord {
   depositDeducted: boolean;
 }
 
-/** Read the current viewpointCredit for a participant by hitting the
- *  internal session-participants proxy with the trusted-caller header.
- *  Returns the credit number, or null if Pandora is degraded / the
- *  participant isn't on the session anymore (in which case we DO NOT
- *  issue codes — the participant must actually be on the heat). */
+/** Read the current viewpointCredit for a participant from the Redis
+ *  cache that the cron and other callers warm. Returns the credit
+ *  number, or null if the cache is empty / participant isn't on the
+ *  session.
+ *
+ *  History: this used to self-fetch /api/pandora/session-participants
+ *  via HTTPS. That caused a 502 spike on 2026-05-03 19:48 UTC during
+ *  a Pandora upstream slowdown — every pov-codes call spawned a
+ *  second Lambda for session-participants, which hung waiting on
+ *  Pandora's 45s upstream timeout. With the pov-codes Lambda blocked
+ *  on the self-fetch, Vercel's 60s function ceiling fired before any
+ *  console.log could run, returning 502 with no log entries.
+ *
+ *  Fix: read the cron-warmed Redis cache directly (same key the
+ *  /api/pandora/session-participants route writes through to). When
+ *  the cache is cold, return null and let the caller refuse the
+ *  claim — the cron warms the cache every 1-2 min during operating
+ *  hours so cold misses are rare. Crucially this never blocks on
+ *  Pandora upstream: a slow Pandora can't hang pov-codes anymore. */
 async function fetchParticipantCredit(
   locationId: string,
   sessionId: string,
   personId: string,
 ): Promise<number | null> {
-  if (!PANDORA_INTERNAL_KEY) return null;
+  // Same cache key shape used by /api/pandora/session-participants:
+  //   pandora:participants:{locationId}:{sessionId}:R{0|1}
+  // R1 = excludeRemoved=true (the default the cron + e-ticket use).
+  const cacheKey = `pandora:participants:${locationId}:${sessionId}:R1`;
   try {
-    const url = `${SITE_BASE}/api/pandora/session-participants?locationId=${encodeURIComponent(locationId)}&sessionId=${encodeURIComponent(sessionId)}&excludeUnpaid=false&prefer=cache`;
-    const res = await fetch(url, {
-      headers: {
-        "x-pandora-internal": PANDORA_INTERNAL_KEY,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data?: Array<{ personId: string | number; viewpointCredit?: number | null }> };
-    const list = Array.isArray(json.data) ? json.data : [];
+    const raw = await redisShared.get(cacheKey);
+    if (!raw) return null;
+    const list = JSON.parse(raw) as Participant[];
+    if (!Array.isArray(list)) return null;
     const target = list.find((p) => String(p.personId) === String(personId));
     if (!target) return null;
     const c = target.viewpointCredit;
     if (typeof c !== "number" || !Number.isFinite(c)) return 0;
     return Math.max(0, Math.floor(c));
   } catch (err) {
-    console.warn("[pov-codes/claim-from-credit] participant fetch failed:", err);
+    console.warn("[pov-codes/claim-from-credit] participant cache read failed:", err);
     return null;
   }
 }
@@ -88,32 +99,28 @@ async function fetchParticipantCredit(
  *  success, false on any failure — caller flags the claim record so
  *  the sweep cron can retry. We never block code issuance on this
  *  call: the customer always gets their codes; we owe BMA the
- *  decrement, retry until it lands. */
+ *  decrement, retry until it lands.
+ *
+ *  Uses the lib/pandora-deposits.ts helper (server-side, direct
+ *  upstream call) instead of self-fetching /api/pandora/deposit.
+ *  Removes the Lambda-on-Lambda concurrency tax that contributed
+ *  to the 2026-05-03 19:48 UTC 502 spike. */
 async function deductDeposit(
   locationId: string,
   personId: string,
   amount: number,
 ): Promise<boolean> {
-  if (!PANDORA_INTERNAL_KEY) return false;
   try {
-    const res = await fetch(`${SITE_BASE}/api/pandora/deposit`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-pandora-internal": PANDORA_INTERNAL_KEY,
-        "x-pandora-caller": "pov-codes/claim-from-credit",
-      },
-      body: JSON.stringify({
-        locationId,
-        personId,
-        depositKindId: VIEWPOINT_DEPOSIT_KIND_ID,
-        amount: -Math.abs(amount),
-      }),
-      cache: "no-store",
+    await addDeposit({
+      locationId,
+      personId,
+      depositKindId: VIEWPOINT_DEPOSIT_KIND_ID,
+      amount: -Math.abs(amount),
     });
-    return res.ok;
+    return true;
   } catch (err) {
-    console.warn("[pov-codes/claim-from-credit] deposit deduct threw:", err);
+    const msg = err instanceof Error ? err.message : "unknown";
+    console.warn(`[pov-codes/claim-from-credit] addDeposit failed: ${msg}`);
     return false;
   }
 }
