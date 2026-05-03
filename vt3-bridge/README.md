@@ -144,19 +144,56 @@ never" failure mode.
 After 2-3 weeks of bridge uptime with no missed videos, drop the
 cron entry from `fasttrax-web/vercel.json`.
 
+## Confirmed event schema (PROBE-mode logs, 2026-05-03)
+
+VT3 emits two SSE event types over `/videos/events`:
+
+```
+event: connected
+data: "b58b5684-234d-4f2c-a984-b683e441cdc4"   ← session UUID, plain string
+
+event: message  (default — every other event)
+data: { ...JSON video object... }
+```
+
+The `connected` event carries the session UUID we need for ACKs at
+`POST /sse/{uuid}/ack`. Worker captures it from the bare-string
+payload.
+
+`message` event payloads carry an INNER `eventType` field that
+discriminates the actual VT3 event:
+
+| Inner `eventType` | Trigger | Notable fields |
+|---|---|---|
+| `video-updated` | Every status transition during the upload pipeline | `id`, `code`, `status`, `sampleUploadTime`, `system.name` (kart number), `createdAt` |
+| `sample-uploaded` | Sample MP4 lands in R2 — **the "ready to view" signal** | `id`, `code`, `url` (signed sample URL), `system.name` |
+
+Status lifecycle observed for one video over ~13 seconds:
+
+```
+TRANSFERRED → FOR_SAMPLING → SAMPLING → [sample-uploaded] → FOR_ENCODING
+```
+
+Earlier states seen on older videos: `PENDING_ACTIVATION` (newly
+created, awaiting payment), `IS_ENCODING` (full-quality encode
+in progress).
+
+**No SSE event IDs.** All events arrive without an `id:` line, so
+`Last-Event-ID` replay on reconnect is NOT supported by VT3. This
+makes the cron backstop essential for catching any events that land
+during reconnect gaps.
+
+**No heartbeats observed.** Stream stays open until upstream closes
+it (no `: ping` comment frames between events).
+
 ## Known unknowns
 
-1. **Event schema** — captured HARs don't include SSE bodies. Use
-   PROBE mode to discover before wiring up the webhook handler.
-2. **`Last-Event-ID` replay** — does VT3 honor the SSE
-   `Last-Event-ID` header on reconnect to replay missed events? If
-   yes, persist the last seen id and pass it on reconnect. If no,
-   the cron-backstop strategy above is essential.
-3. **JWT refresh under load** — current worker re-logs on 401. Real-
+1. **JWT refresh under load** — current worker re-logs on 401. Real-
    world behavior under sustained load needs verification.
-4. **Multi-site filtering** — VT3 might emit events for sites we
-   don't care about. Filter at the worker (cheap network) or at
-   the webhook (cheap CPU). Either works once we see the schema.
+2. **Connection lifetime** — initial PROBE logs showed the stream
+   closing every ~10s. Fixed by setting an explicit undici Agent with
+   `headersTimeout: 0` and `bodyTimeout: 0` so Node's default 5-min
+   stream timeout doesn't tear down a healthy connection.
 
 See `tasks/future/vt3-sse-bridge.md` and
 `tasks/future/vercel-workflows-evaluation.md` (in the parent repo)

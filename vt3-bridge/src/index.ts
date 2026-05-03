@@ -40,6 +40,8 @@
  *   LOG_LEVEL          — "debug" emits raw frames + parsed payloads.
  */
 
+import { Agent, setGlobalDispatcher } from "undici";
+
 const VT3_HOST = "https://sys.vt3.io";
 const VT3_USER = required("VT3_USERNAME");
 const VT3_PASS = required("VT3_PASSWORD");
@@ -47,6 +49,24 @@ const PROBE_MODE = process.env.PROBE === "1";
 const WEBHOOK_URL = PROBE_MODE ? "" : required("WEBHOOK_URL");
 const WEBHOOK_SECRET = PROBE_MODE ? "" : required("WEBHOOK_SECRET");
 const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
+
+// Override Node's default undici dispatcher with one tuned for
+// long-lived SSE connections. The default `headersTimeout` (5min)
+// and `bodyTimeout` (5min) close the response stream prematurely
+// even when bytes are still flowing — observed in PROBE-mode logs
+// as the stream closing every ~10s with no error. Setting both to
+// 0 (no timeout) lets the connection live as long as VT3 wants.
+//
+// `keepAliveTimeout` keeps the underlying TCP connection warm so
+// reconnects after a clean upstream close are sub-100ms.
+setGlobalDispatcher(
+  new Agent({
+    keepAliveTimeout: 60_000,
+    keepAliveMaxTimeout: 600_000,
+    headersTimeout: 0,
+    bodyTimeout: 0,
+  }),
+);
 
 let jwt = "";
 let jwtExpiresAt = 0;
@@ -242,18 +262,24 @@ async function consumeStream(): Promise<void> {
       } catch {
         // Leave as raw string — webhook still receives it.
       }
-      // Capture session id from payload if VT3 surfaces one. Common
-      // patterns: top-level `sessionId`, or a `session` event type
-      // with payload `{id: "..."}`. Add more shapes here as PROBE
-      // mode reveals them.
-      if (
-        !sessionId &&
-        typeof parsed === "object" &&
-        parsed !== null
-      ) {
-        const p = parsed as Record<string, unknown>;
-        if (typeof p.sessionId === "string") sessionId = p.sessionId;
-        else if (event.event === "session" && typeof p.id === "string") sessionId = p.id;
+      // Capture session id. PROBE-mode logs from prod confirmed the
+      // shape: VT3 fires `event: connected` with `data:` being the
+      // bare UUID string (not an object). Some payloads might also
+      // include sessionId on object data — handle both shapes.
+      if (!sessionId) {
+        if (
+          event.event === "connected" &&
+          typeof parsed === "string" &&
+          /^[0-9a-f-]{36}$/i.test(parsed)
+        ) {
+          sessionId = parsed;
+        } else if (typeof parsed === "object" && parsed !== null) {
+          const p = parsed as Record<string, unknown>;
+          if (typeof p.sessionId === "string") sessionId = p.sessionId;
+          else if (event.event === "session" && typeof p.id === "string")
+            sessionId = p.id;
+        }
+        if (sessionId) console.log(`[vt3-bridge] captured sessionId=${sessionId}`);
       }
       console.log(
         `[vt3-bridge] event=${event.event ?? "message"} id=${event.id ?? "-"}`,
