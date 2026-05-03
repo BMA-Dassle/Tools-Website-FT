@@ -191,7 +191,10 @@ const BMI_ADDONS_NAP: BmiAddon[] = [
   },
 ];
 
-const BMI_ADDONS_BY_CENTER: Record<string, { page: string; clientKey?: string; addons: BmiAddon[] }> = {
+const BMI_ADDONS_BY_CENTER: Record<
+  string,
+  { page: string; clientKey?: string; addons: BmiAddon[] }
+> = {
   "9172": { page: "43370985", clientKey: undefined, addons: BMI_ADDONS_FM },
   "3148": { page: "7583597", clientKey: "headpinznaples", addons: BMI_ADDONS_NAP },
 };
@@ -220,20 +223,21 @@ interface BmiAddonSelection {
 
 // ── Center metadata ─────────────────────────────────────────────────────────
 
-const CENTERS: { id: string; locationKey: "headpinz" | "naples"; name: string; address: string }[] = [
-  {
-    id: "9172",
-    locationKey: "headpinz",
-    name: "HeadPinz Fort Myers",
-    address: "14513 Global Pkwy, Fort Myers",
-  },
-  {
-    id: "3148",
-    locationKey: "naples",
-    name: "HeadPinz Naples",
-    address: "8525 Radio Ln, Naples",
-  },
-];
+const CENTERS: { id: string; locationKey: "headpinz" | "naples"; name: string; address: string }[] =
+  [
+    {
+      id: "9172",
+      locationKey: "headpinz",
+      name: "HeadPinz Fort Myers",
+      address: "14513 Global Pkwy, Fort Myers",
+    },
+    {
+      id: "3148",
+      locationKey: "naples",
+      name: "HeadPinz Naples",
+      address: "8525 Radio Ln, Naples",
+    },
+  ];
 
 // ── Types mirroring lib/kbf-prefs.ts ────────────────────────────────────────
 
@@ -304,7 +308,7 @@ interface QamfOfferItem {
   ItemId: number;
   Quantity: number;
   QuantityType: string;
-  Time: string;          // "17:00" — HH:MM ET local
+  Time: string; // "17:00" — HH:MM ET local
   Total: number;
   Remaining: number;
   Lanes: number;
@@ -378,9 +382,7 @@ function offerBookableSlots(offer: QamfOffer): BookableSlot[] {
       byTime.set(s.time, s);
     }
   }
-  return [...byTime.values()].sort((a, b) =>
-    timeToMinutes(a.time) - timeToMinutes(b.time),
-  );
+  return [...byTime.values()].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
 }
 
 /** QAMF /offers/extras response — laser tag, gel blasters, etc. */
@@ -396,7 +398,17 @@ interface QamfExtra {
 
 // ── Step keys ───────────────────────────────────────────────────────────────
 
-type Step = "location" | "lookup" | "verify" | "bowlers" | "datetime" | "offer" | "addons" | "review" | "details" | "submitting";
+type Step =
+  | "location"
+  | "lookup"
+  | "verify"
+  | "bowlers"
+  | "datetime"
+  | "offer"
+  | "addons"
+  | "review"
+  | "details"
+  | "submitting";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -477,9 +489,9 @@ export default function KidsBowlFreePage() {
     state: "FL",
     zip: "",
   });
-  const [newKids, setNewKids] = useState<{ firstName: string; lastName: string; birthday: string }[]>([
-    { firstName: "", lastName: "", birthday: "" },
-  ]);
+  const [newKids, setNewKids] = useState<
+    { firstName: string; lastName: string; birthday: string }[]
+  >([{ firstName: "", lastName: "", birthday: "" }]);
 
   // Family roster from /api/kbf/verify
   const [passes, setPasses] = useState<PassWithMembers[]>([]);
@@ -497,7 +509,11 @@ export default function KidsBowlFreePage() {
   // a re-click on the same selection doesn't fire book-for-later
   // again (which would 409 — QAMF already has a hold for this
   // session at that slot).
-  const [heldFor, setHeldFor] = useState<{ offerId: number; tariffId: number; time: string } | null>(null);
+  const [heldFor, setHeldFor] = useState<{
+    offerId: number;
+    tariffId: number;
+    time: string;
+  } | null>(null);
   // Bowling's "Time Change" modal — surfaces when the parent picks
   // an offer card whose first Item is at a different time than
   // their date+time pick (e.g., they probed 5 PM but Naples only
@@ -558,7 +574,9 @@ export default function KidsBowlFreePage() {
   const [selectedOfferId, setSelectedOfferId] = useState<number | null>(null);
   const [selectedTariffId, setSelectedTariffId] = useState<number | null>(null);
   const [selectedTime, setSelectedTime] = useState<string>("");
-  const [shoeCatalog, setShoeCatalog] = useState<{ id: number; label: string; categoryId: number | null; categoryName: string }[]>([]);
+  const [shoeCatalog, setShoeCatalog] = useState<
+    { id: number; label: string; categoryId: number | null; categoryName: string }[]
+  >([]);
 
   // BMI add-ons (laser tag + gel blaster) — same data layer the
   // bowling page uses. bmiAddonOrderIdRef holds the shared BMI
@@ -577,12 +595,14 @@ export default function KidsBowlFreePage() {
   // No GUI surface — KBF's existing per-bowler shoe toggle drives
   // whether shoes are added; this catalog just provides the
   // PriceKeyId / UnitPrice that QAMF needs to bill.
-  const [paidShoes, setPaidShoes] = useState<{
-    Name?: string;
-    Price: number;
-    PriceKeyId: number;
-    PlayerTypeId?: number;
-  }[]>([]);
+  const [paidShoes, setPaidShoes] = useState<
+    {
+      Name?: string;
+      Price: number;
+      PriceKeyId: number;
+      PlayerTypeId?: number;
+    }[]
+  >([]);
 
   // Review
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
@@ -670,7 +690,7 @@ export default function KidsBowlFreePage() {
           shoeSizeId: pref?.shoeSizeId ?? null,
           shoeSizeLabel: pref?.shoeSizeLabel ?? null,
           shoeCategoryId: null,
-          wantBumpers: pref?.wantBumpers ?? (m.relation === "kid"),
+          wantBumpers: pref?.wantBumpers ?? m.relation === "kid",
         };
       }
     }
@@ -697,8 +717,7 @@ export default function KidsBowlFreePage() {
    * shared `contact` state.
    */
   const handleLookup = useCallback(async () => {
-    const tabContact =
-      lookupTab === "phone" ? phoneInput.replace(/\D/g, "") : emailInput.trim();
+    const tabContact = lookupTab === "phone" ? phoneInput.replace(/\D/g, "") : emailInput.trim();
     if (!tabContact) {
       setError(lookupTab === "phone" ? "Enter your phone" : "Enter your email");
       return;
@@ -888,8 +907,12 @@ export default function KidsBowlFreePage() {
       if (!res.ok) return [];
       const data = await res.json();
       const flat: ShoeRow[] = [];
-      const cats: Array<{ Id?: number; DisplayName?: string; Active?: boolean; ShoesSize?: unknown }> =
-        data?.CategoriesShoesSizes || [];
+      const cats: Array<{
+        Id?: number;
+        DisplayName?: string;
+        Active?: boolean;
+        ShoesSize?: unknown;
+      }> = data?.CategoriesShoesSizes || [];
       for (const c of cats) {
         if (c.Active === false) continue;
         const sizes = Array.isArray(c.ShoesSize) ? c.ShoesSize : [];
@@ -1010,19 +1033,16 @@ export default function KidsBowlFreePage() {
         heldFor.time === selectedTime;
       if (!sameSelection) {
         const fireHold = async (): Promise<{ ReservationKey?: string } | null> => {
-          return (await qamf(
-            `centers/${centerId}/reservations/temporary-request/book-for-later`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                DateFrom: `${date}T${selectedTime}`,
-                WebOfferId: selectedOfferId,
-                WebOfferTariffId: selectedTariffId,
-                PlayersList: [{ TypeId: 1, Number: playerCount || 1 }],
-              }),
-            },
-          )) as { ReservationKey?: string } | null;
+          return (await qamf(`centers/${centerId}/reservations/temporary-request/book-for-later`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              DateFrom: `${date}T${selectedTime}`,
+              WebOfferId: selectedOfferId,
+              WebOfferTariffId: selectedTariffId,
+              PlayersList: [{ TypeId: 1, Number: playerCount || 1 }],
+            }),
+          })) as { ReservationKey?: string } | null;
         };
 
         try {
@@ -1068,7 +1088,9 @@ export default function KidsBowlFreePage() {
             const dteParam = encodeURIComponent(`${date}T${selectedTime}`);
             const shoesData = (await qamf(
               `centers/${centerId}/offers/${selectedOfferId}/shoes-socks-offer?systemId=${centerId}&datetime=${dteParam}`,
-            )) as { Shoes?: { Name?: string; Price: number; PriceKeyId: number; PlayerTypeId?: number }[] } | null;
+            )) as {
+              Shoes?: { Name?: string; Price: number; PriceKeyId: number; PlayerTypeId?: number }[];
+            } | null;
             setPaidShoes(shoesData?.Shoes ?? []);
           } catch (err) {
             console.error("[kbf] shoes-socks-offer fetch failed:", err);
@@ -1382,7 +1404,15 @@ export default function KidsBowlFreePage() {
               Note: "",
             }))
           : [];
-      let summary: { Total?: number; AddedTaxes?: number; TotalItems?: number; Fee?: number; AutoGratuity?: number; TotalWithoutTaxes?: number; Deposit?: number } = {};
+      let summary: {
+        Total?: number;
+        AddedTaxes?: number;
+        TotalItems?: number;
+        Fee?: number;
+        AutoGratuity?: number;
+        TotalWithoutTaxes?: number;
+        Deposit?: number;
+      } = {};
       try {
         summary = (await qamf(`centers/${centerId}/Cart/CreateSummary`, {
           method: "POST",
@@ -1481,7 +1511,11 @@ export default function KidsBowlFreePage() {
             },
           }),
         },
-      )) as { NeedPayment?: boolean; ApprovePayment?: { Url?: string } | null; OperationId?: string | null } | null;
+      )) as {
+        NeedPayment?: boolean;
+        ApprovePayment?: { Url?: string } | null;
+        OperationId?: string | null;
+      } | null;
 
       // (sales_log + member-prefs persistence moves to a /api/kbf
       // server endpoint in a follow-up — booking succeeds without it.)
@@ -1551,8 +1585,8 @@ export default function KidsBowlFreePage() {
                 name: b.displayName || "",
                 wantBumpers: sel?.wantBumpers === true,
                 shoeSize: sel?.wantShoes && sel?.shoeSizeLabel ? sel.shoeSizeLabel : null,
-                shoeSizeId: sel?.wantShoes ? sel?.shoeSizeId ?? null : null,
-                shoeCategoryId: sel?.wantShoes ? sel?.shoeCategoryId ?? null : null,
+                shoeSizeId: sel?.wantShoes ? (sel?.shoeSizeId ?? null) : null,
+                shoeCategoryId: sel?.wantShoes ? (sel?.shoeCategoryId ?? null) : null,
               };
             }),
             addons: getBmiAddons().map((a) => ({
@@ -1677,55 +1711,54 @@ export default function KidsBowlFreePage() {
             </div>
           )}
 
-          {step === "location" && (() => {
-            const center = CENTERS.find((c) => c.id === centerId);
-            const other = CENTERS.find((c) => c.id !== centerId);
-            if (!center) return null;
-            return (
-              <div className="text-center">
-                <div
-                  className="rounded-lg p-6 mb-6"
-                  style={{
-                    backgroundColor: "rgba(7,16,39,0.5)",
-                    border: `1.78px dashed ${GOLD}30`,
-                  }}
-                >
-                  <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
-                    You&apos;re booking at
-                  </p>
-                  <h3
-                    className="font-heading uppercase text-white text-xl tracking-wider"
-                    style={{ textShadow: `0 0 20px ${GOLD}25` }}
+          {step === "location" &&
+            (() => {
+              const center = CENTERS.find((c) => c.id === centerId);
+              const other = CENTERS.find((c) => c.id !== centerId);
+              if (!center) return null;
+              return (
+                <div className="text-center">
+                  <div
+                    className="rounded-lg p-6 mb-6"
+                    style={{
+                      backgroundColor: "rgba(7,16,39,0.5)",
+                      border: `1.78px dashed ${GOLD}30`,
+                    }}
                   >
-                    {center.name}
-                  </h3>
-                  <p className="font-body text-white/40 text-sm mt-1">
-                    {center.address}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowLocationConfirm(true)}
-                  className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-                  style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
-                >
-                  Continue
-                </button>
-                {other && (
+                    <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
+                      You&apos;re booking at
+                    </p>
+                    <h3
+                      className="font-heading uppercase text-white text-xl tracking-wider"
+                      style={{ textShadow: `0 0 20px ${GOLD}25` }}
+                    >
+                      {center.name}
+                    </h3>
+                    <p className="font-body text-white/40 text-sm mt-1">{center.address}</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setCenterId(other.id);
-                      setBookingLocation(other.locationKey);
-                    }}
-                    className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+                    onClick={() => setShowLocationConfirm(true)}
+                    className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                    style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
                   >
-                    Switch to {other.name}
+                    Continue
                   </button>
-                )}
-              </div>
-            );
-          })()}
+                  {other && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCenterId(other.id);
+                        setBookingLocation(other.locationKey);
+                      }}
+                      className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+                    >
+                      Switch to {other.name}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
           {step === "lookup" && (
             <LookupStep
@@ -1842,6 +1875,7 @@ export default function KidsBowlFreePage() {
               bowlerCount={playerCount}
               bmiAddons={getBmiAddons()}
               shoeQty={selectedBowlers.filter((b) => bowlerSelections[b.key]?.wantShoes).length}
+              paidShoes={paidShoes}
               onContinue={() => setStep("details")}
               onBack={() => setStep("addons")}
             />
@@ -1893,51 +1927,48 @@ export default function KidsBowlFreePage() {
       {/* Location confirmation modal — verbatim from /book/bowling so
           a parent has to actively confirm the center before any OTP
           fires. "Yes, this is correct" advances to the lookup step. */}
-      {showLocationConfirm && (() => {
-        const center = CENTERS.find((c) => c.id === centerId);
-        if (!center) return null;
-        return (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
-            {...modalBackdropProps(() => setShowLocationConfirm(false))}
-          >
+      {showLocationConfirm &&
+        (() => {
+          const center = CENTERS.find((c) => c.id === centerId);
+          if (!center) return null;
+          return (
             <div
-              className="rounded-lg p-6 max-w-sm w-full text-center"
-              style={{
-                backgroundColor: "#0a1628",
-                border: `1.78px dashed ${CORAL}40`,
-              }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-4"
+              {...modalBackdropProps(() => setShowLocationConfirm(false))}
             >
-              <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
-                Confirm Location
-              </h3>
-              <p className="font-body text-white/60 text-sm mb-1">
-                You&apos;re booking at:
-              </p>
-              <p
-                className="font-heading font-black uppercase text-white text-xl mb-1"
-                style={{ textShadow: `0 0 20px ${CORAL}30` }}
-              >
-                {center.name}
-              </p>
-              <p className="font-body text-white/40 text-xs mb-6">
-                {center.address}
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowLocationConfirm(false);
-                  setStep("lookup");
+              <div
+                className="rounded-lg p-6 max-w-sm w-full text-center"
+                style={{
+                  backgroundColor: "#0a1628",
+                  border: `1.78px dashed ${CORAL}40`,
                 }}
-                className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
-                style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
               >
-                Yes, this is correct
-              </button>
+                <h3 className="font-heading uppercase text-white text-base tracking-wider mb-2">
+                  Confirm Location
+                </h3>
+                <p className="font-body text-white/60 text-sm mb-1">You&apos;re booking at:</p>
+                <p
+                  className="font-heading font-black uppercase text-white text-xl mb-1"
+                  style={{ textShadow: `0 0 20px ${CORAL}30` }}
+                >
+                  {center.name}
+                </p>
+                <p className="font-body text-white/40 text-xs mb-6">{center.address}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLocationConfirm(false);
+                    setStep("lookup");
+                  }}
+                  className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
+                >
+                  Yes, this is correct
+                </button>
+              </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       {/* Time Change confirmation modal — verbatim from /book/bowling.
           Surfaces when a parent picks a time-pill on the offer card
@@ -1964,10 +1995,7 @@ export default function KidsBowlFreePage() {
               <strong>{pendingOffer.offerName}</strong> is not available at{" "}
               {formatTimeLabel(pendingOffer.fromTime)} but is available at:
             </p>
-            <p
-              className="font-heading text-2xl mb-6"
-              style={{ color: GOLD }}
-            >
+            <p className="font-heading text-2xl mb-6" style={{ color: GOLD }}>
               {formatTimeLabel(pendingOffer.newTime)}
             </p>
             <div className="flex gap-3">
@@ -2035,9 +2063,7 @@ function PillToggle({
         // outline-only so the contrast between the two is obvious.
         backgroundColor: on ? accent : "transparent",
         color: on ? "#0a1628" : "rgba(255,255,255,0.55)",
-        border: on
-          ? `1.5px solid ${accent}`
-          : "1.5px solid rgba(255,255,255,0.18)",
+        border: on ? `1.5px solid ${accent}` : "1.5px solid rgba(255,255,255,0.18)",
       }}
     >
       {/* Checkbox-style glyph — empty square when off, filled
@@ -2048,9 +2074,7 @@ function PillToggle({
         className="inline-flex items-center justify-center w-4 h-4 rounded-[3px] shrink-0"
         style={{
           backgroundColor: on ? "#0a1628" : "transparent",
-          border: on
-            ? "1.5px solid #0a1628"
-            : "1.5px solid rgba(255,255,255,0.45)",
+          border: on ? "1.5px solid #0a1628" : "1.5px solid rgba(255,255,255,0.45)",
           color: on ? "#22c55e" : "transparent",
         }}
       >
@@ -2104,11 +2128,7 @@ function KbfStepBar({
   // `location` and `verify` both collapse under the visible "Sign-in"
   // step so the breadcrumb stays steady through the auth pre-amble.
   const currentKey: Step =
-    step === "location" || step === "verify"
-      ? "lookup"
-      : step === "submitting"
-        ? "details"
-        : step;
+    step === "location" || step === "verify" ? "lookup" : step === "submitting" ? "details" : step;
   const currentIdx = visible.findIndex((v) => v.key === currentKey);
 
   return (
@@ -2143,11 +2163,7 @@ function KbfStepBar({
                           : isPast
                             ? "rgba(255,255,255,0.2)"
                             : "rgba(255,255,255,0.08)",
-                        color: isCurrent
-                          ? "#fff"
-                          : isPast
-                            ? "#fff"
-                            : "rgba(255,255,255,0.3)",
+                        color: isCurrent ? "#fff" : isPast ? "#fff" : "rgba(255,255,255,0.3)",
                       }}
                     >
                       {isPast ? "✓" : i + 1}
@@ -2155,9 +2171,7 @@ function KbfStepBar({
                     <span className="hidden md:inline">{s.label}</span>
                   </button>
                   {i < visible.length - 1 && (
-                    <span className="text-white/15 px-0.5 text-xs shrink-0">
-                      &rsaquo;
-                    </span>
+                    <span className="text-white/15 px-0.5 text-xs shrink-0">&rsaquo;</span>
                   )}
                 </div>
               );
@@ -2233,8 +2247,8 @@ function Header({ step, preLaunch }: { step: Step; preLaunch: boolean }) {
         >
           <p className="font-body text-white/85 text-xs sm:text-sm">
             <strong className="text-white">Special — Opening Week.</strong> Book{" "}
-            <strong className="text-white">May 14th and 15th</strong> right now.
-            Normally Kids Bowl Free reservations open 48 hours in advance.
+            <strong className="text-white">May 14th and 15th</strong> right now. Normally Kids Bowl
+            Free reservations open 48 hours in advance.
           </p>
         </div>
       )}
@@ -2301,126 +2315,124 @@ function LookupStep({
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
-      <p className="text-white/65 text-sm leading-relaxed">
-        Kids Bowl Free — kids 15 and under bowl two free games per day,
-        Mon–Thu open to close, Fri until 5 PM. Sign in below or register
-        in under 30 seconds.
-      </p>
+        <p className="text-white/65 text-sm leading-relaxed">
+          Kids Bowl Free — kids 15 and under bowl two free games per day, Mon–Thu open to close, Fri
+          until 5 PM. Sign in below or register in under 30 seconds.
+        </p>
 
-      {/* Tabs — race-pack style (segmented, accent fill on active) */}
-      <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-        {(["email", "phone", "new"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setTab(m)}
-            className="flex-1 py-2 rounded-md text-xs font-semibold transition-colors uppercase tracking-wider"
+        {/* Tabs — race-pack style (segmented, accent fill on active) */}
+        <div className="flex gap-1 bg-white/5 rounded-lg p-1">
+          {(["email", "phone", "new"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setTab(m)}
+              className="flex-1 py-2 rounded-md text-xs font-semibold transition-colors uppercase tracking-wider"
+              style={{
+                backgroundColor: tab === m ? CORAL : "transparent",
+                color: tab === m ? "#0a1628" : "rgba(255,255,255,0.45)",
+                fontWeight: tab === m ? 800 : 600,
+              }}
+            >
+              {m === "phone" ? "SMS" : m === "new" ? "New" : "Email"}
+            </button>
+          ))}
+        </div>
+
+        {/* Phone tab */}
+        {tab === "phone" && (
+          <div className="space-y-3">
+            <input
+              type="tel"
+              autoComplete="tel"
+              inputMode="tel"
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(formatPhoneDisplay(e.target.value))}
+              onKeyDown={(e) => e.key === "Enter" && onLookup()}
+              placeholder="(239) 555-1234"
+              className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 focus:outline-none focus:border-coral"
+              style={{ borderColor: "rgba(253,91,86,0.30)" }}
+            />
+            <button
+              type="button"
+              onClick={onLookup}
+              disabled={busy || phoneInput.replace(/\D/g, "").length !== 10}
+              className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+              style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+            >
+              {busy ? "Looking up…" : "Send verification code"}
+            </button>
+          </div>
+        )}
+
+        {/* Email tab */}
+        {tab === "email" && (
+          <div className="space-y-3">
+            <input
+              type="email"
+              autoComplete="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && onLookup()}
+              placeholder="parent@example.com"
+              className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm placeholder:text-white/25 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={onLookup}
+              disabled={busy || !emailInput.includes("@")}
+              className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+              style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+            >
+              {busy ? "Looking up…" : "Send verification code"}
+            </button>
+          </div>
+        )}
+
+        {/* External sign-up CTA — only shown on the "New" tab so it
+          doesn't visually attach itself to Email or SMS sign-in. */}
+        {tab === "new" && (
+          <div
+            className="rounded-xl px-4 py-4"
             style={{
-              backgroundColor: tab === m ? CORAL : "transparent",
-              color: tab === m ? "#0a1628" : "rgba(255,255,255,0.45)",
-              fontWeight: tab === m ? 800 : 600,
+              backgroundColor: "rgba(253,91,86,0.05)",
+              border: "1px solid rgba(253,91,86,0.20)",
             }}
           >
-            {m === "phone" ? "SMS" : m === "new" ? "New" : "Email"}
-          </button>
-        ))}
-      </div>
-
-      {/* Phone tab */}
-      {tab === "phone" && (
-        <div className="space-y-3">
-          <input
-            type="tel"
-            autoComplete="tel"
-            inputMode="tel"
-            value={phoneInput}
-            onChange={(e) => setPhoneInput(formatPhoneDisplay(e.target.value))}
-            onKeyDown={(e) => e.key === "Enter" && onLookup()}
-            placeholder="(239) 555-1234"
-            className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 focus:outline-none focus:border-coral"
-            style={{ borderColor: "rgba(253,91,86,0.30)" }}
-          />
-          <button
-            type="button"
-            onClick={onLookup}
-            disabled={busy || phoneInput.replace(/\D/g, "").length !== 10}
-            className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
-            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-          >
-            {busy ? "Looking up…" : "Send verification code"}
-          </button>
-        </div>
-      )}
-
-      {/* Email tab */}
-      {tab === "email" && (
-        <div className="space-y-3">
-          <input
-            type="email"
-            autoComplete="email"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onLookup()}
-            placeholder="parent@example.com"
-            className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm placeholder:text-white/25 focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={onLookup}
-            disabled={busy || !emailInput.includes("@")}
-            className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
-            style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-          >
-            {busy ? "Looking up…" : "Send verification code"}
-          </button>
-        </div>
-      )}
-
-      {/* External sign-up CTA — only shown on the "New" tab so it
-          doesn't visually attach itself to Email or SMS sign-in. */}
-      {tab === "new" && (
-        <div
-          className="rounded-xl px-4 py-4"
-          style={{
-            backgroundColor: "rgba(253,91,86,0.05)",
-            border: "1px solid rgba(253,91,86,0.20)",
-          }}
-        >
-          <div
-            className="font-heading uppercase text-[10px] tracking-[3px] mb-1"
-            style={{ color: CORAL }}
-          >
-            New to Kids Bowl Free?
-          </div>
-          <p className="text-white/65 text-xs leading-relaxed mb-3">
-            Sign up at{" "}
+            <div
+              className="font-heading uppercase text-[10px] tracking-[3px] mb-1"
+              style={{ color: CORAL }}
+            >
+              New to Kids Bowl Free?
+            </div>
+            <p className="text-white/65 text-xs leading-relaxed mb-3">
+              Sign up at{" "}
+              <a
+                href="https://www.kidsbowlfree.com/bowland"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-white"
+              >
+                kidsbowlfree.com/bowland
+              </a>{" "}
+              — new accounts take about an hour to be reservable here. Once you&apos;re registered,
+              come back and use the Email tab to sign in.
+            </p>
             <a
               href="https://www.kidsbowlfree.com/bowland"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline hover:text-white"
+              className="inline-flex items-center justify-center w-full py-2.5 rounded-full font-body font-bold text-xs uppercase tracking-wider transition-all hover:scale-[1.01]"
+              style={{
+                backgroundColor: "rgba(253,91,86,0.20)",
+                border: `1px solid ${CORAL}60`,
+                color: CORAL,
+              }}
             >
-              kidsbowlfree.com/bowland
-            </a>{" "}
-            — new accounts take about an hour to be reservable here. Once
-            you&apos;re registered, come back and use the Email tab to
-            sign in.
-          </p>
-          <a
-            href="https://www.kidsbowlfree.com/bowland"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center w-full py-2.5 rounded-full font-body font-bold text-xs uppercase tracking-wider transition-all hover:scale-[1.01]"
-            style={{
-              backgroundColor: "rgba(253,91,86,0.20)",
-              border: `1px solid ${CORAL}60`,
-              color: CORAL,
-            }}
-          >
-            Register at kidsbowlfree.com →
-          </a>
-        </div>
-      )}
+              Register at kidsbowlfree.com →
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2486,8 +2498,7 @@ function VerifyStep({
               className="mt-1 accent-coral"
             />
             <span>
-              Save my phone for faster login next time (we&apos;ll text the code
-              instead of email).
+              Save my phone for faster login next time (we&apos;ll text the code instead of email).
             </span>
           </label>
           {savePhoneOptIn && (
@@ -2580,9 +2591,7 @@ function BowlersStep({
   // submitted bowler list consistent with the gating rule above.
   useEffect(() => {
     if (anyKidSelected) return;
-    const adults = bowlerKeys.filter(
-      (b) => b.relation !== "kid" && selections[b.key]?.selected,
-    );
+    const adults = bowlerKeys.filter((b) => b.relation !== "kid" && selections[b.key]?.selected);
     if (adults.length === 0) return;
     const next = { ...selections };
     for (const a of adults) {
@@ -2628,8 +2637,8 @@ function BowlersStep({
 
       {/* Helper copy + family-pass upgrade nudge */}
       <p className="text-white/65 text-sm leading-relaxed">
-        Check who&apos;s bowling. Shoe rental and bumpers default to on — uncheck
-        as needed. Saved sizes auto-fill from your last visit.
+        Check who&apos;s bowling. Shoe rental and bumpers default to on — uncheck as needed. Saved
+        sizes auto-fill from your last visit.
       </p>
       {!hasFamilyPass && (
         <p className="text-white/45 text-xs leading-relaxed">
@@ -2672,9 +2681,7 @@ function BowlersStep({
               className="rounded-2xl border bg-white/[0.02] transition-all"
               style={{
                 borderColor: isOn ? `${accent}80` : "rgba(255,255,255,0.10)",
-                backgroundColor: isOn
-                  ? `${accent}12`
-                  : "rgba(255,255,255,0.025)",
+                backgroundColor: isOn ? `${accent}12` : "rgba(255,255,255,0.025)",
                 boxShadow: isOn ? `0 0 22px ${accent}20` : undefined,
                 opacity: adultLocked ? 0.45 : 1,
               }}
@@ -2688,7 +2695,11 @@ function BowlersStep({
                 }}
                 disabled={adultLocked}
                 aria-label={`Toggle bowler ${b.displayName || "unnamed"}`}
-                title={adultLocked ? "Add a kid first — adults need a registered kid bowling with them." : undefined}
+                title={
+                  adultLocked
+                    ? "Add a kid first — adults need a registered kid bowling with them."
+                    : undefined
+                }
                 className="w-full flex items-center gap-3 px-4 py-3.5 text-left disabled:cursor-not-allowed"
               >
                 {/* Avatar */}
@@ -2738,9 +2749,7 @@ function BowlersStep({
                   style={{
                     backgroundColor: isOn ? `${accent}26` : "rgba(255,255,255,0.06)",
                     color: isOn ? accent : "rgba(255,255,255,0.45)",
-                    border: isOn
-                      ? `1px solid ${accent}80`
-                      : "1px solid rgba(255,255,255,0.10)",
+                    border: isOn ? `1px solid ${accent}80` : "1px solid rgba(255,255,255,0.10)",
                   }}
                 >
                   {adultLocked ? "Kid required" : isOn ? "Bowling" : "Add"}
@@ -2834,9 +2843,7 @@ function BowlersStep({
             }}
           >
             Pick a shoe size for{" "}
-            <strong>
-              {missingSizes.map((b) => b.displayName || "(unnamed)").join(", ")}
-            </strong>{" "}
+            <strong>{missingSizes.map((b) => b.displayName || "(unnamed)").join(", ")}</strong>{" "}
             before continuing.
           </div>
         );
@@ -2918,7 +2925,9 @@ function DateTimeStep({
 }) {
   // Anchor the calendar on the program-start month if we haven't
   // picked a date yet, otherwise on the picked date's month.
-  const initial = date ? new Date(`${date}T12:00:00`) : new Date(`${KBF_PROGRAM_START_YMD}T12:00:00`);
+  const initial = date
+    ? new Date(`${date}T12:00:00`)
+    : new Date(`${KBF_PROGRAM_START_YMD}T12:00:00`);
   const [calMonth, setCalMonth] = useState(initial.getMonth());
   const [calYear, setCalYear] = useState(initial.getFullYear());
 
@@ -3048,11 +3057,7 @@ function DateTimeStep({
                       : isBookable
                         ? "rgba(253,91,86,0.15)"
                         : "transparent",
-                    color: isSelected
-                      ? "#0a1628"
-                      : isBookable
-                        ? CORAL
-                        : "rgba(255,255,255,0.18)",
+                    color: isSelected ? "#0a1628" : isBookable ? CORAL : "rgba(255,255,255,0.18)",
                     fontWeight: isSelected ? 800 : 500,
                     cursor: isBookable ? "pointer" : "not-allowed",
                     boxShadow: isSelected ? `0 0 14px ${CORAL}60` : undefined,
@@ -3111,10 +3116,7 @@ function DateTimeStep({
                     {MINUTES.map((m) => {
                       const isActive = m === selectedMinute;
                       // Friday cap: 16:45 is the latest minute slot.
-                      const wouldExceed =
-                        isFriday &&
-                        selectedHour === "16" &&
-                        false; // 16:45 still allowed (under 17:00)
+                      const wouldExceed = isFriday && selectedHour === "16" && false; // 16:45 still allowed (under 17:00)
                       const disabled = wouldExceed;
                       return (
                         <button
@@ -3199,13 +3201,15 @@ function OfferStep({
   setSelectedTariffId: (n: number | null) => void;
   selectedTime: string;
   setSelectedTime: (s: string) => void;
-  setPendingOffer: (p: {
-    offerId: number;
-    offerName: string;
-    tariffId: number;
-    newTime: string;
-    fromTime: string;
-  } | null) => void;
+  setPendingOffer: (
+    p: {
+      offerId: number;
+      offerName: string;
+      tariffId: number;
+      newTime: string;
+      fromTime: string;
+    } | null,
+  ) => void;
   date: string;
   busy: boolean;
   onContinue: () => void;
@@ -3315,13 +3319,15 @@ function OfferTimeStepBody({
   setSelectedTariffId: (n: number | null) => void;
   selectedTime: string;
   setSelectedTime: (s: string) => void;
-  setPendingOffer: (p: {
-    offerId: number;
-    offerName: string;
-    tariffId: number;
-    newTime: string;
-    fromTime: string;
-  } | null) => void;
+  setPendingOffer: (
+    p: {
+      offerId: number;
+      offerName: string;
+      tariffId: number;
+      newTime: string;
+      fromTime: string;
+    } | null,
+  ) => void;
   busy: boolean;
   date: string;
 }) {
@@ -3338,9 +3344,7 @@ function OfferTimeStepBody({
     <div className="space-y-6">
       {offers.length === 0 && !busy && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
-          <p className="text-white/55 text-sm">
-            No Kids Bowl Free times available for that date.
-          </p>
+          <p className="text-white/55 text-sm">No Kids Bowl Free times available for that date.</p>
         </div>
       )}
 
@@ -3359,9 +3363,7 @@ function OfferTimeStepBody({
           const firstSlot = slots[0];
           // Price chip — pull from the cheapest bookable slot, not
           // a Reason'd Item that may carry a stale price.
-          const minPrice = slots.length
-            ? Math.min(...slots.map((s) => s.total))
-            : 0;
+          const minPrice = slots.length ? Math.min(...slots.map((s) => s.total)) : 0;
           const isFree = slots.length > 0 && minPrice === 0;
           const features = isVip
             ? [
@@ -3511,8 +3513,7 @@ function OfferTimeStepBody({
                   {slots.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {slots.map((slot) => {
-                        const pillSelected =
-                          on && selectedTime === slot.time;
+                        const pillSelected = on && selectedTime === slot.time;
                         const isAlt = slot.time !== selectedTime;
                         return (
                           <button
@@ -3521,23 +3522,15 @@ function OfferTimeStepBody({
                             onClick={() => pickSlot(slot)}
                             className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02] cursor-pointer"
                             style={{
-                              backgroundColor: pillSelected
-                                ? accent
-                                : `${accent}1a`,
+                              backgroundColor: pillSelected ? accent : `${accent}1a`,
                               color: pillSelected ? "#0a1628" : accent,
                               border: `1px solid ${
-                                pillSelected
-                                  ? accent
-                                  : isAlt
-                                    ? `${accent}55`
-                                    : `${accent}55`
+                                pillSelected ? accent : isAlt ? `${accent}55` : `${accent}55`
                               }`,
                             }}
                           >
                             {formatTimeLabel(slot.time)}
-                            {pillSelected && (
-                              <span className="ml-1.5">✓</span>
-                            )}
+                            {pillSelected && <span className="ml-1.5">✓</span>}
                           </button>
                         );
                       })}
@@ -3626,10 +3619,7 @@ function AddonsStep({
 }) {
   const addons = BMI_ADDONS_BY_CENTER[centerId]?.addons ?? [];
 
-  const totalSelected = addons.reduce(
-    (s, a) => s + (bmiAddonQty[a.productId] ?? 0),
-    0,
-  );
+  const totalSelected = addons.reduce((s, a) => s + (bmiAddonQty[a.productId] ?? 0), 0);
 
   const formatBmiTime = (iso: string): string => {
     try {
@@ -3657,9 +3647,8 @@ function AddonsStep({
   return (
     <div className="space-y-5">
       <p className="text-center text-white/45 text-xs">
-        Pair your bowling slot with NEXUS Laser Tag or Gel Blasters.
-        Times are limited to slots that don&apos;t conflict with your
-        bowling reservation. Skip and continue if you don&apos;t need
+        Pair your bowling slot with NEXUS Laser Tag or Gel Blasters. Times are limited to slots that
+        don&apos;t conflict with your bowling reservation. Skip and continue if you don&apos;t need
         anything.
       </p>
 
@@ -3688,9 +3677,7 @@ function AddonsStep({
                 key={addon.productId}
                 className="rounded-lg overflow-hidden transition-all"
                 style={{
-                  backgroundColor: isSelected
-                    ? `${addon.accent}08`
-                    : "rgba(7,16,39,0.5)",
+                  backgroundColor: isSelected ? `${addon.accent}08` : "rgba(7,16,39,0.5)",
                   border: `1.78px dashed ${
                     isSelected ? `${addon.accent}50` : "rgba(255,255,255,0.10)"
                   }`,
@@ -3714,9 +3701,7 @@ function AddonsStep({
 
                   <div className="flex-1 p-4">
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="font-body text-white font-bold text-sm">
-                        {addon.name}
-                      </h3>
+                      <h3 className="font-body text-white font-bold text-sm">{addon.name}</h3>
                       <span
                         className="font-body text-sm font-bold shrink-0"
                         style={{ color: addon.accent }}
@@ -3724,9 +3709,7 @@ function AddonsStep({
                         ${addon.price}/person
                       </span>
                     </div>
-                    <p className="font-body text-white/45 text-xs mb-3">
-                      {addon.desc}
-                    </p>
+                    <p className="font-body text-white/45 text-xs mb-3">{addon.desc}</p>
 
                     {qty === 0 ? (
                       <button
@@ -3788,8 +3771,8 @@ function AddonsStep({
                           </div>
                         ) : slots.length === 0 ? (
                           <p className="font-body text-amber-400/70 text-xs">
-                            No times available on this date that don&apos;t
-                            conflict with your bowling slot.
+                            No times available on this date that don&apos;t conflict with your
+                            bowling slot.
                           </p>
                         ) : (
                           <div>
@@ -3816,12 +3799,8 @@ function AddonsStep({
                                     onClick={() => void onPickSlot(addon.productId, idx)}
                                     className="px-3 py-1.5 rounded-lg text-xs font-bold font-body transition-all"
                                     style={{
-                                      backgroundColor: on
-                                        ? addon.accent
-                                        : "rgba(7,16,39,0.5)",
-                                      color: on
-                                        ? "#0a1628"
-                                        : "rgba(255,255,255,0.6)",
+                                      backgroundColor: on ? addon.accent : "rgba(7,16,39,0.5)",
+                                      color: on ? "#0a1628" : "rgba(255,255,255,0.6)",
                                       border: `1px solid ${
                                         on ? addon.accent : "rgba(255,255,255,0.10)"
                                       }`,
@@ -3882,6 +3861,7 @@ function ReviewStep({
   bowlerCount,
   bmiAddons,
   shoeQty,
+  paidShoes,
   onContinue,
   onBack,
 }: {
@@ -3894,6 +3874,7 @@ function ReviewStep({
   bowlerCount: number;
   bmiAddons: BmiAddonSelection[];
   shoeQty: number;
+  paidShoes: { Name?: string; Price: number; PriceKeyId: number; PlayerTypeId?: number }[];
   onContinue: () => void;
   onBack: () => void;
 }) {
@@ -3912,9 +3893,8 @@ function ReviewStep({
       })
     : "";
 
-  // Bowling shoes are FREE on KBF; we surface the line as a $0
-  // savings indicator rather than charging for them.
-  const shoesTotal = 0;
+  const shoesUnit = paidShoes[0]?.Price ?? 0;
+  const shoesTotal = shoeQty > 0 ? shoesUnit * shoeQty : 0;
   const extrasLines = bmiAddons.map((a) => ({
     name: a.name,
     qty: a.quantity,
@@ -3953,17 +3933,17 @@ function ReviewStep({
             {dateLabel} at {timeLabel} · {bowlerCount} bowler
             {bowlerCount === 1 ? "" : "s"} · {center?.name ?? ""}
           </p>
-          {tariffName && (
-            <p className="font-body text-white/35 text-[11px]">{tariffName}</p>
-          )}
+          {tariffName && <p className="font-body text-white/35 text-[11px]">{tariffName}</p>}
           {shoeQty > 0 && (
             <div className="flex justify-between mt-1">
-              <span className="font-body text-white/70 text-sm">
-                Bowling Shoes ×{shoeQty}
-              </span>
-              <span className="font-body text-sm" style={{ color: GOLD }}>
-                FREE
-              </span>
+              <span className="font-body text-white/70 text-sm">Bowling Shoes ×{shoeQty}</span>
+              {shoesTotal > 0 ? (
+                <span className="font-body text-white text-sm">${shoesTotal.toFixed(2)}</span>
+              ) : (
+                <span className="font-body text-sm" style={{ color: GOLD }}>
+                  FREE
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -3977,11 +3957,10 @@ function ReviewStep({
             {extrasLines.map((l) => (
               <div key={l.name} className="flex justify-between">
                 <span className="font-body text-white/70 text-sm">
-                  {l.name} {l.selectedTime ? `at ${formatBmiTimeLabel(l.selectedTime)}` : ""} ×{l.qty}
+                  {l.name} {l.selectedTime ? `at ${formatBmiTimeLabel(l.selectedTime)}` : ""} ×
+                  {l.qty}
                 </span>
-                <span className="font-body text-white text-sm">
-                  ${l.lineTotal.toFixed(2)}
-                </span>
+                <span className="font-body text-white text-sm">${l.lineTotal.toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -3991,15 +3970,11 @@ function ReviewStep({
         <div className="space-y-1 mb-4 pb-4 border-b border-white/10">
           <div className="flex justify-between">
             <span className="font-body text-white/60 text-sm">Subtotal</span>
-            <span className="font-body text-white text-sm">
-              ${subtotal.toFixed(2)}
-            </span>
+            <span className="font-body text-white text-sm">${subtotal.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
             <span className="font-body text-white/60 text-sm">Tax</span>
-            <span className="font-body text-white/40 text-xs">
-              calculated at confirm
-            </span>
+            <span className="font-body text-white/40 text-xs">calculated at confirm</span>
           </div>
         </div>
 
@@ -4199,22 +4174,17 @@ function DateConfirmModal({
             border: "1.5px solid rgba(253,91,86,0.30)",
           }}
         >
-          <div className="text-white/55 uppercase tracking-[2px] text-[10px] mb-1">
-            Date
-          </div>
+          <div className="text-white/55 uppercase tracking-[2px] text-[10px] mb-1">Date</div>
           <div className="text-white font-bold text-lg leading-tight">{dateLabel}</div>
-          <div className="text-white/85 text-base font-semibold mt-0.5">
-            at {timeLabel}
-          </div>
+          <div className="text-white/85 text-base font-semibold mt-0.5">at {timeLabel}</div>
           <div className="text-white/55 text-xs mt-2">
             {centerName} · {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}
           </div>
         </div>
 
         <p className="text-white/65 text-xs leading-relaxed mb-5">
-          Please double-check the date — once confirmed, your lane is
-          held until 5 minutes after start time. Cancellations need to
-          be called in at least 1 hour before.
+          Please double-check the date — once confirmed, your lane is held until 5 minutes after
+          start time. Cancellations need to be called in at least 1 hour before.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-2">
