@@ -1665,6 +1665,7 @@ export default function KidsBowlFreePage() {
     guestName,
     guestPhone,
     offers,
+    paidShoes,
     reservationKey,
     router,
     selectedBowlers,
