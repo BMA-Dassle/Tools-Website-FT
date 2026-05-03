@@ -40,8 +40,6 @@
  *   LOG_LEVEL          — "debug" emits raw frames + parsed payloads.
  */
 
-import { Agent, setGlobalDispatcher } from "undici";
-
 const VT3_HOST = "https://sys.vt3.io";
 const VT3_USER = required("VT3_USERNAME");
 const VT3_PASS = required("VT3_PASSWORD");
@@ -50,23 +48,14 @@ const WEBHOOK_URL = PROBE_MODE ? "" : required("WEBHOOK_URL");
 const WEBHOOK_SECRET = PROBE_MODE ? "" : required("WEBHOOK_SECRET");
 const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
 
-// Override Node's default undici dispatcher with one tuned for
-// long-lived SSE connections. The default `headersTimeout` (5min)
-// and `bodyTimeout` (5min) close the response stream prematurely
-// even when bytes are still flowing — observed in PROBE-mode logs
-// as the stream closing every ~10s with no error. Setting both to
-// 0 (no timeout) lets the connection live as long as VT3 wants.
-//
-// `keepAliveTimeout` keeps the underlying TCP connection warm so
-// reconnects after a clean upstream close are sub-100ms.
-setGlobalDispatcher(
-  new Agent({
-    keepAliveTimeout: 60_000,
-    keepAliveMaxTimeout: 600_000,
-    headersTimeout: 0,
-    bodyTimeout: 0,
-  }),
-);
+// Note on the ~10s SSE reconnect cycle observed in PROBE-mode logs:
+// the stream consistently delivered ~5s of events, went idle for ~5s,
+// then upstream closed it. That pattern is server-side — VT3's edge
+// (CloudFront fronting Strapi) has a fixed idle / max-connection
+// timeout. Client-side dispatcher tweaks don't help. The reconnect
+// logic in main() handles it: clean disconnect → 1s backoff → reopen.
+// Events lost during the ~150ms reconnect gap are caught by the
+// fasttrax-web cron at /api/cron/video-match running as a backstop.
 
 let jwt = "";
 let jwtExpiresAt = 0;

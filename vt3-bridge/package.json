@@ -10,9 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "probe": "PROBE=1 tsx src/index.ts"
   },
-  "dependencies": {
-    "undici": "^7.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",

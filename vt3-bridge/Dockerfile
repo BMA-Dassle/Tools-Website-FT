@@ -9,11 +9,16 @@ RUN npm install
 COPY src/ ./src/
 RUN npx tsc
 
-# Stage 2: production runtime — only built JS + node, nothing else.
+# Stage 2: production runtime — built JS + production deps only.
 FROM node:22-alpine
 WORKDIR /app
-COPY --from=builder /app/dist/ ./dist/
 COPY package.json ./
+# Install ONLY production dependencies (skip tsx/typescript/types).
+# Worker has zero runtime deps today, so this is a no-op now, but
+# keeping the step here means future deps "just work" without
+# debugging another ERR_MODULE_NOT_FOUND in production.
+RUN npm install --omit=dev --no-audit --no-fund
+COPY --from=builder /app/dist/ ./dist/
 ENV NODE_ENV=production
 # Bridge is a long-lived process — the worker reconnects on stream
 # errors, so a process exit only happens on fatal error or SIGTERM.

@@ -190,10 +190,14 @@ it (no `: ping` comment frames between events).
 
 1. **JWT refresh under load** — current worker re-logs on 401. Real-
    world behavior under sustained load needs verification.
-2. **Connection lifetime** — initial PROBE logs showed the stream
-   closing every ~10s. Fixed by setting an explicit undici Agent with
-   `headersTimeout: 0` and `bodyTimeout: 0` so Node's default 5-min
-   stream timeout doesn't tear down a healthy connection.
+2. **Connection lifetime** — PROBE logs showed the stream closing
+   every ~10s (5s of events, then 5s idle, then close). Pattern is
+   server-side (VT3's CloudFront → Strapi has a fixed idle / max-
+   connection timeout). Client-side dispatcher tweaks don't help.
+   The reconnect logic in main() handles it: clean disconnect → 1s
+   backoff → reopen. Events lost during the ~150ms reconnect gap are
+   caught by the fasttrax-web cron at /api/cron/video-match running
+   as a backstop.
 
 See `tasks/future/vt3-sse-bridge.md` and
 `tasks/future/vercel-workflows-evaluation.md` (in the parent repo)
