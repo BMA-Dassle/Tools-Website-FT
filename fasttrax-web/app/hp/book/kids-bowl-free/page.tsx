@@ -983,8 +983,47 @@ export default function KidsBowlFreePage() {
     const center = CENTERS.find((c) => c.id === resolvedCenter);
     if (center) setBookingLocation(center.locationKey);
     await loadShoeCatalog(resolvedCenter);
+
+    // Persist per-bowler shoe / bumper prefs to kbf_member_prefs the
+    // moment we leave the bowler-selection step. Two reasons:
+    //   1. If the parent bails out before completing the reservation,
+    //      their pref selections survive for the next visit instead of
+    //      being lost (the post-reserve save in /api/kbf/reserve
+    //      doesn't fire on bail-outs).
+    //   2. Subsequent steps (datetime → review → confirm) can take
+    //      minutes; saving here avoids a long pref-write window where
+    //      a tab close would lose the data.
+    // Fire-and-forget — UX never blocks on this. Skip the parent
+    // pseudo-bowler (no real member_slot to write against).
+    const center2 = CENTERS.find((c) => c.id === resolvedCenter);
+    const lastUsedCenter = center2?.locationKey === "naples" ? "naples" : "fortmyers";
+    const prefsToSave = selectedBowlers
+      .filter((b) => !b.isParent && b.passId > 0 && (b.relation === "kid" || b.relation === "family"))
+      .map((b) => {
+        const sel = bowlerSelections[b.key];
+        return {
+          passId: b.passId,
+          memberSlot: b.memberSlot,
+          relation: b.relation,
+          shoeSizeId: sel?.shoeSizeId ?? null,
+          shoeSizeLabel: sel?.shoeSizeLabel ?? null,
+          wantShoes: sel?.wantShoes ?? null,
+          wantBumpers: sel?.wantBumpers ?? null,
+          lastUsedCenter,
+        };
+      });
+    if (prefsToSave.length > 0) {
+      void fetch("/api/kbf/prefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefs: prefsToSave }),
+      }).catch((err) => {
+        console.warn("[kbf] continue-save failed (non-fatal):", err);
+      });
+    }
+
     setStep("datetime");
-  }, [centerId, date, dateOptions, loadShoeCatalog, selectedBowlers.length]);
+  }, [centerId, date, dateOptions, loadShoeCatalog, selectedBowlers, bowlerSelections]);
 
   /**
    * From datetime → offer. Probes QAMF at the user-selected time so
