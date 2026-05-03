@@ -27,7 +27,14 @@ function claimKey(personId: string): string {
 
 const SITE_BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const PANDORA_INTERNAL_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const VIEWPOINT_DEPOSIT_KIND_ID = process.env.VIEWPOINT_DEPOSIT_KIND_ID || "";
+// Hardcoded BMI deposit-kind ID for "Credit - Viewpoint" — verified
+// 2026-05-03 against /v2/bmi/deposits balance overview at FastTrax
+// (OUT_DPK_ID 46322806, OUT_DPK_NAME "Credit - Viewpoint"). Env var
+// overrides for safety, but the default is guaranteed-correct so
+// missing env doesn't silently swallow failures the way it did on
+// our first deploy. If the kind ID ever rotates upstream, change
+// this constant or set VIEWPOINT_DEPOSIT_KIND_ID in env.
+const VIEWPOINT_DEPOSIT_KIND_ID = process.env.VIEWPOINT_DEPOSIT_KIND_ID || "46322806";
 
 function getRedis() {
   return new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
@@ -87,10 +94,6 @@ async function deductDeposit(
   personId: string,
   amount: number,
 ): Promise<boolean> {
-  if (!VIEWPOINT_DEPOSIT_KIND_ID) {
-    console.error("[pov-codes/claim-from-credit] VIEWPOINT_DEPOSIT_KIND_ID not set");
-    return false;
-  }
   if (!PANDORA_INTERNAL_KEY) return false;
   try {
     const res = await fetch(`${SITE_BASE}/api/pandora/deposit`, {
@@ -369,7 +372,12 @@ export async function GET(req: NextRequest) {
       // the initial claim would only retry if the customer
       // revisited the e-ticket — which is not guaranteed. Sweep
       // cron picks this up within 5 min.
-      if (!deducted && VIEWPOINT_DEPOSIT_KIND_ID) {
+      //
+      // VIEWPOINT_DEPOSIT_KIND_ID has a hardcoded fallback (see top
+      // of file) so this is always populated. The original env-only
+      // version of this gate was silently dropping failures when
+      // env was unset — fixed by hardcoding the default.
+      if (!deducted) {
         await enqueueDepositFailure({
           source: "pov-claim",
           sourceRef: `${personId}-${sessionId}`,
