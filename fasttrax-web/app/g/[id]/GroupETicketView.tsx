@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
@@ -14,6 +14,7 @@ import {
 } from "../../t/[id]/cards";
 import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
 import FullScreenTicket from "../../t/[id]/FullScreenTicket";
+import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
 // Lazy-load TrackStatus so the ticket cards + race-info banner
 // paint immediately. Same rationale as /t/[id]/ETicketView.
@@ -66,6 +67,12 @@ export default function GroupETicketView({ group, initial }: Props) {
    *  Lets staff scan one racer's heat info at a time even on
    *  group tickets. Same UX pattern as /t/[id]. */
   const [fullScreenKey, setFullScreenKey] = useState<string | null>(null);
+  /** ViewPoint POV codes claimed per personId. Each member is
+   *  fetched independently — one block per member who had credit
+   *  on file. Members without credit get an empty entry which
+   *  hides their block (PovVoucherBlock returns null for empty). */
+  const [povByPerson, setPovByPerson] = useState<Record<string, { codes: string[]; cached: boolean }>>({});
+  const povClaimAttempted = useRef(false);
 
   // Sort: active heats first (soonest start), past heats last.
   const sortedMembers = [...group.members].sort((a, b) => {
@@ -163,6 +170,65 @@ export default function GroupETicketView({ group, initial }: Props) {
   }
   useVisibleInterval(poll, 20_000, !allPast);
 
+  // ViewPoint POV claim fan-out — one call per member, fired once
+  // on mount (StrictMode-safe via ref). The claim endpoint is
+  // idempotent per-personId, so subsequent visits return the same
+  // codes for each member without re-popping the pool.
+  //
+  // Two wrinkles vs. the single-ticket path:
+  //   (1) Same person could appear under two different sessionIds
+  //       (multi-heat booking). We dedupe by personId so we don't
+  //       fire two claim calls for the same person — the server's
+  //       per-personId idempotency would handle it but it's wasteful.
+  //   (2) Concurrent members fire in parallel (Promise.all) — the
+  //       server-side SET-NX race-guard handles cross-tab races
+  //       within a single member.
+  useEffect(() => {
+    if (povClaimAttempted.current) return;
+    povClaimAttempted.current = true;
+    const ac = new AbortController();
+    (async () => {
+      const seen = new Set<string>();
+      const targets: { personId: string; sessionId: string; locationId: string }[] = [];
+      for (const m of group.members) {
+        const pid = String(m.personId ?? "").trim();
+        const sid = String(m.sessionId ?? "").trim();
+        if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) continue;
+        if (seen.has(pid)) continue;
+        seen.add(pid);
+        targets.push({ personId: pid, sessionId: sid, locationId: group.locationId });
+      }
+      const results = await Promise.all(
+        targets.map(async (t) => {
+          try {
+            const res = await fetch(
+              `/api/pov-codes?action=claim-from-credit&personId=${encodeURIComponent(t.personId)}&locationId=${encodeURIComponent(t.locationId)}&sessionId=${encodeURIComponent(t.sessionId)}`,
+              { cache: "no-store", signal: ac.signal },
+            );
+            if (!res.ok) return null;
+            const json = (await res.json()) as { codes?: string[]; cached?: boolean };
+            const codes = Array.isArray(json.codes) ? json.codes : [];
+            return { personId: t.personId, codes, cached: !!json.cached };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (ac.signal.aborted) return;
+      setPovByPerson((prev) => {
+        const next = { ...prev };
+        for (const r of results) {
+          if (r && r.codes.length > 0) {
+            next[r.personId] = { codes: r.codes, cached: r.cached };
+          }
+        }
+        return next;
+      });
+    })();
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.id, group.locationId]);
+
   const racerCount = group.members.length;
   const distinctHeats = new Set(group.members.map((m) => String(m.sessionId))).size;
   const earliest = earliestStart(group.members);
@@ -233,6 +299,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                   {members.map((m) => {
                     const key = memberKey(m);
                     const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
+                    const memberPov = povByPerson[String(m.personId)];
                     return (
                       <div key={key}>
                         {!s.onSession && !isPast && !loadingStatus ? (
@@ -243,6 +310,28 @@ export default function GroupETicketView({ group, initial }: Props) {
                           <CheckingInCard details={m} />
                         ) : (
                           <PreRaceCard details={m} loadingStatus={loadingStatus} />
+                        )}
+                        {/* Per-member ViewPoint voucher block — sits
+                            directly under the member's ticket card so
+                            it's clearly THEIR codes (not the
+                            household's). Hidden on past heats; the
+                            heads-up email/SMS has already fired by
+                            then. */}
+                        {!isPast && memberPov && memberPov.codes.length > 0 && (
+                          <div className="mt-3">
+                            <PovVoucherBlock
+                              codes={memberPov.codes}
+                              cached={memberPov.cached}
+                              caption={
+                                <>
+                                  About 5–10 minutes after{" "}
+                                  <strong className="text-white/80">{m.firstName}&apos;s</strong> race, you&apos;ll
+                                  get an <strong className="text-white/80">email and text</strong> letting you know
+                                  the video is ready. Use the codes below to redeem it.
+                                </>
+                              }
+                            />
+                          </div>
                         )}
                       </div>
                     );

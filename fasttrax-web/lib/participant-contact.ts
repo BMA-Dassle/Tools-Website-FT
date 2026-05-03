@@ -61,6 +61,15 @@ export interface Participant {
    *  camera-assign page once staff confirms the Pandora rollout. */
   kartNumber?: number | string | null;
 
+  /** ViewPoint POV credits the participant has on file in BMI.
+   *  Pandora reads this from the F_DEPOSIT table on the same
+   *  call. The e-ticket page uses it to auto-claim N voucher codes
+   *  the first time a participant opens their ticket and decrement
+   *  the BMI balance via POST /bmi/deposit (see
+   *  /api/pov-codes?action=claim-from-credit). Absent / 0 means
+   *  no claim is offered. */
+  viewpointCredit?: number | null;
+
   /** Payment status from the participant's linked bill. The Pandora
    *  proxy filters unpaid by default via `excludeUnpaid=true`; pass
    *  `excludeUnpaid=false` to see this field populated. */

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { addDeposit } from "@/lib/pandora-deposits";
 import { logSale } from "@/lib/sales-log";
+import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -288,6 +289,22 @@ export async function POST(req: NextRequest) {
         // payment error to the customer — they paid, we just need
         // the credit to land separately.
         await logSale({ ...salesLogBase, depositCreditPending: true });
+        // Durable retry queue: deposit-retry-sweep cron picks this
+        // up every 5 min and retries until it lands. Without this
+        // the only "retry" was a human watching the sales board.
+        // The Pandora locationID for race packs is hardcoded to
+        // FastTrax in addDeposit() (race packs are a FastTrax SKU)
+        // so we use the same constant here for the retry row.
+        await enqueueDepositFailure({
+          source: "race-pack-square",
+          sourceRef: billId || payment?.id || randomUUID(),
+          locationId: "LAB52GY480CJF",
+          personId: String(action.personId),
+          depositKindId: String(action.depositKindId),
+          amount: action.amount,
+          initialError: msg,
+          notes: `Pack: ${packLabel}. Square charge: $${amount}.`,
+        });
         depositResult = { failed: true, error: msg };
         console.error(`[square/pay] addDeposit FAILED after Square charge: billId=${billId} personId=${action.personId} kind=${action.depositKindId} amount=${action.amount} err=${msg}`);
       }

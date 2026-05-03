@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RaceTicket } from "@/lib/race-tickets";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
@@ -14,6 +14,7 @@ import {
 } from "./cards";
 import ImportantRaceInfo from "./ImportantRaceInfo";
 import FullScreenTicket from "./FullScreenTicket";
+import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
 /** TrackStatus pulls Pandora + the proxied track-status API on
  *  mount. When Pandora is degraded its initial render can be held
@@ -50,6 +51,19 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
    *  contrast white background + huge text so staff can read the
    *  racer's heat info from across the check-in counter. */
   const [fullScreen, setFullScreen] = useState(false);
+  /** ViewPoint POV codes claimed against this participant's BMI
+   *  ViewPoint Credit balance. Auto-issued on first ticket open;
+   *  `cached: true` on subsequent visits returns the same codes
+   *  back. Empty array = participant has no credit / no POV pool
+   *  configured / claim deferred. Block renders only when codes
+   *  are present, so the default empty state hides nothing. */
+  const [povCodes, setPovCodes] = useState<string[]>([]);
+  const [povCached, setPovCached] = useState(false);
+  /** One-shot guard — the claim endpoint is idempotent (per-personId
+   *  Redis key) but firing it once per mount avoids needless
+   *  round-trips. StrictMode in dev double-invokes the effect; the
+   *  ref short-circuits the second pass. */
+  const povClaimAttempted = useRef(false);
 
   const mins = minutesUntil(ticket.scheduledStart);
   // Hard fallback for tickets viewed long after the heat with no called signal.
@@ -122,6 +136,40 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
   }
   useVisibleInterval(poll, 20_000, !longPast);
 
+  // ViewPoint POV claim. Fires once on mount (StrictMode-safe via
+  // ref). Idempotent server-side: per-personId Redis key returns the
+  // same codes if the participant has visited before, so refresh /
+  // re-open is free. Skipped for invalid tickets (placeholder
+  // personId or missing fields) — the server-side validator will
+  // reject anyway, no point in the round-trip.
+  useEffect(() => {
+    if (povClaimAttempted.current) return;
+    povClaimAttempted.current = true;
+    const pid = String(ticket.personId ?? "").trim();
+    const sid = String(ticket.sessionId ?? "").trim();
+    const loc = String(ticket.locationId ?? "").trim();
+    if (!pid || !sid || !loc || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/pov-codes?action=claim-from-credit&personId=${encodeURIComponent(pid)}&locationId=${encodeURIComponent(loc)}&sessionId=${encodeURIComponent(sid)}`,
+          { cache: "no-store", signal: ac.signal },
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as { codes?: string[]; cached?: boolean };
+        if (Array.isArray(json.codes) && json.codes.length > 0) {
+          setPovCodes(json.codes);
+          setPovCached(!!json.cached);
+        }
+      } catch {
+        /* aborts + transient errors — silent. The block stays
+           hidden and the customer can revisit later. */
+      }
+    })();
+    return () => ac.abort();
+  }, [ticket.personId, ticket.sessionId, ticket.locationId]);
+
   return (
     <div className="min-h-screen bg-[#010A20] flex items-start justify-center px-4 pt-28 sm:pt-32 pb-8">
       <style>{TICKET_PULSE_CSS}</style>
@@ -176,6 +224,19 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
           >
             Open Full Screen
           </button>
+        )}
+
+        {/* ViewPoint POV voucher block — between the e-ticket card
+            and the live track status feed. Renders only when the
+            participant had ViewPoint Credit on file at first open
+            (auto-claimed via /api/pov-codes?action=claim-from-credit).
+            Hidden on past tickets so a finished race doesn't show
+            "claim your codes" — the email/SMS heads-up has already
+            fired by then and the block would be confusing. */}
+        {!isPast && povCodes.length > 0 && (
+          <div className="mt-6">
+            <PovVoucherBlock codes={povCodes} cached={povCached} />
+          </div>
         )}
 
         <div className="mt-6">
