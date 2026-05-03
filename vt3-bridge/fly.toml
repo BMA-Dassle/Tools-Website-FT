@@ -1,0 +1,19 @@
+# Fly.io deploy config (alternate to Railway — pick one).
+# Free-tier shared-cpu-1x / 256MB / always-on covers our use case
+# (one long-lived SSE connection, near-zero CPU, near-zero outbound).
+
+app = "vt3-bridge"
+primary_region = "iad"  # us-east, close to Vercel us-east-1
+
+[build]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# Bridge has no HTTP server — it's purely outbound SSE + outbound
+# webhook POSTs. No services block needed; Fly will run the process
+# and restart on failure based on the [[vm]] block alone.
+
+[deploy]
+  strategy = "immediate"
