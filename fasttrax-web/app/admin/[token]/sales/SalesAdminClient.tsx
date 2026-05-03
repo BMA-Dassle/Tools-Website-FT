@@ -145,6 +145,57 @@ function startOfMonthET(): string {
   return today.slice(0, 8) + "01";
 }
 
+/**
+ * Start of the hospitality week (Wednesday) in ET. Matches the
+ * Budget / Game Revenue page in Tools-Team-Member-Portal so WTD
+ * means the same span across both reports. If today is Wed,
+ * returns today; if Tue, returns Wed of LAST week.
+ */
+function startOfWeekET(): string {
+  const today = todayET();
+  // Parse YYYY-MM-DD as a local date — getDay() needs a real Date.
+  const [y, m, d] = today.split("-").map(Number);
+  const local = new Date(y, m - 1, d);
+  const dow = local.getDay(); // 0=Sun ... 6=Sat
+  // Days since the most recent Wednesday. (dow + 4) % 7 yields 0
+  // when today is Wed, 1 Thu, ..., 6 Tue.
+  const daysSinceWed = (dow + 4) % 7;
+  return shiftDays(today, -daysSinceWed);
+}
+
+function startOfYearET(): string {
+  return todayET().slice(0, 4) + "-01-01";
+}
+
+/** Date-range presets exposed in the filter bar. Mirrors the
+ *  Budget / Game Revenue page in Tools-Team-Member-Portal. Custom
+ *  is a first-class preset (a button) — clicking it reveals the
+ *  From/To date inputs; the other presets hide them. */
+type PresetKind = "yesterday" | "today" | "wtd" | "mtd" | "ytd" | "custom";
+
+const PRESET_BUTTONS: { k: PresetKind; l: string }[] = [
+  { k: "yesterday", l: "Yesterday" },
+  { k: "today", l: "Today" },
+  { k: "wtd", l: "WTD" },
+  { k: "mtd", l: "MTD" },
+  { k: "ytd", l: "YTD" },
+  { k: "custom", l: "Custom" },
+];
+
+function presetRange(kind: PresetKind, currentFrom: string, currentTo: string): { from: string; to: string } {
+  const today = todayET();
+  if (kind === "today") return { from: today, to: today };
+  if (kind === "yesterday") {
+    const y = shiftDays(today, -1);
+    return { from: y, to: y };
+  }
+  if (kind === "wtd") return { from: startOfWeekET(), to: today };
+  if (kind === "mtd") return { from: startOfMonthET(), to: today };
+  if (kind === "ytd") return { from: startOfYearET(), to: today };
+  // Custom — keep whatever the user already had typed.
+  return { from: currentFrom, to: currentTo };
+}
+
 function formatDate(ymd: string): string {
   try {
     const [y, m, d] = ymd.split("-").map(Number);
@@ -211,10 +262,14 @@ function packageFamilyLabel(familyId: string): string {
 }
 
 export default function SalesAdminClient({ token }: { token: string }) {
-  // Default range: last 7 days (today minus 6, inclusive). Was "today
-  // only" which made the dashboard feel empty most of the time —
-  // operators are usually trying to read the trend, not just today.
-  const [from, setFrom] = useState(() => shiftDays(todayET(), -6));
+  // Default range: WTD (Wed-start hospitality week through today).
+  // Mirrors the Budget / Game Revenue dashboard's preset shape so
+  // operators see consistent date semantics across reports. WTD is
+  // a useful "this week" view for the live booking dashboard;
+  // sales is live data so to-date presets end on today (vs. Budget
+  // which ends on yesterday because today's accounting isn't closed).
+  const [preset, setPreset] = useState<PresetKind>("wtd");
+  const [from, setFrom] = useState(() => startOfWeekET());
   const [to, setTo] = useState(todayET());
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -258,39 +313,17 @@ export default function SalesAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Preset buttons. `presetFor(kind)` returns the {from, to} pair the
-  // preset would set — used both by the click handler AND by the
-  // active-state check, so the highlight logic can't drift from the
-  // setter logic.
-  type PresetKind = "today" | "yesterday" | "7d" | "30d" | "mtd";
-  function presetFor(kind: PresetKind): { from: string; to: string } {
-    const today = todayET();
-    if (kind === "today") return { from: today, to: today };
-    if (kind === "yesterday") {
-      const y = shiftDays(today, -1);
-      return { from: y, to: y };
-    }
-    if (kind === "7d") return { from: shiftDays(today, -6), to: today };
-    if (kind === "30d") return { from: shiftDays(today, -29), to: today };
-    return { from: startOfMonthET(), to: today };
-  }
-  function preset(kind: PresetKind) {
-    const r = presetFor(kind);
+  // Preset clicks recompute the range AND set the explicit preset
+  // state. Custom keeps whatever the user already had typed in
+  // From/To (so toggling Yesterday → Custom doesn't wipe their last
+  // typed value). The From/To inputs only render when preset ===
+  // 'custom', matching the Budget / Game Revenue dashboard layout.
+  function selectPreset(kind: PresetKind) {
+    const r = presetRange(kind, from, to);
+    setPreset(kind);
     setFrom(r.from);
     setTo(r.to);
   }
-  // Which preset (if any) matches the current from/to? Returns null
-  // when the user has typed a custom range — the "Custom" pill in the
-  // filter bar lights up instead.
-  const activePreset = useMemo<PresetKind | null>(() => {
-    const kinds: PresetKind[] = ["today", "yesterday", "7d", "30d", "mtd"];
-    for (const k of kinds) {
-      const r = presetFor(k);
-      if (r.from === from && r.to === to) return k;
-    }
-    return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
 
   const maxDay = useMemo(() => {
     if (!data?.byDay) return 1;
@@ -325,86 +358,73 @@ export default function SalesAdminClient({ token }: { token: string }) {
           </p>
         </header>
 
-        {/* Filter bar */}
-        <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
-            From
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
-            To
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
-            />
-          </label>
-          <div className="col-span-2 flex flex-wrap items-end gap-2">
-            {([
-              { k: "today", l: "Today" },
-              { k: "yesterday", l: "Yesterday" },
-              { k: "7d", l: "Last 7d" },
-              { k: "30d", l: "Last 30d" },
-              { k: "mtd", l: "MTD" },
-            ] as const).map((p) => {
-              const active = activePreset === p.k;
-              return (
-                <button
-                  key={p.k}
-                  type="button"
-                  onClick={() => preset(p.k)}
-                  aria-pressed={active}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors"
-                  style={
-                    active
-                      ? {
-                          background: ACCENTS.cyan.glow,
-                          color: ACCENTS.cyan.fg,
-                          borderColor: ACCENTS.cyan.border,
-                          boxShadow: `0 0 10px ${ACCENTS.cyan.glow}`,
-                        }
-                      : {
-                          background: "rgba(255,255,255,0.02)",
-                          color: "rgba(255,255,255,0.7)",
-                          borderColor: "rgba(255,255,255,0.15)",
-                        }
-                  }
-                >
-                  {p.l}
-                </button>
-              );
-            })}
-            {activePreset === null && (
-              <span
-                className="px-3 py-1.5 text-xs font-semibold rounded-full border italic"
-                style={{
-                  background: ACCENTS.amber.glow,
-                  color: ACCENTS.amber.fg,
-                  borderColor: ACCENTS.amber.border,
-                }}
-                title="Date range doesn't match any preset"
+        {/* Filter bar — preset buttons first, From/To inputs only
+            visible when "Custom" is the active preset. Mirrors the
+            Budget / Game Revenue dashboard layout in
+            Tools-Team-Member-Portal so operators see a consistent
+            date selector across all reports. */}
+        <div className="mb-5 flex flex-wrap items-end gap-2">
+          {PRESET_BUTTONS.map((p) => {
+            const active = preset === p.k;
+            return (
+              <button
+                key={p.k}
+                type="button"
+                onClick={() => selectPreset(p.k)}
+                aria-pressed={active}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors"
+                style={
+                  active
+                    ? {
+                        background: ACCENTS.cyan.glow,
+                        color: ACCENTS.cyan.fg,
+                        borderColor: ACCENTS.cyan.border,
+                        boxShadow: `0 0 10px ${ACCENTS.cyan.glow}`,
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.02)",
+                        color: "rgba(255,255,255,0.7)",
+                        borderColor: "rgba(255,255,255,0.15)",
+                      }
+                }
               >
-                Custom
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={load}
-              className="ml-auto px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full text-[#000418] transition-all hover:scale-105"
-              style={{
-                background: `linear-gradient(135deg, ${ACCENTS.cyan.fg} 0%, #38f0f3 100%)`,
-                boxShadow: `0 0 12px ${ACCENTS.cyan.glow}`,
-              }}
-            >
-              Refresh
-            </button>
-          </div>
+                {p.l}
+              </button>
+            );
+          })}
+          {preset === "custom" && (
+            <>
+              <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
+                From
+                <input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
+                To
+                <input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
+                />
+              </label>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={load}
+            className="ml-auto px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full text-[#000418] transition-all hover:scale-105"
+            style={{
+              background: `linear-gradient(135deg, ${ACCENTS.cyan.fg} 0%, #38f0f3 100%)`,
+              boxShadow: `0 0 12px ${ACCENTS.cyan.glow}`,
+            }}
+          >
+            Refresh
+          </button>
         </div>
 
         {/* Status line */}
