@@ -62,11 +62,39 @@ export async function GET(req: NextRequest) {
     `) as Array<Record<string, unknown>>;
   }
 
+  // Pending sales_log rows — what Backfill from sales_log WOULD
+  // enqueue if clicked right now. Surfaced separately from the
+  // failures table so staff can mark already-reconciled rows BEFORE
+  // running the backfill (avoiding double-credit on customers who
+  // were manually fixed via BMI Office).
+  const pendingSales = (await q`
+    SELECT bill_id, deposit_person_id, deposit_kind_id, deposit_amount,
+           total_usd, ts, brand, location, race_product_names
+    FROM sales_log
+    WHERE deposit_credit_pending = TRUE
+      AND deposit_person_id IS NOT NULL
+      AND deposit_kind_id IS NOT NULL
+      AND deposit_amount IS NOT NULL
+    ORDER BY ts DESC
+    LIMIT 100
+  `) as Array<Record<string, unknown>>;
+
   const summary = await summarizeFailures();
 
   return NextResponse.json({
     unresolved: unresolved.map(toClient),
     resolved: resolved.map(toClient),
+    pendingSales: pendingSales.map((r) => ({
+      billId: r.bill_id ? String(r.bill_id) : null,
+      personId: r.deposit_person_id ? String(r.deposit_person_id) : null,
+      depositKindId: r.deposit_kind_id ? String(r.deposit_kind_id) : null,
+      amount: r.deposit_amount != null ? Number(r.deposit_amount) : null,
+      totalUsd: r.total_usd != null ? Number(r.total_usd) : null,
+      ts: String(r.ts),
+      brand: r.brand ? String(r.brand) : null,
+      location: r.location ? String(r.location) : null,
+      raceProductNames: Array.isArray(r.race_product_names) ? (r.race_product_names as string[]) : [],
+    })),
     summary,
   }, {
     headers: { "Cache-Control": "no-store" },

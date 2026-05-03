@@ -440,12 +440,14 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
 // blow segment count anyway.
 
 function buildSingleSmsBody(race: CurrentRace, member: GroupTicketMember, shortUrl: string): string {
+  // URL embedded into the action line — keeping it on its own line
+  // (the old shape) made some carriers / iOS render it as a separate
+  // bubble or strip the link preview. Inline reads as one message.
   return [
     `FastTrax: NOW CHECKING IN`,
     `${race.raceType} Heat ${race.heatNumber} | ${timeET(race.scheduledStart)}`,
     racerLabel(member),
-    `Head to Karting (1st Floor) now.`,
-    `E-ticket: ${shortUrl}`,
+    `Head to Karting (1st Floor) now: ${shortUrl}`,
   ].join("\n");
 }
 
@@ -465,8 +467,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     lines.push(`${first.heatNumber} - ${first.track} ${first.raceType} | ${timeET(first.scheduledStart)}`);
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
-  lines.push(`Head to Karting (1st Floor) now.`);
-  lines.push(`E-tickets: ${shortUrl}`);
+  lines.push(`Head to Karting (1st Floor) now: ${shortUrl}`);
   return lines.join("\n");
 }
 
@@ -478,9 +479,8 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
   return [
     `FastTrax: NOW CHECKING IN`,
-    `Your racer's heat is up - head to Karting (1st Floor) now.`,
+    `Your racer's heat is up - head to Karting (1st Floor) now: ${shortUrl}`,
     `${racerLabel(member)} | ${member.track} Heat ${member.heatNumber} | ${timeET(member.scheduledStart)}`,
-    `E-ticket: ${shortUrl}`,
   ].join("\n");
 }
 
@@ -495,12 +495,11 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   );
   const lines: string[] = [
     `FastTrax: NOW CHECKING IN`,
-    `Your racers are up - head to Karting (1st Floor) now.`,
+    `Your racers are up - head to Karting (1st Floor) now: ${shortUrl}`,
   ];
   for (const m of sorted) {
     lines.push(`${racerLabel(m)} | ${m.track} Heat ${m.heatNumber} | ${timeET(m.scheduledStart)}`);
   }
-  lines.push(`E-tickets: ${shortUrl}`);
   return lines.join("\n");
 }
 

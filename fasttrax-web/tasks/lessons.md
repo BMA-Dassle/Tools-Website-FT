@@ -1,5 +1,59 @@
 # Lessons (Claude self-correction log)
 
+## 2026-05-02 — Always run an E2E round-trip on write-path code before pushing
+
+**Mistake:** Built the POV-credit voucher claim feature end-to-end —
+Pandora participants pass-through, claim endpoint, deposit retry queue,
+admin UI, sweep cron — and pushed without ever running a single live
+add/remove against the real `/bmi/deposit` endpoint. The first real
+customer to hit it (Eric Osborn, 11:33 PM 2026-05-03) issued a POV
+code with `VIEWPOINT_DEPOSIT_KIND_ID` env unset: code went out, no
+deduct happened, AND no row landed in the failure queue (because the
+enqueue gate also required the env var). Silently lost the failure.
+
+**Two compounding bugs found during recovery:**
+1. `VIEWPOINT_DEPOSIT_KIND_ID` was env-only with no fallback. Production
+   env was unset on first deploy — every claim hit a no-op deduct.
+2. The enqueue gate was `if (!deducted && VIEWPOINT_DEPOSIT_KIND_ID)`.
+   When the env was missing, BOTH halves of the AND failed, so the
+   exact case where we needed durability the most was the one that
+   silently dropped failures.
+
+**What I should have done before pushing:**
+- Run a 4-step round-trip with curl against the real upstream:
+  1. `GET /v2/bmi/deposits/{loc}/{personId}` — record current balance
+  2. `POST /v2/bmi/deposit` add `+N` of TEST kind (39228454)
+  3. `GET` again — verify balance moved by +N
+  4. `POST` remove `-N` — verify balance returned to baseline
+- Plus exercise the actual claim endpoint locally with `?action=claim-from-credit`
+  hitting a real personId+sessionId, watching for the Redis record AND
+  the `bmi_deposit_failures` row to materialize.
+- Discovered post-hoc that BMA's `/bmi/deposit` itself was throwing
+  `"Unexpected Error Occured"` on every call (add AND remove, even
+  with the TEST kind). Would have caught this immediately with an
+  E2E test before push.
+
+**Rule for myself:**
+- Before pushing any code that calls a 3rd-party write endpoint, run
+  the round-trip against a TEST account / TEST kind. Document the
+  curl commands in the commit body so it's reproducible.
+- Defaults > env-only for IDs that are knowable. Env vars SHOULD
+  override for rotations; the in-code default keeps the system from
+  silently failing when env config drifts.
+- Enqueue-on-failure gates must NEVER short-circuit on the very
+  conditions that caused the failure. If the deduct failed because
+  the kind ID is missing, that IS the failure — record it.
+
+**Fix landed:**
+- Hardcoded `46322806` (verified against live `/bmi/deposits` overview)
+  with env override.
+- Dropped the env-gate on the enqueue path.
+- Manually backfilled Eric's Redis claim record + inserted his retry
+  row in `bmi_deposit_failures` for the sweep cron to drain once BMA
+  fixes the upstream.
+- Confirmed BMA's `/bmi/deposit` is currently 500'ing on every call —
+  reported separately.
+
 ## 2026-04-24 — Never poll diag endpoints as deploy-health probes
 
 **Mistake:** Used shell patterns like
