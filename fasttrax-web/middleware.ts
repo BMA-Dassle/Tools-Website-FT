@@ -46,15 +46,25 @@ export function middleware(request: NextRequest) {
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    // ── External API-key auth for read-only sales endpoints ──────────────
-    // The HeadPinz portal (and any future external consumer) authenticates
-    // with `x-api-key` instead of the operator admin token. Only the
-    // `/api/admin/sales/*` and `/api/admin/sales/openapi.json` routes are
-    // exposed this way — the operator-mutating endpoints (camera-assign
-    // block, video resend, e-ticket resend, sms-quota drain) keep the
-    // strict admin-token gate. Multiple keys are supported (comma-
-    // separated env var) so we can rotate without breaking integrations.
-    if (pathname.startsWith("/api/admin/sales/")) {
+    // ── External API-key auth for documented admin endpoints ─────────────
+    // HeadPinz portal + the FastTrax employee portal authenticate with
+    // `x-api-key` (SALES_API_KEYS env var — single key list, used for
+    // every documented surface). Originally scoped to /api/admin/sales/*
+    // only; expanded to cover /api/admin/videos/* and
+    // /api/admin/e-tickets/* so the employee portal can drive the same
+    // tools the operator UIs use, no admin token required.
+    //
+    // Camera-assign, deposit-failures, sms-quota, kbf, etc. are NOT in
+    // the api-key allowlist — those keep the strict admin-token gate
+    // because they're operator-only mutations.
+    //
+    // Multiple keys are supported (comma-separated env var) so we can
+    // rotate without breaking integrations.
+    const apiKeyEligible =
+      pathname.startsWith("/api/admin/sales/") ||
+      pathname.startsWith("/api/admin/videos/") ||
+      pathname.startsWith("/api/admin/e-tickets/");
+    if (apiKeyEligible) {
       const provided = request.headers.get("x-api-key") || request.nextUrl.searchParams.get("apiKey");
       const validKeys = (process.env.SALES_API_KEYS || "")
         .split(",")
