@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import {
+  processVideoEvent,
+  videoEventFromWebhookPayload,
+} from "@/lib/video-event-processor";
 
 /**
  * VT3 video event webhook — receives push events forwarded by the
@@ -144,17 +148,45 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[vt3-webhook] redis enqueue failed:", err);
     // Still return 200 — we don't want the bridge to keep retrying
-    // (it has limited buffer). The cron will catch the video on its
-    // own next polling pass.
+    // (it has limited buffer). The shadow consumer + cron will catch
+    // the video on their own polling passes.
   }
 
-  console.log(
-    `[vt3-webhook] queued code=${videoCode} inner=${innerType} status=${status ?? "-"}`,
-  );
+  // ── Live processing path ──
+  // Run the per-video processor inline so this push event tries to
+  // create the match / fire the SMS without waiting for the next
+  // 2-min cron tick. The cron continues to run in parallel — both
+  // paths converge on the same Redis state via SET-NX guards in
+  // saveVideoMatch + the notify-fired lock. Whichever runs first
+  // wins; the other sees "already done" and short-circuits.
+  //
+  // Best-effort: a processor failure logs but doesn't fail the
+  // webhook (the cron is the safety net). We don't wait on the
+  // processor's full result before returning to the bridge — fire
+  // and let it run concurrently with the response.
+  let processedDecision: string | undefined;
+  try {
+    const eventInput = videoEventFromWebhookPayload(payload, innerType);
+    const result = await processVideoEvent(eventInput, { source: "webhook" });
+    processedDecision = result.decision;
+    console.log(
+      `[vt3-webhook] code=${videoCode} inner=${innerType} → decision=${result.decision}` +
+        (result.notifyFired
+          ? ` smsOk=${result.notifySmsOk ?? "-"} emailOk=${result.notifyEmailOk ?? "-"}`
+          : ""),
+    );
+  } catch (err) {
+    console.error(
+      `[vt3-webhook] processVideoEvent threw for code=${videoCode}:`,
+      err,
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     kind: "queued",
     videoCode,
     innerType,
+    decision: processedDecision,
   });
 }
