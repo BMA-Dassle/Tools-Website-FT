@@ -595,6 +595,97 @@ const spec = {
           breakage: { type: "integer" },
         },
       },
+      PovReportPoint: {
+        type: "object",
+        description: "One time-bucket of VT3's video-report. All `*Count` fields are integers, ratios are 0..1 with 4-decimal precision.",
+        properties: {
+          siteId: { type: "integer", nullable: true, description: "FastTrax site id (992) or null when this is the cross-site aggregate" },
+          from: { type: "string", description: "Bucket start (local ISO, no offset — interpret in `range.timezone`)", example: "2026-05-03T00:00:00" },
+          to: { type: "string" },
+          ymd: { type: "string", format: "date", description: "Convenience YYYY-MM-DD slice of `from` for chart axes" },
+
+          // Volumes
+          videoCount: { type: "integer", description: "TOTAL videos captured (every kart capture in the window)" },
+          uploadedVideoCount: { type: "integer", description: "Videos that finished encoding to playable state" },
+          unlockedVideoCount: { type: "integer", description: "Videos made playable to a customer (sales + free unlocks)" },
+          videoSalesCount: { type: "integer", description: "TOTAL sales (paid OR consumed-via-credit). Operator term: 'sold'" },
+
+          // Source-of-sale breakdown — these sum to videoSalesCount
+          stripeVideoCount: { type: "integer", description: "Online card via Stripe (post-race vt3.io purchase). Operator term: 'online'" },
+          stripeTerminalVideoCount: { type: "integer", description: "In-person card via Stripe Terminal" },
+          venueVideoCount: { type: "integer", description: "Venue / cash purchase" },
+          unlockCodeVideoCount: { type: "integer", description: "OUR website-issued POV unlock-codes redeemed. Operator term: 'unlock' = our web sales" },
+
+          // Unlock-method breakdown
+          preUnlockedVideoCount: { type: "integer", description: "Unlocked BEFORE race (bundle / credit pre-applied)" },
+          postUnlockedVideoCount: { type: "integer", description: "Unlocked AFTER race (the standard purchase path)" },
+          manualUnlockVideoCount: { type: "integer", description: "Staff override unlock (operator forced from the desk). Operator term: 'manual unlock' = our override" },
+          apiUnlockVideoCount: { type: "integer", description: "API/integration unlock (none yet)" },
+
+          // Engagement
+          videoImpressionCount: { type: "integer", description: "Unique videos whose share page was opened" },
+          videoPageImpressionCount: { type: "integer", description: "vt3.io/?code=X page hits (subset of impressions)" },
+          mediaCentreImpressionCount: { type: "integer", description: "Media-centre tile hits (subset of impressions)" },
+
+          // Pipeline health
+          deliveryRate: { type: "number", description: "0..100 % — encoder pipeline health" },
+          totalDataUp: { type: "integer", description: "Bytes uploaded — capacity planning" },
+          averageVideoSize: { type: "integer", description: "Bytes / video — capacity planning" },
+
+          // Computed conversion ratios (this endpoint adds these — VT3 doesn't return them)
+          salesPerCaptured: { type: "number", description: "videoSalesCount / videoCount — what fraction of capture is monetized (0..1)" },
+          unlockPerCaptured: { type: "number", description: "unlockedVideoCount / videoCount — what fraction is being watched (0..1)" },
+          salesPerImpression: { type: "number", description: "videoSalesCount / videoImpressionCount — close-rate among viewers (0..1)" },
+        },
+      },
+      PovReportTotals: {
+        type: "object",
+        description: "Sum of every PovReportPoint over the window, plus rolled-up conversion ratios.",
+        properties: {
+          videoCount: { type: "integer" },
+          videoImpressionCount: { type: "integer" },
+          videoPageImpressionCount: { type: "integer" },
+          mediaCentreImpressionCount: { type: "integer" },
+          unlockedVideoCount: { type: "integer" },
+          videoSalesCount: { type: "integer" },
+          stripeVideoCount: { type: "integer" },
+          stripeTerminalVideoCount: { type: "integer" },
+          venueVideoCount: { type: "integer" },
+          unlockCodeVideoCount: { type: "integer" },
+          preUnlockedVideoCount: { type: "integer" },
+          postUnlockedVideoCount: { type: "integer" },
+          uploadedVideoCount: { type: "integer" },
+          manualUnlockVideoCount: { type: "integer" },
+          apiUnlockVideoCount: { type: "integer" },
+          totalDataUp: { type: "integer" },
+          averageVideoSize: { type: "integer" },
+          salesPerCaptured: { type: "number" },
+          unlockPerCaptured: { type: "number" },
+          salesPerImpression: { type: "number" },
+        },
+      },
+      PovReportResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+              timezone: { type: "string", example: "America/New_York" },
+              interval: { type: "string", enum: ["hours", "days", "weeks", "months"] },
+            },
+          },
+          sites: { type: "array", items: { type: "integer" }, description: "Sites the report covers (e.g. [992] = FastTrax)" },
+          totals: { $ref: "#/components/schemas/PovReportTotals" },
+          byInterval: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PovReportPoint" },
+            description: "One row per interval bucket (per the `interval` request param). FastTrax-only when present, otherwise the cross-site aggregate.",
+          },
+        },
+      },
       PovBreakageResponse: {
         type: "object",
         properties: {
@@ -936,6 +1027,54 @@ const spec = {
       },
     },
     // ── POV Codes ──────────────────────────────────────────────────────
+    "/api/admin/pov-codes/report": {
+      get: {
+        tags: ["POV Codes"],
+        summary: "VT3 viewpoint video-report — captured, sold, unlocked, impressions, conversions",
+        description: [
+          "Pulls VT3's `/reporting/video-report` for the FastTrax site and surfaces every counter VT3",
+          "exposes plus three computed conversion ratios.",
+          "",
+          "**Operator-language → API field map**:",
+          "  • `sold` (total) → `videoSalesCount`",
+          "  • `online` (post sales via vt3.io card purchase) → `stripeVideoCount` (also see `postUnlockedVideoCount`)",
+          "  • `unlock` (our website-issued POV codes redeemed) → `unlockCodeVideoCount`",
+          "  • `manual unlock` (staff override) → `manualUnlockVideoCount`",
+          "",
+          "**Volumes**:",
+          "  • `videoCount` — every kart capture in the window (totals all-up)",
+          "  • `uploadedVideoCount` — captures that finished encoding",
+          "  • `unlockedVideoCount` — videos made playable (sales + free unlocks)",
+          "",
+          "**Engagement**:",
+          "  • `videoImpressionCount` = `videoPageImpressionCount` + `mediaCentreImpressionCount`",
+          "",
+          "**Conversions (added by us)**:",
+          "  • `salesPerCaptured` = videoSalesCount / videoCount",
+          "  • `unlockPerCaptured` = unlockedVideoCount / videoCount",
+          "  • `salesPerImpression` = videoSalesCount / videoImpressionCount",
+          "",
+          "Window is bucketed per the `interval` param (default daily). Date filter is ET; the endpoint",
+          "applies the right DST offset before calling VT3.",
+        ].join("\n"),
+        parameters: [
+          { name: "from", in: "query" as const, description: "ET start date (inclusive). YYYY-MM-DD. Default = 30 days ago.", schema: { type: "string", format: "date" } },
+          { name: "to", in: "query" as const, description: "ET end date (inclusive — endpoint bumps this by 1 day before calling VT3). YYYY-MM-DD. Default = today.", schema: { type: "string", format: "date" } },
+          { name: "interval", in: "query" as const, description: "Bucket granularity. Default `days`.", schema: { type: "string", enum: ["hours", "days", "weeks", "months"], default: "days" } },
+        ],
+        responses: {
+          "200": {
+            description: "Video report",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/PovReportResponse" } } },
+          },
+          "400": { description: "Invalid date or interval", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Endpoint hidden — same body as 401" },
+          "500": { description: "VT3 fetch failed", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
     "/api/admin/pov-codes/breakage": {
       get: {
         tags: ["POV Codes"],

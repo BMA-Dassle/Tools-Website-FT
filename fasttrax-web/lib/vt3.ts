@@ -319,3 +319,126 @@ export async function listAllUnlockCodes(opts: {
   }
   return out;
 }
+
+/**
+ * One row of VT3's video-report aggregation. Each row is a single
+ * time-bucket (daily / hourly / etc.) for either ONE site (siteId:
+ * 992) or AGGREGATED across all of the user's sites (siteId: null).
+ *
+ * Field semantics (per HeadPinz ops conventions):
+ *   videoCount               total videos captured in window (every kart capture)
+ *   videoSalesCount          total sales — paid OR consumed-via-credit
+ *   unlockedVideoCount       total videos that became playable (sales + free unlocks)
+ *
+ *   stripeVideoCount         online card (the post-race "Buy on vt3.io" path)
+ *   stripeTerminalVideoCount in-person card via Stripe Terminal at the desk
+ *   venueVideoCount          venue/cash purchase
+ *   unlockCodeVideoCount     ← OUR website-issued POV unlock-codes
+ *   manualUnlockVideoCount   staff override (front desk forced an unlock)
+ *   apiUnlockVideoCount      API/integration unlocks (none yet)
+ *
+ *   preUnlockedVideoCount    paid before race (bundle / credit pre-applied)
+ *   postUnlockedVideoCount   paid after race (the standard purchase path)
+ *
+ *   videoImpressionCount     unique videos whose share page was opened
+ *   videoPageImpressionCount  → vt3.io/?code=X page hits
+ *   mediaCentreImpressionCount → media-centre tile hits
+ *
+ *   uploadedVideoCount       videos that finished encoding to playable state
+ *   deliveryRate             0..100 %, encoder pipeline health
+ *   totalDataUp / averageVideoSize  bytes (capacity planning)
+ */
+export interface Vt3VideoReportPoint {
+  siteId: number | null;
+  from: string;            // ISO local-time (no timezone — interpret in report.timezone)
+  to: string;
+  videoCount: number;
+  videoImpressionCount: number;
+  videoPageImpressionCount: number;
+  mediaCentreImpressionCount: number;
+  unlockedVideoCount: number;
+  videoSalesCount: number;
+  deliveryRate: number;
+  stripeVideoCount: number;
+  stripeTerminalVideoCount: number;
+  venueVideoCount: number;
+  unlockCodeVideoCount: number;
+  preUnlockedVideoCount: number;
+  postUnlockedVideoCount: number;
+  uploadedVideoCount: number;
+  manualUnlockVideoCount: number;
+  apiUnlockVideoCount: number;
+  totalDataUp: number;
+  averageVideoSize: number;
+}
+
+export interface Vt3VideoReport {
+  from: string;
+  to: string;
+  timezone: string;
+  sites: number[];
+  interval: "hours" | "days" | "weeks" | "months";
+  numberOfAggregatedPoints: number;
+  numberOfSitePoints: number;
+  points: Vt3VideoReportPoint[];
+}
+
+/**
+ * Pull VT3's aggregated video-report. Returns the full `report`
+ * envelope including BOTH cross-site aggregated rows (siteId: null)
+ * AND per-site rows (siteId: 992 for FastTrax). Callers usually
+ * filter to the rows they care about.
+ *
+ * Endpoint verified via HAR capture from control-panel.vt3.io:
+ *   POST /reporting/video-report
+ *   body: { from, to, interval, timezone, minDuration, sites }
+ *
+ * `interval` controls bucket granularity. Empty `sites: []` means
+ * "every site this user can see" — for our service account that's
+ * just FastTrax (site 992).
+ */
+export async function getVideoReport(opts: {
+  from: string;            // ISO with timezone offset, e.g. "2026-05-01T00:00:00-04:00"
+  to: string;              // exclusive upper bound — same format
+  interval?: "hours" | "days" | "weeks" | "months";
+  timezone?: string;       // IANA tz, default America/New_York
+  minDuration?: number | null;
+  sites?: number[];        // [] = all accessible
+}): Promise<Vt3VideoReport> {
+  const {
+    from,
+    to,
+    interval = "days",
+    timezone = "America/New_York",
+    minDuration = null,
+    sites = [],
+  } = opts;
+
+  const fetchOnce = async (jwt: string) =>
+    fetch(`${VT3_HOST}/reporting/video-report`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${jwt}`,
+        "x-cp-ui": "mui",
+        "x-cp-ver": "v2.48.2",
+      },
+      body: JSON.stringify({ from, to, interval, timezone, minDuration, sites }),
+      cache: "no-store",
+    });
+
+  let jwt = await getJwt();
+  let res = await fetchOnce(jwt);
+  if (res.status === 401 || res.status === 403) {
+    await invalidateJwt();
+    jwt = await login();
+    res = await fetchOnce(jwt);
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`vt3 getVideoReport failed: ${res.status} ${body.slice(0, 300)}`);
+  }
+  const json = await res.json();
+  if (!json?.report) throw new Error("vt3 getVideoReport returned no report envelope");
+  return json.report as Vt3VideoReport;
+}
