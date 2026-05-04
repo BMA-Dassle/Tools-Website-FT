@@ -549,7 +549,11 @@ const spec = {
         type: "object",
         description: "One issuance event — typically a customer's batch of 1–4 POV codes from a single sale or claim.",
         properties: {
-          source: { type: "string", enum: ["billId", "claim-from-credit", "unknown"], description: "Which path issued these codes. billId = checkout-flow (web reservation sale); claim-from-credit = e-ticket page consumed BMI ViewPoint Credit." },
+          source: {
+            type: "string",
+            enum: ["web-sale", "in-center", "unknown"],
+            description: "Which path issued these codes. `web-sale` = customer paid online at checkout. `in-center` = customer redeemed BMI ViewPoint Credit on the e-ticket page (front-desk credit applied). `unknown` = neither billId nor personId present (rare).",
+          },
           billId: { type: "string", nullable: true },
           personId: { type: "string", nullable: true },
           sessionId: { type: "string", nullable: true },
@@ -579,7 +583,7 @@ const spec = {
           totalCodes: { type: "integer", description: "Sum of codeCount across all events" },
           bySource: {
             type: "object",
-            description: "Breakdown by source path. Keys: billId | claim-from-credit | unknown.",
+            description: "Breakdown by source path. Keys: `web-sale` | `in-center` | `unknown`.",
             additionalProperties: {
               type: "object",
               properties: {
@@ -1144,8 +1148,8 @@ const spec = {
           "Lists every POV code we've issued, grouped by issuance event so each row represents one customer's",
           "batch of codes (typically 1–4 per bill). Codes from BOTH issuance paths appear in the same response:",
           "",
-          "  • **Web reservation** — checkout flow popped codes for a `billId`",
-          "  • **Credit-claim** — e-ticket page popped codes for a `personId` who had ViewPoint Credit on file",
+          "  • **`web-sale`** — customer paid for POV at online checkout (`billId` populated)",
+          "  • **`in-center`** — customer redeemed BMI ViewPoint Credit on the e-ticket page (`personId` populated)",
           "",
           "Each entry is enriched with race date, reservation number, racer name and contact info from the",
           "booking-record cache when one is on file (12h ticket TTL / 90d booking-record TTL).",
@@ -1158,7 +1162,7 @@ const spec = {
           { name: "to", in: "query" as const, schema: { type: "string", format: "date" }, description: "Issued-on upper bound, ET. Default = today." },
           { name: "billId", in: "query" as const, schema: { type: "string" }, description: "Exact match" },
           { name: "personId", in: "query" as const, schema: { type: "string" }, description: "Exact match" },
-          { name: "source", in: "query" as const, schema: { type: "string", enum: ["billId", "claim-from-credit", "unknown"] }, description: "Filter to one issuance path" },
+          { name: "source", in: "query" as const, schema: { type: "string", enum: ["web-sale", "in-center", "unknown"] }, description: "Filter to one issuance path. `web-sale` = customer paid online at checkout; `in-center` = front-desk credit redemption via e-ticket page." },
           { name: "q", in: "query" as const, schema: { type: "string" }, description: "Free-text search across email, racer name, billId, personId, reservation number, codes." },
           { name: "limit", in: "query" as const, schema: { type: "integer", default: 500, minimum: 1, maximum: 2000 } },
           { name: "offset", in: "query" as const, schema: { type: "integer", default: 0, minimum: 0 } },

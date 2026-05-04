@@ -57,8 +57,18 @@ interface BookingRecord {
   primaryPersonId?: string | null;
 }
 
+/**
+ * Source path the codes came from. Operator-language labels:
+ *   web-sale  = customer paid for POV at checkout (online reservation)
+ *   in-center = customer redeemed BMI ViewPoint Credit on the e-ticket
+ *               page (front-desk credit applied to the booking)
+ *   unknown   = neither billId nor personId on the issuance metadata
+ *               (rare — early data + manual `?action=use` calls)
+ */
+type IssuanceSource = "web-sale" | "in-center" | "unknown";
+
 interface IssuedEntry {
-  source: "billId" | "claim-from-credit" | "unknown";
+  source: IssuanceSource;
   billId: string | null;
   personId: string | null;
   sessionId: string | null;
@@ -162,13 +172,13 @@ export async function GET(req: NextRequest) {
       if (ymd && (ymd < from || ymd > to)) continue;
 
       let groupKey: string;
-      let source: IssuedEntry["source"];
+      let source: IssuanceSource;
       if (meta.billId) {
         groupKey = `bill:${meta.billId}`;
-        source = "billId";
+        source = "web-sale";
       } else if (meta.personId != null) {
         groupKey = `person:${meta.personId}:${meta.sessionId ?? "no-session"}`;
-        source = "claim-from-credit";
+        source = "in-center";
       } else {
         groupKey = `code:${code}`;
         source = "unknown";
