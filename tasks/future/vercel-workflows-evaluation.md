@@ -1,11 +1,18 @@
-# Architectural option: Vercel Workflows
+# Architectural option: Vercel Workflows (and Queues)
 
 > **Cross-cutting reference, not a feature plan.** Saved 2026-05-03
-> after evaluating https://vercel.com/docs/workflows against our
-> current flows. Use this doc when designing ANY new feature that has
-> orchestration, durability, or "wait for time/event" needs — not just
-> e-tickets, not just KBF, not just race packs. The "Decision rule"
-> section near the bottom is the quick check.
+> after evaluating https://vercel.com/docs/workflows AND
+> https://vercel.com/docs/queues against our current flows. Use this
+> doc when designing ANY new feature that has orchestration,
+> durability, or "wait for time/event" needs — not just e-tickets,
+> not just KBF, not just race packs. The "Decision rule" section
+> near the bottom is the quick check.
+>
+> **Queue vs Workflow:** Workflows are built on top of Queues. Queue
+> = stateless event reactor (cheap, portable, simple). Workflow =
+> Queue + state across time (sleeps, hooks, replay-determinism).
+> Pick the smaller primitive when the state can live externally.
+> The "Per-flow primitive choice" table below has the breakdown.
 
 ## What it is
 
@@ -283,6 +290,29 @@ async function videoLifecycle(bookingId: string) {
 - Reconnect / replay semantics — what does VT3 do if our consumer
   disconnects? Do they replay missed events on reconnect, or do we
   fall back to the cron as a backstop?
+
+## Per-flow primitive choice
+
+When you have a flow that's a candidate for queue-or-workflow, ask:
+**where does the state live?** If it's already external (Redis, Neon,
+Pandora records), Queue. If the state is "where am I in this
+sequence and how long until the next thing," Workflow.
+
+| Flow (current or future) | Queue or Workflow? | Why |
+|---|---|---|
+| **VT3 video-match** (existing cron migration) | **Queue** | State already in Redis match records. Each event is a stateless reactor: load record by code, switch on innerType, update overlay or notify. No sleep needed. |
+| **Race-pack deposit retry** (current Neon table + sweep) | **Queue** (already this) | Existing implementation IS a queue + cron consumer. Works fine. |
+| **Wallet pass generation** (future) | **Queue** | Stateless: receive booking → generate Apple + Google → email links. |
+| **POV deposit-deduct retry** (current Neon table) | **Queue** (already this) | Same — table-driven retry with cron consumer. |
+| **Race-credit expiration reminders** (future) | **Workflow** | The 60d / 89d / 91d sleep cascade IS the logic. Queue version would need a delayed-message scheduler + state table. |
+| **KBF self-registration** (future) | **Workflow** | 24h sleep waiting for next CSV sync is the core of the flow. |
+| **HP Arena waiver gating** (future) | **Workflow** | Hook with deadline (`Promise.race(hook, sleep)`) is the whole pattern. |
+| **Post-visit NPS / feedback** (future) | **Workflow** | One sleep, one send. Trivially expressed. |
+| **SMS retry sweep** (current cron) | **Queue** (already this) | Stateless retry pattern — current `lib/sms-retry.ts` is essentially a hand-rolled queue consumer. |
+| **Booking cancellation cleanup** (future) | **Workflow** | Multi-step + each step retryable + would otherwise be cron+state. |
+
+The pattern: **stateless event reactors → Queue. State-across-time
+orchestration → Workflow.**
 
 ## Decision rule (consult this before designing any new feature)
 

@@ -109,10 +109,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, kind: "ignored", reason: "no-code" });
   }
 
-  // Push into the FIFO queue for the cron to drain. Capped via
-  // LTRIM so a runaway VT3 (or a stalled cron) can't bloat Redis.
-  // Each entry is a compact handle — videoCode + innerType +
-  // arrival timestamp. Cron looks up the full record by code.
+  // Push into the FIFO queue. Capped via LTRIM so a runaway VT3
+  // (or a stalled consumer) can't bloat Redis. The shadow consumer
+  // at /api/cron/vt3-shadow-consumer drains this and logs decisions
+  // to Neon for evaluation; once promoted to live, the same payload
+  // shape drives the real reactor.
+  //
+  // We snapshot the fields the decision tree needs so consumers
+  // never have to re-fetch from VT3:
+  //   - systemName + createdAt → camera-assignment lookup key
+  //   - sampleUploadTime → readiness gate
+  //   - cameraNumber → admin UI overlays
+  const system = payload.system as { name?: string; id?: number } | undefined;
   const entry = JSON.stringify({
     videoCode,
     videoId,
@@ -122,6 +130,11 @@ export async function POST(req: NextRequest) {
       innerType === "sample-uploaded" && typeof payload.url === "string"
         ? payload.url
         : undefined,
+    systemName: system?.name,
+    createdAt: typeof payload.createdAt === "string" ? payload.createdAt : undefined,
+    sampleUploadTime:
+      typeof payload.sampleUploadTime === "string" ? payload.sampleUploadTime : null,
+    cameraNumber: typeof payload.camera === "number" ? payload.camera : undefined,
     receivedAt: new Date().toISOString(),
   });
   try {
