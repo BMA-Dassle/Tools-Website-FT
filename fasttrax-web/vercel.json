@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/cron/video-match",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/kbf-sync",
