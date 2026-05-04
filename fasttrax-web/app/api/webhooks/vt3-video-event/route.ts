@@ -152,6 +152,16 @@ export async function POST(req: NextRequest) {
     // the video on their own polling passes.
   }
 
+  // Bridge heartbeat — cron at /api/cron/video-match reads this to
+  // decide whether to skip its 500-record poll. As long as the
+  // webhook saw an event in the last 10 min, the bridge is alive and
+  // the cron exits early. If this key goes stale, cron kicks in as a
+  // self-healing backstop. Best-effort — Redis hiccups don't block
+  // the response.
+  redis
+    .set("vt3:bridge:last-event", new Date().toISOString(), "EX", 3600)
+    .catch(() => void 0);
+
   // ── Live processing path ──
   // Run the per-video processor inline so this push event tries to
   // create the match / fire the SMS without waiting for the next

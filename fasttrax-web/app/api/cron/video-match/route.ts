@@ -112,7 +112,58 @@ function overlayDiffers(m: VideoMatch, o: Overlay): boolean {
 
 export async function GET(req: NextRequest) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+  const force = new URL(req.url).searchParams.get("force") === "1";
   const started = Date.now();
+
+  // ── Heartbeat-gated backstop ──
+  // The webhook at /api/webhooks/vt3-video-event updates
+  // `vt3:bridge:last-event` on every accepted message event from
+  // the Railway bridge. As long as that timestamp is fresh, the
+  // webhook + processVideoEvent are doing all the work — match
+  // creation, overlay refresh, block sync, notify firing — in
+  // sub-second latency. This polling cron then only needs to run
+  // when the bridge has gone silent (Railway outage, JWT expiry,
+  // VT3 endpoint down, etc.).
+  //
+  // Threshold: 5 min. VT3 always has SOME activity during operating
+  // hours (status transitions on encoding videos, impression
+  // updates, etc.) so a 5-min gap is a strong signal something's
+  // wrong upstream. Off-hours quiet windows would trigger a backstop
+  // run, which is harmless — the run is bounded and idempotent.
+  //
+  // ?force=1 bypasses the heartbeat check for manual debug runs.
+  if (!dryRun && !force) {
+    try {
+      const lastEvent = await redis.get("vt3:bridge:last-event");
+      if (lastEvent) {
+        const lastMs = new Date(lastEvent).getTime();
+        const ageMs = Date.now() - lastMs;
+        const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+        if (Number.isFinite(lastMs) && ageMs < STALE_THRESHOLD_MS) {
+          console.log(
+            `[video-match] bridge alive (last event ${Math.round(ageMs / 1000)}s ago) — skipping backstop pass`,
+          );
+          return NextResponse.json(
+            {
+              ok: true,
+              skipped: "bridge-alive",
+              lastBridgeEvent: lastEvent,
+              ageSeconds: Math.round(ageMs / 1000),
+              elapsedMs: Date.now() - started,
+            },
+            { headers: { "Cache-Control": "no-store" } },
+          );
+        }
+        console.log(
+          `[video-match] bridge stale (last event ${Math.round(ageMs / 1000)}s ago) — running backstop pass`,
+        );
+      } else {
+        console.log("[video-match] no bridge heartbeat key — running backstop pass");
+      }
+    } catch (err) {
+      console.warn("[video-match] heartbeat check failed, running backstop pass anyway:", err);
+    }
+  }
 
   // Concurrency lock (same pattern as pre-race-tickets cron).
   if (!dryRun) {

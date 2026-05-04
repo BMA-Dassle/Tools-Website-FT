@@ -46,6 +46,59 @@ import { setVideoDisabled, linkCustomerEmail } from "@/lib/vt3";
 const NOTIFY_LOCK_TTL = 30; // sec
 const NOTIFY_LOCK_KEY = (code: string) => `notify-fired:${code}`;
 
+// ── Overlay extraction (mirrors the cron's helper) ──
+// Pulls VT3's impression + purchase fields off any video-shaped
+// object onto the shape we persist on the match record. Both the
+// webhook and the cron call this so the admin UI's viewed/
+// purchased/unlocked chips stay in sync regardless of which path
+// processed the event.
+
+interface OverlayInput {
+  hasVideoPageImpression?: boolean;
+  hasMediaCentreImpression?: boolean;
+  firstImpressionAt?: string | null;
+  lastImpressionAt?: string | null;
+  unlockTime?: string | null;
+  purchaseType?: string | null;
+}
+
+interface OverlayShape {
+  viewed?: boolean;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  purchased?: boolean;
+  purchaseType?: string;
+  unlockedAt?: string;
+}
+
+function extractOverlay(v: OverlayInput): OverlayShape {
+  const viewed =
+    !!v.hasVideoPageImpression ||
+    !!v.hasMediaCentreImpression ||
+    !!v.firstImpressionAt;
+  const unlockedAt = v.unlockTime || undefined;
+  const purchased = !!unlockedAt;
+  return {
+    viewed: viewed || undefined,
+    firstViewedAt: v.firstImpressionAt || undefined,
+    lastViewedAt: v.lastImpressionAt || undefined,
+    purchased: purchased || undefined,
+    purchaseType: v.purchaseType || undefined,
+    unlockedAt,
+  };
+}
+
+function overlayDiffers(m: VideoMatch, o: OverlayShape): boolean {
+  return (
+    m.viewed !== o.viewed ||
+    m.firstViewedAt !== o.firstViewedAt ||
+    m.lastViewedAt !== o.lastViewedAt ||
+    m.purchased !== o.purchased ||
+    m.purchaseType !== o.purchaseType ||
+    m.unlockedAt !== o.unlockedAt
+  );
+}
+
 export type ProcessSource = "cron" | "webhook" | "manual";
 
 export type ProcessDecision =
@@ -99,6 +152,16 @@ export interface VideoEventInput {
   /** ISO timestamp from VT3. Snake_case to match the cron's existing
    *  `Vt3Video` shape. */
   created_at?: string;
+  // ── Overlay fields VT3 includes on every video-updated event ──
+  // Drives the admin UI's viewed/purchased/unlock chips. Webhook
+  // refreshes these on existing matches when they differ — replaces
+  // the cron's polling-pass overlay refresh.
+  firstImpressionAt?: string | null;
+  lastImpressionAt?: string | null;
+  hasVideoPageImpression?: boolean;
+  hasMediaCentreImpression?: boolean;
+  unlockTime?: string | null;
+  purchaseType?: string | null;
   /** When true, treat as ready-to-notify regardless of status /
    *  sampleUploadTime fields. Used by webhook for sample-uploaded
    *  events that don't carry status info. */
@@ -185,18 +248,93 @@ export async function processVideoEvent(
   const existing = await getMatchByVideoCode(code);
 
   // ── PATH 1 — existing match ──
+  // Full per-event update: refresh overlay (viewed/purchased), sync
+  // block state with VT3 disabled flag, refresh status fields on
+  // pending records, then evaluate whether to fire notify. Mirrors
+  // the cron's per-video pipeline so admin UI stays fresh whether
+  // webhook or cron processes the event.
   if (existing) {
+    let dirty = false;
+
+    // 1. Overlay refresh — viewed/purchased/unlocked chips on the
+    //    admin board. Only persist if any field changed.
+    const overlay = extractOverlay(event);
+    if (overlayDiffers(existing, overlay)) {
+      Object.assign(existing, overlay);
+      dirty = true;
+    }
+
+    // 2. Block-state mirror — Redis block keys are source of truth;
+    //    VT3 disabled flag is a downstream replica. If block state
+    //    flipped, sync it both ways.
+    const blockState = await getBlockState({
+      sessionId: existing.sessionId,
+      personId: existing.personId,
+      videoCode: code,
+    });
+    const wasBlocked = !!existing.blocked;
+    const isBlocked = blockState.blocked;
+    const blockChanged = wasBlocked !== isBlocked;
+    if (blockChanged) {
+      existing.blocked = isBlocked || undefined;
+      existing.blockLevel = blockState.level;
+      existing.blockReason = blockState.reason;
+      existing.blockedAt = isBlocked ? blockState.blockedAt : undefined;
+      dirty = true;
+
+      // Sync VT3's `disabled` flag — best-effort, log on failure.
+      if (!dryRun) {
+        try {
+          await setVideoDisabled(code, isBlocked);
+        } catch (err) {
+          console.error(
+            `[video-event-processor:${source}] setVideoDisabled(${code},${isBlocked}) failed:`,
+            err,
+          );
+        }
+      }
+
+      // Block→Unblock + never-notified: flip pendingNotify=true so
+      // the notify branch below picks it up. If already notified,
+      // leave alone — no re-send.
+      if (wasBlocked && !isBlocked) {
+        const neverNotified =
+          !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
+        if (neverNotified) existing.pendingNotify = true;
+      }
+    }
+
+    // 3. Status-field refresh on pending records — admin UI shows
+    //    the actual upload-pipeline state (TRANSFERRING → SAMPLING
+    //    → IS_ENCODING → PENDING_ACTIVATION) instead of staying
+    //    stuck on whatever status was set at first sighting.
+    if (existing.pendingNotify) {
+      const newStatus = event.status ?? existing.videoStatus;
+      const newSample = event.sampleUploadTime ?? existing.sampleUploadTime ?? undefined;
+      const newUpload = event.uploadTime ?? existing.uploadTime ?? undefined;
+      if (
+        existing.videoStatus !== newStatus ||
+        existing.sampleUploadTime !== newSample ||
+        existing.uploadTime !== newUpload
+      ) {
+        existing.videoStatus = newStatus ?? undefined;
+        existing.sampleUploadTime = newSample;
+        existing.uploadTime = newUpload;
+        dirty = true;
+      }
+    }
+
+    // 4. Decision branch — block, already-notified, not-ready, or fire.
     if (existing.blocked) {
+      if (dirty && !dryRun) await updateVideoMatch(existing).catch(() => void 0);
       return { decision: "skip-blocked", source, videoCode: code };
     }
     if (!existing.pendingNotify) {
-      // Already fully done — webhook source still gets logged so we
-      // can tell who would have done the work first.
+      if (dirty && !dryRun) await updateVideoMatch(existing).catch(() => void 0);
       return { decision: "skip-already-notified", source, videoCode: code };
     }
     if (!ready) {
-      // Pending and still not ready. Cron handles status-field
-      // refresh in its overlay pass; webhook leaves it alone.
+      if (dirty && !dryRun) await updateVideoMatch(existing).catch(() => void 0);
       return { decision: "skip-not-ready-yet", source, videoCode: code };
     }
 
@@ -206,6 +344,9 @@ export async function processVideoEvent(
     }
     const won = await acquireNotifyLock(code, source);
     if (!won) {
+      // Lost the race — but persist any overlay/block changes we
+      // detected. The other path will handle the notify itself.
+      if (dirty) await updateVideoMatch(existing).catch(() => void 0);
       return { decision: "lost-notify-race", source, videoCode: code };
     }
 
@@ -225,10 +366,6 @@ export async function processVideoEvent(
         );
       }
     }
-    if (event.status) existing.videoStatus = event.status;
-    if (event.sampleUploadTime !== undefined)
-      existing.sampleUploadTime = event.sampleUploadTime ?? undefined;
-    if (event.uploadTime !== undefined) existing.uploadTime = event.uploadTime ?? undefined;
     const fired = await doFireNotify(existing);
     return {
       decision: "fired-deferred-notify",
@@ -280,6 +417,12 @@ export async function processVideoEvent(
     return { decision: "saved-and-notified", source, videoCode: code, notes: "dryRun" };
   }
 
+  // Capture overlay on initial save so the admin record has correct
+  // viewed/purchased state from the very first sighting (rare but
+  // possible: a video that arrives via SSE already with impressions
+  // because VT3 batched the burst across multiple state changes).
+  const initialOverlay = extractOverlay(event);
+
   const matchRecord: VideoMatch = {
     sessionId: assignment.sessionId,
     personId: assignment.personId,
@@ -313,6 +456,7 @@ export async function processVideoEvent(
     blockLevel: blockState.level,
     blockReason: blockState.reason,
     blockedAt: blockState.blocked ? blockState.blockedAt : undefined,
+    ...initialOverlay,
   };
 
   const saved = await saveVideoMatch(matchRecord);
@@ -414,6 +558,22 @@ export function videoEventFromWebhookPayload(
         : typeof payload.created_at === "string"
           ? payload.created_at
           : undefined,
+    // Overlay fields — drive admin UI's viewed/purchased chips.
+    firstImpressionAt:
+      typeof payload.firstImpressionAt === "string" ? payload.firstImpressionAt : null,
+    lastImpressionAt:
+      typeof payload.lastImpressionAt === "string" ? payload.lastImpressionAt : null,
+    hasVideoPageImpression:
+      typeof payload.hasVideoPageImpression === "boolean"
+        ? payload.hasVideoPageImpression
+        : undefined,
+    hasMediaCentreImpression:
+      typeof payload.hasMediaCentreImpression === "boolean"
+        ? payload.hasMediaCentreImpression
+        : undefined,
+    unlockTime: typeof payload.unlockTime === "string" ? payload.unlockTime : null,
+    purchaseType:
+      typeof payload.purchaseType === "string" ? payload.purchaseType : null,
     // sample-uploaded events come with no status/createdAt — flag
     // forceReady so the processor treats them as ready without those
     // fields. Match-creation path requires created_at though, so
