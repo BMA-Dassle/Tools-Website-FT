@@ -545,6 +545,102 @@ const spec = {
       },
 
       // ── POV Codes ──────────────────────────────────────────────────────
+      PovIssuedEntry: {
+        type: "object",
+        description: "One issuance event — typically a customer's batch of 1–4 POV codes from a single sale or claim.",
+        properties: {
+          source: { type: "string", enum: ["billId", "claim-from-credit", "unknown"], description: "Which path issued these codes. billId = checkout-flow (web reservation sale); claim-from-credit = e-ticket page consumed BMI ViewPoint Credit." },
+          billId: { type: "string", nullable: true },
+          personId: { type: "string", nullable: true },
+          sessionId: { type: "string", nullable: true },
+          locationId: { type: "string", nullable: true },
+          issuedAt: { type: "string", format: "date-time", description: "Earliest usedAt across the codes in this group" },
+          codes: { type: "array", items: { type: "string" }, description: "10-char POV codes. PII — treat carefully." },
+          codeCount: { type: "integer" },
+          email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true },
+          racerName: { type: "string", nullable: true },
+          raceDate: { type: "string", format: "date", nullable: true, description: "From booking-record cache when present" },
+          reservationNumber: { type: "string", nullable: true, example: "W23905" },
+        },
+      },
+      PovIssuedListResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+            },
+          },
+          total: { type: "integer", description: "Total issuance events in the filtered set" },
+          totalCodes: { type: "integer", description: "Sum of codeCount across all events" },
+          bySource: {
+            type: "object",
+            description: "Breakdown by source path. Keys: billId | claim-from-credit | unknown.",
+            additionalProperties: {
+              type: "object",
+              properties: {
+                events: { type: "integer" },
+                codes: { type: "integer" },
+              },
+            },
+          },
+          returned: { type: "integer" },
+          entries: { type: "array", items: { $ref: "#/components/schemas/PovIssuedEntry" } },
+        },
+      },
+      PovIssuedResendBody: {
+        type: "object",
+        required: ["channel"],
+        description: "Either `billId` OR `personId` is required to identify the customer's codes.",
+        properties: {
+          billId: { type: "string", description: "Lookup by web-reservation bill" },
+          personId: { type: "string", description: "Lookup by claim-from-credit person" },
+          sessionId: { type: "string", description: "Optional — narrows person lookup to a specific Pandora session" },
+          channel: { type: "string", enum: ["sms", "email", "both"] },
+          overridePhone: { type: "string" },
+          overrideEmail: { type: "string", format: "email" },
+          bodyOverride: { type: "string", description: "Optional — replaces the default SMS body verbatim" },
+        },
+      },
+      PovIssuedResendResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean", description: "True if SMS or email succeeded (inspect result.{sms,email}.ok per channel)" },
+          codes: { type: "array", items: { type: "string" } },
+          codeCount: { type: "integer" },
+          result: {
+            type: "object",
+            properties: {
+              sms: {
+                type: "object", nullable: true,
+                properties: {
+                  ok: { type: "boolean" }, status: { type: "integer", nullable: true },
+                  sentTo: { type: "string", nullable: true }, error: { type: "string", nullable: true },
+                },
+              },
+              email: {
+                type: "object", nullable: true,
+                properties: {
+                  ok: { type: "boolean" }, status: { type: "integer", nullable: true },
+                  sentTo: { type: "string", format: "email", nullable: true }, error: { type: "string", nullable: true },
+                },
+              },
+            },
+          },
+          lookup: {
+            type: "object",
+            properties: {
+              billId: { type: "string", nullable: true },
+              personId: { type: "string", nullable: true },
+              sessionId: { type: "string", nullable: true },
+            },
+          },
+        },
+      },
       PovBreakageDailyTotal: {
         type: "object",
         description: "Per-race-date roll-up. `breakage = max(0, povSold − vt3Unlocked)`.",
@@ -1036,6 +1132,82 @@ const spec = {
           "401": { description: "Unauthorized" },
           "404": { description: "Endpoint hidden — same body as 401" },
           "500": { description: "VT3 fetch failed", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
+    "/api/admin/pov-codes/issued/list": {
+      get: {
+        tags: ["POV Codes"],
+        summary: "Unified inventory of issued POV codes (web sale + credit-claim paths)",
+        description: [
+          "Lists every POV code we've issued, grouped by issuance event so each row represents one customer's",
+          "batch of codes (typically 1–4 per bill). Codes from BOTH issuance paths appear in the same response:",
+          "",
+          "  • **Web reservation** — checkout flow popped codes for a `billId`",
+          "  • **Credit-claim** — e-ticket page popped codes for a `personId` who had ViewPoint Credit on file",
+          "",
+          "Each entry is enriched with race date, reservation number, racer name and contact info from the",
+          "booking-record cache when one is on file (12h ticket TTL / 90d booking-record TTL).",
+          "",
+          "Date filter targets `issuedAt` (when the code was popped from the pool). Default window is 90 days",
+          "to give ops a useful long tail for resends.",
+        ].join("\n"),
+        parameters: [
+          { name: "from", in: "query" as const, schema: { type: "string", format: "date" }, description: "Issued-on lower bound, ET. Default = 90 days ago." },
+          { name: "to", in: "query" as const, schema: { type: "string", format: "date" }, description: "Issued-on upper bound, ET. Default = today." },
+          { name: "billId", in: "query" as const, schema: { type: "string" }, description: "Exact match" },
+          { name: "personId", in: "query" as const, schema: { type: "string" }, description: "Exact match" },
+          { name: "source", in: "query" as const, schema: { type: "string", enum: ["billId", "claim-from-credit", "unknown"] }, description: "Filter to one issuance path" },
+          { name: "q", in: "query" as const, schema: { type: "string" }, description: "Free-text search across email, racer name, billId, personId, reservation number, codes." },
+          { name: "limit", in: "query" as const, schema: { type: "integer", default: 500, minimum: 1, maximum: 2000 } },
+          { name: "offset", in: "query" as const, schema: { type: "integer", default: 0, minimum: 0 } },
+        ],
+        responses: {
+          "200": {
+            description: "Issued-codes inventory",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/PovIssuedListResponse" } } },
+          },
+          "400": { description: "Invalid date format", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Endpoint hidden — same body as 401" },
+          "500": { description: "Server error", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+    "/api/admin/pov-codes/issued/resend": {
+      post: {
+        tags: ["POV Codes"],
+        summary: "Resend a customer's POV codes via SMS / email",
+        description: [
+          "Looks up the codes for the supplied `billId` OR `personId` (+ optional `sessionId` for narrowing claim-",
+          "from-credit lookups), composes a default SMS body and a branded HTML email containing the inline codes,",
+          "and sends via the standard voxSend / sendgrid helpers. Logs SMS with `source: 'admin-resend'`.",
+          "",
+          "**Default SMS body** (1 segment for ≤ 3 codes, ASCII-only):",
+          "```",
+          "FastTrax POV codes:",
+          "ABCD123456",
+          "WXYZ789012",
+          "",
+          "Redeem at vt3.io - paste the code on the site to unlock your video.",
+          "```",
+          "",
+          "Pass `bodyOverride` to replace the default verbatim. Recipient resolution: `overridePhone`/`overrideEmail`",
+          "first, then the booking-record contact if a billId is on file.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/PovIssuedResendBody" } } },
+        },
+        responses: {
+          "200": {
+            description: "Send result. `ok` is true when at least one channel succeeded; inspect `result.{sms,email}.ok` per channel.",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/PovIssuedResendResponse" } } },
+          },
+          "400": { description: "Missing channel, missing identifier, or bad JSON", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+          "404": { description: "No codes found for the supplied billId/personId", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
         },
       },
     },
