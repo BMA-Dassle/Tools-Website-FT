@@ -42,7 +42,23 @@ const BC_START_MESSAGE = {
   Notifications: "true",
   Resource: "Red Track",
   BcFormat: "0",
-  NotificationGroups: ["BROADCAST", "TIMING", "INFO"],
+  // Full set of NotificationGroups exposed by the SMS-Timing /
+  // tournament-manager admin UI. Subscribing to all of them gives
+  // the bridge maximum visibility — we can always filter Vercel-side.
+  // Confirmed against the live admin's group list.
+  NotificationGroups: [
+    "BROADCAST",
+    "CLIENTACTIONS",
+    "DEVICE",
+    "MAINTENANCE",
+    "PERSON",
+    "PROJECT",
+    "SESSION",
+    "SUBSCRIPTION",
+    "SYSTEM",
+    "TESTING",
+    "TIMING",
+  ],
   RaceStatsResendInterval: "00:00:01",
 };
 

@@ -17,7 +17,11 @@ upstream protocol (WebSocket frames vs SSE).
   "Notifications": "true",
   "Resource": "Red Track",
   "BcFormat": "0",
-  "NotificationGroups": ["BROADCAST", "TIMING", "INFO"],
+  "NotificationGroups": [
+    "BROADCAST", "CLIENTACTIONS", "DEVICE", "MAINTENANCE",
+    "PERSON", "PROJECT", "SESSION", "SUBSCRIPTION",
+    "SYSTEM", "TESTING", "TIMING"
+  ],
   "RaceStatsResendInterval": "00:00:01"
 }
 ```
