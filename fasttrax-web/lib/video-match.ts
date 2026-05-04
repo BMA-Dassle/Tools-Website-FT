@@ -20,7 +20,12 @@ import type { GuardianContact } from "@/lib/participant-contact";
  *                                          the next /videos call
  */
 
-const TTL_DAYS = 90;
+// Both matched and unmatched video records share a 30-day TTL so the
+// admin UI's "look back N days" workflow gives staff a full month of
+// history to inspect, resend, or manually link captures regardless of
+// match state. Was 90d for matched + 7d for unmatched; ops asked for
+// the unified 30-day window.
+const TTL_DAYS = 30;
 const TTL_SECONDS = 60 * 60 * 24 * TTL_DAYS;
 
 /**
@@ -202,11 +207,11 @@ const LAST_SEEN_KEY = "vt3:last-seen-id";
  * or staff manually sending), `saveVideoMatch` removes the record so
  * the admin's matched + unmatched view stays mutually exclusive.
  *
- * 7-day TTL — long enough that a Sunday capture is still inspectable
- * Saturday-of-the-following-week, short enough that the log stays
- * bounded without explicit pruning.
+ * 30-day TTL — same as matched records (TTL_SECONDS) so the admin
+ * UI's "look back N days" workflow gives staff a unified one-month
+ * history regardless of match state.
  */
-const UNMATCHED_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const UNMATCHED_TTL_SECONDS = TTL_SECONDS;
 const UNMATCHED_LOG_KEY = "video-unmatched:log";
 function unmatchedKey(videoCode: string): string {
   return `video-unmatched:${videoCode}`;
@@ -250,11 +255,12 @@ export async function recordUnmatchedVideo(rec: UnmatchedVideo): Promise<void> {
   await redis.set(unmatchedKey(rec.videoCode), JSON.stringify(rec), "EX", UNMATCHED_TTL_SECONDS);
   // Score by capturedAt so listUnmatchedInRange can do an O(log n)
   // range scan keyed on the kart-capture time, not the webhook receive
-  // time. Trim to 5000 newest — covers > 1 week of busy weekends.
+  // time. Trim to 20000 newest — covers ~30 days of busy traffic
+  // (roughly 600/day capture peak × 30 days, with headroom).
   const score = new Date(rec.capturedAt || rec.matchedAt).getTime();
   if (Number.isFinite(score)) {
     await redis.zadd(UNMATCHED_LOG_KEY, score, rec.videoCode);
-    await redis.zremrangebyrank(UNMATCHED_LOG_KEY, 0, -5001);
+    await redis.zremrangebyrank(UNMATCHED_LOG_KEY, 0, -20001);
   }
 }
 
@@ -332,12 +338,13 @@ export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
   // Index into the time-ordered match log for the admin UI.
   // Score = matchedAt epoch ms; member = `${sessionId}:${personId}` (the
   // primary key of the match record). Trim aggressively so the log
-  // doesn't grow unbounded — keep the newest 10k entries which covers
-  // well over a year at current volume.
+  // doesn't grow unbounded — keep the newest 20k entries to match the
+  // unmatched-bucket cap. With the 30-day TTL on records, this covers
+  // ~30 days of peak traffic (~600 matches/day) with comfortable headroom.
   const score = new Date(m.matchedAt).getTime();
   if (Number.isFinite(score)) {
     await redis.zadd(MATCH_LOG_KEY, score, `${m.sessionId}:${m.personId}`);
-    await redis.zremrangebyrank(MATCH_LOG_KEY, 0, -10001);
+    await redis.zremrangebyrank(MATCH_LOG_KEY, 0, -20001);
   }
   // Drop any unmatched-bucket record so the admin's matched + unmatched
   // views stay mutually exclusive (no double-listing of the same video).
