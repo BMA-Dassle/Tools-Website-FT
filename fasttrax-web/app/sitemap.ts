@@ -62,6 +62,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${hp}/naples/birthdays`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${hp}/naples/group-events`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${hp}/menu`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
+    { url: `${hp}/pricing`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${hp}/rewards`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${hp}/kids-bowl-free`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${hp}/book/bowling`, lastModified: now, changeFrequency: "weekly", priority: 0.95 },

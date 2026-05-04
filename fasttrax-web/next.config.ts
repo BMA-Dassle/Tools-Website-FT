@@ -27,6 +27,26 @@ const nextConfig: NextConfig = {
   redirects: async () => [
     { source: "/book/racing", destination: "/book/race", permanent: true },
     { source: "/book/racing/:path*", destination: "/book/race", permanent: true },
+
+    // ── www → apex 301s ────────────────────────────────────────────
+    // Google Search Console was tracking the www and apex hosts as
+    // separate URL profiles for both domains, splitting top-page click
+    // counts (e.g. "/" appeared twice in GSC top-pages reports).
+    // Canonical tags in app/layout.tsx already point to apex; these
+    // 301s belt-and-suspender it so any inbound www link consolidates
+    // BEFORE crawlers ever evaluate canonical-tag mismatches.
+    {
+      source: "/:path*",
+      has: [{ type: "host", value: "www.fasttraxent.com" }],
+      destination: "https://fasttraxent.com/:path*",
+      permanent: true,
+    },
+    {
+      source: "/:path*",
+      has: [{ type: "host", value: "www.headpinz.com" }],
+      destination: "https://headpinz.com/:path*",
+      permanent: true,
+    },
   ],
   // Brand-domain pass-through for Vercel Blob assets so customer-
   // visible URLs read as fasttraxent.com / headpinz.com instead of
