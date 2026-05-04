@@ -1,7 +1,7 @@
 # kart-timing-bridge
 
 Tiny always-on worker that holds a WebSocket connection to the
-FastTrax kart timing broadcast endpoint at `ws://68.171.192.138:1001`,
+FastTrax kart timing broadcast endpoint at `ws://68.171.192.138:10001`,
 sends the SMS-Timing `BcStart` subscription on connect, and forwards
 every inbound message to a Vercel webhook on fasttraxent.com.
 
@@ -15,7 +15,7 @@ upstream protocol (WebSocket frames vs SSE).
   "$type": "BcStart",
   "Timing": "false",
   "Notifications": "true",
-  "Resource": "Karting",
+  "Resource": "Red Track",
   "BcFormat": "0",
   "NotificationGroups": ["BROADCAST", "TIMING", "INFO"],
   "RaceStatsResendInterval": "00:00:01"
@@ -27,7 +27,7 @@ Sent on every successful WebSocket open (including reconnects).
 ## What you get
 
 ```
-ws://68.171.192.138:1001 ──WebSocket──► kart-timing-bridge (Railway)
+ws://68.171.192.138:10001 ──WebSocket──► kart-timing-bridge (Railway)
                                          │
                                          ▼ POST + x-kart-bridge-secret
                                     https://fasttraxent.com/api/webhooks/kart-timing-event
@@ -71,7 +71,7 @@ on the Vercel side.
 cd kart-timing-bridge
 railway init   # link to a new project
 railway variables set \
-  WS_URL='ws://68.171.192.138:1001' \
+  WS_URL='ws://68.171.192.138:10001' \
   WEBHOOK_URL='https://fasttraxent.com/api/webhooks/kart-timing-event' \
   WEBHOOK_SECRET='<paste same hex as vt3-bridge>'
 railway up

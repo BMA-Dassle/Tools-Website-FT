@@ -12,7 +12,7 @@
  * normal webhook-driven request/response model.
  *
  * Required env vars (set via `railway variables set` or Fly secrets):
- *   WS_URL             ws://68.171.192.138:1001 (or override per env)
+ *   WS_URL             ws://68.171.192.138:10001 (or override per env)
  *   WEBHOOK_URL        https://fasttraxent.com/api/webhooks/kart-timing-event
  *   WEBHOOK_SECRET     shared with fasttraxent.com's KART_BRIDGE_SECRET
  *
@@ -26,7 +26,7 @@
  * Subscription resend: BcStart fires on every successful open.
  */
 
-const WS_URL = process.env.WS_URL ?? "ws://68.171.192.138:1001";
+const WS_URL = process.env.WS_URL ?? "ws://68.171.192.138:10001";
 const WEBHOOK_URL = required("WEBHOOK_URL");
 const WEBHOOK_SECRET = required("WEBHOOK_SECRET");
 const PROBE_MODE = process.env.PROBE === "1";
@@ -40,7 +40,7 @@ const BC_START_MESSAGE = {
   $type: "BcStart",
   Timing: "false",
   Notifications: "true",
-  Resource: "Karting",
+  Resource: "Red Track",
   BcFormat: "0",
   NotificationGroups: ["BROADCAST", "TIMING", "INFO"],
   RaceStatsResendInterval: "00:00:01",
@@ -132,17 +132,47 @@ async function consumeStream(): Promise<void> {
         raw = new TextDecoder().decode(ev.data);
       else raw = String(ev.data);
 
+      // The server emits empty data frames as keep-alives between real
+      // messages (~1/sec). They're not actionable — drop them before
+      // doing any work or forwarding them to the webhook.
+      if (raw.length === 0) {
+        debug("empty keep-alive frame");
+        return;
+      }
+
       let parsed: unknown = raw;
       try {
         parsed = JSON.parse(raw);
       } catch {
         // Leave as raw string — webhook still gets it
       }
-      const type =
-        typeof parsed === "object" && parsed !== null && "$type" in parsed
-          ? String((parsed as Record<string, unknown>).$type)
-          : "raw";
-      console.log(`[kart-bridge] message type=${type} bytes=${raw.length}`);
+
+      // BcStart's first reply is typically a JSON ARRAY (catch-up dump
+      // of recent races, lap times, etc.). Subsequent broadcasts can be
+      // single objects OR arrays. Detect both shapes for useful logging.
+      let typeLabel = "raw";
+      if (Array.isArray(parsed)) {
+        const counts = new Map<string, number>();
+        for (const item of parsed) {
+          const t =
+            typeof item === "object" && item !== null && "$type" in item
+              ? String((item as Record<string, unknown>).$type)
+              : "raw";
+          counts.set(t, (counts.get(t) ?? 0) + 1);
+        }
+        const summary = [...counts.entries()]
+          .map(([t, n]) => `${t}x${n}`)
+          .join(",");
+        typeLabel = `array(${parsed.length}:${summary})`;
+      } else if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "$type" in parsed
+      ) {
+        typeLabel = String((parsed as Record<string, unknown>).$type);
+      }
+
+      console.log(`[kart-bridge] message type=${typeLabel} bytes=${raw.length}`);
       debug("payload:", parsed);
       forward(parsed).catch((err) =>
         console.error("[kart-bridge] forward threw:", err),
