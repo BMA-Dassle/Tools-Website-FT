@@ -249,24 +249,33 @@ export interface Vt3UnlockCode {
 }
 
 /**
- * Drain the `/unlock-codes` registry for one site. VT3's UI pages
- * 15-at-a-time so we use a larger page size (250) and stop when a
- * page returns fewer rows than the limit. Caps at `maxRows` to keep
- * Lambda execution time bounded — set high (default 5000) since FT
- * has ~200 codes total today and growth is on the order of dozens
- * per week.
+ * Drain the `/unlock-codes` registry. The endpoint is JWT-scoped to
+ * the sites the user account can see — for our service account that
+ * means FastTrax (site 992) only, so we don't pass `site_in`.
  *
- * Auth + retry pattern matches `listRecentVideos`.
+ * Body shape verified via HAR capture from control-panel.vt3.io:
+ *   POST /unlock-codes  body: {_start, _limit}
  *
- * Endpoint verified via HAR capture from control-panel.vt3.io:
- *   POST /unlock-codes  body: {_start, _limit, site_in: [siteId]}
+ * Earlier draft also passed `_sort` and `site_in` like the videos
+ * endpoint; both got rejected with 400. Keeping the body minimal —
+ * matches the working capture exactly. Filters by site happen
+ * post-fetch (we discard rows whose `site.id !== siteId`).
+ *
+ * Default page size is 100 — VT3's UI uses 15 but the service
+ * appears to accept larger pages and 100 keeps round-trip count low
+ * for the few-thousand-code volume we run at. `maxRows` caps total
+ * iterations so a runaway pagination can't burn Lambda budget.
+ *
+ * Auth + retry pattern matches `listRecentVideos`. On 4xx/5xx the
+ * response body is captured into the thrown error so callers can
+ * see what VT3 actually rejected.
  */
 export async function listAllUnlockCodes(opts: {
   siteId: number;
   pageSize?: number;
   maxRows?: number;
 }): Promise<Vt3UnlockCode[]> {
-  const { siteId, pageSize = 250, maxRows = 5000 } = opts;
+  const { siteId, pageSize = 100, maxRows = 5000 } = opts;
   const out: Vt3UnlockCode[] = [];
   let start = 0;
 
@@ -279,12 +288,7 @@ export async function listAllUnlockCodes(opts: {
         "x-cp-ui": "mui",
         "x-cp-ver": "v2.48.2",
       },
-      body: JSON.stringify({
-        _start: start,
-        _limit: pageSize,
-        _sort: "createdAt:desc",
-        site_in: [siteId],
-      }),
+      body: JSON.stringify({ _start: start, _limit: pageSize }),
       cache: "no-store",
     });
 
@@ -296,10 +300,20 @@ export async function listAllUnlockCodes(opts: {
       jwt = await login();
       res = await fetchPage(jwt);
     }
-    if (!res.ok) throw new Error(`vt3 listAllUnlockCodes failed at start=${start}: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `vt3 listAllUnlockCodes failed at start=${start}: ${res.status} ${body.slice(0, 300)}`,
+      );
+    }
     const page = (await res.json()) as Vt3UnlockCode[];
     if (!Array.isArray(page) || page.length === 0) break;
-    out.push(...page);
+    // Defensive site filter — JWT should already scope to the right
+    // site, but if a service-account ever gains multi-site access
+    // we don't want HeadPinz codes leaking into a FastTrax report.
+    for (const c of page) {
+      if (!c.site || c.site.id === siteId) out.push(c);
+    }
     if (page.length < pageSize) break;
     start += pageSize;
   }
