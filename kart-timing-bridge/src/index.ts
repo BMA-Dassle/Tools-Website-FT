@@ -150,10 +150,13 @@ async function consumeStream(): Promise<void> {
     });
 
     ws.addEventListener("error", (ev) => {
-      const msg =
-        ev instanceof ErrorEvent ? ev.message : "WebSocket error event";
-      console.error("[kart-bridge] WebSocket error:", msg);
-      // ws will fire close after error; wait for that to resolve.
+      // Node 22's undici WebSocket dispatches a generic Event on error
+      // (NOT a browser-style ErrorEvent — that constructor isn't a
+      // global in Node, hence the original `instanceof ErrorEvent`
+      // crashed with ReferenceError). Log the event type and let
+      // the close handler resolve with details (code + reason).
+      const evtType = (ev as { type?: string } | null)?.type ?? "unknown";
+      console.error(`[kart-bridge] WebSocket error event (type=${evtType})`);
     });
 
     ws.addEventListener("close", (ev) => {
