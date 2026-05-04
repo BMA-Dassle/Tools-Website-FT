@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
@@ -268,15 +269,25 @@ export default function VideoAdminClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  // Auto-refresh every 15s so delivery state + viewed/opened
-  // updates land in near-real-time. Was 2 min — operator stared
-  // at stale "yellow sent" pills long after the carrier had
-  // confirmed delivery. Modal open → pause (don't yank state).
-  useEffect(() => {
-    if (resendTarget) return;
-    const id = setInterval(load, 15_000);
-    return () => clearInterval(id);
-  }, [load, resendTarget]);
+  // Auto-refresh every 10s so delivery state + viewed/opened
+  // updates land in near-real-time. History:
+  //   - was 2 min: operator stared at stale "yellow sent" pills
+  //     after the carrier confirmed delivery
+  //   - bumped to 15s: better but still felt laggy during busy
+  //     race windows when VT3 events flow ~5-12 events/min
+  //   - now 10s + visibility-aware: pauses while the tab is hidden
+  //     (idle laptops don't poll), uses setTimeout-recursive so
+  //     slow tabs don't pile up overlapping fetches.
+  // Modal open → pause (don't yank state out from under the
+  // resend dialog).
+  useVisibleInterval(
+    async (signal) => {
+      if (signal.aborted) return;
+      await load();
+    },
+    10_000,
+    !resendTarget,
+  );
 
   const rowKey = (e: VideoRow) => `${e.sessionId}:${e.personId}:${e.videoCode}`;
 
