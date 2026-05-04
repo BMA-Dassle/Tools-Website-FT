@@ -55,6 +55,7 @@ const spec = {
     { name: "Sales", description: "Read-only sales reporting." },
     { name: "Videos", description: "Race-video pipeline: list, refresh, resend, bulk resend, block / unblock." },
     { name: "E-Tickets", description: "Pre-race + check-in SMS log + per-message resend." },
+    { name: "POV Codes", description: "ViewPoint / POV unlock-code issuance, redemption, and breakage." },
   ],
   security: [{ ApiKeyAuth: [] }],
   components: {
@@ -542,6 +543,109 @@ const spec = {
           error: { type: "string", nullable: true },
         },
       },
+
+      // ── POV Codes ──────────────────────────────────────────────────────
+      PovBreakageEntry: {
+        type: "object",
+        description: [
+          "One row from the POV breakage cross-reference. Each row represents a code WE issued via the website",
+          "(Redis pov:used hash), joined to (a) VT3's unlock-code registry to detect redemption, and (b) the",
+          "booking-record cache to attach a race date.",
+        ].join("\n"),
+        properties: {
+          code: { type: "string", description: "10-char POV unlock code (full plaintext). Treat as PII — don't leak in logs.", example: "ZBHT7XQF21" },
+          issuedAt: { type: "string", format: "date-time", nullable: true, description: "When we popped this code out of the available pool" },
+          issuedVia: { type: "string", enum: ["billId", "claim-from-credit", "manual-use", "unknown"], description: "Source path that issued the code. billId = checkout-flow voucher; claim-from-credit = e-ticket page consumed BMI ViewPoint Credit; manual-use = staff marked via /api/pov-codes?action=use." },
+          billId: { type: "string", nullable: true, description: "BMI bill / order id when issuedVia = billId" },
+          email: { type: "string", format: "email", nullable: true },
+          personId: { type: "string", nullable: true, description: "BMI person id when issuedVia = claim-from-credit" },
+          sessionId: { type: "string", nullable: true, description: "Pandora session id when issuedVia = claim-from-credit" },
+          raceDate: { type: "string", format: "date", nullable: true, description: "YYYY-MM-DD ET — the date they BOOKED FOR (not when the code was issued or redeemed). Falls back to issuedAt's ET day when no booking record is on file." },
+          reservationNumber: { type: "string", nullable: true, example: "W23905" },
+          racerName: { type: "string", nullable: true, description: "Joined firstName + lastName from booking-record contact" },
+          redeemed: { type: "boolean", description: "True when VT3 marks the code as USED" },
+          redeemedAt: { type: "string", format: "date-time", nullable: true, description: "When the customer entered the code on vt3.io" },
+          videoCode: { type: "string", nullable: true, description: "10-char VT3 share code unlocked by this POV code (set when redeemed)" },
+          vt3Status: { type: "string", enum: ["ACTIVE", "USED", "REVOKED", "MISSING"], description: "Live VT3 state. MISSING = code in our pov:used hash but NOT found in VT3 — usually a stale code from a prior pool import that was rotated out." },
+          revokedAt: { type: "string", format: "date-time", nullable: true },
+          daysSinceIssued: { type: "integer", nullable: true, description: "Whole days between issuedAt and now (ET)" },
+        },
+      },
+      PovBreakageDailyTotal: {
+        type: "object",
+        properties: {
+          ymd: { type: "string", format: "date", example: "2026-05-03" },
+          issued: { type: "integer" },
+          redeemed: { type: "integer" },
+          active: { type: "integer", description: "issued − redeemed − revoked − missing" },
+        },
+      },
+      PovBreakageBySource: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["billId", "claim-from-credit", "manual-use", "unknown"] },
+          issued: { type: "integer" },
+          redeemed: { type: "integer" },
+          redemptionRate: { type: "number", description: "0..1, 4 decimals" },
+        },
+      },
+      PovBreakageResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+            },
+          },
+          totals: {
+            type: "object",
+            properties: {
+              issued: { type: "integer", description: "Codes WE issued in the date range (Redis pov:used)" },
+              redeemed: { type: "integer", description: "Subset of issued where VT3 reports USED + redeemedAt set" },
+              active: { type: "integer", description: "Issued, not redeemed, not revoked, present in VT3" },
+              revoked: { type: "integer", description: "Marked revoked in VT3 (revokedAt set)" },
+              missingFromVt3: { type: "integer", description: "In our pov:used hash but absent from VT3 — usually stale pool imports" },
+              breakage: { type: "integer", description: "issued − redeemed − revoked. The unredeemed-but-still-live tail. This is the dollar value sitting unclaimed." },
+              redemptionRate: { type: "number", description: "redeemed / issued, 0..1, 4 decimals" },
+              breakageRate: { type: "number", description: "breakage / issued, 0..1, 4 decimals" },
+            },
+          },
+          pool: {
+            type: "object",
+            description: "Health of the available code pool — staff watch this to know when to import more.",
+            properties: {
+              available: { type: "integer", description: "Codes still in pov:codes Redis SET, ready to be issued" },
+            },
+          },
+          byDay: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PovBreakageDailyTotal" },
+            description: "Per-race-date counts within the filter window. Useful for charting redemption decay.",
+          },
+          byIssuedVia: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PovBreakageBySource" },
+            description: "Source breakdown — answers 'which path produces the most/least redemptions?'",
+          },
+          excluded: {
+            type: "object",
+            description: "Diagnostic counts for codes filtered out of the in-range slice.",
+            properties: {
+              outOfRange: { type: "integer", description: "Codes whose race date sits outside [from, to]" },
+              noDate: { type: "integer", description: "Codes with no booking record AND no issuedAt to fall back on — staff should investigate" },
+            },
+          },
+          returned: { type: "integer" },
+          entries: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PovBreakageEntry" },
+            description: "Raw rows newest-first by issuedAt, paged to `limit`. Aggregations always cover the full filtered set, not just this page.",
+          },
+        },
+      },
     },
   },
   paths: {
@@ -826,6 +930,47 @@ const spec = {
         },
       },
     },
+    // ── POV Codes ──────────────────────────────────────────────────────
+    "/api/admin/pov-codes/breakage": {
+      get: {
+        tags: ["POV Codes"],
+        summary: "Issued vs redeemed cross-reference + breakage report",
+        description: [
+          "Cross-references three data sources to answer:",
+          "  • How many POV codes have we issued via the website?",
+          "  • How many of those did the customer actually redeem on vt3.io?",
+          "  • What's the breakage — the unredeemed-but-still-live tail?",
+          "",
+          "**Date filter targets the RESERVATION date** (the ET day the customer booked the race for), not the",
+          "issue date or redemption date. Codes without a booking record fall back to the issued ET-day so",
+          "they're still visible.",
+          "",
+          "**Sources joined**:",
+          "  1. `pov:used` Redis HASH — codes WE issued via the website (with billId / personId / sessionId).",
+          "  2. `POST sys.vt3.io/unlock-codes` — VT3's authoritative redemption registry (status, redeemedAt, video).",
+          "  3. `bookingrecord:{billId}` Redis cache — for the race date.",
+          "",
+          "Breakage = issued − redeemed − revoked. Operators read this to know how much unclaimed POV value",
+          "is sitting on customers' phones. Pool health is also surfaced so ops know when to import more codes.",
+        ].join("\n"),
+        parameters: [
+          { name: "from", in: "query" as const, description: "Race-date lower bound (ET, inclusive). YYYY-MM-DD. Default = 30 days ago.", schema: { type: "string", format: "date" } },
+          { name: "to", in: "query" as const, description: "Race-date upper bound (ET, inclusive). YYYY-MM-DD. Default = today.", schema: { type: "string", format: "date" } },
+          { name: "limit", in: "query" as const, description: "Max raw rows in `entries[]`. Aggregations always span the full filtered set. Default 1000.", schema: { type: "integer", default: 1000, minimum: 1, maximum: 5000 } },
+        ],
+        responses: {
+          "200": {
+            description: "Breakage report",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/PovBreakageResponse" } } },
+          },
+          "400": { description: "Invalid date format", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized — missing or invalid x-api-key" },
+          "404": { description: "Endpoint hidden — same body as 401 to avoid leaking that the path exists." },
+          "500": { description: "Server error (Redis / VT3 / booking-record hiccup)", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
     "/api/admin/e-tickets/resend": {
       post: {
         tags: ["E-Tickets"],

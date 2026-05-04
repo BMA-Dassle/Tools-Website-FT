@@ -63,7 +63,8 @@ export function middleware(request: NextRequest) {
     const apiKeyEligible =
       pathname.startsWith("/api/admin/sales/") ||
       pathname.startsWith("/api/admin/videos/") ||
-      pathname.startsWith("/api/admin/e-tickets/");
+      pathname.startsWith("/api/admin/e-tickets/") ||
+      pathname.startsWith("/api/admin/pov-codes/");
     if (apiKeyEligible) {
       const provided = request.headers.get("x-api-key") || request.nextUrl.searchParams.get("apiKey");
       const validKeys = (process.env.SALES_API_KEYS || "")

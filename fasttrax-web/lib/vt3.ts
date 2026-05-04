@@ -214,3 +214,94 @@ export async function linkCustomerEmail(code: string, email: string): Promise<bo
   );
   return true;
 }
+
+/**
+ * One row from VT3's POV / Viewpoint unlock-code registry. Returned by
+ * `POST /unlock-codes` (paginated, mirrors the videos endpoint shape).
+ *
+ *   status === "ACTIVE" — code printed/issued, not yet redeemed
+ *   status === "USED"   — customer entered the code on vt3.io and got a video
+ *   redeemedAt          — null when ACTIVE, ISO when USED
+ *   video               — null when ACTIVE, 10-char videoCode when USED
+ *
+ * Codes are masked client-side in the control-panel UI but the API
+ * returns the full plaintext code to authenticated server-side callers.
+ *
+ * `revokedAt` / `revokedBy` / `revokedReason` populate when staff
+ * manually revokes a code via the control panel — those count as
+ * neither active nor redeemed for our breakage math.
+ */
+export interface Vt3UnlockCode {
+  uid: string;
+  batchId: string;
+  code: string;            // full plaintext (server-side returns unmasked)
+  createdAt: string;
+  status: "ACTIVE" | "USED" | string;
+  createdBy?: { id: number; email?: string; name?: string };
+  system: { id: number; name: string } | null;
+  printedAt: string | null;
+  video: string | null;    // 10-char videoCode when status === "USED"
+  revokedAt: string | null;
+  revokedBy: { id: number; email?: string; name?: string } | null;
+  revokedReason: string | null;
+  site: { id: number; name: string; uid?: string };
+  redeemedAt: string | null;
+}
+
+/**
+ * Drain the `/unlock-codes` registry for one site. VT3's UI pages
+ * 15-at-a-time so we use a larger page size (250) and stop when a
+ * page returns fewer rows than the limit. Caps at `maxRows` to keep
+ * Lambda execution time bounded — set high (default 5000) since FT
+ * has ~200 codes total today and growth is on the order of dozens
+ * per week.
+ *
+ * Auth + retry pattern matches `listRecentVideos`.
+ *
+ * Endpoint verified via HAR capture from control-panel.vt3.io:
+ *   POST /unlock-codes  body: {_start, _limit, site_in: [siteId]}
+ */
+export async function listAllUnlockCodes(opts: {
+  siteId: number;
+  pageSize?: number;
+  maxRows?: number;
+}): Promise<Vt3UnlockCode[]> {
+  const { siteId, pageSize = 250, maxRows = 5000 } = opts;
+  const out: Vt3UnlockCode[] = [];
+  let start = 0;
+
+  const fetchPage = async (jwt: string) =>
+    fetch(`${VT3_HOST}/unlock-codes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${jwt}`,
+        "x-cp-ui": "mui",
+        "x-cp-ver": "v2.48.2",
+      },
+      body: JSON.stringify({
+        _start: start,
+        _limit: pageSize,
+        _sort: "createdAt:desc",
+        site_in: [siteId],
+      }),
+      cache: "no-store",
+    });
+
+  while (out.length < maxRows) {
+    let jwt = await getJwt();
+    let res = await fetchPage(jwt);
+    if (res.status === 401 || res.status === 403) {
+      await invalidateJwt();
+      jwt = await login();
+      res = await fetchPage(jwt);
+    }
+    if (!res.ok) throw new Error(`vt3 listAllUnlockCodes failed at start=${start}: ${res.status}`);
+    const page = (await res.json()) as Vt3UnlockCode[];
+    if (!Array.isArray(page) || page.length === 0) break;
+    out.push(...page);
+    if (page.length < pageSize) break;
+    start += pageSize;
+  }
+  return out;
+}
