@@ -67,7 +67,11 @@ interface BookingRecord {
 
 interface SaleRow {
   bill_id: string;
-  ts: string;
+  // Neon's serverless driver returns TIMESTAMPTZ as a JS Date, not an
+  // ISO string. We accept either and normalize to ISO string before
+  // putting it on the response — `Date.localeCompare` doesn't exist
+  // and broke the sort the first time we shipped this.
+  ts: string | Date;
   pov_qty: number;
   reservation_number: string | null;
   email: string | null;
@@ -111,11 +115,16 @@ function daysAgoETYmd(n: number): string {
   }).format(new Date(ms));
 }
 
-function isoToETYmd(iso: string): string {
+function isoToETYmd(iso: string | Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date(iso));
+  }).format(typeof iso === "string" ? new Date(iso) : iso);
+}
+
+/** Normalize sale.ts (string | Date) to a string ISO for the response. */
+function toIso(v: string | Date): string {
+  return typeof v === "string" ? v : v.toISOString();
 }
 
 /** HSCAN through `pov:used` once. Returns full plaintext code → metadata.
@@ -282,7 +291,7 @@ export async function GET(req: NextRequest) {
 
       inRange.push({
         billId: sale.bill_id,
-        bookedAt: sale.ts,
+        bookedAt: toIso(sale.ts),
         raceDate,
         reservationNumber: sale.reservation_number ?? booking?.reservationNumber ?? null,
         racerName,
