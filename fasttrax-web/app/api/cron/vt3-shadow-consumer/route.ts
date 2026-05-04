@@ -197,6 +197,44 @@ async function classifyEvent(
   const match: VideoMatch | null = await getMatchByVideoCode(evt.videoCode);
   const matchExisted = !!match;
 
+  // sample-uploaded events have a different payload shape — they
+  // carry just code + system + url, no createdAt / status. They're
+  // the "the sample MP4 is ready" semantic event, finer-grained
+  // than the status transitions. Handle them based on match state
+  // alone (no assignment-lookup needed since match was made earlier
+  // when the video first appeared via video-updated events).
+  if (evt.innerType === "sample-uploaded") {
+    if (!matchExisted) {
+      // No match yet → cron hasn't seen this video. Could happen
+      // if VT3 pushes sample-uploaded BEFORE the first video-updated
+      // event. Cron will catch up on its next 2-min tick.
+      return {
+        ...base,
+        decision: "skip-no-assignment",
+        matchExisted,
+        assignmentFound: false,
+        notes: "sample-uploaded with no existing match — cron hasn't matched yet",
+      };
+    }
+    if (match && !match.notifySmsOk && !match.notifyEmailOk) {
+      // Pending match becomes ready RIGHT NOW.
+      return {
+        ...base,
+        decision: "fire-deferred-notify",
+        matchExisted,
+        assignmentFound: true,
+        notes: "sample-uploaded fired ready signal on a pending match",
+      };
+    }
+    return {
+      ...base,
+      decision: "skip-already-notified",
+      matchExisted,
+      assignmentFound: true,
+      notes: "sample-uploaded for already-notified video — overlay no-op",
+    };
+  }
+
   // For events without enough context to do an assignment lookup
   // (the webhook's compact entry didn't include systemName/createdAt
   // yet), classify as ignored with a note. Future webhook extension
