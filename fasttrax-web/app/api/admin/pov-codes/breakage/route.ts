@@ -1,103 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { sql } from "@/lib/db";
-import { listAllUnlockCodes, type Vt3UnlockCode } from "@/lib/vt3";
+import { getVideoReport } from "@/lib/vt3";
 
 /**
  * GET /api/admin/pov-codes/breakage
  *
- * POV / ViewPoint redemption + breakage report.
+ * POV redemption + breakage report — fast aggregate variant.
  *
- * Authoritative chain:
- *   1. Neon `sales_log` — every confirmed POV sale (rows where
- *      `pov_purchased = true`, summed via `pov_qty`). This is the
- *      operator-truth "we sold N POV products in this window."
- *   2. Redis `pov:used` HASH — bridge layer. For each Neon billId we
- *      fetch the codes that got popped out of the available pool.
- *      Lets us go from a sale to a specific 10-char unlock code.
- *   3. VT3 `POST sys.vt3.io/unlock-codes` — redemption truth. Status
- *      `USED` + `redeemedAt` set means the customer entered the code
- *      on vt3.io and unlocked their video.
+ * Issued     = Neon `sales_log` SUM(pov_qty) WHERE pov_purchased
+ *              (operator truth — what we sold via the website)
+ * Redeemed   = VT3 video-report `unlockedVideoCount` for the same
+ *              window (any video that became playable — sales +
+ *              free unlocks across all source paths). Per ops
+ *              direction we anchor on this rather than per-code
+ *              cross-reference (the prefix-match approach was
+ *              4–8s under load).
+ * Breakage   = max(0, povSold − unlocked)
  *
- * Cross-reference quirk: VT3 returns codes MASKED in the API response
- * ("ZBHT7*****"). Our Redis hash has full plaintext. We match by the
- * first-5-character visible prefix; collision rate at our volume is
- * ~0.06%. Ambiguous matches (prefix shared by ≥2 VT3 codes) get
- * surfaced as a separate counter rather than silently miscounted.
+ * **No per-bill / per-code data**. Aggregate totals + a per-day
+ * series for charting only. If you need per-bill lookup for an
+ * individual customer, use the existing `/api/booking-record` /
+ * `/api/admin/sales/list` endpoints. If you need per-code drilldown,
+ * use VT3's control-panel directly.
  *
- * Date filter targets the **race date** (the ET day they booked the
- * race for), pulled from the `bookingrecord:{billId}` Redis cache.
- * Sales without a booking record fall back to the booking timestamp's
- * ET day so they stay visible.
- *
- * Response totals:
- *   salesRows        — count of POV sale rows in window
- *   povSold          — SUM(pov_qty) — the operator-truth issued count
- *   codesIssued      — Redis pov:used codes for those bills
- *   issuanceGap      — bills in Neon with no codes in Redis (problem)
- *   redeemed         — codes that VT3 marks USED (prefix-match)
- *   redemptionPct    — redeemed / povSold (anchored on operator truth)
- *   breakage         — povSold − redeemed
+ * Date filter targets the **race date** (booking-record `date`)
+ * when available, with fallback to the booking timestamp's ET day.
  *
  * Auth: same `x-api-key` (SALES_API_KEYS) as the rest of the admin
- * surface; falls back to operator admin token. See middleware.ts.
+ * surface; falls back to operator admin token.
  */
-
-const VT3_SITE_ID = parseInt(process.env.VT3_SITE_ID || "992", 10);
-const POV_USED_KEY = "pov:used";
-
-interface PovUsedMeta {
-  usedAt?: string;
-  billId?: string;
-  email?: string;
-  personId?: string | number;
-  sessionId?: string | number;
-  locationId?: string;
-  source?: string;
-}
 
 interface BookingRecord {
   billId: string;
   date?: string;
   status?: "pending_payment" | "confirmed";
-  reservationNumber?: string | null;
-  contact?: { firstName?: string; lastName?: string; email?: string; phone?: string };
-  primaryPersonId?: string | null;
 }
 
 interface SaleRow {
   bill_id: string;
-  // Neon's serverless driver returns TIMESTAMPTZ as a JS Date, not an
-  // ISO string. We accept either and normalize to ISO string before
-  // putting it on the response — `Date.localeCompare` doesn't exist
-  // and broke the sort the first time we shipped this.
   ts: string | Date;
   pov_qty: number;
-  reservation_number: string | null;
-  email: string | null;
-  phone: string | null;
-}
-
-interface BreakageEntry {
-  billId: string;
-  bookedAt: string;             // ISO — when the customer paid
-  raceDate: string | null;       // YYYY-MM-DD ET — race date from booking record
-  reservationNumber: string | null;
-  racerName: string | null;
-  email: string | null;
-  povQty: number;                // from Neon — operator truth
-  codesIssued: number;           // codes in Redis for this bill
-  codesRedeemed: number;         // VT3 prefix-match status=USED
-  codesActive: number;
-  codesRevoked: number;
-  codesAmbiguous: number;
-  codes: Array<{
-    code: string;
-    redeemed: boolean;
-    redeemedAt: string | null;
-    videoCode: string | null;
-    vt3Status: "ACTIVE" | "USED" | "REVOKED" | "AMBIGUOUS" | "MISSING" | string;
-  }>;
 }
 
 function todayETYmd(): string {
@@ -106,7 +49,6 @@ function todayETYmd(): string {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 }
-
 function daysAgoETYmd(n: number): string {
   const ms = Date.now() - n * 24 * 60 * 60 * 1000;
   return new Intl.DateTimeFormat("en-CA", {
@@ -114,38 +56,21 @@ function daysAgoETYmd(n: number): string {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date(ms));
 }
-
 function isoToETYmd(iso: string | Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(typeof iso === "string" ? new Date(iso) : iso);
 }
-
-/** Normalize sale.ts (string | Date) to a string ISO for the response. */
-function toIso(v: string | Date): string {
-  return typeof v === "string" ? v : v.toISOString();
+function etYmdToISO(ymd: string): string {
+  const month = parseInt(ymd.slice(5, 7), 10);
+  const isEDT = month >= 4 && month <= 10;
+  const offset = isEDT ? "-04:00" : "-05:00";
+  return `${ymd}T00:00:00${offset}`;
 }
-
-/** HSCAN through `pov:used` once. Returns full plaintext code → metadata.
- *  Skips malformed JSON entries with an empty meta. */
-async function readAllIssued(): Promise<Map<string, PovUsedMeta>> {
-  const out = new Map<string, PovUsedMeta>();
-  let cursor = "0";
-  let scanCount = 0;
-  do {
-    const [next, fields] = await redis.hscan(POV_USED_KEY, cursor, "COUNT", 500);
-    cursor = next;
-    scanCount++;
-    for (let i = 0; i < fields.length; i += 2) {
-      const code = fields[i];
-      const raw = fields[i + 1];
-      try { out.set(code, JSON.parse(raw) as PovUsedMeta); }
-      catch { out.set(code, {}); }
-    }
-    if (scanCount > 200) break;
-  } while (cursor !== "0");
-  return out;
+function ratio(num: number, denom: number): number {
+  if (!Number.isFinite(num) || !Number.isFinite(denom) || denom === 0) return 0;
+  return +(num / denom).toFixed(4);
 }
 
 async function readBookingRecords(billIds: string[]): Promise<Map<string, BookingRecord | null>> {
@@ -166,30 +91,6 @@ async function readBookingRecords(billIds: string[]): Promise<Map<string, Bookin
   return out;
 }
 
-/**
- * Build the prefix-match index over VT3 codes. Key = first 5 visible
- * characters (uppercase); value = list of VT3 records that match.
- * Length-1 lists → confident match; length-2+ → ambiguous bucket.
- */
-function indexVt3ByPrefix(codes: Vt3UnlockCode[]): Map<string, Vt3UnlockCode[]> {
-  const out = new Map<string, Vt3UnlockCode[]>();
-  for (const c of codes) {
-    const visible = c.code.replace(/\*+$/, "");
-    const prefix = visible.slice(0, 5).toUpperCase();
-    if (!out.has(prefix)) out.set(prefix, []);
-    out.get(prefix)!.push(c);
-  }
-  return out;
-}
-
-function classifyVt3Status(rec: Vt3UnlockCode | undefined): BreakageEntry["codes"][number]["vt3Status"] {
-  if (!rec) return "MISSING";
-  if (rec.revokedAt) return "REVOKED";
-  if (rec.status === "USED" || rec.redeemedAt) return "USED";
-  if (rec.status === "ACTIVE") return "ACTIVE";
-  return rec.status || "MISSING";
-}
-
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -198,61 +99,75 @@ export async function GET(req: NextRequest) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
       return NextResponse.json({ error: "Invalid date — use YYYY-MM-DD" }, { status: 400 });
     }
-    const limit = Math.max(1, Math.min(5000, parseInt(searchParams.get("limit") || "1000", 10) || 1000));
 
-    // Date semantics: the filter targets RACE date (booking_record.date) when
-    // available, falling back to booking timestamp's ET day. We pull a wide
-    // Neon window (booking ts in [from-7, to+7]) so a customer who booked
-    // outside the window for an in-window race still gets included; the
-    // post-join filter narrows down to actual race dates.
     const q = sql();
+    // Wide booking-ts window so a customer who paid outside [from,to]
+    // for an in-window race still rolls into the right race-date bucket.
     const rows = (await q`
-      SELECT
-        bill_id, ts, pov_qty, reservation_number, email, phone
+      SELECT bill_id, ts, pov_qty
       FROM sales_log
       WHERE pov_purchased = true
         AND bill_id IS NOT NULL
         AND ts >= (${from}::date - INTERVAL '7 days')
         AND ts <  (${to}::date + INTERVAL '8 days')
-      ORDER BY ts DESC
     `) as unknown as SaleRow[];
 
-    if (rows.length === 0) {
-      // Empty window — return zeroed report so UI renders cleanly
-      return NextResponse.json({
-        range: { from, to, days: Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 },
-        totals: { salesRows: 0, povSold: 0, codesIssued: 0, issuanceGap: 0, redeemed: 0, active: 0, revoked: 0, ambiguous: 0, missingFromVt3: 0, breakage: 0, redemptionPct: 0, breakagePct: 0 },
-        pool: { available: await redis.scard("pov:codes") },
-        byDay: [],
-        excluded: { outOfRange: 0, noDate: 0 },
-        returned: 0,
-        entries: [],
-      }, { headers: { "Cache-Control": "no-store" } });
-    }
+    // VT3 video-report — single round-trip. Bump `to` by 24h so VT3
+    // includes the `to` date in the result (their `to` is exclusive).
+    const fromIso = etYmdToISO(from);
+    const toNextYmd = new Date(Date.parse(`${to}T00:00:00Z`) + 86400000)
+      .toISOString().slice(0, 10);
+    const toIso = etYmdToISO(toNextYmd);
 
-    // Parallel: load Redis pov:used + booking-records + VT3 unlock-codes.
-    const [issued, bookingByBillId, vt3Codes] = await Promise.all([
-      readAllIssued(),
+    const [bookingByBillId, vt3Report] = await Promise.all([
       readBookingRecords(rows.map((r) => r.bill_id)),
-      listAllUnlockCodes({ siteId: VT3_SITE_ID, maxRows: 20000 }),
+      getVideoReport({
+        from: fromIso, to: toIso,
+        interval: "days", timezone: "America/New_York", sites: [],
+      }).catch((err) => {
+        console.warn("[admin/pov-codes/breakage] VT3 report failed:", err);
+        return null;
+      }),
     ]);
 
-    const vt3ByPrefix = indexVt3ByPrefix(vt3Codes);
+    // VT3 daily series for the FastTrax site (siteId: 992) when present;
+    // the cross-site aggregate (siteId: null) is equivalent for our
+    // single-site account.
+    const vt3SiteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
+    const ftPoints = vt3Report?.points.filter((p) => p.siteId === vt3SiteId) ?? [];
+    const aggPoints = vt3Report?.points.filter((p) => p.siteId === null) ?? [];
+    const vt3DailySeries = ftPoints.length > 0 ? ftPoints : aggPoints;
 
-    // Index our Redis codes by billId so we can pivot Neon-row → codes.
-    const codesByBillId = new Map<string, string[]>();
-    for (const [code, meta] of issued) {
-      if (meta.billId) {
-        if (!codesByBillId.has(meta.billId)) codesByBillId.set(meta.billId, []);
-        codesByBillId.get(meta.billId)!.push(code);
-      }
+    const vt3UnlockedByYmd = new Map<string, number>();
+    const vt3SoldByYmd = new Map<string, number>();
+    const vt3UnlockCodeByYmd = new Map<string, number>();
+    const vt3ManualByYmd = new Map<string, number>();
+    for (const p of vt3DailySeries) {
+      const ymd = typeof p.from === "string" ? p.from.slice(0, 10) : "";
+      if (!ymd) continue;
+      vt3UnlockedByYmd.set(ymd, p.unlockedVideoCount);
+      vt3SoldByYmd.set(ymd, p.videoSalesCount);
+      vt3UnlockCodeByYmd.set(ymd, p.unlockCodeVideoCount);
+      vt3ManualByYmd.set(ymd, p.manualUnlockVideoCount);
     }
 
-    // Build the per-bill breakage entries, filter by race date in [from, to].
-    const inRange: BreakageEntry[] = [];
+    // Roll Neon sales into per-race-date buckets. No per-bill output —
+    // we only emit aggregate counts.
+    const byDayMap = new Map<string, {
+      ymd: string;
+      povSold: number;
+      salesRows: number;
+      vt3Sold: number;
+      vt3Unlocked: number;
+      vt3UnlockCode: number;
+      vt3Manual: number;
+      breakage: number;
+      redemptionPct: number;
+    }>();
+
+    let totalPovSold = 0;
     let outOfRange = 0;
     let noDate = 0;
-
     for (const sale of rows) {
       const booking = bookingByBillId.get(sale.bill_id) || null;
       const raceDate = booking?.date || null;
@@ -261,111 +176,79 @@ export async function GET(req: NextRequest) {
       if (!filterDate) { noDate++; continue; }
       if (filterDate < from || filterDate > to) { outOfRange++; continue; }
 
-      const codes = codesByBillId.get(sale.bill_id) || [];
-      const codeRows: BreakageEntry["codes"] = [];
-      let red = 0, act = 0, rev = 0, amb = 0;
-      for (const code of codes) {
-        const cands = vt3ByPrefix.get(code.slice(0, 5).toUpperCase()) || [];
-        if (cands.length > 1) {
-          amb++;
-          codeRows.push({ code, redeemed: false, redeemedAt: null, videoCode: null, vt3Status: "AMBIGUOUS" });
-          continue;
-        }
-        const v = cands[0];
-        const status = classifyVt3Status(v);
-        if (status === "USED") red++;
-        else if (status === "REVOKED") rev++;
-        else if (status === "ACTIVE") act++;
-        codeRows.push({
-          code,
-          redeemed: status === "USED",
-          redeemedAt: v?.redeemedAt || null,
-          videoCode: v?.video || null,
-          vt3Status: status,
+      const cur = byDayMap.get(filterDate) ?? {
+        ymd: filterDate, povSold: 0, salesRows: 0,
+        vt3Sold: vt3SoldByYmd.get(filterDate) ?? 0,
+        vt3Unlocked: vt3UnlockedByYmd.get(filterDate) ?? 0,
+        vt3UnlockCode: vt3UnlockCodeByYmd.get(filterDate) ?? 0,
+        vt3Manual: vt3ManualByYmd.get(filterDate) ?? 0,
+        breakage: 0, redemptionPct: 0,
+      };
+      cur.povSold += sale.pov_qty;
+      cur.salesRows++;
+      byDayMap.set(filterDate, cur);
+      totalPovSold += sale.pov_qty;
+    }
+
+    // Backfill per-day rows where VT3 saw activity but Neon had no
+    // POV sales (race day with no POV qty sold). Keeps the chart
+    // continuous instead of sparse.
+    for (const ymd of vt3UnlockedByYmd.keys()) {
+      if (ymd < from || ymd > to) continue;
+      if (!byDayMap.has(ymd)) {
+        byDayMap.set(ymd, {
+          ymd, povSold: 0, salesRows: 0,
+          vt3Sold: vt3SoldByYmd.get(ymd) ?? 0,
+          vt3Unlocked: vt3UnlockedByYmd.get(ymd) ?? 0,
+          vt3UnlockCode: vt3UnlockCodeByYmd.get(ymd) ?? 0,
+          vt3Manual: vt3ManualByYmd.get(ymd) ?? 0,
+          breakage: 0, redemptionPct: 0,
         });
       }
-
-      const racerName = booking?.contact
-        ? `${booking.contact.firstName ?? ""} ${booking.contact.lastName ?? ""}`.trim() || null
-        : null;
-
-      inRange.push({
-        billId: sale.bill_id,
-        bookedAt: toIso(sale.ts),
-        raceDate,
-        reservationNumber: sale.reservation_number ?? booking?.reservationNumber ?? null,
-        racerName,
-        email: sale.email ?? booking?.contact?.email ?? null,
-        povQty: sale.pov_qty,
-        codesIssued: codes.length,
-        codesRedeemed: red,
-        codesActive: act,
-        codesRevoked: rev,
-        codesAmbiguous: amb,
-        codes: codeRows,
-      });
     }
 
-    // Aggregate the in-range slice.
+    // Per-day breakage anchored on povSold − vt3Unlocked.
+    for (const r of byDayMap.values()) {
+      r.breakage = Math.max(0, r.povSold - r.vt3Unlocked);
+      r.redemptionPct = ratio(r.vt3Unlocked, r.povSold);
+    }
+
+    const totalUnlocked = [...byDayMap.values()].reduce((s, r) => s + r.vt3Unlocked, 0);
+    const totalVt3Sold = [...byDayMap.values()].reduce((s, r) => s + r.vt3Sold, 0);
+    const totalUnlockCode = [...byDayMap.values()].reduce((s, r) => s + r.vt3UnlockCode, 0);
+    const totalManual = [...byDayMap.values()].reduce((s, r) => s + r.vt3Manual, 0);
+    const breakage = Math.max(0, totalPovSold - totalUnlocked);
+
     const totals = {
-      salesRows: inRange.length,
-      povSold: 0,
-      codesIssued: 0,
-      issuanceGap: 0,
-      redeemed: 0,
-      active: 0,
-      revoked: 0,
-      ambiguous: 0,
-      missingFromVt3: 0,
-      breakage: 0,
-      redemptionPct: 0,
-      breakagePct: 0,
+      salesRows: [...byDayMap.values()].reduce((s, r) => s + r.salesRows, 0),
+      povSold: totalPovSold,
+      vt3Sold: totalVt3Sold,
+      unlocked: totalUnlocked,
+      unlockCodeRedeemed: totalUnlockCode,
+      manualUnlocked: totalManual,
+      breakage,
+      redemptionPct: ratio(totalUnlocked, totalPovSold),
+      breakagePct: ratio(breakage, totalPovSold),
     };
-    const byDay = new Map<string, { ymd: string; salesRows: number; povSold: number; codesIssued: number; redeemed: number; breakage: number }>();
-
-    for (const e of inRange) {
-      totals.povSold += e.povQty;
-      totals.codesIssued += e.codesIssued;
-      if (e.codesIssued === 0) totals.issuanceGap++;
-      totals.redeemed += e.codesRedeemed;
-      totals.active += e.codesActive;
-      totals.revoked += e.codesRevoked;
-      totals.ambiguous += e.codesAmbiguous;
-      // codes whose status is MISSING (not in any prefix bucket) — count
-      // separately so ops sees them but they don't pollute the active math
-      const missing = e.codes.filter((c) => c.vt3Status === "MISSING").length;
-      totals.missingFromVt3 += missing;
-
-      const d = e.raceDate || isoToETYmd(e.bookedAt);
-      const cur = byDay.get(d) ?? { ymd: d, salesRows: 0, povSold: 0, codesIssued: 0, redeemed: 0, breakage: 0 };
-      cur.salesRows++;
-      cur.povSold += e.povQty;
-      cur.codesIssued += e.codesIssued;
-      cur.redeemed += e.codesRedeemed;
-      cur.breakage += Math.max(0, e.povQty - e.codesRedeemed);
-      byDay.set(d, cur);
-    }
-
-    // Breakage anchored on operator-truth povSold.
-    totals.breakage = Math.max(0, totals.povSold - totals.redeemed);
-    totals.redemptionPct = totals.povSold > 0 ? +(totals.redeemed / totals.povSold).toFixed(4) : 0;
-    totals.breakagePct = totals.povSold > 0 ? +(totals.breakage / totals.povSold).toFixed(4) : 0;
 
     const poolAvailable = await redis.scard("pov:codes");
-
-    // Newest-first by booking time, page to limit.
-    inRange.sort((a, b) => b.bookedAt.localeCompare(a.bookedAt));
-    const entries = inRange.slice(0, limit);
 
     return NextResponse.json(
       {
         range: { from, to, days: Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 },
         totals,
         pool: { available: poolAvailable },
-        byDay: [...byDay.values()].sort((a, b) => a.ymd.localeCompare(b.ymd)),
+        byDay: [...byDayMap.values()].sort((a, b) => a.ymd.localeCompare(b.ymd)),
         excluded: { outOfRange, noDate },
-        returned: entries.length,
-        entries,
+        meta: {
+          issuedSource: "neon.sales_log.pov_qty WHERE pov_purchased",
+          redeemedSource: "vt3.video-report.unlockedVideoCount",
+          notes: [
+            "unlocked includes ALL videos that became playable (Stripe online + our codes + manual + free).",
+            "unlockCodeRedeemed is the narrower 'our codes only' counter.",
+            "Per-bill and per-code data removed for performance; see /api/admin/pov-codes/report for the full VT3 metric set.",
+          ],
+        },
       },
       { headers: { "Cache-Control": "no-store" } },
     );
