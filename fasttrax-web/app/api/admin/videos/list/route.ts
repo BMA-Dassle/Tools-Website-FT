@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import { listMatchesInRange, type VideoMatch } from "@/lib/video-match";
+import {
+  listMatchesInRange,
+  listUnmatchedInRange,
+  type VideoMatch,
+  type UnmatchedVideo,
+} from "@/lib/video-match";
 import { listRecentVideos } from "@/lib/vt3";
 
 /**
@@ -111,33 +116,48 @@ export async function GET(req: NextRequest) {
         : (await listMatchesInRange({ startMs, endMs, limit: Math.min(1000, limit * 3) }))
             .map((m) => ({ ...m, matched: true as const }));
 
-    // 2. Unmatched — fetch recent vt3 videos for the FastTrax site,
-    //    filter to the date window, skip any that are already matched
-    //    (sentinel check) or about to be matched (camera-watch present,
-    //    meaning a camera-assign exists for them and the cron will
-    //    pick them up next tick).
+    // 2. Unmatched — read from the Redis-backed unmatched registry.
+    //    The webhook writes a record for every capture event whose
+    //    kart had no camera-assign at capture time; saveVideoMatch
+    //    removes the record when a video later becomes matched. So
+    //    this view is mutually exclusive with the matched view above.
+    //
+    //    Replaces the prior `listRecentVideos({ limit: 200 })` polling
+    //    path which capped the day at the 200 most recent VT3 videos —
+    //    busy days (> 200 captures) lost visibility into older
+    //    unmatched rows. The Redis log holds 7d × 5000 entries, way
+    //    above our peak. VT3 fallback below covers the transitional
+    //    window during which old captures predate this code.
     let unmatched: ListEntry[] = [];
     if (show !== "matched") {
+      let unmatchedRecords: UnmatchedVideo[] = [];
       try {
-        const siteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
-        const vids = await listRecentVideos({ siteId, limit: 200 });
-        const candidates = vids.filter((v) => {
-          const t = new Date(v.created_at).getTime();
-          return t >= startMs && t <= endMs;
+        unmatchedRecords = await listUnmatchedInRange({
+          startMs,
+          endMs,
+          limit: Math.min(2000, Math.max(limit * 3, 500)),
         });
-        if (candidates.length > 0) {
-          const sentinelKeys = candidates.map((v) => `video-match:by-code:${v.code}`);
-          const sentinels = sentinelKeys.length ? await redis.mget(...sentinelKeys) : [];
-          unmatched = candidates
-            .filter((_, i) => !sentinels[i])
-            .map((v) => {
-              const viewed =
-                !!v.hasVideoPageImpression ||
-                !!v.hasMediaCentreImpression ||
-                !!v.firstImpressionAt;
-              const unlockedAt = v.unlockTime || undefined;
-              return {
-                matched: false as const,
+      } catch (err) {
+        console.error("[admin/videos/list] unmatched registry read failed:", err);
+      }
+
+      // Defensive: a Redis hiccup would leave the bucket empty. Drop
+      // back to the legacy VT3 polling path so admin keeps working.
+      // Same 200-cap caveat as before, but only on the failure mode.
+      if (unmatchedRecords.length === 0 && show === "unmatched") {
+        try {
+          const siteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
+          const vids = await listRecentVideos({ siteId, limit: 200 });
+          const candidates = vids.filter((v) => {
+            const t = new Date(v.created_at).getTime();
+            return t >= startMs && t <= endMs;
+          });
+          if (candidates.length > 0) {
+            const sentinelKeys = candidates.map((v) => `video-match:by-code:${v.code}`);
+            const sentinels = sentinelKeys.length ? await redis.mget(...sentinelKeys) : [];
+            unmatchedRecords = candidates
+              .filter((_, i) => !sentinels[i])
+              .map((v) => ({
                 videoId: v.id,
                 videoCode: v.code,
                 systemNumber: v.system?.name || "",
@@ -146,28 +166,48 @@ export async function GET(req: NextRequest) {
                 thumbnailUrl: v.thumbnailUrl,
                 capturedAt: v.created_at,
                 duration: v.duration,
-                matchedAt: v.created_at, // treat capture time as the sortable timestamp
-                firstName: "",
-                lastName: "",
-                sessionId: "" as const,
-                personId: "" as const,
-                viewed: viewed || undefined,
+                matchedAt: v.created_at,
+                videoStatus: v.status,
+                sampleUploadTime: v.sampleUploadTime ?? null,
+                lastWebhookEventAt: v.created_at,
+                viewed:
+                  !!v.hasVideoPageImpression ||
+                  !!v.hasMediaCentreImpression ||
+                  !!v.firstImpressionAt || undefined,
                 firstViewedAt: v.firstImpressionAt || undefined,
                 lastViewedAt: v.lastImpressionAt || undefined,
-                // Only "PAID" counts as purchased — VT3 sets unlockTime
-                // on free / unlockCode unlocks too. See extractOverlay
-                // in app/api/cron/video-match/route.ts for the same gate.
                 purchased: v.purchaseType === "PAID" || undefined,
                 purchaseType: v.purchaseType || undefined,
-                unlockedAt,
-              };
-            });
+                unlockedAt: v.unlockTime || undefined,
+              }));
+          }
+        } catch (err) {
+          console.error("[admin/videos/list] vt3 fallback failed:", err);
         }
-      } catch (err) {
-        // VT3 API failure shouldn't kill the whole list — matched rows
-        // are still useful. Log and continue.
-        console.error("[admin/videos/list] vt3 fetch failed:", err);
       }
+
+      unmatched = unmatchedRecords.map((u) => ({
+        matched: false as const,
+        videoId: u.videoId,
+        videoCode: u.videoCode,
+        systemNumber: u.systemNumber,
+        cameraNumber: u.cameraNumber,
+        customerUrl: u.customerUrl,
+        thumbnailUrl: u.thumbnailUrl,
+        capturedAt: u.capturedAt,
+        duration: u.duration,
+        matchedAt: u.matchedAt,
+        firstName: "",
+        lastName: "",
+        sessionId: "" as const,
+        personId: "" as const,
+        viewed: u.viewed,
+        firstViewedAt: u.firstViewedAt,
+        lastViewedAt: u.lastViewedAt,
+        purchased: u.purchased,
+        purchaseType: u.purchaseType,
+        unlockedAt: u.unlockedAt,
+      }));
     }
 
     // 3. Merge + sort newest-first by matchedAt (which for unmatched =

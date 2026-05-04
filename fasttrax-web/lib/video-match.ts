@@ -193,6 +193,130 @@ const MATCH_LOG_KEY = "video-match:log";
 const LAST_SEEN_KEY = "vt3:last-seen-id";
 
 /**
+ * Unmatched-video registry. Populated by the webhook when a VT3 capture
+ * event arrives for a kart with no active camera-assign — instead of
+ * dropping the record, we persist it here so the admin UI can show
+ * "every video for the day" without a 200-record VT3 polling cap.
+ *
+ * When a previously-unmatched video later gets matched (cron catch-up,
+ * or staff manually sending), `saveVideoMatch` removes the record so
+ * the admin's matched + unmatched view stays mutually exclusive.
+ *
+ * 7-day TTL — long enough that a Sunday capture is still inspectable
+ * Saturday-of-the-following-week, short enough that the log stays
+ * bounded without explicit pruning.
+ */
+const UNMATCHED_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const UNMATCHED_LOG_KEY = "video-unmatched:log";
+function unmatchedKey(videoCode: string): string {
+  return `video-unmatched:${videoCode}`;
+}
+
+export interface UnmatchedVideo {
+  videoId: number;
+  videoCode: string;
+  systemNumber: string;
+  cameraNumber?: number;
+  customerUrl: string;
+  thumbnailUrl?: string;
+  capturedAt: string;
+  duration?: number;
+  /** Mirrors capturedAt so the admin UI sort + display logic stays
+   *  uniform across matched/unmatched rows. */
+  matchedAt: string;
+  videoStatus?: string;
+  sampleUploadTime?: string | null;
+  /** Latest update time — webhook events for the same code overwrite
+   *  the record, so this lets the admin UI show "captured 4:12 PM,
+   *  last update 4:18 PM (encoded)". */
+  lastWebhookEventAt: string;
+  /** Optional VT3 overlay — populated by the cron's overlay refresh
+   *  pass. Lets the admin UI show 👁 viewed / 💰 purchased chips on
+   *  unmatched rows the same way it does for matched rows. */
+  viewed?: boolean;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  purchased?: boolean;
+  purchaseType?: string;
+  unlockedAt?: string;
+}
+
+/**
+ * Persist (or overwrite) an unmatched-video record. Called by the
+ * webhook's `skip-no-assignment` branch. Multiple events for the
+ * same code overwrite each other — we keep the latest snapshot.
+ */
+export async function recordUnmatchedVideo(rec: UnmatchedVideo): Promise<void> {
+  await redis.set(unmatchedKey(rec.videoCode), JSON.stringify(rec), "EX", UNMATCHED_TTL_SECONDS);
+  // Score by capturedAt so listUnmatchedInRange can do an O(log n)
+  // range scan keyed on the kart-capture time, not the webhook receive
+  // time. Trim to 5000 newest — covers > 1 week of busy weekends.
+  const score = new Date(rec.capturedAt || rec.matchedAt).getTime();
+  if (Number.isFinite(score)) {
+    await redis.zadd(UNMATCHED_LOG_KEY, score, rec.videoCode);
+    await redis.zremrangebyrank(UNMATCHED_LOG_KEY, 0, -5001);
+  }
+}
+
+/**
+ * Remove an unmatched record. Called by `saveVideoMatch` when a
+ * formerly-unmatched code gets linked to a racer, so the admin
+ * UI doesn't show the same video as both matched and unmatched.
+ */
+export async function removeUnmatchedVideo(videoCode: string): Promise<void> {
+  await redis.del(unmatchedKey(videoCode));
+  await redis.zrem(UNMATCHED_LOG_KEY, videoCode);
+}
+
+/**
+ * Range scan over the unmatched log. Mirrors listMatchesInRange's
+ * shape so the admin route can call both with the same window.
+ */
+export async function listUnmatchedInRange(opts: {
+  startMs: number;
+  endMs: number;
+  limit?: number;
+}): Promise<UnmatchedVideo[]> {
+  const { startMs, endMs, limit = 500 } = opts;
+  const codes = await redis.zrevrangebyscore(
+    UNMATCHED_LOG_KEY,
+    endMs,
+    startMs,
+    "LIMIT",
+    0,
+    Math.max(1, Math.min(2000, limit)),
+  );
+  if (!codes || codes.length === 0) return [];
+  const keys = codes.map((c: string) => unmatchedKey(c));
+  const raws = await redis.mget(...keys);
+  const out: UnmatchedVideo[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    try { out.push(JSON.parse(raw)); } catch { /* skip */ }
+  }
+  return out;
+}
+
+/**
+ * One-shot patch helper for VT3 overlay updates (viewed/purchased).
+ * Used by the overlay-refresh pass when the same code is still in the
+ * unmatched bucket but VT3 reports new impression / unlock state.
+ */
+export async function patchUnmatchedOverlay(
+  videoCode: string,
+  patch: Partial<Pick<UnmatchedVideo,
+    "viewed" | "firstViewedAt" | "lastViewedAt" | "purchased" | "purchaseType" | "unlockedAt"
+  >>,
+): Promise<void> {
+  const raw = await redis.get(unmatchedKey(videoCode));
+  if (!raw) return;
+  let cur: UnmatchedVideo;
+  try { cur = JSON.parse(raw) as UnmatchedVideo; } catch { return; }
+  const next = { ...cur, ...patch };
+  await redis.set(unmatchedKey(videoCode), JSON.stringify(next), "EX", UNMATCHED_TTL_SECONDS);
+}
+
+/**
  * Persist a match. Writes both the primary record and a by-code
  * sentinel so the cron skips this video on subsequent runs.
  *
@@ -215,6 +339,9 @@ export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
     await redis.zadd(MATCH_LOG_KEY, score, `${m.sessionId}:${m.personId}`);
     await redis.zremrangebyrank(MATCH_LOG_KEY, 0, -10001);
   }
+  // Drop any unmatched-bucket record so the admin's matched + unmatched
+  // views stay mutually exclusive (no double-listing of the same video).
+  await removeUnmatchedVideo(m.videoCode).catch(() => void 0);
   return true;
 }
 

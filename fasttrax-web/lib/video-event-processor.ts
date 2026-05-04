@@ -4,7 +4,9 @@ import {
   saveVideoMatch,
   updateVideoMatch,
   isVideoReadyForNotify,
+  recordUnmatchedVideo,
   type VideoMatch,
+  type UnmatchedVideo,
 } from "@/lib/video-match";
 import { getAssignmentAtTime } from "@/lib/camera-assign";
 import { getBlockState } from "@/lib/video-block";
@@ -402,6 +404,44 @@ export async function processVideoEvent(
     assignment = await getAssignmentAtTime(systemKey, event.created_at);
   }
   if (!assignment) {
+    // No camera-assign for the kart at capture time — but we still want
+    // the admin UI's "all videos for the day" view to surface this row
+    // so staff can manually send. Persist a lightweight unmatched
+    // record. saveVideoMatch removes it whenever a match is later
+    // created (cron catch-up, manual send), so the unmatched view stays
+    // mutually exclusive with the matched view.
+    // Carry forward any overlay fields VT3 included on this event.
+    // Subsequent events for the same code overwrite the record (latest
+    // wins) so view/purchase state stays current without a separate
+    // overlay-refresh cron.
+    const viewed =
+      !!event.hasVideoPageImpression ||
+      !!event.hasMediaCentreImpression ||
+      !!event.firstImpressionAt;
+    const purchased = event.purchaseType === "PAID" || !!event.unlockTime;
+    const unmatchedRec: UnmatchedVideo = {
+      videoId: typeof event.id === "number" ? event.id : 0,
+      videoCode: code,
+      systemNumber: systemKey || "",
+      cameraNumber: typeof event.camera === "number" ? event.camera : undefined,
+      customerUrl: `https://vt3.io/?code=${code}`,
+      thumbnailUrl: typeof event.thumbnailUrl === "string" ? event.thumbnailUrl : undefined,
+      capturedAt: event.created_at,
+      duration: typeof event.duration === "number" ? event.duration : undefined,
+      matchedAt: event.created_at, // mirror so admin sort logic is uniform
+      videoStatus: typeof event.status === "string" ? event.status : undefined,
+      sampleUploadTime: event.sampleUploadTime ?? null,
+      lastWebhookEventAt: new Date().toISOString(),
+      viewed: viewed || undefined,
+      firstViewedAt: event.firstImpressionAt || undefined,
+      lastViewedAt: event.lastImpressionAt || undefined,
+      purchased: purchased || undefined,
+      purchaseType: event.purchaseType || undefined,
+      unlockedAt: event.unlockTime || undefined,
+    };
+    await recordUnmatchedVideo(unmatchedRec).catch((err) =>
+      console.warn(`[video-event-processor] recordUnmatchedVideo(${code}) failed:`, err),
+    );
     return { decision: "skip-no-assignment", source, videoCode: code };
   }
 
