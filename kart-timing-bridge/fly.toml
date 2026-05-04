@@ -1,0 +1,12 @@
+# Fly.io alternate config (Railway is the primary host).
+app = "kart-timing-bridge"
+primary_region = "iad"
+
+[build]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[deploy]
+  strategy = "immediate"
