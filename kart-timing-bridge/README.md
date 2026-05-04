@@ -15,7 +15,7 @@ upstream protocol (WebSocket frames vs SSE).
   "$type": "BcStart",
   "Timing": "false",
   "Notifications": "true",
-  "Resource": "Red Track",
+  "Resource": "Karting",
   "BcFormat": "0",
   "NotificationGroups": [
     "BROADCAST", "CLIENTACTIONS", "DEVICE", "MAINTENANCE",

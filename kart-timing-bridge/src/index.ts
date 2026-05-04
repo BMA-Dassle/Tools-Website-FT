@@ -40,7 +40,14 @@ const BC_START_MESSAGE = {
   $type: "BcStart",
   Timing: "false",
   Notifications: "true",
-  Resource: "Red Track",
+  // "Karting" is the resource CATEGORY (per BMA dev). Setting it to a
+  // specific track name like "Red Track" works but filters out the
+  // other karting tracks (e.g. "Blue Track"). Subscribing at the
+  // category level gets us all karting traffic in one stream; we
+  // filter per-track Vercel-side via ResourceName / ResourceId.
+  // Confirmed against live: Red Track catch-up = 52 items,
+  // Blue Track catch-up = 47 items, Karting catch-up = 109 items.
+  Resource: "Karting",
   BcFormat: "0",
   // Full set of NotificationGroups exposed by the SMS-Timing /
   // tournament-manager admin UI. Subscribing to all of them gives
