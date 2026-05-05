@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
         ts, phone,
-        source: "admin-resend",
+        source: "video-resend",
         status: send.status, ok: true,
         body: smsBody,
         viaGuardian: recipient === "guardian",
@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
       await quotaEnqueue({
         phone,
         body: smsBody,
-        source: "admin-resend",
+        source: "video-resend",
         queuedAt: ts,
         shortCode: match.videoCode,
         audit: {
@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
         ts, phone,
-        source: "admin-resend",
+        source: "video-resend",
         status: send.status, ok: false,
         error: match.notifySmsError,
         body: smsBody,
@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
         const sBody = buildSmsBody({ firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl }, c.recipient);
         const tts = new Date().toISOString();
         await quotaEnqueue({
-          phone: c.phone, body: sBody, source: "admin-resend", queuedAt: tts,
+          phone: c.phone, body: sBody, source: "video-resend", queuedAt: tts,
           shortCode: m.videoCode,
           audit: { sessionIds: [m.sessionId], personIds: [m.personId], memberCount: 1 },
         });
@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
         ts, phone,
-        source: "admin-resend",
+        source: "video-resend",
         status: send.status, ok: false,
         error: match.notifySmsError,
         body: smsBody,

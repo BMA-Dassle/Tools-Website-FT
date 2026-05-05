@@ -16,9 +16,21 @@ export interface SmsLogEntry {
   /** Canonical E.164 phone (e.g. +12395551234) */
   phone: string;
   /** Which cron / code path fired this.
-   *  `admin-resend` is a manual resend from the /admin/* tool — distinguish
-   *  these in reports so they don't double-count real cron deliveries. */
-  source: "pre-race-cron" | "checkin-cron" | "booking-confirm" | "level-up" | "admin-resend" | "video-match" | "other";
+   *  `admin-resend`  = e-ticket admin resend (single SMS resend by shortCode)
+   *  `video-resend`  = video admin manual or bulk resend (race-video SMS)
+   *  `pov-resend`    = POV / Voucher admin resend (unlock-code SMS)
+   *  Split per-surface so each admin board can filter cleanly without one
+   *  surface's resends polluting another's view. */
+  source:
+    | "pre-race-cron"
+    | "checkin-cron"
+    | "booking-confirm"
+    | "level-up"
+    | "admin-resend"
+    | "video-resend"
+    | "pov-resend"
+    | "video-match"
+    | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;
   /** true iff Voxtelesys accepted the send (res.ok) */

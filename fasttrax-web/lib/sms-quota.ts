@@ -50,7 +50,16 @@ export interface QueuedSend {
   /** Optional Voxtelesys From override; falls back to default if omitted */
   from?: string;
   /** Origin tag — propagated into sms-log when the send eventually succeeds */
-  source: "pre-race-cron" | "checkin-cron" | "booking-confirm" | "level-up" | "video-match" | "admin-resend" | "other";
+  source:
+    | "pre-race-cron"
+    | "checkin-cron"
+    | "booking-confirm"
+    | "level-up"
+    | "video-match"
+    | "admin-resend"
+    | "video-resend"
+    | "pov-resend"
+    | "other";
   /** ISO timestamp of original (failed) attempt */
   queuedAt: string;
   /** Cross-reference for ticket / short-link audits */

@@ -315,7 +315,9 @@ export async function POST(req: NextRequest) {
         result.sms = { ok: send.ok, status: send.status, sentTo: phone, error: send.ok ? undefined : send.error };
         await logSms({
           ts, phone,
-          source: "admin-resend",
+          // video-resend (split from admin-resend) so the e-ticket
+          // admin's default view doesn't pick up race-video SMS.
+          source: "video-resend",
           status: send.status, ok: send.ok,
           error: send.ok ? undefined : (send.error || "").slice(0, 500),
           body: smsBody,

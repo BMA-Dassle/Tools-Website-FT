@@ -488,7 +488,7 @@ const spec = {
         properties: {
           ts: { type: "string", format: "date-time", description: "Send timestamp" },
           phone: { type: "string", example: "+12395551234" },
-          source: { type: "string", enum: ["pre-race-cron", "checkin-cron", "admin-resend", "video-match", "booking-confirm"], example: "pre-race-cron" },
+          source: { type: "string", enum: ["pre-race-cron", "checkin-cron", "admin-resend", "video-resend", "pov-resend", "video-match", "booking-confirm"], example: "pre-race-cron" },
           status: { type: "integer", nullable: true, description: "Provider HTTP status at send time" },
           ok: { type: "boolean", description: "True for provider 2xx" },
           error: { type: "string", nullable: true },
@@ -1072,7 +1072,7 @@ const spec = {
         ].join("\n"),
         parameters: [
           { name: "date", in: "query" as const, schema: { type: "string", format: "date" }, description: "YYYY-MM-DD ET. Defaults to today." },
-          { name: "source", in: "query" as const, schema: { type: "string", enum: ["pre-race-cron", "checkin-cron", "admin-resend", "video-match", "booking-confirm"] }, description: "Filter to a single source. Default view excludes video-match + booking-confirm." },
+          { name: "source", in: "query" as const, schema: { type: "string", enum: ["pre-race-cron", "checkin-cron", "admin-resend", "video-resend", "pov-resend", "video-match", "booking-confirm"] }, description: "Filter to a single source. Default view hides video-match, video-resend, pov-resend, and booking-confirm — pass `source=` to drill in to any of them." },
           { name: "phone", in: "query" as const, schema: { type: "string" }, description: "Exact E.164 match." },
           { name: "sessionId", in: "query" as const, schema: { type: "string" }, description: "Entry must cover this session id." },
           { name: "personId", in: "query" as const, schema: { type: "string" }, description: "Entry must cover this person id." },

@@ -217,7 +217,9 @@ export async function POST(req: NextRequest) {
         };
         await logSms({
           ts, phone,
-          source: "admin-resend",
+          // pov-resend (split from admin-resend) so the e-ticket admin's
+          // default view doesn't pick up POV / unlock-code SMS.
+          source: "pov-resend",
           status: send.status, ok: send.ok,
           error: send.ok ? undefined : (send.error || "").slice(0, 500),
           body: smsBody,
