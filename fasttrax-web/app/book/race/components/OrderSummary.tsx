@@ -681,7 +681,12 @@ export default function OrderSummary({
     return (
       <PaymentForm
         amount={state.cashOwed}
-        itemName={state.raceName}
+        // Fixed "Deposit" label on the Square receipt + Apple/Google Pay
+        // sheet — was the race-time-formatted string (e.g. "Mega Pro Race
+        // x2 @ 6:24 PM"). Keeping state.raceName intact for the booking-
+        // store / confirmation page render, just not surfacing race times
+        // on the Square side.
+        itemName="Deposit"
         billId={state.orderId}
         contact={contact}
         squareCustomerId={state.squareCustomerId}
