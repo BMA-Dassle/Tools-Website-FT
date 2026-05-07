@@ -56,7 +56,13 @@
       "Bash(node scripts/upload-to-blob.mjs)",
       "Bash(BLOB_READ_WRITE_TOKEN=vercel_blob_rw_wUCE3At4k1aPpcmf_0RxX9xF0T5RvvryzJheOYkWjlEO2St node scripts/upload-to-blob.mjs)",
       "Bash(node -e \":*)",
-      "WebFetch(domain:fasttraxent.com)"
+      "WebFetch(domain:fasttraxent.com)",
+      "Bash(pnpm --version)",
+      "Bash(corepack --version)",
+      "Bash(git merge *)",
+      "Bash(corepack enable *)",
+      "Bash(pnpm turbo *)",
+      "Bash(pnpm --filter fasttrax-web dev)"
     ]
   }
 }

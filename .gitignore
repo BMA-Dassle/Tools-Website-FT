@@ -1,1 +1,44 @@
+# Workspace-wide ignores. Per-app ignores live in each app's own .gitignore.
+
+# Legacy WordPress export — never tracked.
 Wordpress/
+
+# pnpm / npm dependency dirs (any depth)
+node_modules/
+.pnpm-store/
+
+# Turborepo cache (any depth)
+.turbo/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Build outputs (any depth)
+dist/
+build/
+.next/
+out/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+
+# Env files (committed example only)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
