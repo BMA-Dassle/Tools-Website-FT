@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(npm install *)",
+      "Bash(pnpm --version)",
+      "Bash(rm -rf node_modules fasttrax-web/node_modules kart-timing-bridge/node_modules vt3-bridge/node_modules pnpm-lock.yaml)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm turbo *)"
+    ]
+  }
+}
