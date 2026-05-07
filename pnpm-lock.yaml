@@ -75,6 +75,9 @@ importers:
       eslint-config-next:
         specifier: 16.2.1
         version: 16.2.1(@typescript-eslint/parser@8.59.2(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+      eslint-plugin-jsx-a11y:
+        specifier: ^6.10.2
+        version: 6.10.2(eslint@9.39.4(jiti@2.7.0))
       tailwindcss:
         specifier: ^4
         version: 4.2.4

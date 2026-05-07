@@ -2,7 +2,7 @@
   "name": "tools-website-ft",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@10.4.1",
   "engines": {
     "node": ">=22.0.0"
   },
@@ -13,5 +13,18 @@
   },
   "devDependencies": {
     "turbo": "^2.3.3"
+  },
+  "pnpm": {
+    "//": "pnpm 10 disables auto-running install scripts by default (security). Re-allow the packages that need to run them. sharp + esbuild are used by Next.js at build time and MUST be allowed; the rest were running under pnpm 9 already.",
+    "onlyBuiltDependencies": [
+      "@scarf/scarf",
+      "@tree-sitter-grammars/tree-sitter-yaml",
+      "core-js-pure",
+      "esbuild",
+      "sharp",
+      "tree-sitter",
+      "tree-sitter-json",
+      "unrs-resolver"
+    ]
   }
 }

@@ -1,5 +1,65 @@
 # Lessons Learned
 
+## "No deploy impact" PRs can still change deploy tooling (2026-05-06)
+
+PR1 of the monorepo restructure ([commit b1bdd0a](../package.json)) added a
+workspace-root `pnpm-lock.yaml` while leaving Vercel's project root at
+`fasttrax-web/`. The plan asserted "Vercel impact: none." That was wrong —
+**Vercel walks UP from the configured project root looking for any lockfile**.
+Finding `pnpm-lock.yaml` at the repo root caused Vercel to switch from
+`npm install` to `pnpm install` in `fasttrax-web/` even though nothing inside
+that directory changed. Build then failed with `ERR_PNPM_META_FETCH_FAIL` and a
+cascade of `ERR_INVALID_THIS` registry errors.
+
+Two stacked bugs:
+
+1. **pnpm 9.x has a `URLSearchParams` bug with Node 22.13+** (Vercel's current
+   Node 22.x runtime). pnpm's registry fetcher uses an old undici code path
+   that throws `Value of "this" must be of type URLSearchParams` on every
+   `GET https://registry.npmjs.org/...`. Local Windows install with the same
+   pnpm + Node combo worked because the exact undici version differed.
+   Fixed in pnpm 10.x.
+
+2. **pnpm 10 changed two defaults** that bit us right after the version bump:
+   - **`onlyBuiltDependencies`** — pnpm 10 no longer auto-runs install scripts
+     for native packages (sharp, esbuild, tree-sitter, unrs-resolver, etc.).
+     Without explicit allowlist in root `package.json` `pnpm.onlyBuiltDependencies`,
+     Vercel's fresh install would skip building sharp's native binary →
+     Next.js image optimization breaks at build time.
+   - **Strict isolated `node_modules`** — transitive deps no longer hoisted.
+     `fasttrax-web/eslint.config.mjs` imported `eslint-plugin-jsx-a11y`
+     directly while only declaring `eslint-config-next` (which pulls jsx-a11y
+     transitively). pnpm 9's hoisting hid this; pnpm 10 errored on `next build`.
+
+**Rule 1:** When a workspace-level lockfile (`pnpm-lock.yaml`, `yarn.lock`,
+`package-lock.json`) appears at the repo root for the first time, treat it as a
+deploy-tooling change *regardless* of where the deploy provider's project root
+points. Verify with a Vercel preview deploy on the same branch BEFORE asserting
+"no deploy impact" in any PR description or plan.
+
+**Rule 2:** If using pnpm with Node 22+, pin `packageManager` to **pnpm 10.x or
+later** (we use `pnpm@10.4.1`). pnpm 9.x is a known landmine.
+
+**Rule 3:** When migrating from npm/pnpm 9 to pnpm 10, audit every `import` in
+config files (`eslint.config.mjs`, `next.config.ts`, scripts) for transitive
+deps that need explicit declaration. Common culprits: `eslint-plugin-jsx-a11y`,
+`eslint-plugin-react-hooks`, anything imported via `eslint-config-*` subpaths.
+Run a clean `rm -rf node_modules && pnpm install && pnpm turbo run build` after
+the version bump — local cache hides this class of bug.
+
+**Rule 4:** Add native-binary packages explicitly to root `package.json`
+`pnpm.onlyBuiltDependencies` array. Minimum required for this stack: `sharp`,
+`esbuild`, `tree-sitter`, `tree-sitter-json`, `unrs-resolver`,
+`@tree-sitter-grammars/tree-sitter-yaml`. (`@scarf/scarf` and `core-js-pure`
+are noisy postinstall donation messages, safe to skip but harmless to allow.)
+
+**Test rule:** Before merging any change to the workspace root that adds or
+modifies a lockfile or `packageManager` field, deploy to a Vercel preview
+URL and confirm: (a) build log shows `pnpm install` not `npm install`,
+(b) sharp/esbuild install scripts run without warning, (c) the deployed app
+serves images via Next's optimizer (i.e. `/_next/image?...` returns 200 with
+WebP).
+
 ## Multi-source data — read BOTH live AND cached, cascade (2026-05-02)
 
 **The confirmation page kept biting us when one source was stale or
