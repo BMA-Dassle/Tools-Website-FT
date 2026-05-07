@@ -37,13 +37,18 @@ deploy-tooling change *regardless* of where the deploy provider's project root
 points. Verify with a Vercel preview deploy on the same branch BEFORE asserting
 "no deploy impact" in any PR description or plan.
 
-**Rule 2:** If using pnpm with Node 22+, pin **both** `packageManager` to a recent
-pnpm 10.x (we use `pnpm@10.33.4` — early 10.x patches like 10.4.1 STILL hit the
-URLSearchParams bug; the fix didn't fully land until later 10.x patches) **and**
-`engines.node` to `22.11.0` (the URLSearchParams strictness was added in Node
-22.13 — pinning below that sidesteps the entire bug class regardless of pnpm
-version). Also set `.nvmrc` to `22.11.0` so Vercel's Node detection follows the
-same pin.
+**Rule 2:** Use a recent pnpm 10.x — we use `pnpm@10.33.4`. Early 10.x patches
+(10.0.x through 10.5.x) STILL hit the URLSearchParams bug; the fix didn't fully
+land until later 10.x patches. Pinning `engines.node` is a poor backstop because
+**Vercel ignores narrow `engines.node` pins and uses its current default Node
+LTS** (Node 24.x as of 2026-05). Don't fight Vercel's Node default — match it
+in `.nvmrc` (`24`) and keep `engines.node` as a permissive floor (`">=22.11.0"`)
+so local contributors on Node 22.x still pass the engine check.
+
+**Rule 2a:** When debugging "works locally, fails on Vercel" issues, the FIRST
+thing to confirm is the build log header: actual Node version, actual pnpm
+version, actual install command. Vercel's defaults shift over time and
+silently override file-based pins more often than the docs suggest.
 
 **Rule 3:** When migrating from npm/pnpm 9 to pnpm 10, audit every `import` in
 config files (`eslint.config.mjs`, `next.config.ts`, scripts) for transitive
