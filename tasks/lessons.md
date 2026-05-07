@@ -1,74 +1,89 @@
 # Lessons Learned
 
-## "No deploy impact" PRs can still change deploy tooling (2026-05-06)
+## pnpm + Vercel = quagmire — switched to npm workspaces (2026-05-06)
 
-PR1 of the monorepo restructure ([commit b1bdd0a](../package.json)) added a
-workspace-root `pnpm-lock.yaml` while leaving Vercel's project root at
-`fasttrax-web/`. The plan asserted "Vercel impact: none." That was wrong —
-**Vercel walks UP from the configured project root looking for any lockfile**.
-Finding `pnpm-lock.yaml` at the repo root caused Vercel to switch from
-`npm install` to `pnpm install` in `fasttrax-web/` even though nothing inside
-that directory changed. Build then failed with `ERR_PNPM_META_FETCH_FAIL` and a
-cascade of `ERR_INVALID_THIS` registry errors.
+The monorepo restructure (PR1) originally chose pnpm + Turborepo. After three
+failed Vercel deploys and ~6 hours of debugging, we abandoned pnpm in favor of
+npm workspaces + Turborepo. The architecture (workspaces, `apps/`, `packages/`,
+Turbo orchestration) is unchanged — only the package manager flipped.
 
-Two stacked bugs:
+### What went wrong, in sequence
 
-1. **pnpm 9.x has a `URLSearchParams` bug with Node 22.13+** (Vercel's current
-   Node 22.x runtime). pnpm's registry fetcher uses an old undici code path
-   that throws `Value of "this" must be of type URLSearchParams` on every
-   `GET https://registry.npmjs.org/...`. Local Windows install with the same
-   pnpm + Node combo worked because the exact undici version differed.
-   Fixed in pnpm 10.x.
+1. **PR1 added a workspace-root `pnpm-lock.yaml`** while leaving Vercel's
+   project root at `fasttrax-web/`. The plan said "Vercel impact: none." Wrong.
+   **Vercel walks UP from the configured project root looking for any lockfile.**
+   Finding `pnpm-lock.yaml` at the repo root caused Vercel to switch from
+   `npm install` to `pnpm install` in `fasttrax-web/` even though nothing inside
+   that directory changed. Build failed with `ERR_PNPM_META_FETCH_FAIL` and a
+   cascade of `ERR_INVALID_THIS` registry errors on every package fetch.
 
-2. **pnpm 10 changed two defaults** that bit us right after the version bump:
-   - **`onlyBuiltDependencies`** — pnpm 10 no longer auto-runs install scripts
-     for native packages (sharp, esbuild, tree-sitter, unrs-resolver, etc.).
-     Without explicit allowlist in root `package.json` `pnpm.onlyBuiltDependencies`,
-     Vercel's fresh install would skip building sharp's native binary →
-     Next.js image optimization breaks at build time.
-   - **Strict isolated `node_modules`** — transitive deps no longer hoisted.
-     `fasttrax-web/eslint.config.mjs` imported `eslint-plugin-jsx-a11y`
-     directly while only declaring `eslint-config-next` (which pulls jsx-a11y
-     transitively). pnpm 9's hoisting hid this; pnpm 10 errored on `next build`.
+2. **First fix (pnpm@9.15.4 → 10.4.1):** thinking the URLSearchParams bug was
+   pnpm 9-specific. Wrong — early pnpm 10.x patches (10.0–10.5) still had the bug.
 
-**Rule 1:** When a workspace-level lockfile (`pnpm-lock.yaml`, `yarn.lock`,
-`package-lock.json`) appears at the repo root for the first time, treat it as a
-deploy-tooling change *regardless* of where the deploy provider's project root
-points. Verify with a Vercel preview deploy on the same branch BEFORE asserting
-"no deploy impact" in any PR description or plan.
+3. **Second fix (pnpm@10.4.1 → 10.33.4 + Node 22.11.0 pin):** thinking Node 22.13+
+   was the trigger. Vercel ignored the Node pin and ran Node 24 anyway.
 
-**Rule 2:** Use a recent pnpm 10.x — we use `pnpm@10.33.4`. Early 10.x patches
-(10.0.x through 10.5.x) STILL hit the URLSearchParams bug; the fix didn't fully
-land until later 10.x patches. Pinning `engines.node` is a poor backstop because
-**Vercel ignores narrow `engines.node` pins and uses its current default Node
-LTS** (Node 24.x as of 2026-05). Don't fight Vercel's Node default — match it
-in `.nvmrc` (`24`) and keep `engines.node` as a permissive floor (`">=22.11.0"`)
-so local contributors on Node 22.x still pass the engine check.
+4. **Third fix (Vercel Install Command override: `npm install -g pnpm@10.33.4 && pnpm install`):**
+   `npm install -g` succeeded but Vercel's bundled pnpm at a higher PATH priority
+   kept being invoked. Build log still showed "Ignoring not compatible lockfile"
+   — proof the new pnpm wasn't actually running.
 
-**Rule 2a:** When debugging "works locally, fails on Vercel" issues, the FIRST
-thing to confirm is the build log header: actual Node version, actual pnpm
-version, actual install command. Vercel's defaults shift over time and
-silently override file-based pins more often than the docs suggest.
+5. **Fourth attempt (corepack):** still same error pattern. Time burned vs
+   value gained had crossed the line. Pulled the plug.
 
-**Rule 3:** When migrating from npm/pnpm 9 to pnpm 10, audit every `import` in
-config files (`eslint.config.mjs`, `next.config.ts`, scripts) for transitive
-deps that need explicit declaration. Common culprits: `eslint-plugin-jsx-a11y`,
-`eslint-plugin-react-hooks`, anything imported via `eslint-config-*` subpaths.
-Run a clean `rm -rf node_modules && pnpm install && pnpm turbo run build` after
-the version bump — local cache hides this class of bug.
+### Resolution
 
-**Rule 4:** Add native-binary packages explicitly to root `package.json`
-`pnpm.onlyBuiltDependencies` array. Minimum required for this stack: `sharp`,
-`esbuild`, `tree-sitter`, `tree-sitter-json`, `unrs-resolver`,
-`@tree-sitter-grammars/tree-sitter-yaml`. (`@scarf/scarf` and `core-js-pure`
-are noisy postinstall donation messages, safe to skip but harmless to allow.)
+Switched to **npm workspaces + Turborepo** on 2026-05-06:
 
-**Test rule:** Before merging any change to the workspace root that adds or
-modifies a lockfile or `packageManager` field, deploy to a Vercel preview
-URL and confirm: (a) build log shows `pnpm install` not `npm install`,
-(b) sharp/esbuild install scripts run without warning, (c) the deployed app
-serves images via Next's optimizer (i.e. `/_next/image?...` returns 200 with
-WebP).
+- Deleted `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc`, `fasttrax-web/package-lock.json`.
+- Root `package.json` now has `"workspaces": [...]`, `"packageManager": "npm@11.6.4"`,
+  no pnpm-specific fields.
+- Vercel install command override turned OFF (Vercel auto-detects npm from
+  the root `package-lock.json`).
+- Local + Vercel build green in one push.
+
+### What we lost vs what we kept
+
+**Lost:** pnpm's strict isolated `node_modules`. Transitive deps now hoist —
+`fasttrax-web/eslint.config.mjs` can import `eslint-plugin-jsx-a11y` without
+declaring it in `fasttrax-web/package.json` (it's pulled transitively via
+`eslint-config-next`). We're not catching that class of bug at install time
+anymore. Acceptable trade-off; we can add `depcheck` or `knip` to CI later if
+it becomes a real problem.
+
+**Kept:** the entire monorepo architecture, Turbo orchestration, all v2
+conventions, deploy targets — everything in `tasks/restructure-plan.md` is
+package-manager-agnostic.
+
+### Lessons that survive
+
+**Rule 1:** When a workspace-level lockfile appears at the repo root for the
+first time, treat it as a deploy-tooling change *regardless* of where the deploy
+provider's project root points. Vercel walks up; so does most CI. Verify with a
+preview deploy BEFORE asserting "no deploy impact" in any PR description or plan.
+
+**Rule 2:** When debugging "works locally, fails on Vercel" issues, the FIRST
+thing to confirm is the build log header: actual Node version, actual package
+manager version, actual install command. Vercel's defaults shift over time and
+silently override file-based pins (`engines.node`, `.nvmrc`) more often than the
+docs suggest. Don't propose fixes until you've seen the log header.
+
+**Rule 3:** Boring tooling for production deploys. pnpm has real benefits but
+its tighter coupling to specific Node/undici versions makes it fragile on managed
+build platforms whose runtime drifts. npm is slow and inelegant but it's what
+Vercel/Netlify/Render/etc. test against, so it's what works. **For a small team
+on a managed platform, pick the package manager the platform considers default,
+not the one with the best ergonomics.**
+
+**Rule 4:** Time-box exotic fixes. We pushed three commits (`51194bf`,
+`f0e3e5b`, `ea3704a`) chasing pnpm before pulling the ripcord. The signal "I've
+made three commits and the same error class is still firing" is a strong cue to
+abandon the current approach and try something fundamentally different.
+
+**Rule 5:** If you ever consider switching back to pnpm, read this lesson first.
+Do not assume the URLSearchParams + Vercel-bundled-pnpm + Node-default-LTS issues
+are resolved — verify on a preview deploy with no install command override
+before any merge. The ergonomic upside is real but the deploy risk is too.
 
 ## Multi-source data — read BOTH live AND cached, cascade (2026-05-02)
 

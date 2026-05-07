@@ -12,15 +12,16 @@ or starting new feature work:
 
 ## Workspace shape (post-PR1)
 
-- **pnpm + Turborepo** at root. `packageManager: pnpm@9.15.4`. Node 22.
+- **npm workspaces + Turborepo** at root. `packageManager: npm@11.6.4`. Node 22+.
 - **One Next app** at `fasttrax-web/` (moves to `apps/web/` in PR3 with coordinated Vercel root-dir change).
 - **Two Node bridges** at `kart-timing-bridge/` and `vt3-bridge/` (Railway-deployed; move to `apps/` in Phase 3).
 - **`packages/*` and `apps/*` globs** reserved for future `@ft/*` packages (added PR4+).
-- Run everything via pnpm + turbo:
-  - `pnpm install` — at root
-  - `pnpm turbo run build` — workspace-wide build
-  - `pnpm --filter fasttrax-web dev` — dev server
-- **Never use raw `npm` or `yarn`** in this repo. The npm lockfile in `fasttrax-web/` is transitional and gets deleted in PR3.
+- Run everything via npm + turbo:
+  - `npm install` — at root (generates/updates the single workspace `package-lock.json`)
+  - `npx turbo run build` — workspace-wide build
+  - `npm run dev -w fasttrax-web` — dev server (the `-w` flag scopes to a workspace)
+- **One lockfile only** — the root `package-lock.json`. Workspace packages do NOT have their own lockfiles.
+- **Why npm not pnpm:** see `tasks/lessons.md` "pnpm + Vercel = quagmire (2026-05-06)". Short version: pnpm 9/10's URLSearchParams bug + Vercel's bundled-pnpm version override fought us through three PRs and never converged. npm + Turborepo gives us 95% of the value without the fight.
 
 ## Where NEW code goes (v2 structure)
 

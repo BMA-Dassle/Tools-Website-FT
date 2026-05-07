@@ -2,10 +2,17 @@
   "name": "tools-website-ft",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@10.33.4",
+  "packageManager": "npm@11.6.4",
   "engines": {
-    "node": ">=22.11.0"
+    "node": ">=22.0.0"
   },
+  "workspaces": [
+    "fasttrax-web",
+    "kart-timing-bridge",
+    "vt3-bridge",
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -13,18 +20,5 @@
   },
   "devDependencies": {
     "turbo": "^2.3.3"
-  },
-  "pnpm": {
-    "//": "pnpm 10 disables auto-running install scripts by default (security). Re-allow the packages that need to run them. sharp + esbuild are used by Next.js at build time and MUST be allowed; the rest were running under pnpm 9 already.",
-    "onlyBuiltDependencies": [
-      "@scarf/scarf",
-      "@tree-sitter-grammars/tree-sitter-yaml",
-      "core-js-pure",
-      "esbuild",
-      "sharp",
-      "tree-sitter",
-      "tree-sitter-json",
-      "unrs-resolver"
-    ]
   }
 }

@@ -4,7 +4,9 @@
 
 `Tools-Website-FT` today is three sibling directories at the repo root (`fasttrax-web/`, `kart-timing-bridge/`, `vt3-bridge/`) with no workspace orchestration, no shared packages, no env validation, no tests, no Prettier, no React Query, and a 43-file flat `lib/` god folder inside the Next app. The app is healthy and serves real revenue (9 Vercel crons, 75+ API endpoints, 2 brands), but it has no organizational seams to grow into. New features get bolted onto `lib/`, conventions drift, and recent regressions ([tasks/lessons.md](lessons.md)) point at exactly the kind of mistakes a thoughtful structure prevents (BMI ID precision, idempotency on shared inventory, multi-source data cascade, stale `useCallback` closures, middleware allow-list desync).
 
-This effort stands up the bones: a real pnpm + Turborepo workspace, a defined shape for new code (per [Best Practices for Organizing Your Next.js 15 — bajrayejoon/dev.to](https://dev.to/bajrayejoon/best-practices-for-organizing-your-nextjs-15-2025-53ji)), the dev-environment / code-style / testing / React Query / docs conventions from [gregsantos's CLAUDE.md gist](https://gist.github.com/gregsantos/2fc7d7551631b809efa18a0bc4debd2a), and the painful lessons from `tasks/lessons.md` codified into compile-time / lint-time guardrails.
+This effort stands up the bones: a real npm workspaces + Turborepo workspace, a defined shape for new code (per [Best Practices for Organizing Your Next.js 15 — bajrayejoon/dev.to](https://dev.to/bajrayejoon/best-practices-for-organizing-your-nextjs-15-2025-53ji)), the dev-environment / code-style / testing / React Query / docs conventions from [gregsantos's CLAUDE.md gist](https://gist.github.com/gregsantos/2fc7d7551631b809efa18a0bc4debd2a), and the painful lessons from `tasks/lessons.md` codified into compile-time / lint-time guardrails.
+
+> **Note on tooling:** PR1 originally used pnpm + Turborepo, but pnpm 9/10 had unresolved compatibility issues with Vercel's bundled pnpm version + Node 24's strict `URLSearchParams` checks. We swapped to npm workspaces + Turborepo on 2026-05-06 after three failed deploy attempts. See [tasks/lessons.md](lessons.md) "pnpm + Vercel = quagmire" for full detail. Everything else in this plan is unchanged — Turbo orchestration, monorepo shape, and conventions are package-manager-agnostic.
 
 **Scope guard:** Existing code stays where it is. Only PR3 relocates `fasttrax-web/` → `apps/web/`. Migration of legacy `lib/*` happens later, opportunistically, against the prioritized backlog (Section 8). New code follows the new pattern from day one.
 
@@ -12,7 +14,7 @@ This effort stands up the bones: a real pnpm + Turborepo workspace, a defined sh
 
 | Decision | Choice |
 |---|---|
-| Workspace tooling | **pnpm + Turborepo** |
+| Workspace tooling | **npm workspaces + Turborepo** (originally pnpm; switched 2026-05-06 after Vercel deploy issues) |
 | v2 scope | **Reorganize-shape only.** New code follows the new pattern; existing code migrates opportunistically. |
 | Brands | **One Next app**, brand-aware via host middleware (current pattern stays) |
 | Cadence | **Incremental, one PR at a time** |
@@ -33,7 +35,7 @@ Worth being explicit so we don't redo settled work:
 - ✅ **Route groups & dynamic segments** (`[token]`, `[slug]`, etc.)
 - ✅ **Domain-grouped components** in [fasttrax-web/components/](../fasttrax-web/components/) (`booking/`, `home/`, `headpinz/`, `seo/`, `square/`)
 - ✅ **CSP, HSTS, security headers** in [fasttrax-web/next.config.ts](../fasttrax-web/next.config.ts)
-- ✅ **pnpm + Turborepo workspace at root** (PR1 ✅)
+- ✅ **npm workspaces + Turborepo at root** (PR1 ✅)
 
 ## What's missing and gets added in this effort
 
@@ -55,12 +57,11 @@ Worth being explicit so we don't redo settled work:
 
 ```
 Tools-Website-FT/
-├── package.json                  # workspace root (devDeps: turbo, prettier, vitest, husky, lint-staged)
-├── pnpm-workspace.yaml
+├── package.json                  # workspace root: npm workspaces + devDeps (turbo, prettier, vitest, husky, lint-staged)
+├── package-lock.json             # the ONE lockfile for the whole monorepo
 ├── turbo.json
 ├── tsconfig.base.json            # shared compiler options + path aliases
 ├── .nvmrc                        # Node 22
-├── .npmrc                        # node-linker=isolated
 ├── .prettierrc, .prettierignore  # PR2
 ├── .husky/                       # PR2 — pre-commit: lint-staged
 ├── .github/workflows/ci.yml      # PR2 — typecheck, lint, test, build
@@ -174,17 +175,17 @@ Phase 4  ─ Optional hardening          (deferred)
 
 #### PR1 — Bootstrap workspace at root, no moves ✅
 
-- Add: root `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.nvmrc`, `.npmrc`.
-- `pnpm-workspace.yaml`: `["fasttrax-web", "kart-timing-bridge", "vt3-bridge", "packages/*", "apps/*"]`
-- **Vercel impact:** none. Root stays `fasttrax-web/`.
-- **Verified:** `pnpm install` (1m28s), `pnpm turbo run build` (2m08s, a11y clean), `next dev` (Ready in 2.4s).
+- Add: root `package.json` (with `workspaces` array + `packageManager: npm@11.6.4` + `devDeps: { turbo }`), `turbo.json`, `tsconfig.base.json`, `.nvmrc`.
+- Workspaces: `["fasttrax-web", "kart-timing-bridge", "vt3-bridge", "packages/*", "apps/*"]`
+- **Vercel impact:** none. Root stays `fasttrax-web/`. Vercel auto-detects npm from the root `package-lock.json`.
+- **Verified:** `npm install` (1m), `npx turbo run build` (1m16s, a11y clean), `next dev` (Ready in 2.4s).
 
 #### PR2 — Tooling baselines: Prettier, Husky+lint-staged, Vitest, CI, CLAUDE.md, .env.example, in-repo plan & status tracker
 
-- **Prettier:** `.prettierrc` (2-space, double quotes, trailing comma, print width 100), `.prettierignore`. Add `pnpm format` script.
+- **Prettier:** `.prettierrc` (2-space, double quotes, trailing comma, print width 100), `.prettierignore`. Add `npm run format` script.
 - **Husky + lint-staged:** pre-commit runs `prettier --write` + `eslint --fix` on staged files. Never bypass with `--no-verify`.
 - **Vitest:** root `vitest.workspace.ts`, per-package `vitest.config.ts`. Tests colocate as `*.test.ts(x)`.
-- **CI:** `.github/workflows/ci.yml` runs `pnpm install --frozen-lockfile && pnpm -w turbo run typecheck lint test build` on PR.
+- **CI:** `.github/workflows/ci.yml` runs `npm ci && npx turbo run typecheck lint test build` on PR.
 - **`.env.example`:** generated from keys observed in [middleware.ts](../fasttrax-web/middleware.ts), [vercel.json](../fasttrax-web/vercel.json), `lib/*`.
 - **CLAUDE.md & docs in repo:** the new CLAUDE.md, this restructure-plan.md, and restructure-status.md (already landed as a separate docs commit after PR1).
 - **No code moves. No app behavior change.**
@@ -192,13 +193,13 @@ Phase 4  ─ Optional hardening          (deferred)
 
 #### PR3 — Move `fasttrax-web/` → `apps/web/` (Vercel coordination)
 
-- `git mv fasttrax-web apps/web`. Drop `"fasttrax-web"` from `pnpm-workspace.yaml`.
+- `git mv fasttrax-web apps/web`. Drop `"fasttrax-web"` from the `workspaces` array in root `package.json`.
 - **Vercel change required:** Project → Settings → Root Directory: `fasttrax-web` → `apps/web`. Same merge window.
 - **Crons:** `vercel.json` paths are app-relative — unaffected.
 - **Risk:** high (404 storm if root-dir not flipped). Mitigations: preview-deploy with root-dir flipped first; 1-line revert PR ready; merge during quiet window.
 - **Add** `apps/web/src/` empty scaffold with `.gitkeep` files so the convention is visible.
 - **Add** alias `"~/*": ["./src/*"]` in `apps/web/tsconfig.json`.
-- **Delete** `fasttrax-web/package-lock.json` (stale npm lockfile, no longer needed once Vercel uses workspace pnpm-lock.yaml at the new root).
+- (`fasttrax-web/package-lock.json` was already deleted on 2026-05-06 when the workspace switched from pnpm to npm — see lessons.md.)
 
 > **Phase 0 exit gate:** Workspace builds. Vercel deploys. New `apps/web/src/` scaffold is visible. Bridges, brands, crons, admin auth — all unchanged.
 
@@ -417,12 +418,12 @@ Bridges (`kart-timing-bridge/`, `vt3-bridge/`) move whenever convenient — isol
 
 ### Documentation & onboarding
 
-- **Root `README.md`:** getting-started (`pnpm install && pnpm dev`), workspace map, link to `docs/adr/` and `CLAUDE.md`.
+- **Root `README.md`:** getting-started (`npm install && npm run dev`), workspace map, link to `docs/adr/` and `CLAUDE.md`.
 - **Per-package `README.md`:** purpose, public API, an example. Required for every `packages/*`.
 - **`CLAUDE.md`:** the table-of-contents for future Claude sessions. Updated whenever a hard rule changes.
-- **`docs/adr/`:** Architecture Decision Records, numbered (`0001-pnpm-turbo.md`, `0002-react-query.md`, `0003-no-shadcn.md`, ...). Format: Status / Context / Decision / Consequences. Created when a decision constrains future work.
+- **`docs/adr/`:** Architecture Decision Records, numbered (`0001-npm-turbo.md`, `0002-react-query.md`, `0003-no-shadcn.md`, `0004-pnpm-to-npm-switch.md`, ...). Format: Status / Context / Decision / Consequences. Created when a decision constrains future work.
 - **JSDoc:** brief usage comment per exported component, hook, service. Skip the verbose `@param`/`@returns` ceremony — TypeScript types carry that load.
-- **Onboarding checklist** in `README.md`: clone → `nvm use` → `pnpm install` → copy `.env.example` to `.env.local` → `pnpm --filter web dev` → first-PR walkthrough link.
+- **Onboarding checklist** in `README.md`: clone → `nvm use` → `npm install` → copy `.env.example` to `.env.local` → `npm run dev -w fasttrax-web` → first-PR walkthrough link.
 
 ## Lessons-as-guardrails (from [tasks/lessons.md](lessons.md))
 

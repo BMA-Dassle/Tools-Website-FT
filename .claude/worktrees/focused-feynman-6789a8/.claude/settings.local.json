@@ -6,7 +6,10 @@
       "Bash(pnpm --version)",
       "Bash(rm -rf node_modules fasttrax-web/node_modules kart-timing-bridge/node_modules vt3-bridge/node_modules pnpm-lock.yaml)",
       "Bash(pnpm install *)",
-      "Bash(pnpm turbo *)"
+      "Bash(pnpm turbo *)",
+      "Bash(rm -f pnpm-lock.yaml pnpm-workspace.yaml .npmrc fasttrax-web/package-lock.json)",
+      "Bash(rm -rf node_modules fasttrax-web/node_modules kart-timing-bridge/node_modules vt3-bridge/node_modules)",
+      "Bash(npx turbo *)"
     ]
   }
 }
