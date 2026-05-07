@@ -11,14 +11,17 @@ import { qamfAuthedFetch } from "@/lib/qamf-bowling-auth";
  * the new BMA-flow surface.
  *
  * Auth: server-side only — wraps every call with the Bearer token
- * from `qamf-bowling-auth` and the Azure APIM subscription key from
- * `QAMF_BOWLING_API_KEY`. Neither secret leaves this Lambda.
+ * from `qamf-bowling-auth`. The token never leaves this Lambda.
  *
  * Required env (production):
  *   QAMF_BOWLING_CLIENT_ID       (handled by qamf-bowling-auth)
  *   QAMF_BOWLING_CLIENT_SECRET   (handled by qamf-bowling-auth)
- *   QAMF_BOWLING_API_KEY         — Azure APIM subscription key.
- *                                  Without it every call returns 401.
+ *
+ * Note: bowling-reservations API uses OAuth2 only (per QubicaAMF
+ * Overview + Guidelines V1.4 — there is no Azure APIM subscription
+ * key). If 401s persist with a valid token, the cause is QubicaAMF-
+ * side provisioning (the "Bowling Reservation APIs" service must be
+ * added to the active CMP – Business Preferred subscription).
  *
  * Auth at OUR proxy boundary: rely on existing admin-token / x-api-key
  * gating in middleware.ts for any route under /api/admin/*. This
@@ -36,17 +39,6 @@ function buildUrl(path: string[], searchParams: URLSearchParams): string {
 }
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }, method: string) {
-  const apiKey = process.env.QAMF_BOWLING_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error: "QAMF_BOWLING_API_KEY not set",
-        hint: "QubicaAMF must issue the Azure APIM subscription key alongside the OAuth credentials. Until then the bowling-reservations API returns 401 for every call.",
-      },
-      { status: 503 },
-    );
-  }
-
   let bodyText = "";
   if (method !== "GET" && method !== "HEAD") {
     bodyText = await req.text();
@@ -63,7 +55,6 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
           headers: {
             authorization: `Bearer ${token}`,
             "api-version": API_VERSION,
-            "ocp-apim-subscription-key": apiKey,
             ...(bodyText ? { "content-type": "application/json" } : {}),
           },
           body: bodyText || undefined,

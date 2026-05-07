@@ -69,12 +69,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Required env check up front so the error message is actionable.
-  if (!process.env.QAMF_BOWLING_API_KEY) {
+  if (!process.env.QAMF_BOWLING_CLIENT_ID || !process.env.QAMF_BOWLING_CLIENT_SECRET) {
     return NextResponse.json(
       {
         ok: false,
-        blocked: "QAMF_BOWLING_API_KEY not set",
-        hint: "QubicaAMF needs to issue the Azure APIM subscription key. Until then every bowling-reservations call returns 401.",
+        blocked: "QAMF_BOWLING_CLIENT_ID / QAMF_BOWLING_CLIENT_SECRET not set",
+        hint: "OAuth credentials missing — token mint will fail before we even call the bowling API.",
       },
       { status: 503 },
     );

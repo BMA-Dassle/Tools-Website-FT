@@ -10,20 +10,24 @@ import { qamfAuthedFetch } from "@/lib/qamf-bowling-auth";
  * here flows through `/api/qamf-v2/*` proxies on our side and
  * speaks the new REST API.
  *
- * Auth chain (per QubicaAMF spec V1.0, 2025-12-01):
+ * Auth (per QubicaAMF Overview + Guidelines V1.4):
  *   1. Bearer JWT from /oauth2/token (lib/qamf-bowling-auth.ts)
- *   2. `ocp-apim-subscription-key` — separate Azure APIM key
- *      QubicaAMF must issue alongside the OAuth credentials.
- *      Set as QAMF_BOWLING_API_KEY in env. Without it every
- *      bowling-reservations call returns 401.
- *   3. `api-version: 2025-12-01.1.0` — pinned per spec.
+ *   2. `api-version: 2025-12-01.1.0` — pinned per spec.
  *
  * Required env vars:
  *   QAMF_BOWLING_CLIENT_ID       (handled by qamf-bowling-auth)
  *   QAMF_BOWLING_CLIENT_SECRET   (handled by qamf-bowling-auth)
- *   QAMF_BOWLING_API_KEY         (Azure APIM subscription key —
- *                                 the "Access-Key" / Ocp-Apim-
- *                                 Subscription-Key from Qubica)
+ *
+ * Note on 401s:
+ * If every endpoint returns 401 even with a valid Bearer token, the
+ * cause is QubicaAMF provisioning, not anything we send. The
+ * Overview PDF requires:
+ *   - Active "CMP – Business Preferred" subscription
+ *   - "Bowling Reservation APIs" service added to the subscription
+ *   - Conqueror X >= 15.6.0 on each managed center
+ * If any of these are missing, our token mints fine (sub: BMA) but
+ * downstream calls reject with 401. Coordinate with QubicaAMF to
+ * verify subscription state — there is no code path around it.
  */
 
 const BASE = "https://api.qubicaamf.com/bowling-reservations";
@@ -118,21 +122,10 @@ export interface NewReservationInput {
 /*  Internal request helper                                           */
 /* ------------------------------------------------------------------ */
 
-function bowlingApiKey(): string {
-  const k = process.env.QAMF_BOWLING_API_KEY;
-  if (!k) {
-    throw new Error(
-      "QAMF_BOWLING_API_KEY not set — bowling-reservations API requires the Azure APIM subscription key issued by QubicaAMF",
-    );
-  }
-  return k;
-}
-
 function commonHeaders(token: string): Record<string, string> {
   return {
     authorization: `Bearer ${token}`,
     "api-version": API_VERSION,
-    "ocp-apim-subscription-key": bowlingApiKey(),
     "content-type": "application/json",
   };
 }
