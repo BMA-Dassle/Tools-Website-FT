@@ -1,14 +1,16 @@
 import { qamfAuthedFetch } from "@/lib/qamf-bowling-auth";
 
 /**
- * Typed client for QubicaAMF Bowling Reservations API.
+ * Typed client for the QubicaAMF Internal API (Bowling Reservations).
  *   https://api.qubicaamf.com/bowling-reservations
  *
- * This is the v2 booking surface — distinct from the legacy
- * /api/qamf bowler proxy (qcloud.qubicaamf.com/bowler) used by
- * /hp/book/bowling. We don't touch the legacy path; everything
- * here flows through `/api/qamf-v2/*` proxies on our side and
- * speaks the new REST API.
+ * "Internal" = QubicaAMF's operator-facing reservation management
+ * REST API. Distinct from the legacy /api/qamf bowler proxy
+ * (qcloud.qubicaamf.com/bowler) used by /hp/book/bowling — that's
+ * the public widget; this is the new direct-booking surface.
+ *
+ * Everything here flows through `/api/qamf-internal/*` proxies on
+ * our side and speaks the new REST API.
  *
  * Auth (per QubicaAMF Overview + Guidelines V1.4):
  *   1. Bearer JWT from /oauth2/token (lib/qamf-bowling-auth.ts)

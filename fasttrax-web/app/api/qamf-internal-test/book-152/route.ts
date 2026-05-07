@@ -9,9 +9,9 @@ import {
 } from "@/lib/qamf-bowling";
 
 /**
- * One-shot booking smoke-test for QAMF bowling-reservations v2.
+ * One-shot booking smoke-test for the QubicaAMF Internal API.
  *
- *   GET /api/qamf-v2-test/book-152?bookedAt=2026-05-08T18:00:00-04:00
+ *   GET /api/qamf-internal-test/book-152?bookedAt=2026-05-08T18:00:00-04:00
  *
  * Walks the full flow against web offer 152 at HeadPinz Fort Myers
  * (centerId = 9172):
@@ -24,7 +24,9 @@ import {
  *
  * Each step's response (or error) is collected so the caller sees
  * exactly where the flow halts. Useful for proving end-to-end auth
- * + payload shapes once QAMF issues the missing API key.
+ * + payload shapes once QubicaAMF grants the BMA client access at
+ * the bowling-reservations service level (currently every call
+ * returns 401 despite valid OAuth — provisioning gap on their side).
  *
  * NOT an admin route — gate by ?token=… matching ADMIN_CAMERA_TOKEN
  * since this attempts a real reservation creation. Keep it dev/ops
@@ -104,7 +106,7 @@ export async function GET(req: NextRequest) {
   const create = await timed<Reservation>("createReservation", () =>
     createReservation(CENTER_ID, {
       BookedAt: bookedAt,
-      Title: "QAMF v2 Smoke Test",
+      Title: "QubicaAMF Internal API Smoke Test",
       Notes: "Automated test booking from FastTrax/HeadPinz integration",
       Customer: {
         ExternalId: `smoke-${Date.now()}`,
