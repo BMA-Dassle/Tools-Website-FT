@@ -11,7 +11,7 @@ import {
 /**
  * One-shot booking smoke-test for the QubicaAMF Internal API.
  *
- *   GET /api/qamf-internal-test/book-152?bookedAt=2026-05-08T18:00:00-04:00
+ *   GET /api/admin/qamf-internal-test/book-152?bookedAt=2026-05-08T18:00:00-04:00
  *
  * Walks the full flow against web offer 152 at HeadPinz Fort Myers
  * (centerId = 9172):
@@ -28,9 +28,9 @@ import {
  * the bowling-reservations service level (currently every call
  * returns 401 despite valid OAuth — provisioning gap on their side).
  *
- * NOT an admin route — gate by ?token=… matching ADMIN_CAMERA_TOKEN
- * since this attempts a real reservation creation. Keep it dev/ops
- * only until the booking flow is properly productized.
+ * Auth: lives under /api/admin/* so middleware.ts handles the gate
+ * (admin-token from URL or x-api-key from SALES_API_KEYS — same
+ * auth as the rest of the admin surface). No bespoke ?token= needed.
  */
 
 const CENTER_ID = 9172;       // HeadPinz Fort Myers (BMA Pandora id;
@@ -62,13 +62,8 @@ async function timed<T>(name: string, fn: () => Promise<T>): Promise<StepResult>
 }
 
 export async function GET(req: NextRequest) {
-  // Admin-token gate — this endpoint will create real reservations
-  // once auth works. Don't expose to the public.
-  const token = req.nextUrl.searchParams.get("token");
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
-    return new NextResponse("Not found", { status: 404 });
-  }
+  // Auth handled by middleware.ts (admin-token OR x-api-key) since
+  // we live under /api/admin/*. No in-route gate needed.
 
   // Required env check up front so the error message is actionable.
   if (!process.env.QAMF_BOWLING_CLIENT_ID || !process.env.QAMF_BOWLING_CLIENT_SECRET) {
