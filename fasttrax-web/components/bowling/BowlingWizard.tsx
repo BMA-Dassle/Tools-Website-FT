@@ -13,6 +13,7 @@ import {
   syncLocationFromUrl,
 } from "@/lib/booking-location";
 import type { BowlingSquareProduct, BowlingExperienceWithDetails } from "@/lib/bowling-db";
+import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 
 /**
  * BowlingWizard — shared wizard for Kids Bowl Free (v2) and Open Bowling.
@@ -184,6 +185,7 @@ const CENTERS = [
     qamfId: 9172,
     squareCenterCode: "TXBSQN0FEKQ11",
     locationKey: "headpinz" as const,
+    hpSlug: "fort-myers",             // key into HP_LOCATIONS for hours
     name: "HeadPinz Fort Myers",
     address: "14513 Global Pkwy, Fort Myers",
     phone: "(239) 302-2155",
@@ -193,6 +195,7 @@ const CENTERS = [
     qamfId: 3148,
     squareCenterCode: "PPTR5G2N0QXF7",
     locationKey: "naples" as const,
+    hpSlug: "naples",                 // key into HP_LOCATIONS for hours
     name: "HeadPinz Naples",
     address: "8525 Radio Ln, Naples",
     phone: "(239) 455-3755",
@@ -391,6 +394,46 @@ function formatHourMinute(h: number, m: number): string {
   const ampm = h24 >= 12 ? "PM" : "AM";
   const hr = h24 % 12 || 12;
   return `${hr}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+/**
+ * Parse a single hour token (e.g. "11AM", "12AM", "2AM", "9PM") into the
+ * wizard's internal 24h-plus representation where midnight = 24, 1 AM = 25, 2 AM = 26.
+ */
+function parseHourToken(token: string): number {
+  const m = token.trim().match(/^(\d+)(AM|PM)$/i);
+  if (!m) return 11;
+  let h = parseInt(m[1], 10);
+  const period = m[2].toUpperCase();
+  if (period === "PM" && h !== 12) h += 12;        // 1 PM–11 PM → 13–23
+  else if (period === "AM" && h === 12) h = 24;     // 12 AM (midnight) → 24
+  else if (period === "AM" && h < 9) h += 24;       // 1 AM → 25, 2 AM → 26 (post-midnight)
+  return h;
+}
+
+/**
+ * Parse an HP_LOCATIONS hours string like "Sun-Thu 11AM-12AM" → { open: 11, close: 24 }.
+ * The day-range prefix is stripped; only the time range after the space is parsed.
+ */
+function parseHoursRange(hoursStr: string): { open: number; close: number } {
+  const timePart = hoursStr.split(" ").pop() ?? "11AM-2AM";
+  const dash = timePart.lastIndexOf("-");
+  const openToken  = timePart.slice(0, dash);
+  const closeToken = timePart.slice(dash + 1);
+  return { open: parseHourToken(openToken), close: parseHourToken(closeToken) };
+}
+
+/**
+ * Return operating hours for the given HP_LOCATIONS slug + calendar date.
+ * Fri/Sat use hoursWeekend; Sun-Thu use hours.
+ * Falls back to 11 AM–2 AM if the slug is unknown.
+ */
+function centerHoursForDate(hpSlug: string, dateStr: string): { open: number; close: number } {
+  const loc = HP_LOCATIONS[hpSlug];
+  if (!loc) return { open: 11, close: 26 };
+  const dow = new Date(`${dateStr}T12:00:00`).getDay(); // 0 = Sun, 6 = Sat
+  const isWeekend = dow === 5 || dow === 6;
+  return parseHoursRange(isWeekend ? loc.hoursWeekend : loc.hours);
 }
 
 function centsToDollars(cents: number): string {
@@ -613,10 +656,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   }
 
   function getFilteredHours(dateStr: string): number[] {
-    const HOURS = Array.from({ length: 16 }, (_, i) => i + 11); // 11 AM – 2 AM (26=2am)
-    let filtered = HOURS;
+    // Derive open/close from HP_LOCATIONS for this center + day-of-week.
+    // e.g. Sun-Thu → 11 AM–midnight (11–23), Fri-Sat → 11 AM–2 AM (11–25).
+    const { open, close } = centerHoursForDate(center.hpSlug, dateStr);
+    // Hour chips: [open, open+1, ..., close-1]  (close hour is not a valid start)
+    let filtered = Array.from({ length: close - open }, (_, i) => i + open);
 
-    // KBF Friday: cut off at 5 PM
+    // KBF Friday: further cap at 5 PM (KBF sessions end before the center stays open late)
     if (kind === "kbf") {
       const dow = dateStr ? new Date(`${dateStr}T12:00:00`).getDay() : 4;
       if (dow === 5) filtered = filtered.filter((h) => h < 17);
