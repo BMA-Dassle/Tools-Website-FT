@@ -2831,6 +2831,18 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     if (!guestName || !guestEmail || !guestPhone) { setError("Please fill in all contact details"); return; }
                     if (!clickwrapAccepted) { setError("Please accept the cancellation policy"); return; }
                     setError(null);
+                    // Rename the hold in Conqueror so staff see the guest name
+                    // instead of "Hold (Np)" while the customer is in checkout.
+                    if (holdRef.current) {
+                      void fetch(`/api/bowling/v2/reserve/hold/${holdRef.current.qamfId}`, {
+                        method: "PATCH",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({
+                          centerId: holdRef.current.centerId,
+                          title: `${guestName} (${activePlayerCount}p)`,
+                        }),
+                      }).catch(() => {});
+                    }
                     if (depositCents > 0) setStep("payment");
                     else void handleSubmit();
                   }}

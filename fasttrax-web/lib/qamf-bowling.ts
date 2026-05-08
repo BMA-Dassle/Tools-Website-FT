@@ -305,6 +305,24 @@ export async function setReservationStatus(
   });
 }
 
+/** PATCH /centers/{centerId}/reservations/{reservationId}
+ *  — updates mutable fields on a reservation (Title, Notes, etc.).
+ *  Used to rename the hold from "Hold (Np)" to "Guest Name (Np)" once
+ *  the guest fills in their details. */
+export async function patchReservation(
+  centerId: number,
+  reservationId: string,
+  fields: { Title?: string; Notes?: string },
+): Promise<void> {
+  await call({
+    method: "PATCH",
+    path: `/centers/${centerId}/reservations/${reservationId}`,
+    body: fields,
+    errLabel: `patchReservation(${reservationId})`,
+    centerId,
+  });
+}
+
 /** PATCH /centers/{centerId}/reservations/{reservationId}/expiresAt
  *  — extends the temporary 10-min hold by another 10 min */
 export async function extendReservation(
