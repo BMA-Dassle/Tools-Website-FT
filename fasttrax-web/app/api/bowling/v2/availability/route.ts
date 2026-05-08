@@ -101,13 +101,17 @@ export async function GET(req: NextRequest) {
       ),
     );
 
-    // Flatten, deduplicate by BookedAt, sort chronologically
+    // Flatten, deduplicate by (BookedAt + WebOffer.Id), sort chronologically.
+    // QAMF returns ALL enabled offers in every probe response regardless of the
+    // WebOffer.Id filter — so two offers at the same BookedAt arrive in the same
+    // results array. Keying on BookedAt alone would drop every offer after the first.
     const seen = new Set<string>();
     const availabilities = results
       .flatMap((r) => r.Availabilities)
       .filter((a) => {
-        if (seen.has(a.BookedAt)) return false;
-        seen.add(a.BookedAt);
+        const key = `${a.BookedAt}::${a.WebOffer.Id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
         return true;
       })
       .sort((a, b) => a.BookedAt.localeCompare(b.BookedAt));

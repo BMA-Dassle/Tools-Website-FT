@@ -343,10 +343,31 @@ function slotHourET(iso: string): number {
   }
 }
 
+function slotMinuteET(iso: string): number {
+  try {
+    const m = parseInt(
+      new Date(iso).toLocaleString("en-US", {
+        minute: "2-digit",
+        timeZone: "America/New_York",
+      }),
+      10,
+    );
+    return isNaN(m) ? 0 : m;
+  } catch {
+    return 0;
+  }
+}
+
 function formatHour(h: number): string {
   const ampm = h >= 12 ? "PM" : "AM";
   const hr = h % 12 || 12;
   return `${hr} ${ampm}`;
+}
+
+function formatHourMinute(h: number, m: number): string {
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hr = h % 12 || 12;
+  return `${hr}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
 function centsToDollars(cents: number): string {
@@ -423,6 +444,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
 
   // Calendar nav
   const initCal = new Date(`${initialDate}T12:00:00`);
@@ -500,7 +522,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     ? (availableSlots.find(
         (s) =>
           s.webOfferId === vipUpgradeExperience.qamfWebOfferId &&
-          slotHourET(s.bookedAt) === slotHourET(selectedSlot.bookedAt),
+          slotHourET(s.bookedAt) === slotHourET(selectedSlot.bookedAt) &&
+          slotMinuteET(s.bookedAt) === slotMinuteET(selectedSlot.bookedAt),
       ) ?? null)
     : null;
 
@@ -554,9 +577,29 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   function getFilteredHours(dateStr: string): number[] {
     const HOURS = Array.from({ length: 13 }, (_, i) => i + 11); // 11 AM – 11 PM
-    if (kind !== "kbf") return HOURS;
-    const dow = dateStr ? new Date(`${dateStr}T12:00:00`).getDay() : 4;
-    return dow === 5 ? HOURS.filter((h) => h < 17) : HOURS;
+    let filtered = HOURS;
+
+    // KBF Friday: cut off at 5 PM
+    if (kind === "kbf") {
+      const dow = dateStr ? new Date(`${dateStr}T12:00:00`).getDay() : 4;
+      if (dow === 5) filtered = filtered.filter((h) => h < 17);
+    }
+
+    // Today: hide hours that are already past (+ 30-min lookahead buffer)
+    if (dateStr === todayYmd()) {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric",
+        minute: "numeric",
+        hourCycle: "h23",
+        timeZone: "America/New_York",
+      }).formatToParts(new Date());
+      const etH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+      const etM = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      const cutoffMins = etH * 60 + etM + 30; // must be bookable at least 30 min from now
+      filtered = filtered.filter((h) => h * 60 >= cutoffMins);
+    }
+
+    return filtered;
   }
 
   // ── Load experiences when center changes ─────────────────────────
@@ -611,6 +654,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       setSlotsError(null);
       setAvailableSlots([]);
       setSelectedSlot(null);
+      setSelectedMinute(null);
 
       type RawSlot = {
         BookedAt: string;
@@ -697,6 +741,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     if (experiencesLoading) return; // wait — will re-run when experiencesLoading → false
 
     setSelectedHour(null);
+    setSelectedMinute(null);
     if (step === "reschedule") {
       void fetchSlots(selectedDate, existingReservation?.playerCount ?? 1);
     } else {
@@ -1785,10 +1830,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       <span>📅 {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
                     </>
                   )}
-                  {selectedHour !== null && (
+                  {selectedHour !== null && selectedMinute !== null && (
                     <>
                       <span className="text-white/20">·</span>
-                      <span style={{ color: GOLD }}>🕐 {formatHour(selectedHour)}</span>
+                      <span style={{ color: GOLD }}>🕐 {formatHourMinute(selectedHour, selectedMinute)}</span>
                     </>
                   )}
                 </div>
@@ -1819,7 +1864,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             key={day}
                             type="button"
                             disabled={!bookable}
-                            onClick={() => { setSelectedDate(dateStr); setSelectedHour(null); void fetchSlots(dateStr); }}
+                            onClick={() => { setSelectedDate(dateStr); setSelectedHour(null); setSelectedMinute(null); void fetchSlots(dateStr); }}
                             className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
                             style={{
                               backgroundColor: isSelected ? CORAL : bookable ? "rgba(253,91,86,0.15)" : "transparent",
@@ -1862,7 +1907,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 key={h}
                                 type="button"
                                 disabled={!hasSlot && !slotsLoading}
-                                onClick={() => setSelectedHour(h)}
+                                onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
                                 className="rounded-lg px-3 py-2 text-sm font-medium transition-all disabled:opacity-25"
                                 style={{
                                   backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
@@ -1876,11 +1921,45 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             );
                           })}
                         </div>
-                        {selectedHour !== null && (
-                          <div className="text-center text-2xl font-heading font-black mt-5" style={{ color: GOLD }}>
-                            {formatHour(selectedHour)}
-                          </div>
-                        )}
+                        {selectedHour !== null && (() => {
+                          // Show minute sub-chips for all available slots at this hour
+                          const minuteSlots = availableSlots.filter(
+                            (s) => slotHourET(s.bookedAt) === selectedHour,
+                          );
+                          const distinctMinutes = [
+                            ...new Set(minuteSlots.map((s) => slotMinuteET(s.bookedAt))),
+                          ].sort((a, b) => a - b);
+                          if (distinctMinutes.length === 0) return null;
+                          return (
+                            <div className="mt-4 pt-3 border-t border-white/8">
+                              <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
+                                Select Time
+                              </div>
+                              <div className="flex flex-wrap justify-center gap-2">
+                                {distinctMinutes.map((m) => {
+                                  const isActive = selectedMinute === m;
+                                  return (
+                                    <button
+                                      key={m}
+                                      type="button"
+                                      onClick={() => setSelectedMinute(m)}
+                                      className="rounded-lg px-3 py-2 text-sm font-medium transition-all hover:scale-[1.02]"
+                                      style={{
+                                        backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
+                                        color: isActive ? "#0a1628" : GOLD,
+                                        fontWeight: isActive ? 800 : 500,
+                                        minWidth: "90px",
+                                        boxShadow: isActive ? `0 0 12px ${GOLD}60` : undefined,
+                                      }}
+                                    >
+                                      {formatHourMinute(selectedHour, m)}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </>
                     )}
                   </div>
@@ -1898,11 +1977,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   <button
                     type="button"
                     onClick={() => { setError(null); setSelectedTier(null); setStep("tier"); }}
-                    disabled={selectedHour === null || slotsLoading}
+                    disabled={selectedHour === null || selectedMinute === null || slotsLoading}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
-                    {slotsLoading ? "Loading…" : "See Available Packages"}
+                    {slotsLoading
+                      ? "Loading…"
+                      : selectedHour !== null && selectedMinute !== null
+                        ? `See Packages — ${formatHourMinute(selectedHour, selectedMinute)}`
+                        : selectedHour !== null
+                          ? "Pick a time above"
+                          : "See Available Packages"}
                   </button>
                 </div>
               </div>
@@ -1947,7 +2032,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             return (
               <div className="space-y-6">
                 <p className="text-center text-white/45 text-xs">
-                  {selectedHour !== null ? `Available near ${formatHour(selectedHour)}` : "Available"} on {dateLabel}
+                  {selectedHour !== null && selectedMinute !== null
+                    ? `Available at ${formatHourMinute(selectedHour, selectedMinute)}`
+                    : "Available"}{" "}
+                  on {dateLabel}
                 </p>
 
                 {tiersToShow.length === 0 ? (
@@ -2051,7 +2139,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 return availableSlots.some(
                   (s) =>
                     s.webOfferId === exp.qamfWebOfferId &&
-                    (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
+                    (selectedHour === null || slotHourET(s.bookedAt) === selectedHour) &&
+                    (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                 );
               }
               return true; // hourly: always show, may show SOLD OUT
@@ -2060,7 +2149,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             return (
               <div className="space-y-6">
                 <p className="text-center text-white/45 text-xs">
-                  Showing packages{selectedHour !== null ? ` near ${formatHour(selectedHour)}` : ""} on{" "}
+                  {selectedHour !== null && selectedMinute !== null
+                    ? `Showing packages at ${formatHourMinute(selectedHour, selectedMinute)}`
+                    : "Showing packages"}{" "}
+                  on{" "}
                   {selectedDate
                     ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
                     : ""}
@@ -2074,7 +2166,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     const offerSlots = availableSlots.filter(
                       (s) =>
                         s.webOfferId === exp.qamfWebOfferId &&
-                        (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
+                        (selectedHour === null || slotHourET(s.bookedAt) === selectedHour) &&
+                        (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                     );
                     const hasSlots = offerSlots.length > 0;
                     const isExpSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
