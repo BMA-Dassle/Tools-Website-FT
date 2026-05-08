@@ -45,28 +45,8 @@ type ReservationWithLines = BowlingReservation & {
 
 // ── Shoe size catalog ─────────────────────────────────────────────────────
 
-const SHOE_SIZE_OPTIONS = [
-  { value: "", label: "No shoes" },
-  { value: "Kids 5",  label: "Kids 5"  },
-  { value: "Kids 6",  label: "Kids 6"  },
-  { value: "Kids 7",  label: "Kids 7"  },
-  { value: "Kids 8",  label: "Kids 8"  },
-  { value: "Kids 9",  label: "Kids 9"  },
-  { value: "Kids 10", label: "Kids 10" },
-  { value: "Kids 11", label: "Kids 11" },
-  { value: "Kids 12", label: "Kids 12" },
-  { value: "Kids 13", label: "Kids 13" },
-  { value: "Adult 6",  label: "Adult 6"  },
-  { value: "Adult 7",  label: "Adult 7"  },
-  { value: "Adult 8",  label: "Adult 8"  },
-  { value: "Adult 9",  label: "Adult 9"  },
-  { value: "Adult 10", label: "Adult 10" },
-  { value: "Adult 11", label: "Adult 11" },
-  { value: "Adult 12", label: "Adult 12" },
-  { value: "Adult 13", label: "Adult 13" },
-  { value: "Adult 14", label: "Adult 14" },
-  { value: "Adult 15", label: "Adult 15" },
-];
+const KIDS_SIZES  = ["5","6","7","8","9","10","11","12","13"];
+const ADULT_SIZES = ["6","7","8","9","10","11","12","13","14","15"];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -250,6 +230,162 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
     ],
   },
 };
+
+// ── Bowler card sub-component ─────────────────────────────────────────────
+
+function BowlerCard({
+  player,
+  shoePairsAllowed,
+  shoeSizesAssigned,
+  kind,
+  onUpdate,
+}: {
+  player: BowlingReservationPlayer;
+  shoePairsAllowed: number;
+  shoeSizesAssigned: number;
+  kind: BowlingConfirmationKind;
+  onUpdate: (patch: Partial<BowlingReservationPlayer>) => void;
+}) {
+  // Derive active category from saved shoeSize; persists while user browses sizes
+  const savedCat = player.shoeSize?.startsWith("Kids")
+    ? ("Kids" as const)
+    : player.shoeSize?.startsWith("Adult")
+    ? ("Adult" as const)
+    : null;
+  const [activeCat, setActiveCat] = useState<"Kids" | "Adult" | null>(savedCat);
+
+  const nums = activeCat === "Kids" ? KIDS_SIZES : activeCat === "Adult" ? ADULT_SIZES : [];
+  const currentNum = player.shoeSize?.split(" ")[1] ?? null;
+  // This bowler already has a size, or there's room for another pair
+  const canPickShoes = !!player.shoeSize || shoeSizesAssigned < shoePairsAllowed;
+
+  function selectCat(cat: "Kids" | "Adult" | null) {
+    if (cat === null) {
+      setActiveCat(null);
+      onUpdate({ shoeSize: null });
+      return;
+    }
+    // Switching category clears any saved size for the previous category
+    if (activeCat !== cat && player.shoeSize) onUpdate({ shoeSize: null });
+    setActiveCat(cat);
+  }
+
+  function selectNum(num: string) {
+    if (!activeCat) return;
+    onUpdate({ shoeSize: `${activeCat} ${num}` });
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+      {/* Name */}
+      {kind === "kbf" ? (
+        <div className="font-body font-semibold text-white text-sm">
+          {player.name ?? `Bowler ${player.slot}`}
+        </div>
+      ) : (
+        <input
+          type="text"
+          value={player.name ?? ""}
+          onChange={(e) => onUpdate({ name: e.target.value || null })}
+          placeholder={`Bowler ${player.slot}`}
+          className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35"
+        />
+      )}
+
+      {/* Bumpers */}
+      <div className="flex items-center gap-3">
+        <span className="text-white/50 text-xs font-body w-16 shrink-0">Bumpers</span>
+        <div className="flex rounded-lg overflow-hidden border border-white/15">
+          {([true, false] as const).map((val) => (
+            <button
+              key={String(val)}
+              type="button"
+              onClick={() => onUpdate({ bumpers: val })}
+              className="px-3 py-1.5 text-xs font-body font-semibold transition-colors"
+              style={{
+                backgroundColor:
+                  player.bumpers === val
+                    ? val
+                      ? CORAL
+                      : "rgba(255,255,255,0.15)"
+                    : "transparent",
+                color: player.bumpers === val ? "white" : "rgba(255,255,255,0.35)",
+              }}
+            >
+              {val ? "Yes" : "No"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Shoes — only rendered when pairs were purchased */}
+      {shoePairsAllowed > 0 && (
+        <div className="space-y-2">
+          {/* Category row */}
+          <div className="flex items-center gap-2">
+            <span className="text-white/50 text-xs font-body w-16 shrink-0">Shoes</span>
+            <div className="flex gap-1.5">
+              {(["None", "Kids", "Adult"] as const).map((label) => {
+                const cat = label === "None" ? null : label;
+                const active = cat === null ? activeCat === null : activeCat === cat;
+                const disabled = !active && !canPickShoes && cat !== null;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => selectCat(cat)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-body font-semibold border transition-colors disabled:opacity-35 disabled:cursor-not-allowed"
+                    style={{
+                      backgroundColor: active
+                        ? cat === null
+                          ? "rgba(255,255,255,0.12)"
+                          : CORAL
+                        : "transparent",
+                      borderColor: active
+                        ? cat === null
+                          ? "rgba(255,255,255,0.25)"
+                          : CORAL
+                        : "rgba(255,255,255,0.12)",
+                      color: active ? "white" : "rgba(255,255,255,0.4)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Size number chips */}
+          {activeCat && (
+            <div className="flex gap-1.5 flex-wrap pl-[76px]">
+              {nums.map((num) => {
+                const selected =
+                  currentNum === num && player.shoeSize?.startsWith(activeCat);
+                return (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => selectNum(num)}
+                    className="min-w-[36px] px-2 py-1.5 rounded-lg text-xs font-body font-semibold border transition-colors"
+                    style={{
+                      backgroundColor: selected ? CORAL : "rgba(255,255,255,0.06)",
+                      borderColor: selected ? CORAL : "rgba(255,255,255,0.12)",
+                      color: selected ? "white" : "rgba(255,255,255,0.55)",
+                    }}
+                  >
+                    {num}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Main content (inside Suspense) ─────────────────────────────────────────
 
@@ -504,80 +640,16 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               </p>
 
               <div className="space-y-4">
-                {players.map((player) => {
-                  const shoeSizesAssigned = players.filter((p) => p.shoeSize).length;
-                  const canAddShoeSize = player.shoeSize || shoeSizesAssigned < shoePairsAllowed;
-
-                  return (
-                    <div
-                      key={player.slot}
-                      className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3"
-                    >
-                      {/* Name row */}
-                      {kind === "kbf" ? (
-                        <div className="font-body font-semibold text-white text-sm">
-                          {player.name ?? `Bowler ${player.slot}`}
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={player.name ?? ""}
-                          onChange={(e) => updatePlayer(player.slot, { name: e.target.value || null })}
-                          placeholder={`Bowler ${player.slot}`}
-                          className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35"
-                        />
-                      )}
-
-                      <div className="flex flex-wrap gap-3 items-center">
-                        {/* Bumpers toggle */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-white/50 text-xs font-body">Bumpers</span>
-                          <div className="flex rounded-lg overflow-hidden border border-white/15">
-                            {([true, false] as const).map((val) => (
-                              <button
-                                key={String(val)}
-                                type="button"
-                                onClick={() => updatePlayer(player.slot, { bumpers: val })}
-                                className="px-3 py-1.5 text-xs font-body font-semibold transition-colors"
-                                style={{
-                                  backgroundColor:
-                                    player.bumpers === val
-                                      ? val ? CORAL : "rgba(255,255,255,0.15)"
-                                      : "transparent",
-                                  color: player.bumpers === val ? "white" : "rgba(255,255,255,0.4)",
-                                }}
-                              >
-                                {val ? "Yes" : "No"}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Shoe size — only when shoes were purchased */}
-                        {shoePairsAllowed > 0 && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-white/50 text-xs font-body">Shoe size</span>
-                            <select
-                              value={player.shoeSize ?? ""}
-                              disabled={!canAddShoeSize}
-                              onChange={(e) =>
-                                updatePlayer(player.slot, { shoeSize: e.target.value || null })
-                              }
-                              className="bg-white/8 border border-white/15 rounded-lg px-2 py-1.5 text-white text-xs font-body focus:outline-none focus:border-white/35 disabled:opacity-40 disabled:cursor-not-allowed"
-                              style={{ colorScheme: "dark" }}
-                            >
-                              {SHOE_SIZE_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {players.map((player) => (
+                  <BowlerCard
+                    key={player.slot}
+                    player={player}
+                    shoePairsAllowed={shoePairsAllowed}
+                    shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                    kind={kind}
+                    onUpdate={(patch) => updatePlayer(player.slot, patch)}
+                  />
+                ))}
               </div>
 
               {/* Shoe pair counter */}
