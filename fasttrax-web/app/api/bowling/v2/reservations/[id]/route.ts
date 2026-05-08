@@ -101,7 +101,7 @@ export async function DELETE(
   let squareRefundId: string | undefined;
   let refundCents = 0;
 
-  if (reservation.squareDepositPaymentId && reservation.depositCents > 0) {
+  if (reservation.squareDepositPaymentId && reservation.squareGiftCardId) {
     const origin = req.nextUrl.origin;
     try {
       const refundRes = await fetch(`${origin}/api/square/bowling-refund`, {
@@ -109,9 +109,8 @@ export async function DELETE(
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           depositPaymentId: reservation.squareDepositPaymentId,
-          depositOrderId:   reservation.squareDepositOrderId ?? "",
+          giftCardId:       reservation.squareGiftCardId,
           dayofOrderId:     reservation.squareDayofOrderId,
-          amountCents:      reservation.depositCents,
           locationId:       reservation.centerCode,
           idempotencyKey:   randomUUID(),
         }),
@@ -120,6 +119,8 @@ export async function DELETE(
       const refundData = (await refundRes.json()) as {
         refundId?: string;
         refundedCents?: number;
+        dayofOrderCancelled?: boolean;
+        giftCardDeactivated?: boolean;
         error?: string;
       };
 

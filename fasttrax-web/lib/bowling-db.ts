@@ -1,12 +1,17 @@
+import { type NeonQueryFunction } from "@neondatabase/serverless";
 import { sql, isDbConfigured } from "@/lib/db";
 
 /**
  * Bowling V2 — Neon data layer.
  *
- * Three tables:
- *   bowling_square_products   — product catalog mapping QAMF items → Square catalog
- *   bowling_reservations      — one row per confirmed booking (QAMF + Square IDs)
- *   bowling_reservation_lines — individual line items per reservation (for day-of order)
+ * Tables:
+ *   bowling_square_products      — product catalog: Square catalog IDs + prices
+ *   bowling_experiences          — our canonical experience catalog ('Fun 4 All VIP', etc.)
+ *   bowling_experience_items     — Square products bundled into an experience (the combo)
+ *   bowling_experience_offers    — per-center QAMF web offer ID for each experience
+ *   bowling_reservations         — one row per confirmed booking (QAMF + Square IDs)
+ *   bowling_reservation_lines    — individual line items per reservation (for day-of order)
+ *   bowling_reservation_players  — per-player slot rows (shoe size, bumpers, KBF linkage)
  *
  * Schema is auto-bootstrapped on first write via `ensureBowlingSchema()`.
  * All ALTER … ADD COLUMN IF NOT EXISTS statements are idempotent.
@@ -16,11 +21,15 @@ import { sql, isDbConfigured } from "@/lib/db";
  * JSON.stringify() — BMI IDs exceed Number.MAX_SAFE_INTEGER.
  *
  * ── Product kinds ─────────────────────────────────────────────────
- *   'kbf'              — base KBF game options
- *   'open'             — base open bowling options
- *   'addon_shoe'       — shoe rental
+ *   'addon_shoe'       — shoe rental (per person, optional)
  *   'addon_attraction' — laser tag / gel blaster / escape room (stub)
  *   'addon_food'       — F&B packages (stub)
+ *   (base bowling items live as experience_items, not standalone products)
+ *
+ * ── Experience kinds ──────────────────────────────────────────────
+ *   'kbf'    — Kids Bowl Free (free base, may have shoe add-ons)
+ *   'open'   — Open / Fun 4 All bowling (paid base)
+ *   'hourly' — Hourly lane rental (paid base)
  */
 
 // ─────────────────────────────────────────────────────────────────
@@ -53,10 +62,87 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS bsp_center_kind ON bowling_square_products(center_code, product_kind)`;
   await q`CREATE INDEX IF NOT EXISTS bsp_active ON bowling_square_products(center_code, product_kind) WHERE is_active = TRUE`;
 
-  // qamf_web_offer_id: used by 'open' products to link a QAMF web offer to a
-  // Square price. Added after initial create — idempotent.
+  // qamf_web_offer_id: legacy column — superseded by bowling_experience_offers.
+  // Kept for backward compatibility; no longer written to for new rows.
   await q`ALTER TABLE bowling_square_products ADD COLUMN IF NOT EXISTS qamf_web_offer_id INTEGER`;
-  await q`CREATE INDEX IF NOT EXISTS bsp_qamf_offer ON bowling_square_products(qamf_web_offer_id) WHERE qamf_web_offer_id IS NOT NULL`;
+
+  // ── bowling_experiences ──────────────────────────────────────────
+  // Our canonical experience catalog, independent of QAMF or Square internals.
+  // kind values: 'kbf' | 'open' | 'hourly'
+  await q`
+    CREATE TABLE IF NOT EXISTS bowling_experiences (
+      id          SERIAL  PRIMARY KEY,
+      slug        TEXT    NOT NULL UNIQUE,   -- 'fun-4-all-vip', 'kbf-regular', etc.
+      label       TEXT    NOT NULL,
+      kind        TEXT    NOT NULL,
+      is_vip      BOOLEAN NOT NULL DEFAULT FALSE,
+      description TEXT,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS be_kind ON bowling_experiences(kind) WHERE is_active = TRUE`;
+
+  // ── bowling_experience_items ─────────────────────────────────────
+  // Square products that are auto-included (bundled) when this experience is selected.
+  // Distinct from optional add-ons (shoes, attractions) which are wizard steps.
+  await q`
+    CREATE TABLE IF NOT EXISTS bowling_experience_items (
+      id                        SERIAL  PRIMARY KEY,
+      experience_id             INTEGER NOT NULL REFERENCES bowling_experiences(id),
+      square_product_id         INTEGER REFERENCES bowling_square_products(id),
+      square_catalog_object_id  TEXT,   -- used for center-agnostic item lookup
+      quantity                  INTEGER NOT NULL DEFAULT 1,
+      label_override            TEXT,   -- null → use product.label
+      sort_order                INTEGER NOT NULL DEFAULT 0,
+      center_code               TEXT    -- null = all centers; value = center-specific only
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS bei_exp ON bowling_experience_items(experience_id)`;
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS square_catalog_object_id TEXT`;
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS center_code TEXT`;
+
+  // ── bowling_experience_offers ────────────────────────────────────
+  // Maps an experience to the QAMF web offer ID at a specific center.
+  // Same experience → different offer IDs per center.
+  await q`
+    CREATE TABLE IF NOT EXISTS bowling_experience_offers (
+      id                  SERIAL  PRIMARY KEY,
+      experience_id       INTEGER NOT NULL REFERENCES bowling_experiences(id),
+      center_code         TEXT    NOT NULL,
+      qamf_web_offer_id   INTEGER NOT NULL,
+      qamf_option_type    TEXT,          -- 'Game' | 'Time' | 'Unlimited'
+      qamf_option_id      INTEGER,
+      is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+      UNIQUE (center_code, qamf_web_offer_id)
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS beo_center ON bowling_experience_offers(center_code, qamf_web_offer_id)`;
+  await q`CREATE INDEX IF NOT EXISTS beo_exp    ON bowling_experience_offers(experience_id)`;
+
+  // center_code on items: NULL = all centers, value = center-specific (e.g. FM-only Chips & Salsa)
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS center_code TEXT`;
+
+  // ── bowling_experience_duration_options ──────────────────────────
+  // For Time-based QAMF offers with multiple durations (e.g. 1.5hr / 2hr).
+  // square_multiplier: quantity multiplier applied to base experience items.
+  //   1.5hr → multiplier 1  (charge base items × 1)
+  //   2hr   → multiplier 2  (charge base items × 2, i.e. two 1.5hr units)
+  await q`
+    CREATE TABLE IF NOT EXISTS bowling_experience_duration_options (
+      id                SERIAL  PRIMARY KEY,
+      experience_id     INTEGER NOT NULL REFERENCES bowling_experiences(id),
+      center_code       TEXT    NOT NULL,
+      qamf_option_id    INTEGER NOT NULL,
+      duration_minutes  INTEGER NOT NULL,
+      label             TEXT    NOT NULL,    -- "1.5 Hours", "2 Hours"
+      square_multiplier INTEGER NOT NULL DEFAULT 1,
+      sort_order        INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (experience_id, center_code, qamf_option_id)
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS bedo_exp ON bowling_experience_duration_options(experience_id, center_code)`;
 
   // ── bowling_reservations ─────────────────────────────────────────
   await q`
@@ -129,6 +215,13 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_refund_id TEXT`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS refund_cents INTEGER NOT NULL DEFAULT 0`;
 
+  // ── eGift card columns (idempotent) ──────────────────────────────
+  // The gift card stores the exact deposit amount, enabling accurate
+  // refunds without the tax-rounding mismatch of a deposit-order approach.
+  // Balance is loaded at booking time; deactivated on cancellation after refund.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_gift_card_id TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_gift_card_gan TEXT`;
+
   schemaReady = true;
 }
 
@@ -137,11 +230,76 @@ export async function ensureBowlingSchema(): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 
 export type BowlingProductKind =
-  | "kbf"
-  | "open"
-  | "addon_shoe"
-  | "addon_attraction"
-  | "addon_food";
+  | "kbf"             // base KBF lane item (referenced by experience_items; free)
+  | "open"            // base open bowling lane item (referenced by experience_items)
+  | "hourly"          // hourly lane item (referenced by experience_items)
+  | "addon_shoe"      // shoe rental (optional per-person add-on)
+  | "addon_attraction" // laser tag / gel blaster / escape room (stub)
+  | "addon_food";      // F&B packages (stub)
+
+export type BowlingExperienceKind = "kbf" | "open" | "hourly";
+
+// ── Experience types ───────────────────────────────────────────────────────
+
+export interface BowlingExperience {
+  id: number;
+  slug: string;
+  label: string;
+  kind: BowlingExperienceKind;
+  isVip: boolean;
+  description: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  insertedAt: string;
+}
+
+/**
+ * One Square product bundled into an experience (the combo).
+ * priceCents / depositPct / squareCatalogObjectId are denormalized from
+ * bowling_square_products for convenient consumption by the wizard.
+ */
+export interface BowlingExperienceItem {
+  id: number;
+  experienceId: number;
+  squareProductId: number;
+  label: string;                  // label_override ?? product.label
+  priceCents: number;
+  depositPct: number;
+  squareCatalogObjectId: string;
+  quantity: number;
+  sortOrder: number;
+}
+
+export interface BowlingExperienceOffer {
+  id: number;
+  experienceId: number;
+  centerCode: string;
+  qamfWebOfferId: number;
+  qamfOptionType: string | null;  // 'Game' | 'Time' | 'Unlimited'
+  qamfOptionId: number | null;
+  isActive: boolean;
+}
+
+export interface BowlingExperienceDurationOption {
+  id: number;
+  experienceId: number;
+  centerCode: string;
+  qamfOptionId: number;
+  durationMinutes: number;
+  label: string;            // "1.5 Hours", "2 Hours"
+  squareMultiplier: number; // quantity multiplier on base experience items
+  sortOrder: number;
+}
+
+/** Experience with center-specific QAMF offer resolved + bundled items pre-joined. */
+export interface BowlingExperienceWithDetails extends BowlingExperience {
+  qamfWebOfferId: number;
+  qamfOptionType: string | null;
+  qamfOptionId: number | null;
+  items: BowlingExperienceItem[];
+  /** Present for Time-based offers (kind='hourly'). Empty for Game/Unlimited. */
+  durationOptions: BowlingExperienceDurationOption[];
+}
 
 export interface BowlingSquareProduct {
   id: number;
@@ -155,9 +313,8 @@ export interface BowlingSquareProduct {
   sortOrder: number;
   isActive: boolean;
   /**
-   * For 'open' products: the QAMF web offer ID this product represents.
-   * The wizard matches availability slots (by WebOffer.Id) to Neon products
-   * using this field. Null for KBF and add-on products.
+   * Legacy — QAMF web offer ID previously stored directly on products.
+   * Superseded by bowling_experience_offers. Present on old rows only.
    */
   qamfWebOfferId?: number;
   insertedAt: string;
@@ -208,9 +365,18 @@ export interface BowlingReservation {
   /** BMI bill ID — always a raw string; never coerce to Number. */
   bmiBillId?: string;
   bmiReservationNumber?: string;
-  squareDepositOrderId?: string;
+  /** Square payment ID for the deposit charge. */
   squareDepositPaymentId?: string;
+  /** Square day-of order ID — left open for staff to redeem at center. */
   squareDayofOrderId?: string;
+  /**
+   * Square eGift card ID — holds the deposit amount as its balance.
+   * Used to get the exact refund amount on cancellation (avoids tax-rounding
+   * mismatch). Null for free ($0) bookings.
+   */
+  squareGiftCardId?: string;
+  /** Square eGift card GAN (Gift Account Number) — human-readable card number. */
+  squareGiftCardGan?: string;
   depositCents: number;
   totalCents: number;
   status: "confirmed" | "arrived" | "completed" | "cancelled";
@@ -365,9 +531,10 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     qamfReservationId: (row.qamf_reservation_id as string) ?? undefined,
     bmiBillId: (row.bmi_bill_id as string) ?? undefined,
     bmiReservationNumber: (row.bmi_reservation_number as string) ?? undefined,
-    squareDepositOrderId: (row.square_deposit_order_id as string) ?? undefined,
     squareDepositPaymentId: (row.square_deposit_payment_id as string) ?? undefined,
     squareDayofOrderId: (row.square_dayof_order_id as string) ?? undefined,
+    squareGiftCardId: (row.square_gift_card_id as string) ?? undefined,
+    squareGiftCardGan: (row.square_gift_card_gan as string) ?? undefined,
     depositCents: row.deposit_cents as number,
     totalCents: row.total_cents as number,
     status: row.status as BowlingReservation["status"],
@@ -420,14 +587,16 @@ export async function insertBowlingReservation(
     INSERT INTO bowling_reservations (
       center_code, product_kind,
       qamf_reservation_id, bmi_bill_id, bmi_reservation_number,
-      square_deposit_order_id, square_deposit_payment_id, square_dayof_order_id,
+      square_deposit_payment_id, square_dayof_order_id,
+      square_gift_card_id, square_gift_card_gan,
       deposit_cents, total_cents, status,
       booked_at, player_count,
       guest_name, guest_email, guest_phone, notes
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
-      ${r.squareDepositOrderId ?? null}, ${r.squareDepositPaymentId ?? null}, ${r.squareDayofOrderId ?? null},
+      ${r.squareDepositPaymentId ?? null}, ${r.squareDayofOrderId ?? null},
+      ${r.squareGiftCardId ?? null}, ${r.squareGiftCardGan ?? null},
       ${r.depositCents}, ${r.totalCents}, ${r.status},
       ${r.bookedAt}, ${r.playerCount ?? null},
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null}
@@ -516,18 +685,20 @@ export async function updateBowlingReservationCancelled(
 export async function updateBowlingReservationSquareIds(
   id: number,
   ids: {
-    squareDepositOrderId?: string;
     squareDepositPaymentId?: string;
     squareDayofOrderId?: string;
+    squareGiftCardId?: string;
+    squareGiftCardGan?: string;
   },
 ): Promise<void> {
   if (!isDbConfigured()) return;
   const q = sql();
   await q`
     UPDATE bowling_reservations SET
-      square_deposit_order_id   = COALESCE(${ids.squareDepositOrderId ?? null}, square_deposit_order_id),
       square_deposit_payment_id = COALESCE(${ids.squareDepositPaymentId ?? null}, square_deposit_payment_id),
-      square_dayof_order_id     = COALESCE(${ids.squareDayofOrderId ?? null}, square_dayof_order_id)
+      square_dayof_order_id     = COALESCE(${ids.squareDayofOrderId ?? null}, square_dayof_order_id),
+      square_gift_card_id       = COALESCE(${ids.squareGiftCardId ?? null}, square_gift_card_id),
+      square_gift_card_gan      = COALESCE(${ids.squareGiftCardGan ?? null}, square_gift_card_gan)
     WHERE id = ${id}
   `;
 }
@@ -690,6 +861,406 @@ export async function upsertReservationPlayer(
     RETURNING *
   `;
   return rows.length ? rowToPlayer(rows[0] as Record<string, unknown>) : null;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Experience catalog helpers
+// ─────────────────────────────────────────────────────────────────
+
+function rowToExperience(row: Record<string, unknown>): BowlingExperience {
+  return {
+    id: row.id as number,
+    slug: row.slug as string,
+    label: row.label as string,
+    kind: row.kind as BowlingExperienceKind,
+    isVip: row.is_vip as boolean,
+    description: (row.description as string) ?? null,
+    sortOrder: row.sort_order as number,
+    isActive: row.is_active as boolean,
+    insertedAt: (row.inserted_at as Date).toISOString(),
+  };
+}
+
+function rowToExperienceWithDetails(row: Record<string, unknown>): BowlingExperienceWithDetails {
+  return {
+    ...rowToExperience(row),
+    qamfWebOfferId: row.qamf_web_offer_id as number,
+    qamfOptionType: (row.qamf_option_type as string) ?? null,
+    qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+    items: (row.items as BowlingExperienceItem[]) ?? [],
+    durationOptions: [],
+  };
+}
+
+/**
+ * Fetch bundled items for an array of experience IDs.
+ * When centerCode is provided, filters to items that apply to that center
+ * (center_code IS NULL = all centers, or matches exactly).
+ * When omitted (admin), returns all items regardless of center.
+ */
+async function fetchExperienceItems(
+  q: NeonQueryFunction<false, false>,
+  experienceIds: number[],
+  centerCode?: string,
+): Promise<Map<number, BowlingExperienceItem[]>> {
+  if (!experienceIds.length) return new Map();
+  // Note: no is_active filter on bsp — experience items are bundled products
+  // whose availability is controlled by the experience itself, not the product flag.
+  const itemRows = centerCode
+    ? await q`
+        SELECT
+          bei.id, bei.experience_id, bei.square_product_id,
+          COALESCE(bei.label_override, bsp.label) AS label,
+          bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
+          bei.quantity, bei.sort_order
+        FROM bowling_experience_items bei
+        JOIN bowling_square_products bsp
+          ON bsp.square_catalog_object_id = bei.square_catalog_object_id
+         AND bsp.center_code = ${centerCode}
+        WHERE bei.experience_id = ANY(${experienceIds})
+          AND (bei.center_code IS NULL OR bei.center_code = ${centerCode})
+        ORDER BY bei.experience_id, bei.sort_order
+      `
+    : await q`
+        SELECT
+          bei.id, bei.experience_id, bei.square_product_id,
+          COALESCE(bei.label_override, bsp.label) AS label,
+          bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
+          bei.quantity, bei.sort_order
+        FROM bowling_experience_items bei
+        JOIN bowling_square_products bsp ON bsp.id = bei.square_product_id
+        WHERE bei.experience_id = ANY(${experienceIds})
+        ORDER BY bei.experience_id, bei.sort_order
+      `;
+  const map = new Map<number, BowlingExperienceItem[]>();
+  for (const row of itemRows) {
+    const r = row as Record<string, unknown>;
+    const eid = r.experience_id as number;
+    const item: BowlingExperienceItem = {
+      id: r.id as number,
+      experienceId: eid,
+      squareProductId: r.square_product_id as number,
+      label: r.label as string,
+      priceCents: r.price_cents as number,
+      depositPct: r.deposit_pct as number,
+      squareCatalogObjectId: r.square_catalog_object_id as string,
+      quantity: r.quantity as number,
+      sortOrder: r.sort_order as number,
+    };
+    if (!map.has(eid)) map.set(eid, []);
+    map.get(eid)!.push(item);
+  }
+  return map;
+}
+
+/** Fetch duration options for an array of experience IDs at a specific center. */
+async function fetchDurationOptions(
+  q: NeonQueryFunction<false, false>,
+  experienceIds: number[],
+  centerCode: string,
+): Promise<Map<number, BowlingExperienceDurationOption[]>> {
+  if (!experienceIds.length) return new Map();
+  const rows = await q`
+    SELECT * FROM bowling_experience_duration_options
+    WHERE experience_id = ANY(${experienceIds})
+      AND center_code = ${centerCode}
+    ORDER BY experience_id, sort_order
+  `;
+  const map = new Map<number, BowlingExperienceDurationOption[]>();
+  for (const row of rows) {
+    const r = row as Record<string, unknown>;
+    const eid = r.experience_id as number;
+    const opt: BowlingExperienceDurationOption = {
+      id: r.id as number,
+      experienceId: eid,
+      centerCode: r.center_code as string,
+      qamfOptionId: r.qamf_option_id as number,
+      durationMinutes: r.duration_minutes as number,
+      label: r.label as string,
+      squareMultiplier: r.square_multiplier as number,
+      sortOrder: r.sort_order as number,
+    };
+    if (!map.has(eid)) map.set(eid, []);
+    map.get(eid)!.push(opt);
+  }
+  return map;
+}
+
+/**
+ * Returns active experiences for a center, with bundled items and the
+ * center-specific QAMF web offer ID pre-joined.
+ * Optionally filter by kind ('kbf' | 'open' | 'hourly').
+ */
+export async function getBowlingExperiences(
+  centerCode: string,
+  kind?: BowlingExperienceKind,
+): Promise<BowlingExperienceWithDetails[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+
+  // 1. Fetch experience rows joined to the center's offer
+  const offerRows = kind
+    ? await q`
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        FROM bowling_experiences e
+        JOIN bowling_experience_offers eo
+          ON eo.experience_id = e.id
+         AND eo.center_code   = ${centerCode}
+         AND eo.is_active      = TRUE
+        WHERE e.is_active = TRUE AND e.kind = ${kind}
+        ORDER BY e.sort_order, e.id
+      `
+    : await q`
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        FROM bowling_experiences e
+        JOIN bowling_experience_offers eo
+          ON eo.experience_id = e.id
+         AND eo.center_code   = ${centerCode}
+         AND eo.is_active      = TRUE
+        WHERE e.is_active = TRUE
+        ORDER BY e.sort_order, e.id
+      `;
+
+  if (!offerRows.length) return [];
+
+  // 2. Fetch items + duration options for those experiences in parallel
+  const ids = offerRows.map((r) => (r as Record<string, unknown>).id as number);
+  const [itemMap, durationMap] = await Promise.all([
+    fetchExperienceItems(q, ids, centerCode),
+    fetchDurationOptions(q, ids, centerCode),
+  ]);
+
+  return offerRows.map((r) => {
+    const row = r as Record<string, unknown>;
+    const eid = row.id as number;
+    return {
+      ...rowToExperience(row),
+      qamfWebOfferId: row.qamf_web_offer_id as number,
+      qamfOptionType: (row.qamf_option_type as string) ?? null,
+      qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+      items: itemMap.get(eid) ?? [],
+      durationOptions: durationMap.get(eid) ?? [],
+    };
+  });
+}
+
+/**
+ * Look up the experience for a specific QAMF web offer ID at a center.
+ * Used when a QAMF availability slot needs to be matched to an experience.
+ */
+export async function getBowlingExperienceByOffer(
+  centerCode: string,
+  qamfWebOfferId: number,
+): Promise<BowlingExperienceWithDetails | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+
+  const offerRows = await q`
+    SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+    FROM bowling_experiences e
+    JOIN bowling_experience_offers eo
+      ON eo.experience_id    = e.id
+     AND eo.center_code       = ${centerCode}
+     AND eo.qamf_web_offer_id = ${qamfWebOfferId}
+     AND eo.is_active          = TRUE
+    WHERE e.is_active = TRUE
+    LIMIT 1
+  `;
+
+  if (!offerRows.length) return null;
+  const row = offerRows[0] as Record<string, unknown>;
+  const eid = row.id as number;
+  const [itemMap, durationMap] = await Promise.all([
+    fetchExperienceItems(q, [eid], centerCode),
+    fetchDurationOptions(q, [eid], centerCode),
+  ]);
+
+  return {
+    ...rowToExperience(row),
+    qamfWebOfferId: row.qamf_web_offer_id as number,
+    qamfOptionType: (row.qamf_option_type as string) ?? null,
+    qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+    items: itemMap.get(eid) ?? [],
+    durationOptions: durationMap.get(eid) ?? [],
+  };
+}
+
+/**
+ * Upsert an experience by slug. Used by the admin endpoint.
+ */
+export async function upsertBowlingExperience(
+  e: Omit<BowlingExperience, "id" | "insertedAt">,
+): Promise<BowlingExperience> {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active)
+    VALUES (${e.slug}, ${e.label}, ${e.kind}, ${e.isVip}, ${e.description ?? null}, ${e.sortOrder}, ${e.isActive})
+    ON CONFLICT (slug) DO UPDATE SET
+      label      = EXCLUDED.label,
+      kind       = EXCLUDED.kind,
+      is_vip     = EXCLUDED.is_vip,
+      description = EXCLUDED.description,
+      sort_order  = EXCLUDED.sort_order,
+      is_active   = EXCLUDED.is_active
+    RETURNING *
+  `;
+  return rowToExperience(rows[0] as Record<string, unknown>);
+}
+
+/**
+ * Upsert a per-center QAMF web offer mapping for an experience.
+ * Matches on (center_code, qamf_web_offer_id).
+ */
+export async function upsertBowlingExperienceOffer(
+  o: Omit<BowlingExperienceOffer, "id">,
+): Promise<BowlingExperienceOffer> {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    INSERT INTO bowling_experience_offers
+      (experience_id, center_code, qamf_web_offer_id, qamf_option_type, qamf_option_id, is_active)
+    VALUES
+      (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId},
+       ${o.qamfOptionType ?? null}, ${o.qamfOptionId ?? null}, ${o.isActive})
+    ON CONFLICT (center_code, qamf_web_offer_id) DO UPDATE SET
+      experience_id    = EXCLUDED.experience_id,
+      qamf_option_type = EXCLUDED.qamf_option_type,
+      qamf_option_id   = EXCLUDED.qamf_option_id,
+      is_active        = EXCLUDED.is_active
+    RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    id: row.id as number,
+    experienceId: row.experience_id as number,
+    centerCode: row.center_code as string,
+    qamfWebOfferId: row.qamf_web_offer_id as number,
+    qamfOptionType: (row.qamf_option_type as string) ?? null,
+    qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+    isActive: row.is_active as boolean,
+  };
+}
+
+/**
+ * Replace all bundled items for an experience in a single operation.
+ * Deletes existing items first, then inserts new ones.
+ */
+export async function setBowlingExperienceItems(
+  experienceId: number,
+  items: Array<{
+    squareProductId?: number;
+    squareCatalogObjectId?: string;
+    quantity?: number;
+    labelOverride?: string | null;
+    sortOrder?: number;
+    /** NULL = applies to all centers; value = this center only (e.g. FM-only Chips & Salsa) */
+    centerCode?: string | null;
+  }>,
+): Promise<void> {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`DELETE FROM bowling_experience_items WHERE experience_id = ${experienceId}`;
+  for (const [i, item] of items.entries()) {
+    // Resolve squareCatalogObjectId from squareProductId if not directly provided
+    let catalogObjectId = item.squareCatalogObjectId ?? null;
+    if (!catalogObjectId && item.squareProductId) {
+      const pRows = await q`SELECT square_catalog_object_id FROM bowling_square_products WHERE id = ${item.squareProductId} LIMIT 1`;
+      catalogObjectId = pRows.length ? (pRows[0] as Record<string, unknown>).square_catalog_object_id as string : null;
+    }
+    await q`
+      INSERT INTO bowling_experience_items
+        (experience_id, square_product_id, square_catalog_object_id, quantity, label_override, sort_order, center_code)
+      VALUES
+        (${experienceId}, ${item.squareProductId ?? null}, ${catalogObjectId},
+         ${item.quantity ?? 1}, ${item.labelOverride ?? null}, ${item.sortOrder ?? i},
+         ${item.centerCode ?? null})
+    `;
+  }
+}
+
+/**
+ * Upsert duration options for a Time-based experience at a specific center.
+ * Replaces ALL existing options for (experience_id, center_code).
+ */
+export async function setExperienceDurationOptions(
+  experienceId: number,
+  centerCode: string,
+  options: Array<{
+    qamfOptionId: number;
+    durationMinutes: number;
+    label: string;
+    squareMultiplier?: number;
+    sortOrder?: number;
+  }>,
+): Promise<void> {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    DELETE FROM bowling_experience_duration_options
+    WHERE experience_id = ${experienceId} AND center_code = ${centerCode}
+  `;
+  for (const [i, opt] of options.entries()) {
+    await q`
+      INSERT INTO bowling_experience_duration_options
+        (experience_id, center_code, qamf_option_id, duration_minutes, label, square_multiplier, sort_order)
+      VALUES
+        (${experienceId}, ${centerCode}, ${opt.qamfOptionId}, ${opt.durationMinutes},
+         ${opt.label}, ${opt.squareMultiplier ?? 1}, ${opt.sortOrder ?? i})
+    `;
+  }
+}
+
+/**
+ * Returns ALL experiences (all centers, all kinds) for admin listing.
+ * Includes offers and items per experience.
+ */
+export async function getAllBowlingExperiences(): Promise<
+  Array<BowlingExperience & { offers: BowlingExperienceOffer[]; items: BowlingExperienceItem[] }>
+> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+
+  const expRows = await q`
+    SELECT * FROM bowling_experiences ORDER BY kind, sort_order, id
+  `;
+  if (!expRows.length) return [];
+
+  const ids = expRows.map((r) => (r as Record<string, unknown>).id as number);
+
+  const offerRows = await q`
+    SELECT * FROM bowling_experience_offers WHERE experience_id = ANY(${ids})
+  `;
+  const itemMap = await fetchExperienceItems(q, ids);
+
+  return expRows.map((eRow) => {
+    const r = eRow as Record<string, unknown>;
+    const eid = r.id as number;
+
+    const offers = offerRows
+      .filter((o) => (o as Record<string, unknown>).experience_id === eid)
+      .map((o) => {
+        const or = o as Record<string, unknown>;
+        return {
+          id: or.id as number,
+          experienceId: or.experience_id as number,
+          centerCode: or.center_code as string,
+          qamfWebOfferId: or.qamf_web_offer_id as number,
+          qamfOptionType: (or.qamf_option_type as string) ?? null,
+          qamfOptionId: or.qamf_option_id != null ? (or.qamf_option_id as number) : null,
+          isActive: or.is_active as boolean,
+        } satisfies BowlingExperienceOffer;
+      });
+
+    return { ...rowToExperience(r), offers, items: itemMap.get(eid) ?? [] };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────

@@ -4,27 +4,31 @@ import { NextRequest, NextResponse } from "next/server";
  * POST /api/square/bowling-refund
  *
  * Handles the Square side of cancelling a paid bowling booking:
- *   1. Refunds the deposit payment in full via Square /v2/refunds
- *   2. Cancels the day-of order (moves it to CANCELED state)
+ *   1. Fetches the eGift card balance — this is the authoritative refund amount
+ *      (exact cents charged at booking; no tax-rounding guesswork)
+ *   2. Refunds the original deposit payment in full via Square /v2/refunds
+ *   3. Cancels the day-of order (moves it to CANCELED state) — best-effort
+ *   4. Deactivates the eGift card to prevent reuse — best-effort
  *
- * Both operations are best-effort — the caller (DELETE /api/bowling/v2/reservations/[id])
- * decides whether to surface errors or proceed with Neon cancellation anyway.
+ * Step 2 is the only hard-failure gate. Steps 3–4 are non-fatal so the
+ * caller (DELETE /api/bowling/v2/reservations/[id]) can always mark the
+ * Neon row as cancelled after a successful refund.
  *
  * Request body:
  * {
  *   depositPaymentId: string   — Square payment ID to refund
- *   depositOrderId:   string   — Square deposit order ID
+ *   giftCardId:       string   — Square eGift card ID
  *   dayofOrderId?:    string   — Square day-of order ID (cancel it)
- *   amountCents:      number   — amount to refund (must match original charge)
  *   locationId:       string   — Square location ID
  *   idempotencyKey:   string   — UUID for dedup
  * }
  *
  * Response (200):
  * {
- *   refundId:             string
- *   refundedCents:        number
- *   dayofOrderCancelled:  boolean
+ *   refundId:            string
+ *   refundedCents:       number
+ *   dayofOrderCancelled: boolean
+ *   giftCardDeactivated: boolean
  * }
  */
 
@@ -42,9 +46,8 @@ function sqHeaders() {
 
 interface RefundBody {
   depositPaymentId: string;
-  depositOrderId: string;
+  giftCardId: string;
   dayofOrderId?: string;
-  amountCents: number;
   locationId: string;
   idempotencyKey: string;
 }
@@ -57,35 +60,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const { depositPaymentId, depositOrderId, dayofOrderId, amountCents, locationId, idempotencyKey } = body;
+  const { depositPaymentId, giftCardId, dayofOrderId, locationId, idempotencyKey } = body;
 
-  if (!depositPaymentId || !depositOrderId || !amountCents || !locationId || !idempotencyKey) {
-    return NextResponse.json({ error: "depositPaymentId, depositOrderId, amountCents, locationId, idempotencyKey are required" }, { status: 400 });
+  if (!depositPaymentId || !giftCardId || !locationId || !idempotencyKey) {
+    return NextResponse.json(
+      { error: "depositPaymentId, giftCardId, locationId, idempotencyKey are required" },
+      { status: 400 },
+    );
   }
 
-  // ── 1. Resolve the actual charged amount from Square ─────────────────────
-  // The stored depositCents may differ from the real charge (tax rounding,
-  // quote-vs-actual discrepancy, etc.). Fetching the payment record gives us
-  // the authoritative amount_money so the refund never exceeds what was paid.
-  let refundAmountCents = amountCents;
+  // ── 1. Get gift card balance (= exact amount to refund) ───────────────────
+  // The card was loaded with the exact charged amount at booking time, so its
+  // balance is always the correct refund figure — no recalculation needed.
+  let refundAmountCents: number;
   try {
-    const payRes = await fetch(`${SQUARE_BASE}/payments/${depositPaymentId}`, {
+    const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${giftCardId}`, {
       headers: sqHeaders(),
     });
-    if (payRes.ok) {
-      const payJson = (await payRes.json()) as {
-        payment?: { amount_money?: { amount?: number } };
+    if (!gcRes.ok) {
+      const errBody = await gcRes.json().catch(() => ({})) as {
+        errors?: { detail: string }[];
       };
-      const actual = payJson.payment?.amount_money?.amount;
-      if (typeof actual === "number" && actual > 0) {
-        refundAmountCents = actual;
-      }
+      const detail = errBody.errors?.[0]?.detail ?? "Gift card lookup failed";
+      return NextResponse.json({ error: detail }, { status: gcRes.status });
     }
-  } catch {
-    // Non-fatal — fall back to the stored amount
+    const gcData = (await gcRes.json()) as {
+      gift_card?: { balance_money?: { amount?: number } };
+    };
+    const balance = gcData.gift_card?.balance_money?.amount;
+    if (typeof balance !== "number" || balance <= 0) {
+      return NextResponse.json(
+        { error: "Gift card has no balance to refund" },
+        { status: 400 },
+      );
+    }
+    refundAmountCents = balance;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Gift card lookup failed";
+    return NextResponse.json({ error: msg }, { status: 502 });
   }
 
-  // ── 2. Refund the deposit payment ────────────────────────────────────────
+  // ── 2. Refund the deposit payment ─────────────────────────────────────────
   const refundRes = await fetch(`${SQUARE_BASE}/refunds`, {
     method: "POST",
     headers: sqHeaders(),
@@ -112,23 +127,21 @@ export async function POST(req: NextRequest) {
   const refundedCents = refundData.refund!.amount_money?.amount ?? refundAmountCents;
 
   // ── 3. Cancel day-of order ────────────────────────────────────────────────
-  // Square requires the current order version before updating state.
-  // Non-fatal: if the order can't be cancelled (e.g. already redeemed),
-  // we still surface the refund success.
+  // Non-fatal: if the order was already redeemed by staff, skip gracefully.
   let dayofOrderCancelled = false;
 
   if (dayofOrderId) {
     try {
-      // Fetch current order version
       const getRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, {
         headers: sqHeaders(),
       });
       if (getRes.ok) {
-        const getJson = (await getRes.json()) as { order?: { version?: number; state?: string } };
+        const getJson = (await getRes.json()) as {
+          order?: { version?: number; state?: string };
+        };
         const currentVersion = getJson.order?.version ?? 1;
         const currentState   = getJson.order?.state;
 
-        // Only cancel if not already in a terminal state
         if (currentState !== "CANCELED" && currentState !== "COMPLETED") {
           const cancelRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, {
             method: "PUT",
@@ -144,14 +157,38 @@ export async function POST(req: NextRequest) {
           });
           if (cancelRes.ok) dayofOrderCancelled = true;
         } else {
-          // Already in terminal state — treat as cancelled
+          // Already in a terminal state — treat as cancelled
           dayofOrderCancelled = true;
         }
       }
     } catch {
-      // Non-fatal — day-of order cancel failure doesn't block the refund
+      // Non-fatal
     }
   }
 
-  return NextResponse.json({ refundId, refundedCents, dayofOrderCancelled });
+  // ── 4. Deactivate the gift card ───────────────────────────────────────────
+  // Prevents the GAN from being reused. Non-fatal — refund has already landed.
+  let giftCardDeactivated = false;
+  try {
+    const deactivateRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `${idempotencyKey}-deactivate`,
+        gift_card_activity: {
+          type: "DEACTIVATE",
+          location_id: locationId,
+          gift_card_id: giftCardId,
+          deactivate_activity_details: {
+            reason: "CHARGEBACK_DEACTIVATED",
+          },
+        },
+      }),
+    });
+    if (deactivateRes.ok) giftCardDeactivated = true;
+  } catch {
+    // Non-fatal
+  }
+
+  return NextResponse.json({ refundId, refundedCents, dayofOrderCancelled, giftCardDeactivated });
 }

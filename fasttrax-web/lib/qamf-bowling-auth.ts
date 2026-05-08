@@ -23,18 +23,20 @@ import redis from "@/lib/redis";
  *   qamf:bowling:access-token:<centerId>.
  *
  * Env vars (set on Vercel):
- *   QAMF_BOWLING_CLIENT_ID      — required
- *   QAMF_BOWLING_CLIENT_SECRET  — required
+ *   QAMF_BOWLING_CLIENT_ID      — required (same credentials for all centers)
+ *   QAMF_BOWLING_CLIENT_SECRET  — required (same credentials for all centers)
  *   QAMF_BOWLING_WEBHOOK_SECRET — optional (for webhook HMAC validation)
+ *
+ * The same client_id/secret are used for every center. QAMF scopes the returned
+ * token to the specific center via the center_id field in the token request body.
+ * Tokens are cached separately per center (qamf:bowling:access-token:<centerId>).
  */
 
 const TOKEN_URL = "https://api.qubicaamf.com/oauth2/token";
 const CACHE_KEY = "qamf:bowling:access-token";
 // Cache for 23h — tokens come back as expires_in: 86400 (~24h).
 const CACHE_TTL_SECONDS = 60 * 60 * 23;
-// Center IDs to include in token scope (comma-separated env var).
-// Token must be minted per-center; we cache one token per center.
-// For now default to 9172 (Fort Myers) — extend when Naples (3148) is confirmed.
+// Default center ID when none is specified.
 const DEFAULT_CENTER_ID = 9172;
 
 interface TokenResponse {
@@ -54,8 +56,8 @@ async function mintToken(centerId: number = DEFAULT_CENTER_ID): Promise<string> 
   // Without scope=bowling_reservations the token has no scope claim and
   // every API call returns 401. center_id scopes the token to a specific center.
   const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: clientId,
+    grant_type:    "client_credentials",
+    client_id:     clientId,
     client_secret: clientSecret,
     scope: "bowling_reservations",
     center_id: String(centerId),

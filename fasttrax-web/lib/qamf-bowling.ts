@@ -139,6 +139,7 @@ async function call<T>(opts: {
   path: string;
   body?: unknown;
   errLabel: string;
+  centerId?: number;
 }): Promise<T> {
   const res = await qamfAuthedFetch(
     (token, subKey) =>
@@ -149,6 +150,7 @@ async function call<T>(opts: {
         cache: "no-store",
       }),
     opts.errLabel,
+    opts.centerId,
   );
   // Some endpoints return 200 with empty body (PATCH status, DELETE)
   const text = await res.text();
@@ -166,6 +168,7 @@ export async function listLanes(centerId: number): Promise<Lane[]> {
     method: "GET",
     path: `/centers/${centerId}/lanes`,
     errLabel: `listLanes(${centerId})`,
+    centerId,
   });
 }
 
@@ -189,6 +192,7 @@ export async function listWebOffers(centerId: number): Promise<WebOfferDetail[]>
     method: "GET",
     path: `/centers/${centerId}/weboffers`,
     errLabel: `listWebOffers(${centerId})`,
+    centerId,
   });
 }
 
@@ -198,6 +202,7 @@ export async function getWebOffer(centerId: number, id: number): Promise<WebOffe
     method: "GET",
     path: `/centers/${centerId}/weboffers/${id}`,
     errLabel: `getWebOffer(${centerId},${id})`,
+    centerId,
   });
 }
 
@@ -225,6 +230,7 @@ export async function searchAvailability(
     path: `/centers/${centerId}/reservations/availability/search`,
     body: { Filter: filter },
     errLabel: `searchAvailability(${centerId})`,
+    centerId,
   });
 }
 
@@ -239,6 +245,7 @@ export async function createReservation(
     path: `/centers/${centerId}/reservations`,
     body: input,
     errLabel: `createReservation(${centerId})`,
+    centerId,
   });
 }
 
@@ -251,6 +258,7 @@ export async function getReservation(
     method: "GET",
     path: `/centers/${centerId}/reservations/${reservationId}`,
     errLabel: `getReservation(${centerId},${reservationId})`,
+    centerId,
   });
 }
 
@@ -263,6 +271,7 @@ export async function deleteReservation(
     method: "DELETE",
     path: `/centers/${centerId}/reservations/${reservationId}`,
     errLabel: `deleteReservation(${centerId},${reservationId})`,
+    centerId,
   });
 }
 
@@ -277,6 +286,7 @@ export async function setReservationCustomer(
     path: `/centers/${centerId}/reservations/${reservationId}/customer`,
     body: { Customer: customer },
     errLabel: `setReservationCustomer(${reservationId})`,
+    centerId,
   });
 }
 
@@ -291,6 +301,7 @@ export async function setReservationStatus(
     path: `/centers/${centerId}/reservations/${reservationId}/status`,
     body: { Status: status },
     errLabel: `setReservationStatus(${reservationId},${status})`,
+    centerId,
   });
 }
 
@@ -304,6 +315,7 @@ export async function extendReservation(
     method: "PATCH",
     path: `/centers/${centerId}/reservations/${reservationId}/expiresAt`,
     errLabel: `extendReservation(${reservationId})`,
+    centerId,
   });
 }
 
@@ -319,5 +331,6 @@ export async function setLanePlayers(
     path: `/centers/${centerId}/reservations/${reservationId}/lanes/${laneId}/players`,
     body: { Players: players },
     errLabel: `setLanePlayers(${reservationId},${laneId})`,
+    centerId,
   });
 }

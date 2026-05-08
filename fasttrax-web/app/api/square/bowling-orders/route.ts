@@ -4,49 +4,53 @@ import { randomUUID } from "crypto";
 /**
  * POST /api/square/bowling-orders
  *
- * Creates two Square orders for a bowling booking:
+ * Creates the Square order and payment for a bowling booking:
  *
  * 1. Day-of order   — full line items at catalog price + county sales tax,
  *                     left OPEN. Redeemed by staff at center when lanes open.
  *
- * 2. Deposit order  — single "Bowling Deposit" line item for depositCents,
- *                     charged immediately (autocomplete: true). NO tax on the
- *                     deposit order — tax is already baked into the deposit
- *                     amount via the day-of order total.
+ * 2. Deposit charge — standalone payment (no order attached) for depositCents.
+ *                     autocomplete: true — captured immediately.
+ *
+ * 3. eGift card     — a new DIGITAL gift card is created and immediately loaded
+ *                     with the exact charged amount. The card balance is the
+ *                     ground truth for refunds: no tax-rounding mismatch is
+ *                     possible. Staff at center can scan the GAN to apply it
+ *                     against the day-of order balance.
  *
  * Tax:
- *   The day-of order total (tax-inclusive) is returned by Square after step 1.
- *   depositCents = round(dayofTotal × depositPct / 100)
- *   This ensures the deposit proportionally includes county sales tax.
- *
- *   Location → tax catalog object:
+ *   Location → county sales-tax catalog object:
  *     TXBSQN0FEKQ11 (HeadPinz Fort Myers)  → Lee County  6.5%
  *     PPTR5G2N0QXF7 (HeadPinz Naples)      → Collier Co. 6.0%
  *
  * Request body:
  * {
- *   sourceId:        string   — Square nonce from Web Payments SDK
- *   idempotencyKey:  string   — caller-supplied UUID for dedup
- *   locationId:      string   — Square location ID (drives tax selection)
- *   depositPct:      number   — deposit as % of tax-inclusive total (0–100)
- *   lineItems:       Array<{
- *     name:              string
- *     quantity:          string   — "1", "2", …
- *     catalogObjectId?:  string   — Square catalog item variation ID
- *     basePriceMoney:    { amount: number; currency: "USD" }
+ *   sourceId:              string   — Square nonce from Web Payments SDK
+ *   idempotencyKey?:       string   — caller-supplied UUID for dedup
+ *   locationId:            string   — Square location ID (drives tax selection)
+ *   depositPct?:           number   — deposit as % of tax-inclusive total (0–100, default 100)
+ *   lineItems:             Array<{
+ *     name:               string
+ *     quantity:           string   — "1", "2", …
+ *     catalogObjectId?:   string   — Square catalog item variation ID
+ *     basePriceMoney:     { amount: number; currency: "USD" }
  *   }>
- *   squareCustomerId?: string — attach buyer to a saved customer
- *   note?:           string
+ *   squareCustomerId?:     string
+ *   note?:                 string
+ *   existingDayofOrderId?: string  — pre-created day-of order (skips step 1)
+ *   existingDayofTotalCents?: number
+ *   existingDepositCents?: number  — use as-is instead of recalculating
  * }
  *
  * Response (200):
  * {
- *   depositOrderId:   string
- *   depositPaymentId: string
+ *   giftCardId:       string | null   — null for $0 bookings
+ *   giftCardGan:      string | null
+ *   depositPaymentId: string | null
  *   dayofOrderId:     string
- *   depositPaidCents: number   — actual amount charged (tax-inclusive deposit)
- *   dayofTotalCents:  number   — tax-inclusive day-of order total
- *   remainingCents:   number   — dayofTotalCents − depositPaidCents
+ *   depositPaidCents: number
+ *   dayofTotalCents:  number
+ *   remainingCents:   number
  * }
  */
 
@@ -68,6 +72,23 @@ const LOCATION_TAX: Record<string, string> = {
   PPTR5G2N0QXF7: "BQNVIEEZQO2PX2FI72U6FEC4", // Collier Co.  — 6.0%
 };
 
+const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
+  INSUFFICIENT_FUNDS: "Card declined — insufficient funds. Try a different card.",
+  GENERIC_DECLINE: "Card declined. Please try a different card.",
+  INVALID_EXPIRATION: "Card expired. Please use a different card.",
+  CVV_FAILURE: "CVV check failed. Please re-enter your card details.",
+  CARD_EXPIRED: "Card expired. Please use a different card.",
+  CARD_DECLINED: "Card declined. Please try a different card.",
+  CARD_DECLINED_VERIFICATION_REQUIRED: "Additional verification required. Please try again.",
+  VERIFY_AVS_FAILURE: "Address verification failed. Check your billing zip code and try again.",
+  ADDRESS_VERIFICATION_FAILURE: "Address verification failed. Check your billing zip code and try again.",
+  CARD_TOKEN_USED_BEFORE: "Payment token already used. Please re-enter your card details.",
+  CARD_TOKEN_EXPIRED: "Payment session expired. Please re-enter your card details.",
+  INVALID_CARD: "Card number could not be validated. Please check and try again.",
+  TRANSACTION_LIMIT: "Transaction limit exceeded. Please try a different card.",
+  BAD_EXPIRATION: "Card expiration date is invalid. Please check and try again.",
+};
+
 interface LineItemInput {
   name: string;
   quantity: string;
@@ -81,18 +102,16 @@ export async function POST(req: NextRequest) {
       sourceId: string;
       idempotencyKey?: string;
       locationId: string;
-      /** Deposit as % of the tax-inclusive day-of order total. Default 100. */
       depositPct?: number;
-      lineItems: LineItemInput[];
+      lineItems?: LineItemInput[];
       squareCustomerId?: string;
       note?: string;
       /**
        * Pre-created day-of order ID (from /api/square/bowling-orders/quote).
-       * When provided, step 1 (creating the day-of order) is skipped and this
-       * order ID is used directly.  Must be paired with existingDayofTotalCents.
+       * When provided, step 1 (creating the day-of order) is skipped.
+       * Must be paired with existingDayofTotalCents.
        */
       existingDayofOrderId?: string;
-      /** Tax-inclusive total of the pre-created day-of order (cents). */
       existingDayofTotalCents?: number;
       /**
        * Pre-computed deposit amount from the quote (cents, tax-inclusive).
@@ -102,14 +121,7 @@ export async function POST(req: NextRequest) {
       existingDepositCents?: number;
     };
 
-    const {
-      sourceId,
-      locationId,
-      lineItems,
-      squareCustomerId,
-      note,
-    } = body;
-
+    const { sourceId, locationId, lineItems, squareCustomerId, note } = body;
     const depositPct = body.depositPct ?? 100;
 
     if (!sourceId || !locationId) {
@@ -123,32 +135,22 @@ export async function POST(req: NextRequest) {
     }
 
     const baseKey = body.idempotencyKey ?? randomUUID();
-
-    // ── Tax for this location ──────────────────────────────────────
     const taxCatalogId = LOCATION_TAX[locationId];
     const orderTaxes = taxCatalogId
       ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
       : [];
 
-    // ─────────────────────────────────────────────────────────────────
-    // Step 1: Day-of order (full line items + tax, left OPEN)
-    // If existingDayofOrderId is provided (pre-created during quote/review),
-    // skip creation and use the existing order + its known total.
-    // ─────────────────────────────────────────────────────────────────
-    // Build day-of line items.
+    // ── Step 1: Day-of order (full line items + tax, left OPEN) ──────────────
     // When catalogObjectId is present: let Square use the catalog price (Square
-    // rejects base_price_money overrides on fixed-price items). The catalog price
-    // is the authoritative amount and the tax will be correctly applied by location.
-    // When there is no catalogObjectId: use base_price_money as an ad-hoc line.
+    // rejects base_price_money overrides on fixed-price items).
+    // When provided via existingDayofOrderId, skip creation entirely.
     let dayofOrderId: string;
     let dayofTotalCents: number;
 
     if (body.existingDayofOrderId && body.existingDayofTotalCents != null) {
-      // ── Re-use pre-created order from the review/quote step ──────
       dayofOrderId = body.existingDayofOrderId;
       dayofTotalCents = body.existingDayofTotalCents;
     } else {
-      // ── Create the day-of order now ──────────────────────────────
       const dayofLineItems = (lineItems ?? []).map((li) => {
         if (li.catalogObjectId) {
           return { catalog_object_id: li.catalogObjectId, quantity: li.quantity };
@@ -185,21 +187,19 @@ export async function POST(req: NextRequest) {
       if (!dayofOrderId) {
         return NextResponse.json({ error: "Day-of order returned no ID" }, { status: 500 });
       }
-      // Tax-inclusive total from Square — authoritative order value
       dayofTotalCents = (dayofOrderData.order?.total_money?.amount as number) ?? 0;
     }
 
-    // Deposit amount: use pre-computed figure from the quote when available
-    // (guarantees the charge matches exactly what was shown to the customer),
-    // otherwise derive it as a percentage of the tax-inclusive day-of total.
-    const depositCents = body.existingDepositCents != null
-      ? body.existingDepositCents
-      : Math.round(dayofTotalCents * depositPct / 100);
+    const depositCents =
+      body.existingDepositCents != null
+        ? body.existingDepositCents
+        : Math.round((dayofTotalCents * depositPct) / 100);
 
     if (depositCents <= 0) {
-      // Nothing to charge — return without creating deposit order
+      // Free booking — no charge, no gift card needed
       return NextResponse.json({
-        depositOrderId: null,
+        giftCardId: null,
+        giftCardGan: null,
         depositPaymentId: null,
         dayofOrderId,
         depositPaidCents: 0,
@@ -208,53 +208,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // Step 2: Create the deposit order (single line item, no tax)
-    //   The depositCents already proportionally includes tax because it
-    //   was derived from the tax-inclusive day-of order total.
-    // ─────────────────────────────────────────────────────────────────
-    const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `bowl-dep-order-${baseKey}`,
-        order: {
-          location_id: locationId,
-          line_items: [
-            {
-              name: "Bowling Deposit",
-              quantity: "1",
-              base_price_money: { amount: depositCents, currency: "USD" },
-            },
-          ],
-        },
-      }),
-    });
-    const depositOrderData = await depositOrderRes.json();
-
-    if (!depositOrderRes.ok || depositOrderData.errors) {
-      const sqErr = depositOrderData.errors?.[0];
-      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(depositOrderData);
-      console.error("[square/bowling-orders] deposit order failed:", detail);
-      return NextResponse.json({ error: `Failed to create deposit order: ${detail}` }, { status: 500 });
-    }
-
-    const depositOrderId: string = depositOrderData.order?.id;
-    if (!depositOrderId) {
-      return NextResponse.json({ error: "Deposit order returned no ID" }, { status: 500 });
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Step 3: Charge the deposit (autocomplete: true — immediate)
-    // ─────────────────────────────────────────────────────────────────
-    // Square Payments API idempotency_key max = 45 chars.
-    // UUID alone = 36 chars; prefix must be ≤ 9 chars.
+    // ── Step 2: Charge card (standalone payment — no order_id) ───────────────
+    // Keeping the charge separate from any order makes refund arithmetic simple:
+    // the payment amount is always exactly what the customer owes at cancel time
+    // (stored in the gift card balance, step 4).
+    //
+    // Square Payments idempotency_key max = 45 chars.
     // "pay-" (4) + UUID (36) = 40 — within limit.
     const paymentBody: Record<string, unknown> = {
       source_id: sourceId,
       idempotency_key: `pay-${baseKey}`,
       amount_money: { amount: depositCents, currency: "USD" },
-      order_id: depositOrderId,
       location_id: locationId,
       autocomplete: true,
       note: note ?? "Bowling deposit",
@@ -273,34 +237,11 @@ export async function POST(req: NextRequest) {
       const code: string = sqErr?.code ?? "UNKNOWN";
       const detail: string = sqErr?.detail ?? "Payment failed";
       console.error("[square/bowling-orders] deposit payment failed:", code, detail);
-
-      const friendlyMessages: Record<string, string> = {
-        INSUFFICIENT_FUNDS: "Card declined — insufficient funds. Try a different card.",
-        GENERIC_DECLINE: "Card declined. Please try a different card.",
-        INVALID_EXPIRATION: "Card expired. Please use a different card.",
-        CVV_FAILURE: "CVV check failed. Please re-enter your card details.",
-        CARD_EXPIRED: "Card expired. Please use a different card.",
-        CARD_DECLINED: "Card declined. Please try a different card.",
-        CARD_DECLINED_VERIFICATION_REQUIRED:
-          "Additional verification required. Please try again.",
-        VERIFY_AVS_FAILURE:
-          "Address verification failed. Check your billing zip code and try again.",
-        ADDRESS_VERIFICATION_FAILURE:
-          "Address verification failed. Check your billing zip code and try again.",
-        CARD_TOKEN_USED_BEFORE:
-          "Payment token already used. Please re-enter your card details.",
-        CARD_TOKEN_EXPIRED:
-          "Payment session expired. Please re-enter your card details.",
-        INVALID_CARD:
-          "Card number could not be validated. Please check and try again.",
-        TRANSACTION_LIMIT:
-          "Transaction limit exceeded. Please try a different card.",
-        BAD_EXPIRATION: "Card expiration date is invalid. Please check and try again.",
-      };
-
       return NextResponse.json(
         {
-          error: friendlyMessages[code] ?? "Payment could not be processed. Please try again.",
+          error:
+            FRIENDLY_PAYMENT_ERRORS[code] ??
+            "Payment could not be processed. Please try again.",
           code,
           detail,
         },
@@ -309,9 +250,85 @@ export async function POST(req: NextRequest) {
     }
 
     const depositPaymentId: string = payData.payment?.id;
+    if (!depositPaymentId) {
+      return NextResponse.json(
+        { error: "Payment succeeded but returned no ID" },
+        { status: 500 },
+      );
+    }
+
+    // ── Step 3: Create eGift card ─────────────────────────────────────────────
+    const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gc-${baseKey}`,
+        location_id: locationId,
+        gift_card: { type: "DIGITAL" },
+      }),
+    });
+    const giftCardData = await giftCardRes.json();
+
+    if (!giftCardRes.ok || giftCardData.errors) {
+      const sqErr = giftCardData.errors?.[0];
+      const detail = sqErr
+        ? `${sqErr.code}: ${sqErr.detail}`
+        : JSON.stringify(giftCardData);
+      console.error("[square/bowling-orders] gift card creation failed:", detail);
+      // Payment already captured — log for reconciliation. The booking is still
+      // valid; ops can manually create/link a gift card via the Square dashboard.
+      return NextResponse.json(
+        { error: `Payment captured but gift card creation failed: ${detail}` },
+        { status: 500 },
+      );
+    }
+
+    const giftCardId: string = giftCardData.gift_card?.id;
+    const giftCardGan: string = giftCardData.gift_card?.gan;
+    if (!giftCardId || !giftCardGan) {
+      return NextResponse.json(
+        { error: "Gift card creation returned no ID or GAN" },
+        { status: 500 },
+      );
+    }
+
+    // ── Step 4: Load gift card with the exact charged amount ──────────────────
+    // balance_money is now the authoritative refund amount — no recalculation
+    // needed at cancel time.
+    const loadRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gc-load-${baseKey}`,
+        gift_card_activity: {
+          type: "LOAD",
+          location_id: locationId,
+          gift_card_id: giftCardId,
+          load_activity_details: {
+            amount_money: { amount: depositCents, currency: "USD" },
+            buyer_payment_instrument_ids: [depositPaymentId],
+          },
+        },
+      }),
+    });
+    const loadData = await loadRes.json();
+
+    if (!loadRes.ok || loadData.errors) {
+      const sqErr = loadData.errors?.[0];
+      const detail = sqErr
+        ? `${sqErr.code}: ${sqErr.detail}`
+        : JSON.stringify(loadData);
+      console.error("[square/bowling-orders] gift card load failed:", detail);
+      // Card was created but not loaded. Log for reconciliation.
+      return NextResponse.json(
+        { error: `Gift card created but load failed: ${detail}` },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({
-      depositOrderId,
+      giftCardId,
+      giftCardGan,
       depositPaymentId,
       dayofOrderId,
       depositPaidCents: depositCents,

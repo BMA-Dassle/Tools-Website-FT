@@ -89,6 +89,12 @@ interface ReserveBody {
    * This ensures the charged amount is identical to the amount shown to the user.
    */
   depositCents?: number;
+  /**
+   * Booking flow kind — drives product_kind stored on the reservation row.
+   * 'kbf' for Kids Bowl Free; 'open' for open / Fun 4 All bowling; 'hourly' for hourly rental.
+   * Defaults to 'open' if omitted (backward-compatible).
+   */
+  kind?: "kbf" | "open" | "hourly";
 }
 
 export async function POST(req: NextRequest) {
@@ -180,8 +186,13 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Determine product kind ──────────────────────────────────────
-  const hasOpenProduct = productItems.some((p) => p.product.productKind === "open");
-  const productKind: "kbf" | "open" = hasOpenProduct ? "open" : "kbf";
+  // Prefer the explicit kind from the request body. Fall back to inferring
+  // from players (KBF players carry kbfPassId). Default to 'open'.
+  const productKind: "kbf" | "open" =
+    body.kind === "kbf" ? "kbf"
+    : body.kind === "open" ? "open"
+    : players.some((p) => p.kbfPassId) ? "kbf"
+    : "open";
 
   // ── Create QAMF reservation ─────────────────────────────────────
   const optionType = body.optionType ?? "Game";
@@ -236,10 +247,11 @@ export async function POST(req: NextRequest) {
     console.error("[bowling/v2/reserve] setReservationStatus failed:", err);
   }
 
-  // ── Square payment (deposit + day-of order) ─────────────────────
-  let squareDepositOrderId: string | undefined;
+  // ── Square payment (gift card deposit + day-of order) ──────────
   let squareDepositPaymentId: string | undefined;
   let squareDayofOrderId: string | undefined;
+  let squareGiftCardId: string | undefined;
+  let squareGiftCardGan: string | undefined;
   let depositCents = 0;        // actual charged amount (tax-inclusive)
   let totalCents = 0;          // tax-inclusive day-of order total
 
@@ -303,9 +315,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    squareDepositOrderId = sqData.depositOrderId ?? undefined;
     squareDepositPaymentId = sqData.depositPaymentId ?? undefined;
     squareDayofOrderId = sqData.dayofOrderId;
+    squareGiftCardId = sqData.giftCardId ?? undefined;
+    squareGiftCardGan = sqData.giftCardGan ?? undefined;
     depositCents = sqData.depositPaidCents ?? 0;
     totalCents = sqData.dayofTotalCents ?? preTaxTotalCents;
   }
@@ -327,9 +340,10 @@ export async function POST(req: NextRequest) {
         guestEmail: guest.email,
         guestPhone: guest.phone,
         notes,
-        squareDepositOrderId,
         squareDepositPaymentId,
         squareDayofOrderId,
+        squareGiftCardId,
+        squareGiftCardGan,
       },
       reservationLines,
     );
@@ -362,9 +376,10 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     neonId,
     qamfReservationId,
-    squareDepositOrderId,
     squareDepositPaymentId,
     squareDayofOrderId,
+    squareGiftCardId,
+    squareGiftCardGan,
     depositPaidCents: depositCents,
     totalCents,
     remainingCents: totalCents - depositCents,
