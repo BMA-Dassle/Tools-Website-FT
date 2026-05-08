@@ -426,6 +426,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [holdBusy, setHoldBusy] = useState(false);
   const [holdActive, setHoldActive] = useState(false);
+  // Pending back-navigation that would release the hold — stored while
+  // the "Release lane?" confirmation is visible.
+  const [pendingRelease, setPendingRelease] = useState<Step | null>(null);
 
   // ── KBF: lookup + verify ─────────────────────────────────────────
 
@@ -2617,7 +2620,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 })
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => { releaseHold(); setStep("offer"); }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button type="button" onClick={() => { if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); } }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
                   onClick={() => { setError(null); setStep("review"); }}
@@ -2766,10 +2769,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    // Going back to offer when shoes are included means the user
-                    // is re-selecting a slot — release the hold so QAMF frees the lane.
-                    if (selectedIncludesShoes) releaseHold();
-                    setStep(selectedIncludesShoes ? "offer" : "shoes");
+                    const backTo = selectedIncludesShoes ? "offer" : "shoes";
+                    // Going back to offer releases the hold — warn first.
+                    if (selectedIncludesShoes && holdActive) {
+                      setPendingRelease("offer");
+                    } else {
+                      setStep(backTo);
+                    }
                   }}
                   className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
@@ -2883,6 +2889,48 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
         </div>
       </main>
+
+      {/* ── Release-hold confirmation modal ─────────────────────────── */}
+      {pendingRelease && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.75)" }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-6 space-y-4"
+            style={{ backgroundColor: "#0d1f3c", border: `1.5px solid ${CORAL}55` }}
+          >
+            <h3 className="font-heading uppercase text-white text-lg tracking-wider">
+              Release your lane?
+            </h3>
+            <p className="font-body text-white/55 text-sm leading-relaxed">
+              Going back will release the lane we&apos;re holding for you. Someone else
+              may take it before you return.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingRelease(null)}
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/70 hover:text-white hover:border-white/40 transition-colors"
+              >
+                Keep my lane
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  releaseHold();
+                  setStep(pendingRelease);
+                  setPendingRelease(null);
+                }}
+                className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white"
+                style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+              >
+                Release &amp; go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
