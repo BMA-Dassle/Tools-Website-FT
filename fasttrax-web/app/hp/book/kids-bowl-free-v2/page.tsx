@@ -265,6 +265,10 @@ export default function KidsBowlFreeV2Page() {
   const [busy, setBusy] = useState(false);
 
   // Lookup + verify
+  const [lookupTab, setLookupTab] = useState<"email" | "phone" | "new">("email");
+  const [emailInput, setEmailInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+  /** Resolved contact value sent to /api/kbf/lookup */
   const [contact, setContact] = useState("");
   const [code, setCode] = useState("");
   const [channel, setChannel] = useState<"email" | "sms" | null>(null);
@@ -346,15 +350,38 @@ export default function KidsBowlFreeV2Page() {
 
   // ── Step: Lookup ─────────────────────────────────────────────────
 
+  function formatPhoneDisplay(raw: string): string {
+    const d = raw.replace(/\D/g, "").slice(0, 10);
+    if (d.length < 4) return d;
+    if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  }
+
   async function handleLookup() {
-    if (!contact.trim()) return;
+    const resolved =
+      lookupTab === "phone"
+        ? phoneInput.replace(/\D/g, "")
+        : emailInput.trim();
+    if (!resolved) return;
+
+    // Validate before the round-trip
+    if (lookupTab === "email" && !resolved.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (lookupTab === "phone" && resolved.length !== 10) {
+      setError("Please enter a 10-digit phone number.");
+      return;
+    }
+
+    setContact(resolved);
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/kbf/lookup", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contact: contact.trim(), centerId }),
+        body: JSON.stringify({ contact: resolved, centerId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Lookup failed");
@@ -826,21 +853,47 @@ export default function KidsBowlFreeV2Page() {
         <div className={`mx-auto ${step === "slots" || step === "reschedule" ? "max-w-4xl" : "max-w-md"}`}>
           {/* Header */}
           {step !== "submitting" && (
-            <div className="text-center mb-8">
+            <div className="mb-6">
               <div
-                className="inline-block uppercase font-bold mb-2"
-                style={{ color: CORAL, fontSize: "11px", letterSpacing: "2.5px" }}
+                className="uppercase font-bold mb-2"
+                style={{ color: CORAL, fontSize: "11px", letterSpacing: "3px" }}
               >
                 Kids Bowl Free
               </div>
               <h1
                 className="font-heading font-black uppercase italic text-white"
-                style={{ fontSize: "clamp(26px, 6vw, 36px)", lineHeight: 1.1 }}
+                style={{ fontSize: "clamp(28px, 5vw, 40px)", lineHeight: 1.05, letterSpacing: "-0.5px" }}
               >
-                Reserve Your Lanes
+                {step === "location" && "Confirm Your Center"}
+                {step === "lookup"   && "Sign In"}
+                {step === "verify"   && "Verify"}
+                {step === "existing" && "You're Already Booked"}
+                {step === "reschedule" && "Change Date & Time"}
+                {step === "bowlers"  && "Who's Bowling?"}
+                {step === "slots"    && "When Do You Want to Bowl?"}
+                {step === "shoes"    && "Add Shoe Rentals"}
+                {step === "attractions" && "Level Up Your Visit"}
+                {step === "food"     && "Add Food & Drinks"}
+                {step === "review"   && "Review Your Booking"}
+                {step === "details"  && "Your Details"}
+                {step === "payment"  && "Payment"}
               </h1>
-              {step === "location" && (
-                <p className="font-body text-white/45 text-sm mt-2">{center.name}</p>
+
+              {/* Pre-launch opening week banner */}
+              {isKbfPreLaunchPeriod() && (step === "location" || step === "lookup") && (
+                <div
+                  className="mt-3 rounded-xl px-4 py-3"
+                  style={{
+                    backgroundColor: "rgba(255,215,0,0.08)",
+                    border: "1.78px solid rgba(255,215,0,0.45)",
+                  }}
+                >
+                  <p className="font-body text-white/85 text-xs sm:text-sm">
+                    <strong className="text-white">Special — Opening Week.</strong> Book{" "}
+                    <strong className="text-white">May 14th and 15th</strong> right now. Normally
+                    Kids Bowl Free reservations open 48 hours in advance.
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -860,68 +913,178 @@ export default function KidsBowlFreeV2Page() {
           )}
 
           {/* ── STEP: Location ──────────────────────────────────────── */}
-          {step === "location" && (
-            <div className="space-y-3">
-              <p className="font-body text-white/55 text-sm text-center mb-4">
-                Choose your HeadPinz location
-              </p>
-              {CENTERS.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => handleSelectCenter(c.id)}
-                  className="w-full rounded-2xl p-5 text-left transition-all"
+          {step === "location" && (() => {
+            const other = CENTERS.find((c) => c.id !== centerId);
+            return (
+              <div className="text-center">
+                <div
+                  className="rounded-lg p-6 mb-6"
                   style={{
-                    backgroundColor:
-                      centerId === c.id ? "rgba(253,91,86,0.12)" : "rgba(255,255,255,0.04)",
-                    border: `1.78px dashed ${
-                      centerId === c.id ? `${CORAL}55` : "rgba(255,255,255,0.12)"
-                    }`,
+                    backgroundColor: "rgba(7,16,39,0.5)",
+                    border: `1.78px dashed ${GOLD}30`,
                   }}
                 >
-                  <div className="font-body font-bold text-white text-base">{c.name}</div>
-                  <div className="font-body text-white/40 text-xs mt-0.5">{c.address}</div>
+                  <p className="font-body text-white/50 text-xs uppercase tracking-wider mb-2">
+                    You&apos;re booking at
+                  </p>
+                  <h3
+                    className="font-heading uppercase text-white text-xl tracking-wider"
+                    style={{ textShadow: `0 0 20px ${GOLD}25` }}
+                  >
+                    {center.name}
+                  </h3>
+                  <p className="font-body text-white/40 text-sm mt-1">{center.address}</p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setStep("lookup")}
+                  className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white cursor-pointer transition-all hover:scale-[1.02]"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 16px ${CORAL}30` }}
+                >
+                  Continue
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setStep("lookup")}
-                className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white mt-2"
-                style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-              >
-                Continue
-              </button>
-            </div>
-          )}
+
+                {other && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCenter(other.id)}
+                    className="mt-3 font-body text-white/40 text-xs cursor-pointer hover:text-white/60 transition-colors"
+                  >
+                    Switch to {other.name}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── STEP: Lookup ────────────────────────────────────────── */}
           {step === "lookup" && (
             <div className="space-y-4">
-              <p className="font-body text-white/55 text-sm text-center">
-                Enter your Kids Bowl Free email or phone to sign in
-              </p>
-              <input
-                type="text"
-                placeholder="Email or phone"
-                autoComplete="email"
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
-                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3.5 text-white font-body text-sm placeholder:text-white/25 focus:outline-none focus:border-[#fd5b56]/50"
-              />
-              <button
-                type="button"
-                onClick={() => void handleLookup()}
-                disabled={busy || !contact.trim()}
-                className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
-                style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-              >
-                {busy ? "Looking up…" : "Continue"}
-              </button>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
+                <p className="text-white/65 text-sm leading-relaxed">
+                  Kids Bowl Free — kids 15 and under bowl two free games per day, Mon–Thu open to
+                  close, Fri until 5 PM. Sign in below or register in under 30 seconds.
+                </p>
+
+                {/* Tabs */}
+                <div className="flex gap-1 bg-white/5 rounded-lg p-1">
+                  {(["email", "phone", "new"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { setLookupTab(m); setError(null); }}
+                      className="flex-1 py-2 rounded-md text-xs font-semibold transition-colors uppercase tracking-wider"
+                      style={{
+                        backgroundColor: lookupTab === m ? CORAL : "transparent",
+                        color: lookupTab === m ? "#0a1628" : "rgba(255,255,255,0.45)",
+                        fontWeight: lookupTab === m ? 800 : 600,
+                      }}
+                    >
+                      {m === "phone" ? "SMS" : m === "new" ? "New" : "Email"}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Email tab */}
+                {lookupTab === "email" && (
+                  <div className="space-y-3">
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
+                      placeholder="parent@example.com"
+                      className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#fd5b56]/50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleLookup()}
+                      disabled={busy || !emailInput.includes("@")}
+                      className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+                      style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                    >
+                      {busy ? "Looking up…" : "Send verification code"}
+                    </button>
+                  </div>
+                )}
+
+                {/* SMS tab */}
+                {lookupTab === "phone" && (
+                  <div className="space-y-3">
+                    <input
+                      type="tel"
+                      autoComplete="tel"
+                      inputMode="tel"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(formatPhoneDisplay(e.target.value))}
+                      onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
+                      placeholder="(239) 555-1234"
+                      className="w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 focus:outline-none"
+                      style={{ borderColor: "rgba(253,91,86,0.30)" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleLookup()}
+                      disabled={busy || phoneInput.replace(/\D/g, "").length !== 10}
+                      className="w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40"
+                      style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                    >
+                      {busy ? "Looking up…" : "Send verification code"}
+                    </button>
+                  </div>
+                )}
+
+                {/* New tab */}
+                {lookupTab === "new" && (
+                  <div
+                    className="rounded-xl px-4 py-4"
+                    style={{
+                      backgroundColor: "rgba(253,91,86,0.05)",
+                      border: "1px solid rgba(253,91,86,0.20)",
+                    }}
+                  >
+                    <div
+                      className="font-heading uppercase text-[10px] tracking-[3px] mb-1"
+                      style={{ color: CORAL }}
+                    >
+                      New to Kids Bowl Free?
+                    </div>
+                    <p className="text-white/65 text-xs leading-relaxed mb-3">
+                      Sign up at{" "}
+                      <a
+                        href="https://www.kidsbowlfree.com/bowland"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:text-white"
+                      >
+                        kidsbowlfree.com/bowland
+                      </a>{" "}
+                      — new accounts take about an hour to be reservable here. Once you&apos;re
+                      registered, come back and use the Email tab to sign in.
+                    </p>
+                    <a
+                      href="https://www.kidsbowlfree.com/bowland"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center w-full py-2.5 rounded-full font-body font-bold text-xs uppercase tracking-wider transition-all hover:scale-[1.01]"
+                      style={{
+                        backgroundColor: "rgba(253,91,86,0.20)",
+                        border: `1px solid ${CORAL}60`,
+                        color: CORAL,
+                      }}
+                    >
+                      Register at kidsbowlfree.com →
+                    </a>
+                  </div>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setStep("location")}
-                className="w-full font-body text-white/35 text-sm"
+                className="w-full font-body text-white/35 text-sm py-1"
               >
                 ← Back
               </button>
