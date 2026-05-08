@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import BowlingPaymentStep from "@/components/bowling/BowlingPaymentStep";
@@ -415,6 +415,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [step, setStep] = useState<Step>("location");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // ── QAMF hold state ──────────────────────────────────────────────
+  // A Temporary hold is created when the user confirms their slot on
+  // the offer step. The hold is extended every 8 min and released when
+  // the user navigates back to offer or the wizard unmounts.
+  // holdRef / holdTimerRef use refs to avoid stale closures in the timer.
+
+  const holdRef = useRef<{ qamfId: string; centerId: number } | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [holdBusy, setHoldBusy] = useState(false);
+  const [holdActive, setHoldActive] = useState(false);
 
   // ── KBF: lookup + verify ─────────────────────────────────────────
 
@@ -1022,6 +1033,98 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     }
   }, [existingReservation, selectedSlot, center.id, confirmationBase, router]);
 
+  // ── Hold: release ────────────────────────────────────────────────
+  // Fire-and-forget DELETE to release the QAMF Temporary hold.
+  // Safe to call when no hold is active (no-op).
+
+  const releaseHold = useCallback(() => {
+    if (!holdRef.current) return;
+    const { qamfId, centerId: hCenterId } = holdRef.current;
+    holdRef.current = null;
+    if (holdTimerRef.current) {
+      clearInterval(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setHoldActive(false);
+    void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ centerId: hCenterId }),
+    }).catch(() => {});
+  }, []);
+
+  // ── Hold: create + advance ───────────────────────────────────────
+  // Called when the user confirms their slot on the offer step (including
+  // after the VIP upgrade modal). Creates a QAMF Temporary hold for the
+  // selected slot, starts the 8-min extend timer, then navigates forward.
+  // Non-fatal: if the hold API fails we log and advance anyway — /reserve
+  // will create a fresh reservation at submit time.
+
+  const createHoldAndAdvance = useCallback(
+    async (slot: AvailabilitySlot, incShoes: boolean) => {
+      // Release any existing hold before creating a new one
+      releaseHold();
+
+      setHoldBusy(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/bowling/v2/reserve/hold", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            centerId: center.qamfId,
+            webOfferId: slot.webOfferId,
+            optionId: slot.optionId,
+            optionType: slot.optionType,
+            bookedAt: slot.bookedAt,
+            players: activePlayerCount,
+            service: "BookForLater",
+          }),
+        });
+        const data = await res.json() as { qamfReservationId?: string; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Hold failed");
+
+        holdRef.current = { qamfId: data.qamfReservationId!, centerId: center.qamfId };
+        setHoldActive(true);
+
+        // Extend every 8 min so the 10-min QAMF TTL never expires while the user fills in details
+        holdTimerRef.current = setInterval(() => {
+          if (!holdRef.current) return;
+          void fetch(`/api/bowling/v2/reserve/hold/${holdRef.current.qamfId}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ centerId: holdRef.current.centerId }),
+          }).catch(() => {});
+        }, 8 * 60 * 1000);
+      } catch (err) {
+        // Non-fatal — submit will fall back to fresh createReservation
+        console.warn("[BowlingWizard] hold creation failed:", err);
+      } finally {
+        setHoldBusy(false);
+      }
+
+      setStep(incShoes ? "review" : "shoes");
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [center.qamfId, activePlayerCount, releaseHold],
+  );
+
+  // ── Hold: cleanup on unmount ─────────────────────────────────────
+
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) clearInterval(holdTimerRef.current);
+      if (holdRef.current) {
+        const { qamfId, centerId: hCenterId } = holdRef.current;
+        void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ centerId: hCenterId }),
+        }).catch(() => {});
+      }
+    };
+  }, []);
+
   // ── Submit ────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(
@@ -1078,6 +1181,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             squareToken,
             locationId: center.squareCenterCode,
             notes,
+            // Pass existing hold ID so reserve route confirms it instead of
+            // creating a duplicate QAMF reservation
+            ...(holdRef.current?.qamfId
+              ? { qamfReservationId: holdRef.current.qamfId }
+              : {}),
             ...(quoteDayofOrderId
               ? {
                   dayofOrderId: quoteDayofOrderId,
@@ -1184,11 +1292,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           {/* Header */}
           {step !== "submitting" && (
             <div className="mb-6">
-              <div
-                className="uppercase font-bold mb-2"
-                style={{ color: CORAL, fontSize: "11px", letterSpacing: "3px" }}
-              >
-                {programLabel}
+              <div className="flex items-center justify-between mb-2">
+                <div
+                  className="uppercase font-bold"
+                  style={{ color: CORAL, fontSize: "11px", letterSpacing: "3px" }}
+                >
+                  {programLabel}
+                </div>
+                {holdActive && (
+                  <div
+                    className="flex items-center gap-1.5 font-body font-bold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full"
+                    style={{ backgroundColor: `${GOLD}18`, color: GOLD, border: `1px solid ${GOLD}45` }}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: GOLD }}
+                    />
+                    Lane held
+                  </div>
+                )}
               </div>
               <h1
                 className="font-heading font-black uppercase italic text-white"
@@ -2315,19 +2437,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     onClick={() => {
                       if (!selectedSlot) { setError("Please select a time slot"); return; }
                       setError(null);
-                      // Show VIP upgrade modal when Regular selected and VIP slot exists
+                      // Show VIP upgrade modal when Regular selected and VIP slot exists.
+                      // Hold is created AFTER the user resolves the modal (in "No Thanks" / "Upgrade").
                       if (selectedTier === "regular" && vipUpgradeSlot) {
                         setShowVipUpgrade(true);
                         return;
                       }
-                      // Skip shoes if experience includes them, otherwise go to shoes
-                      setStep(selectedIncludesShoes ? "review" : "shoes");
+                      // Create hold and advance
+                      void createHoldAndAdvance(selectedSlot, selectedIncludesShoes);
                     }}
-                    disabled={!selectedSlot}
+                    disabled={!selectedSlot || holdBusy}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
-                    {selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                    {holdBusy ? "Holding lane…" : selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
                   </button>
                 </div>
               </div>
@@ -2401,28 +2524,31 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     <div className="flex gap-3">
                       <button
                         type="button"
+                        disabled={holdBusy}
                         onClick={() => {
                           setShowVipUpgrade(false);
-                          setStep(selectedIncludesShoes ? "review" : "shoes");
+                          // Create hold on the regular slot and advance
+                          void createHoldAndAdvance(selectedSlot, selectedIncludesShoes);
                         }}
-                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors"
+                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors disabled:opacity-50"
                       >
-                        No Thanks
+                        {holdBusy ? "Holding…" : "No Thanks"}
                       </button>
                       <button
                         type="button"
+                        disabled={holdBusy}
                         onClick={() => {
-                          // Switch to VIP
+                          // Switch to VIP slot and create hold on it
                           setSelectedTier("vip");
                           setSelectedSlot(vipUpgradeSlot);
                           setShowVipUpgrade(false);
                           const vipIncludesShoes = vipDisplay.includesShoes ?? false;
-                          setStep(vipIncludesShoes ? "review" : "shoes");
+                          void createHoldAndAdvance(vipUpgradeSlot, vipIncludesShoes);
                         }}
-                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02]"
+                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02] disabled:opacity-50"
                         style={{ backgroundColor: GOLD, boxShadow: `0 0 18px ${GOLD}40` }}
                       >
-                        {delta > 0 ? `Upgrade +${centsToDollars(delta)}` : "Upgrade to VIP"}
+                        {holdBusy ? "Holding…" : delta > 0 ? `Upgrade +${centsToDollars(delta)}` : "Upgrade to VIP"}
                       </button>
                     </div>
                   </div>
@@ -2491,7 +2617,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 })
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("offer")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button type="button" onClick={() => { releaseHold(); setStep("offer"); }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
                   onClick={() => { setError(null); setStep("review"); }}
@@ -2637,7 +2763,18 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               </div>
 
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep(selectedIncludesShoes ? "offer" : "shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Going back to offer when shoes are included means the user
+                    // is re-selecting a slot — release the hold so QAMF frees the lane.
+                    if (selectedIncludesShoes) releaseHold();
+                    setStep(selectedIncludesShoes ? "offer" : "shoes");
+                  }}
+                  className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15"
+                >
+                  Back
+                </button>
                 <button
                   type="button"
                   onClick={() => setStep("details")}

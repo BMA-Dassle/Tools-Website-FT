@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { createReservation, setReservationStatus } from "@/lib/qamf-bowling";
+import {
+  createReservation,
+  setReservationStatus,
+  setReservationCustomer,
+} from "@/lib/qamf-bowling";
 import {
   getBowlingSquareProduct,
   insertBowlingReservation,
@@ -95,6 +99,13 @@ interface ReserveBody {
    * Defaults to 'open' if omitted (backward-compatible).
    */
   kind?: "kbf" | "open" | "hourly";
+  /**
+   * Pre-created QAMF Temporary reservation ID from the hold-first flow.
+   * When provided, we skip createReservation and instead update the guest
+   * info + confirm the existing hold. If confirmation fails (hold expired),
+   * we fall back to creating a fresh reservation.
+   */
+  qamfReservationId?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -194,7 +205,7 @@ export async function POST(req: NextRequest) {
     : players.some((p) => p.kbfPassId) ? "kbf"
     : "open";
 
-  // ── Create QAMF reservation ─────────────────────────────────────
+  // ── Build QAMF option object ────────────────────────────────────
   const optionType = body.optionType ?? "Game";
   const optionId = body.optionId;
 
@@ -209,42 +220,106 @@ export async function POST(req: NextRequest) {
     else qamfOptions.Game = [{ Id: optionId }];
   }
 
+  // ── QAMF reservation — hold-first or fresh ──────────────────────
+  // If the wizard pre-created a Temporary hold (hold-first flow), we:
+  //   1. Update the customer info on the hold
+  //   2. Confirm the hold (Temporary → Confirmed)
+  //   3. If confirm fails (hold expired), fall back to a fresh createReservation
+  // Otherwise we create a fresh reservation directly.
   let qamfReservationId: string;
-  try {
-    const reservation = await createReservation(centerId, {
-      BookedAt: bookedAt,
-      Title: `${guest.name} (${players.length}p)`,
-      Notes: notes,
-      Customer: {
+
+  if (body.qamfReservationId) {
+    // ── Hold-first path ──────────────────────────────────────────
+    qamfReservationId = body.qamfReservationId;
+
+    // Attach guest details to the hold (non-fatal — hold already locked the slot)
+    try {
+      await setReservationCustomer(centerId, qamfReservationId, {
         Guest: {
           Name: guest.name,
           PhoneNumber: guest.phone,
           Email: guest.email,
         },
-      },
-      WebOffer: {
-        Id: webOfferId,
-        Options: qamfOptions,
-        Services: [service],
-      },
-      TotalPlayers: players.length,
-    });
-    qamfReservationId = reservation.Id;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "QAMF reservation failed";
-    console.error("[bowling/v2/reserve] QAMF error:", msg);
-    return NextResponse.json({ error: `Reservation failed: ${msg}` }, { status: 502 });
-  }
+      });
+    } catch (err) {
+      console.warn("[bowling/v2/reserve] setReservationCustomer failed (non-fatal):", err);
+    }
 
-  // ── Confirm QAMF reservation (moves from Temporary → Confirmed) ──
-  // QAMF creates all reservations as Temporary; they won't appear in
-  // Conqueror until we explicitly set status = Confirmed.
-  try {
-    await setReservationStatus(centerId, qamfReservationId, "Confirmed");
-  } catch (err) {
-    // Non-fatal for the booking itself — the slot is held even while Temporary.
-    // Log so ops can identify and manually confirm if needed.
-    console.error("[bowling/v2/reserve] setReservationStatus failed:", err);
+    // Confirm the hold (Temporary → Confirmed)
+    let confirmed = false;
+    try {
+      await setReservationStatus(centerId, qamfReservationId, "Confirmed");
+      confirmed = true;
+    } catch (err) {
+      console.warn("[bowling/v2/reserve] confirm of existing hold failed, creating fresh reservation:", err);
+    }
+
+    if (!confirmed) {
+      // Hold expired — create a fresh reservation as fallback
+      try {
+        const reservation = await createReservation(centerId, {
+          BookedAt: bookedAt,
+          Title: `${guest.name} (${players.length}p)`,
+          Notes: notes,
+          Customer: {
+            Guest: {
+              Name: guest.name,
+              PhoneNumber: guest.phone,
+              Email: guest.email,
+            },
+          },
+          WebOffer: {
+            Id: webOfferId,
+            Options: qamfOptions,
+            Services: [service],
+          },
+          TotalPlayers: players.length,
+        });
+        qamfReservationId = reservation.Id;
+        await setReservationStatus(centerId, qamfReservationId, "Confirmed").catch((err) => {
+          console.error("[bowling/v2/reserve] setReservationStatus on fallback failed:", err);
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "QAMF reservation failed";
+        console.error("[bowling/v2/reserve] fallback QAMF error:", msg);
+        return NextResponse.json({ error: `Reservation failed: ${msg}` }, { status: 502 });
+      }
+    }
+  } else {
+    // ── Fresh reservation path ───────────────────────────────────
+    try {
+      const reservation = await createReservation(centerId, {
+        BookedAt: bookedAt,
+        Title: `${guest.name} (${players.length}p)`,
+        Notes: notes,
+        Customer: {
+          Guest: {
+            Name: guest.name,
+            PhoneNumber: guest.phone,
+            Email: guest.email,
+          },
+        },
+        WebOffer: {
+          Id: webOfferId,
+          Options: qamfOptions,
+          Services: [service],
+        },
+        TotalPlayers: players.length,
+      });
+      qamfReservationId = reservation.Id;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "QAMF reservation failed";
+      console.error("[bowling/v2/reserve] QAMF error:", msg);
+      return NextResponse.json({ error: `Reservation failed: ${msg}` }, { status: 502 });
+    }
+
+    // Confirm the reservation (Temporary → Confirmed)
+    try {
+      await setReservationStatus(centerId, qamfReservationId, "Confirmed");
+    } catch (err) {
+      // Non-fatal — slot is held even while Temporary
+      console.error("[bowling/v2/reserve] setReservationStatus failed:", err);
+    }
   }
 
   // ── Square payment (gift card deposit + day-of order) ──────────
