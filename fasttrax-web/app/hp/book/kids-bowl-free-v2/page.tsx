@@ -43,6 +43,9 @@ const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
 const BG = "#0a1628";
 
+/** QAMF web offer ID for the KBF program. Only slots from this offer are shown. */
+const KBF_WEB_OFFER_ID = 152;
+
 // ── Center metadata ────────────────────────────────────────────────────────
 
 const CENTERS = [
@@ -345,12 +348,14 @@ export default function KidsBowlFreeV2Page() {
             BookedAt: string;
             WebOffer: { Id: number; Title: string; Description?: string };
           }>
-        ).map((a) => ({
-          bookedAt: a.BookedAt,
-          webOfferId: a.WebOffer.Id,
-          webOfferTitle: a.WebOffer.Title,
-          webOfferDescription: a.WebOffer.Description,
-        }));
+        )
+          .filter((a) => a.WebOffer.Id === KBF_WEB_OFFER_ID)
+          .map((a) => ({
+            bookedAt: a.BookedAt,
+            webOfferId: a.WebOffer.Id,
+            webOfferTitle: a.WebOffer.Title,
+            webOfferDescription: a.WebOffer.Description,
+          }));
 
         setAvailableSlots(slots);
         if (slots.length === 0) {
