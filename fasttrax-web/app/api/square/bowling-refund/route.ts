@@ -63,14 +63,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "depositPaymentId, depositOrderId, amountCents, locationId, idempotencyKey are required" }, { status: 400 });
   }
 
-  // ── 1. Refund the deposit payment ────────────────────────────────────────
+  // ── 1. Resolve the actual charged amount from Square ─────────────────────
+  // The stored depositCents may differ from the real charge (tax rounding,
+  // quote-vs-actual discrepancy, etc.). Fetching the payment record gives us
+  // the authoritative amount_money so the refund never exceeds what was paid.
+  let refundAmountCents = amountCents;
+  try {
+    const payRes = await fetch(`${SQUARE_BASE}/payments/${depositPaymentId}`, {
+      headers: sqHeaders(),
+    });
+    if (payRes.ok) {
+      const payJson = (await payRes.json()) as {
+        payment?: { amount_money?: { amount?: number } };
+      };
+      const actual = payJson.payment?.amount_money?.amount;
+      if (typeof actual === "number" && actual > 0) {
+        refundAmountCents = actual;
+      }
+    }
+  } catch {
+    // Non-fatal — fall back to the stored amount
+  }
+
+  // ── 2. Refund the deposit payment ────────────────────────────────────────
   const refundRes = await fetch(`${SQUARE_BASE}/refunds`, {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
       idempotency_key: idempotencyKey,
       payment_id: depositPaymentId,
-      amount_money: { amount: amountCents, currency: "USD" },
+      amount_money: { amount: refundAmountCents, currency: "USD" },
       reason: "Customer cancellation — full refund",
     }),
   });
@@ -87,9 +109,9 @@ export async function POST(req: NextRequest) {
   }
 
   const refundId      = refundData.refund!.id;
-  const refundedCents = refundData.refund!.amount_money?.amount ?? amountCents;
+  const refundedCents = refundData.refund!.amount_money?.amount ?? refundAmountCents;
 
-  // ── 2. Cancel day-of order ────────────────────────────────────────────────
+  // ── 3. Cancel day-of order ────────────────────────────────────────────────
   // Square requires the current order version before updating state.
   // Non-fatal: if the order can't be cancelled (e.g. already redeemed),
   // we still surface the refund success.

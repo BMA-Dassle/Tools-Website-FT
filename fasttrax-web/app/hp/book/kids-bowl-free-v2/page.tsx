@@ -9,7 +9,6 @@ import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import {
   bookableDateRange,
   isKbfBookableDate,
-  isKbfPreLaunchPeriod,
 } from "@/lib/kbf-schedule";
 import {
   getBookingLocation,
@@ -858,8 +857,8 @@ export default function KidsBowlFreeV2Page() {
         className="min-h-screen pt-28 sm:pt-32 pb-16 px-4"
         style={{ backgroundColor: BG }}
       >
-        {/* Container widens on steps that have rich two-column layouts */}
-        <div className={`mx-auto ${step === "slots" || step === "offer" || step === "reschedule" ? "max-w-4xl" : "max-w-md"}`}>
+        {/* Same max-w-4xl as v1 — individual steps center themselves as needed */}
+        <div className="mx-auto max-w-4xl">
           {/* Header */}
           {step !== "submitting" && (
             <div className="mb-6">
@@ -889,22 +888,6 @@ export default function KidsBowlFreeV2Page() {
                 {step === "payment"  && "Payment"}
               </h1>
 
-              {/* Pre-launch opening week banner */}
-              {isKbfPreLaunchPeriod() && (step === "location" || step === "lookup") && (
-                <div
-                  className="mt-3 rounded-xl px-4 py-3"
-                  style={{
-                    backgroundColor: "rgba(255,215,0,0.08)",
-                    border: "1.78px solid rgba(255,215,0,0.45)",
-                  }}
-                >
-                  <p className="font-body text-white/85 text-xs sm:text-sm">
-                    <strong className="text-white">Special — Opening Week.</strong> Book{" "}
-                    <strong className="text-white">May 14th and 15th</strong> right now. Normally
-                    Kids Bowl Free reservations open 48 hours in advance.
-                  </p>
-                </div>
-              )}
             </div>
           )}
 
@@ -1262,8 +1245,7 @@ export default function KidsBowlFreeV2Page() {
                       Cancel this reservation?
                       {ex.depositCents > 0 && (
                         <span className="block text-xs text-white/45 mt-1">
-                          A deposit of ${(ex.depositCents / 100).toFixed(2)} was paid.
-                          Refunds are processed by the center — call to confirm.
+                          A full ${(ex.depositCents / 100).toFixed(2)} refund will be returned to your original payment method automatically.
                         </span>
                       )}
                     </p>
