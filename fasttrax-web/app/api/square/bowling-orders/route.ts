@@ -292,7 +292,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Step 4: Load gift card with the exact charged amount ──────────────────
+    // ── Step 4: Activate the gift card (PENDING → ACTIVE) ────────────────────
+    // A freshly-created DIGITAL card is in PENDING state and cannot be loaded
+    // until it is activated. Activation does not set a balance — the LOAD step
+    // (step 5) sets the balance.
+    const activateRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gc-act-${baseKey}`,
+        gift_card_activity: {
+          type: "ACTIVATE",
+          location_id: locationId,
+          gift_card_id: giftCardId,
+          activate_activity_details: {
+            buyer_payment_instrument_ids: [depositPaymentId],
+          },
+        },
+      }),
+    });
+    const activateData = await activateRes.json();
+
+    if (!activateRes.ok || activateData.errors) {
+      const sqErr = activateData.errors?.[0];
+      const detail = sqErr
+        ? `${sqErr.code}: ${sqErr.detail}`
+        : JSON.stringify(activateData);
+      console.error("[square/bowling-orders] gift card activation failed:", detail);
+      return NextResponse.json(
+        { error: `Payment captured but gift card activation failed: ${detail}` },
+        { status: 500 },
+      );
+    }
+
+    // ── Step 5: Load gift card with the exact charged amount ──────────────────
     // balance_money is now the authoritative refund amount — no recalculation
     // needed at cancel time.
     const loadRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
@@ -319,9 +352,9 @@ export async function POST(req: NextRequest) {
         ? `${sqErr.code}: ${sqErr.detail}`
         : JSON.stringify(loadData);
       console.error("[square/bowling-orders] gift card load failed:", detail);
-      // Card was created but not loaded. Log for reconciliation.
+      // Card was activated but not loaded. Log for reconciliation.
       return NextResponse.json(
-        { error: `Gift card created but load failed: ${detail}` },
+        { error: `Gift card activated but load failed: ${detail}` },
         { status: 500 },
       );
     }
