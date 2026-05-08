@@ -206,7 +206,8 @@ export async function getWebOffer(centerId: number, id: number): Promise<WebOffe
 export interface AvailabilityFilter {
   BookedAtRange: { StartAt: string; EndAt: string };
   TotalPlayers: number;
-  WebOffer?: { Services?: Service[] };
+  /** WebOffer is required by QAMF. Must include both Id and Services. */
+  WebOffer: { Id?: number; Services: Service[] };
 }
 export interface AvailabilityResponse {
   Availabilities: Array<{
