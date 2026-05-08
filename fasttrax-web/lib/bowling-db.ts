@@ -268,6 +268,7 @@ export interface BowlingExperienceItem {
   squareCatalogObjectId: string;
   quantity: number;
   sortOrder: number;
+  productKind: string;            // from bowling_square_products.product_kind
 }
 
 export interface BowlingExperienceOffer {
@@ -912,6 +913,7 @@ async function fetchExperienceItems(
           bei.id, bei.experience_id, bei.square_product_id,
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
+          bsp.product_kind,
           bei.quantity, bei.sort_order
         FROM bowling_experience_items bei
         JOIN bowling_square_products bsp
@@ -926,6 +928,7 @@ async function fetchExperienceItems(
           bei.id, bei.experience_id, bei.square_product_id,
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
+          bsp.product_kind,
           bei.quantity, bei.sort_order
         FROM bowling_experience_items bei
         JOIN bowling_square_products bsp ON bsp.id = bei.square_product_id
@@ -946,6 +949,7 @@ async function fetchExperienceItems(
       squareCatalogObjectId: r.square_catalog_object_id as string,
       quantity: r.quantity as number,
       sortOrder: r.sort_order as number,
+      productKind: r.product_kind as string,
     };
     if (!map.has(eid)) map.set(eid, []);
     map.get(eid)!.push(item);

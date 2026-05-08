@@ -631,6 +631,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, experiencesLoading]);
 
+  // Prefetch availability while user is on the step BEFORE slots (players/bowlers)
+  // so slots are cached/ready by the time they hit Continue.
+  useEffect(() => {
+    const prefetchStep = kind === "kbf" ? "bowlers" : "players";
+    if (step !== prefetchStep) return;
+    if (experiencesLoading || experiences.length === 0) return;
+    void fetchSlots(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, experiencesLoading]);
+
   // ── Fetch shoe products ───────────────────────────────────────────
 
   useEffect(() => {
@@ -1851,16 +1861,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 features: ["VIP lounge & dedicated lanes", "NeoVerse video walls", "HyperBowling technology"],
               },
             ] as const).filter((t) =>
-              // Only show tiers that have at least one experience with available slots
-              experiences
-                .filter((e) => (t.id === "vip" ? e.isVip : !e.isVip))
-                .some((e) =>
-                  availableSlots.some(
-                    (s) =>
-                      s.webOfferId === e.qamfWebOfferId &&
-                      (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
-                  ),
-                ),
+              // Show tier if we have any experiences configured for it (active or not)
+              experiences.some((e) => (t.id === "vip" ? e.isVip : !e.isVip)),
             );
 
             return (
@@ -1955,15 +1957,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           ═══════════════════════════════════════════════════════ */}
           {step === "offer" && (() => {
             // Only show experiences matching the selected tier; hide any with zero slots entirely
+            // Filter by tier. For 'open' kind experiences: hide when no slots (day restriction).
+            // For 'hourly' kind experiences: always show — they can be genuinely sold out.
             const offerExperiences = experiences.filter((exp) => {
               const tierMatch = selectedTier === null || (selectedTier === "vip" ? exp.isVip : !exp.isVip);
               if (!tierMatch) return false;
-              const slots = availableSlots.filter(
-                (s) =>
-                  s.webOfferId === exp.qamfWebOfferId &&
-                  (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
-              );
-              return slots.length > 0;
+              if (exp.kind === "open") {
+                // Fun 4 All — only show when QAMF returns availability (Mon-Thur only offer)
+                return availableSlots.some(
+                  (s) =>
+                    s.webOfferId === exp.qamfWebOfferId &&
+                    (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
+                );
+              }
+              return true; // hourly (Mon-Thur lane rental): always show, may be sold out
             });
 
             return (
@@ -1979,105 +1986,143 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   {offerExperiences.map((exp) => {
                     const display = getExperienceDisplay(exp.slug, exp.isVip);
                     const accent = display.accent;
+                    const isHourly = exp.kind === "hourly";
                     const offerSlots = availableSlots.filter(
                       (s) =>
                         s.webOfferId === exp.qamfWebOfferId &&
                         (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
                     );
-                    const isSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
+                    const hasSlots = offerSlots.length > 0;
+                    const isExpSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
+                    const includesShoes = exp.items.some((i) => i.productKind === "addon_shoe");
 
-                    // Price: sum of experience base items; "Free" for KBF with no items
-                    const baseTotal = exp.items.reduce(
-                      (s, item) => s + item.priceCents * item.quantity,
-                      0,
-                    );
-                    const priceLabel =
-                      exp.items.length === 0
-                        ? kind === "kbf"
-                          ? "Free"
-                          : null
-                        : centsToDollars(baseTotal);
+                    // Base lane/game item (non-shoe item for pricing)
+                    const baseItem = exp.items.find((i) => i.productKind !== "addon_shoe");
+                    const baseItemCents = (baseItem?.priceCents ?? 0) * (baseItem?.quantity ?? 1);
+                    const baseTotalCents = exp.items.reduce((s, i) => s + i.priceCents * i.quantity, 0);
+
+                    // For KBF with no items it's free
+                    const isFree = exp.items.length === 0 && kind === "kbf";
 
                     return (
-                      <div
-                        key={exp.qamfWebOfferId}
-                        className="w-full rounded-lg overflow-hidden transition-all"
-                        style={{
-                          backgroundColor: "rgba(7,16,39,0.5)",
-                          border: `1.78px dashed ${isSelected ? `${accent}AA` : `${accent}35`}`,
-                          boxShadow: isSelected ? `0 0 24px ${accent}25` : undefined,
-                        }}
-                      >
-                        <div className="flex flex-col sm:flex-row">
+                      <div key={exp.qamfWebOfferId} className="w-full rounded-xl overflow-hidden" style={{ border: `1.78px solid ${isExpSelected ? `${accent}88` : `${accent}28`}`, boxShadow: isExpSelected ? `0 0 28px ${accent}20` : undefined }}>
+                        {/* Shoes included banner */}
+                        {includesShoes && hasSlots && (
+                          <div className="w-full py-2 px-4 text-center font-body font-bold text-xs uppercase tracking-widest" style={{ backgroundColor: `${accent}22`, color: accent, borderBottom: `1px solid ${accent}30` }}>
+                            ★ Bowling Shoes Included ★
+                          </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row" style={{ backgroundColor: "rgba(7,16,39,0.55)" }}>
                           {/* Video */}
-                          <div className="relative w-full sm:w-56 h-36 sm:h-auto shrink-0 overflow-hidden">
-                            <video
-                              autoPlay muted loop playsInline preload="metadata"
-                              className="absolute inset-0 w-full h-full object-cover"
-                              key={display.videoUrl}
-                            >
+                          <div className="relative w-full sm:w-52 shrink-0 overflow-hidden" style={{ minHeight: "10rem" }}>
+                            <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" key={display.videoUrl}>
                               <source src={display.videoUrl} type="video/mp4" />
                             </video>
-                            <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70 pointer-events-none" />
+                            <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/60 pointer-events-none" />
+                            {/* Per-person / per-lane badge */}
+                            <div className="absolute top-3 left-3">
+                              <span className="font-body font-bold text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ backgroundColor: accent, color: "#0a1628" }}>
+                                {isHourly ? "Per Lane" : "Per Person"}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Content */}
                           <div className="flex-1 p-5">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3
-                                className="font-heading uppercase text-white text-base tracking-wider"
-                                style={{ textShadow: `0 0 15px ${accent}25` }}
-                              >
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <h3 className="font-heading uppercase text-white text-base tracking-wider" style={{ textShadow: `0 0 15px ${accent}25` }}>
                                 {exp.label}
                               </h3>
-                              {priceLabel && (
-                                <span
-                                  className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
-                                  style={{
-                                    backgroundColor: priceLabel === "Free" ? "rgba(34,197,94,0.18)" : `${accent}22`,
-                                    color: priceLabel === "Free" ? "#4ade80" : accent,
-                                    border: `1px solid ${priceLabel === "Free" ? "rgba(74,222,128,0.4)" : `${accent}50`}`,
-                                  }}
-                                >
-                                  {priceLabel}
+                              {!hasSlots && (
+                                <span className="font-body text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(253,91,86,0.18)", color: CORAL, border: `1px solid ${CORAL}40` }}>
+                                  Sold Out
                                 </span>
                               )}
                             </div>
-                            <p className="font-body text-white/60 text-sm mb-3">{display.description}</p>
-                            {display.features.length > 0 && (
-                              <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4">
-                                {display.features.map((f) => (
-                                  <span key={f} className="flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: accent }} />
-                                    <span className="font-body text-white/40 text-xs">{f}</span>
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {offerSlots.length > 0 && (
-                              <div className="flex flex-wrap gap-2">
-                                {offerSlots.map((s) => {
-                                  const on =
-                                    selectedSlot?.bookedAt === s.bookedAt &&
-                                    selectedSlot?.webOfferId === s.webOfferId;
+                            <p className="font-body text-white/55 text-sm mb-4">{display.description}</p>
+
+                            {isHourly && exp.durationOptions.length > 0 ? (
+                              /* Duration tiles (Open Bowling Mon-Thur style) */
+                              <div className="flex gap-3 flex-wrap">
+                                {exp.durationOptions.map((opt) => {
+                                  const optCents = Math.round(baseItemCents * opt.squareMultiplier);
+                                  const isOn =
+                                    isExpSelected &&
+                                    selectedSlot?.optionId === opt.qamfOptionId;
+                                  const firstSlot = offerSlots[0];
                                   return (
                                     <button
-                                      key={s.bookedAt}
+                                      key={opt.qamfOptionId}
                                       type="button"
-                                      onClick={() => setSelectedSlot(s)}
-                                      className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02] cursor-pointer"
+                                      disabled={!hasSlots}
+                                      onClick={() => {
+                                        if (!firstSlot) return;
+                                        setSelectedSlot({ ...firstSlot, optionId: opt.qamfOptionId });
+                                      }}
+                                      className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
                                       style={{
-                                        backgroundColor: on ? accent : `${accent}1a`,
-                                        color: on ? "#0a1628" : accent,
-                                        border: `1px solid ${on ? accent : `${accent}55`}`,
-                                        boxShadow: on ? `0 0 10px ${accent}40` : undefined,
+                                        backgroundColor: isOn ? accent : `${accent}14`,
+                                        border: `1.5px solid ${isOn ? accent : `${accent}45`}`,
+                                        boxShadow: isOn ? `0 0 14px ${accent}40` : undefined,
                                       }}
                                     >
-                                      {formatTime(s.bookedAt)}{on && <span className="ml-1.5">✓</span>}
+                                      <span className="font-body font-bold text-sm uppercase tracking-wider" style={{ color: isOn ? "#0a1628" : "rgba(255,255,255,0.7)" }}>
+                                        {opt.label}
+                                      </span>
+                                      <span className="font-heading text-xl font-bold mt-1" style={{ color: isOn ? "#0a1628" : accent }}>
+                                        {centsToDollars(optCents)}
+                                      </span>
+                                      <span className="font-body text-[11px] mt-0.5" style={{ color: isOn ? "#0a162890" : "rgba(255,255,255,0.35)" }}>
+                                        per lane
+                                      </span>
+                                      {isOn && <span className="text-xs mt-1" style={{ color: "#0a1628" }}>✓ Selected</span>}
                                     </button>
                                   );
                                 })}
                               </div>
+                            ) : isHourly ? (
+                              /* Hourly but no duration options — just time chips */
+                              hasSlots ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {offerSlots.map((s) => {
+                                    const on = selectedSlot?.bookedAt === s.bookedAt && selectedSlot?.webOfferId === s.webOfferId;
+                                    return (
+                                      <button key={s.bookedAt} type="button" onClick={() => setSelectedSlot(s)} className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]" style={{ backgroundColor: on ? accent : `${accent}1a`, color: on ? "#0a1628" : accent, border: `1px solid ${on ? accent : `${accent}55`}`, boxShadow: on ? `0 0 10px ${accent}40` : undefined }}>
+                                        {formatTime(s.bookedAt)}{on && <span className="ml-1.5">✓</span>}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null
+                            ) : (
+                              /* 'open' kind (Fun 4 All) — per-person with time chips */
+                              hasSlots && (
+                                <div>
+                                  {/* Price row */}
+                                  <div className="flex items-baseline gap-2 mb-3">
+                                    <span className="font-heading text-2xl font-bold" style={{ color: accent }}>
+                                      {isFree ? "Free" : centsToDollars(baseTotalCents * activePlayerCount)}
+                                    </span>
+                                    {!isFree && (
+                                      <span className="font-body text-white/40 text-sm">
+                                        {centsToDollars(baseTotalCents)}/person
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Time chips */}
+                                  <div className="flex flex-wrap gap-2">
+                                    {offerSlots.map((s) => {
+                                      const on = selectedSlot?.bookedAt === s.bookedAt && selectedSlot?.webOfferId === s.webOfferId;
+                                      return (
+                                        <button key={s.bookedAt} type="button" onClick={() => setSelectedSlot(s)} className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]" style={{ backgroundColor: on ? accent : `${accent}1a`, color: on ? "#0a1628" : accent, border: `1px solid ${on ? accent : `${accent}55`}`, boxShadow: on ? `0 0 10px ${accent}40` : undefined }}>
+                                          {formatTime(s.bookedAt)}{on && <span className="ml-1.5">✓</span>}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )
                             )}
                           </div>
                         </div>

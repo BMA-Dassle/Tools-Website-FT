@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
+import redis from "@/lib/redis";
 
 /**
  * GET /api/bowling/v2/availability
@@ -12,12 +13,17 @@ import { searchAvailability } from "@/lib/qamf-bowling";
  * Both HeadPinz centers are in Eastern time (EDT -04:00 May–Nov, EST -05:00 otherwise).
  * Probes 9:00 am → 11:30 pm in 30-min increments (29 probes, all in parallel).
  *
+ * Results are cached in Redis for 5 minutes per (centerId, date, webOfferId, players)
+ * to avoid hammering QAMF on every page view.
+ *
  * Query params:
  *   centerId    — QAMF center ID (required)
  *   players     — number of players (required)
  *   startDate   — ISO date string 'YYYY-MM-DD' (required)
  *   webOfferId  — filter to a specific QAMF web offer ID (optional but recommended)
  */
+
+const CACHE_TTL_SECONDS = 300; // 5 minutes
 
 // Probe times: 9:00 am to 11:30 pm in 30-min increments
 const PROBE_HOURS_START = 9;   // 9am
@@ -70,6 +76,19 @@ export async function GET(req: NextRequest) {
     ...(webOfferId ? { Id: webOfferId } : {}),
   };
 
+  // Check Redis cache first
+  const cacheKey = `bowling:avail:${centerId}:${startDate}:${webOfferId ?? "all"}:${players}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return NextResponse.json(JSON.parse(cached) as object, {
+        headers: { "X-Cache": "HIT" },
+      });
+    }
+  } catch {
+    // Redis unavailable — fall through to QAMF
+  }
+
   // Fire all probes in parallel
   try {
     const results = await Promise.all(
@@ -93,7 +112,12 @@ export async function GET(req: NextRequest) {
       })
       .sort((a, b) => a.BookedAt.localeCompare(b.BookedAt));
 
-    return NextResponse.json({ Availabilities: availabilities });
+    const payload = { Availabilities: availabilities };
+
+    // Cache in Redis (fire-and-forget — don't block response)
+    redis.set(cacheKey, JSON.stringify(payload), "EX", CACHE_TTL_SECONDS).catch(() => {});
+
+    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     return NextResponse.json({ error: msg }, { status: 502 });
