@@ -352,12 +352,12 @@ function slotHourET(iso: string, bookingDate?: string): number {
     if (isNaN(h)) return -1;
     if (bookingDate && h < 9) {
       // Slot is in the early-morning hours of the next calendar day — add 24
-      // so it aligns with the post-midnight hour chips (24=12AM, 25=1AM, …)
-      const slotDate = parts
-        .filter((p) => p.type === "month" || p.type === "day" || p.type === "year")
-        .map((p) => p.value);
-      // slotDate parts order: month/day/year — reconstruct YYYY-MM-DD
-      const slotYmd = `${slotDate[2]}-${slotDate[0]}-${slotDate[1]}`;
+      // so it aligns with the post-midnight hour chips (24=12AM, 25=1AM, …).
+      // Use find() by part type to avoid any locale-dependent format ordering.
+      const yr = parts.find((p) => p.type === "year")?.value  ?? "1970";
+      const mo = parts.find((p) => p.type === "month")?.value ?? "01";
+      const dy = parts.find((p) => p.type === "day")?.value   ?? "01";
+      const slotYmd = `${yr}-${mo}-${dy}`;
       if (slotYmd > bookingDate) return h + 24;
     }
     return h;
