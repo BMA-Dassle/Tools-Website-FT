@@ -341,7 +341,7 @@ export default function KidsBowlFreeV2Page() {
       setSelectedSlot(null);
       try {
         const res = await fetch(
-          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(playerCount, 1)}&startDate=${date}&webOfferId=${KBF_WEB_OFFER_ID}&service=BookForLater`,
+          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(playerCount, 1)}&startDate=${date}&webOfferId=${KBF_WEB_OFFER_ID}`,
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to load slots");
@@ -481,7 +481,7 @@ export default function KidsBowlFreeV2Page() {
           guest: { name: guestName, email: guestEmail, phone: guestPhone },
           lineItems,
           squareToken,
-          locationId: center.locationKey,
+          locationId: center.squareCenterCode,
           notes: `KBF V2 – ${pass?.id ?? ""}`,
         }),
       });
@@ -847,10 +847,11 @@ export default function KidsBowlFreeV2Page() {
           {step === "slots" && (
             <div className="space-y-4">
               <div>
-                <label className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
+                <label htmlFor="kbf-date-picker" className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
                   Select a date
                 </label>
                 <input
+                  id="kbf-date-picker"
                   type="date"
                   min={minDate}
                   max={maxDate}

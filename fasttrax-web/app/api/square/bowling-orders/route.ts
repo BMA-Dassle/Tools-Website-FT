@@ -119,17 +119,23 @@ export async function POST(req: NextRequest) {
     // ─────────────────────────────────────────────────────────────────
     // Step 1: Create the day-of order (full line items + tax, left OPEN)
     // ─────────────────────────────────────────────────────────────────
+    // Build day-of line items.
+    // When catalogObjectId is present: let Square use the catalog price (Square
+    // rejects base_price_money overrides on fixed-price items). The catalog price
+    // is the authoritative amount and the tax will be correctly applied by location.
+    // When there is no catalogObjectId: use base_price_money as an ad-hoc line.
     const dayofLineItems = lineItems.map((li) => {
-      const item: Record<string, unknown> = {
+      if (li.catalogObjectId) {
+        return {
+          catalog_object_id: li.catalogObjectId,
+          quantity: li.quantity,
+        };
+      }
+      return {
         name: li.name,
         quantity: li.quantity,
         base_price_money: li.basePriceMoney,
       };
-      if (li.catalogObjectId) {
-        item.catalog_object_id = li.catalogObjectId;
-        item.item_type = "ITEM";
-      }
-      return item;
     });
 
     const dayofOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
@@ -148,8 +154,10 @@ export async function POST(req: NextRequest) {
     const dayofOrderData = await dayofOrderRes.json();
 
     if (!dayofOrderRes.ok || dayofOrderData.errors) {
-      console.error("[square/bowling-orders] day-of order failed:", dayofOrderData.errors);
-      return NextResponse.json({ error: "Failed to create day-of order" }, { status: 500 });
+      const sqErr = dayofOrderData.errors?.[0];
+      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(dayofOrderData);
+      console.error("[square/bowling-orders] day-of order failed:", detail);
+      return NextResponse.json({ error: `Failed to create day-of order: ${detail}` }, { status: 500 });
     }
 
     const dayofOrderId: string = dayofOrderData.order?.id;
@@ -200,8 +208,10 @@ export async function POST(req: NextRequest) {
     const depositOrderData = await depositOrderRes.json();
 
     if (!depositOrderRes.ok || depositOrderData.errors) {
-      console.error("[square/bowling-orders] deposit order failed:", depositOrderData.errors);
-      return NextResponse.json({ error: "Failed to create deposit order" }, { status: 500 });
+      const sqErr = depositOrderData.errors?.[0];
+      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(depositOrderData);
+      console.error("[square/bowling-orders] deposit order failed:", detail);
+      return NextResponse.json({ error: `Failed to create deposit order: ${detail}` }, { status: 500 });
     }
 
     const depositOrderId: string = depositOrderData.order?.id;
