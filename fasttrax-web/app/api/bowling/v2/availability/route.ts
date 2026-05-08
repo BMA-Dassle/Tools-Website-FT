@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 
   // Build ISO date-time range covering the full day(s) at the start of UTC
   const startAt = `${startDate}T00:00:00+00:00`;
-  const endAt = `${endDate}T23:59:59+00:00`;
+  const endAt = `${endDate}T23:59:00+00:00`;
 
   try {
     const result = await searchAvailability(centerId, {
