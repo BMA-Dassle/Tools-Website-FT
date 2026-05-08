@@ -378,6 +378,19 @@ export default function KidsBowlFreeV2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // KBF rule: adults (parent / family-pass) need a kid on the lane.
+  // Auto-deselect any adults the moment the last kid is unchecked.
+  useEffect(() => {
+    const anyKid = bowlerSelections.some((b) => b.relation === "kid" && b.selected);
+    if (anyKid) return;
+    const hasSelectedAdult = bowlerSelections.some((b) => b.relation !== "kid" && b.selected);
+    if (!hasSelectedAdult) return;
+    setBowlerSelections((prev) =>
+      prev.map((b) => (b.relation !== "kid" && b.selected ? { ...b, selected: false } : b)),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bowlerSelections.map((b) => `${b.key}:${b.selected}`).join(",")]);
+
   // ── Step: Shoes ──────────────────────────────────────────────────
 
   useEffect(() => {
@@ -663,71 +676,151 @@ export default function KidsBowlFreeV2Page() {
           )}
 
           {/* ── STEP: Bowlers ───────────────────────────────────────── */}
-          {step === "bowlers" && (
-            <div className="space-y-3">
-              <p className="font-body text-white/55 text-sm text-center mb-2">
-                Select who&apos;s bowling today
-              </p>
-              {bowlerSelections.map((b, i) => (
-                <button
-                  key={b.key}
-                  type="button"
-                  onClick={() => {
-                    const updated = [...bowlerSelections];
-                    updated[i] = { ...b, selected: !b.selected };
-                    setBowlerSelections(updated);
-                  }}
-                  className="w-full rounded-xl p-4 text-left flex items-center gap-3 transition-all"
+          {step === "bowlers" && (() => {
+            const KBF_BLUE = "#4fa3e0";
+            const hasFamilyPass = pass?.fpass ?? false;
+            const anyKidSelected = bowlerSelections.some(
+              (b) => b.relation === "kid" && b.selected,
+            );
+            const bowlerCount = selectedBowlers.length;
+
+            const relationLabel = (rel: BowlerSelection["relation"]) => {
+              if (rel === "parent") return hasFamilyPass ? "Family Pass Adult" : "Account holder";
+              if (rel === "kid") return "Kids Bowl Free";
+              return "Family Pass Adult";
+            };
+
+            return (
+              <div className="space-y-3">
+                {/* Program banner */}
+                <div
+                  className="rounded-2xl px-4 py-3 flex items-center gap-3"
                   style={{
-                    backgroundColor: b.selected
-                      ? "rgba(253,91,86,0.10)"
-                      : "rgba(255,255,255,0.04)",
-                    border: `1.78px dashed ${b.selected ? `${CORAL}50` : "rgba(255,255,255,0.10)"}`,
+                    backgroundColor: `${KBF_BLUE}14`,
+                    border: `1.78px solid ${KBF_BLUE}55`,
                   }}
                 >
                   <div
-                    className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0"
-                    style={{
-                      borderColor: b.selected ? CORAL : "rgba(255,255,255,0.2)",
-                      backgroundColor: b.selected ? CORAL : "transparent",
-                    }}
+                    className="w-9 h-9 rounded-full flex items-center justify-center font-heading font-black shrink-0"
+                    style={{ backgroundColor: `${KBF_BLUE}26`, color: KBF_BLUE }}
                   >
-                    {b.selected && (
-                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
+                    ★
                   </div>
-                  <div>
-                    <div className="font-body font-bold text-white text-sm">{b.displayName}</div>
-                    <div className="font-body text-white/35 text-xs capitalize">{b.relation}</div>
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className="font-heading uppercase tracking-[3px] text-[10px] mb-0.5"
+                      style={{ color: KBF_BLUE }}
+                    >
+                      {hasFamilyPass ? "Families Bowl Free" : "Kids Bowl Free"}
+                    </div>
+                    <div className="text-white/85 text-sm font-semibold truncate">
+                      {pass ? `${pass.firstName} ${pass.lastName}` : ""}
+                    </div>
                   </div>
+                </div>
+
+                <p className="font-body text-white/65 text-sm leading-relaxed">
+                  Check who&apos;s bowling today. At least one registered kid is required.
+                </p>
+                {!hasFamilyPass && (
+                  <p className="font-body text-white/45 text-xs leading-relaxed">
+                    Kids Bowl Free covers your registered kids.{" "}
+                    <a
+                      href="https://www.kidsbowlfree.com/family.php"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-white"
+                    >
+                      Add Families Bowl Free
+                    </a>{" "}
+                    to put yourself on a lane too.
+                  </p>
+                )}
+
+                {bowlerSelections.map((b, i) => {
+                  const isAdult = b.relation !== "kid";
+                  const adultLocked = isAdult && !anyKidSelected;
+                  const accent = isAdult ? KBF_BLUE : CORAL;
+                  return (
+                    <button
+                      key={b.key}
+                      type="button"
+                      disabled={adultLocked}
+                      title={adultLocked ? "Add a kid first — adults need a registered kid bowling with them." : undefined}
+                      onClick={() => {
+                        if (adultLocked) return;
+                        const updated = [...bowlerSelections];
+                        updated[i] = { ...b, selected: !b.selected };
+                        setBowlerSelections(updated);
+                      }}
+                      className="w-full rounded-xl text-left flex items-center gap-3 px-4 py-3.5 transition-all disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: b.selected ? `${accent}12` : "rgba(255,255,255,0.025)",
+                        border: `1.78px solid ${b.selected ? `${accent}80` : "rgba(255,255,255,0.10)"}`,
+                        boxShadow: b.selected ? `0 0 18px ${accent}18` : undefined,
+                        opacity: adultLocked ? 0.45 : 1,
+                      }}
+                    >
+                      {/* Avatar */}
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-heading font-black text-sm shrink-0"
+                        style={{
+                          backgroundColor: `${accent}22`,
+                          color: accent,
+                          border: `1.78px solid ${accent}55`,
+                        }}
+                      >
+                        {b.displayName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white font-semibold text-sm truncate">{b.displayName}</div>
+                        <span
+                          className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full mt-0.5"
+                          style={{ backgroundColor: `${accent}22`, color: accent }}
+                        >
+                          {relationLabel(b.relation)}
+                        </span>
+                      </div>
+
+                      {/* State pill */}
+                      <div
+                        className="text-[10px] uppercase tracking-[2px] font-bold px-3 py-1.5 rounded-full shrink-0"
+                        style={{
+                          backgroundColor: b.selected ? `${accent}26` : "rgba(255,255,255,0.06)",
+                          color: b.selected ? accent : "rgba(255,255,255,0.45)",
+                          border: b.selected ? `1px solid ${accent}80` : "1px solid rgba(255,255,255,0.10)",
+                        }}
+                      >
+                        {adultLocked ? "Kid required" : b.selected ? "Bowling" : "Add"}
+                      </div>
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (bowlerCount === 0) { setError("Select at least one bowler"); return; }
+                    if (!anyKidSelected) { setError("At least one kid must be bowling"); return; }
+                    setError(null);
+                    setStep("slots");
+                  }}
+                  className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                >
+                  Continue with {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  if (selectedBowlers.length === 0) {
-                    setError("Select at least one bowler");
-                    return;
-                  }
-                  setError(null);
-                  setStep("slots");
-                }}
-                className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white"
-                style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-              >
-                Continue with {playerCount} bowler{playerCount === 1 ? "" : "s"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("verify")}
-                className="w-full font-body text-white/35 text-sm"
-              >
-                ← Back
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => setStep("verify")}
+                  className="w-full font-body text-white/35 text-sm"
+                >
+                  ← Back
+                </button>
+              </div>
+            );
+          })()}
 
           {/* ── STEP: Slots ─────────────────────────────────────────── */}
           {step === "slots" && (
