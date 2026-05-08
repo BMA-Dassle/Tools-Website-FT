@@ -327,17 +327,37 @@ function addDays(ymd: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function slotHourET(iso: string): number {
+/**
+ * Returns the ET hour of an ISO slot timestamp as a "display hour" value
+ * that matches the hour chip numbers in the wizard.
+ *
+ * Post-midnight slots (0–2 AM) belong to the PREVIOUS booking date and are
+ * represented as hours 24–26 so they map to the correct chip.
+ * e.g. "2026-05-10T01:00:00-04:00" for a May 9 booking → hour 25.
+ *
+ * Pass the booking date (YYYY-MM-DD) so we can detect the day rollover.
+ */
+function slotHourET(iso: string, bookingDate?: string): number {
   try {
-    const h = parseInt(
-      new Date(iso).toLocaleString("en-US", {
-        hour: "2-digit",
-        hourCycle: "h23",
-        timeZone: "America/New_York",
-      }),
-      10,
-    );
-    return isNaN(h) ? -1 : h;
+    const dt = new Date(iso);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", hourCycle: "h23",
+      timeZone: "America/New_York",
+    }).formatToParts(dt);
+    const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+    if (isNaN(h)) return -1;
+    if (bookingDate && h < 9) {
+      // Slot is in the early-morning hours of the next calendar day — add 24
+      // so it aligns with the post-midnight hour chips (24=12AM, 25=1AM, …)
+      const slotDate = parts
+        .filter((p) => p.type === "month" || p.type === "day" || p.type === "year")
+        .map((p) => p.value);
+      // slotDate parts order: month/day/year — reconstruct YYYY-MM-DD
+      const slotYmd = `${slotDate[2]}-${slotDate[0]}-${slotDate[1]}`;
+      if (slotYmd > bookingDate) return h + 24;
+    }
+    return h;
   } catch {
     return -1;
   }
@@ -359,14 +379,17 @@ function slotMinuteET(iso: string): number {
 }
 
 function formatHour(h: number): string {
-  const ampm = h >= 12 ? "PM" : "AM";
-  const hr = h % 12 || 12;
+  // Support post-midnight hours: 24 = 12 AM, 25 = 1 AM, 26 = 2 AM, …
+  const h24 = h % 24;
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const hr = h24 % 12 || 12;
   return `${hr} ${ampm}`;
 }
 
 function formatHourMinute(h: number, m: number): string {
-  const ampm = h >= 12 ? "PM" : "AM";
-  const hr = h % 12 || 12;
+  const h24 = h % 24;
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const hr = h24 % 12 || 12;
   return `${hr}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
@@ -536,7 +559,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     ? (availableSlots.find(
         (s) =>
           s.webOfferId === vipUpgradeExperience.qamfWebOfferId &&
-          slotHourET(s.bookedAt) === slotHourET(selectedSlot.bookedAt) &&
+          slotHourET(s.bookedAt, selectedDate) === slotHourET(selectedSlot.bookedAt, selectedDate) &&
           slotMinuteET(s.bookedAt) === slotMinuteET(selectedSlot.bookedAt),
       ) ?? null)
     : null;
@@ -590,7 +613,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   }
 
   function getFilteredHours(dateStr: string): number[] {
-    const HOURS = Array.from({ length: 13 }, (_, i) => i + 11); // 11 AM – 11 PM
+    const HOURS = Array.from({ length: 16 }, (_, i) => i + 11); // 11 AM – 2 AM (26=2am)
     let filtered = HOURS;
 
     // KBF Friday: cut off at 5 PM
@@ -2253,7 +2276,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 return availableSlots.some(
                   (s) =>
                     s.webOfferId === exp.qamfWebOfferId &&
-                    (selectedHour === null || slotHourET(s.bookedAt) === selectedHour) &&
+                    (selectedHour === null || slotHourET(s.bookedAt, selectedDate) === selectedHour) &&
                     (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                 );
               }
@@ -2280,7 +2303,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     const offerSlots = availableSlots.filter(
                       (s) =>
                         s.webOfferId === exp.qamfWebOfferId &&
-                        (selectedHour === null || slotHourET(s.bookedAt) === selectedHour) &&
+                        (selectedHour === null || slotHourET(s.bookedAt, selectedDate) === selectedHour) &&
                         (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                     );
                     const hasSlots = offerSlots.length > 0;

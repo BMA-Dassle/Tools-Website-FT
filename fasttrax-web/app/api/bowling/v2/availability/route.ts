@@ -25,17 +25,28 @@ import redis from "@/lib/redis";
 
 const CACHE_TTL_SECONDS = 300; // 5 minutes
 
-// Probe times: 9:00 am to 11:45 pm in 15-min increments (60 probes)
-const PROBE_HOURS_START = 9;   // 9am
-const PROBE_HOURS_END   = 23;  // last probe at 11:45pm (23:45)
+// Probe times: 9:00 am to 1:45 am (next calendar day) in 15-min increments.
+// Hours 0–1 on the NEXT day are represented as the following calendar date
+// because ISO timestamps cross midnight (e.g. booking on May 9 at 1:00 AM ET
+// is "2026-05-10T01:00:00-04:00").
+const PROBE_HOURS_START = 9;  // 9 am same day
+const PROBE_HOURS_END   = 25; // 1:45 am next calendar day (25 = 24+1)
 
 function buildProbeTimes(date: string, tzOffset: string): string[] {
   const times: string[] = [];
+
+  // Parse the booking date so we can roll it forward for post-midnight hours
+  const [y, mo, d] = date.split("-").map(Number);
+  const nextDate = new Date(y, mo - 1, d + 1);
+  const nextDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
+
   for (let h = PROBE_HOURS_START; h <= PROBE_HOURS_END; h++) {
     for (const m of [0, 15, 30, 45]) {
-      if (h === PROBE_HOURS_END && m === 45) break; // stop at 23:45
+      if (h === PROBE_HOURS_END && m === 45) break; // stop at 1:45 am
+      const calHour = h % 24; // 24 → 0, 25 → 1
+      const calDate = h >= 24 ? nextDateStr : date;
       times.push(
-        `${date}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
+        `${calDate}T${String(calHour).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
       );
     }
   }
