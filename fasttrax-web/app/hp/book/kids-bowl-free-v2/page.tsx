@@ -338,7 +338,7 @@ export default function KidsBowlFreeV2Page() {
       setSelectedSlot(null);
       try {
         const res = await fetch(
-          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(playerCount, 1)}&startDate=${date}&endDate=${date}&service=BookForLater`,
+          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(playerCount, 1)}&startDate=${date}&service=BookForLater`,
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to load slots");

@@ -6,11 +6,14 @@ import { searchAvailability } from "@/lib/qamf-bowling";
  *
  * Wraps QAMF searchAvailability for both KBF and open bowling.
  *
+ * QAMF constraint: StartAt and EndAt must be equal (point-in-time search,
+ * not a range). QAMF returns all availability for the calendar day of
+ * that datetime. We always use midnight UTC for the chosen date.
+ *
  * Query params:
  *   centerId    — QAMF center ID (required)
  *   players     — number of players (required)
  *   startDate   — ISO date string 'YYYY-MM-DD' (required)
- *   endDate     — ISO date string 'YYYY-MM-DD' (defaults to startDate)
  *   service     — 'BookForLater' | 'PlayNow' (default: 'BookForLater')
  */
 export async function GET(req: NextRequest) {
@@ -19,7 +22,6 @@ export async function GET(req: NextRequest) {
   const centerIdStr = searchParams.get("centerId");
   const playersStr = searchParams.get("players");
   const startDate = searchParams.get("startDate");
-  const endDate = searchParams.get("endDate") ?? startDate;
   const service = (searchParams.get("service") ?? "BookForLater") as
     | "BookForLater"
     | "PlayNow";
@@ -37,13 +39,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid centerId or players" }, { status: 400 });
   }
 
-  // Build ISO date-time range covering the full day(s) at the start of UTC
-  const startAt = `${startDate}T00:00:00+00:00`;
-  const endAt = `${endDate}T23:59:00+00:00`;
+  // QAMF requires StartAt === EndAt. Midnight UTC for the chosen date.
+  const bookedAt = `${startDate}T00:00:00+00:00`;
 
   try {
     const result = await searchAvailability(centerId, {
-      BookedAtRange: { StartAt: startAt, EndAt: endAt },
+      BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
       TotalPlayers: players,
       WebOffer: { Services: [service] },
     });
