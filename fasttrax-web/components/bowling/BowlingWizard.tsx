@@ -722,17 +722,18 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           return;
         }
 
+        // Single call — no webOfferId filter. QAMF returns all enabled offers
+        // in every probe response regardless, so one round-trip covers all
+        // experiences. Dedup on the server is keyed on (BookedAt + WebOffer.Id)
+        // so every offer × time combination arrives correctly.
         const base = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
-        const results = await Promise.all(
-          offerIds.map((id) =>
-            fetch(`${base}&webOfferId=${id}`).then(
-              (r) => r.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
-            ),
-          ),
+        const data = await fetch(base).then(
+          (r) => r.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
         );
 
-        const merged = results.flatMap((data, i) =>
-          parseRaw(data.Availabilities ?? [], offerIds[i]),
+        // Parse once, distribute to each experience by offer ID
+        const merged = offerIds.flatMap((id) =>
+          parseRaw(data.Availabilities ?? [], id),
         );
         setAvailableSlots(merged);
 
