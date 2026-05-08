@@ -126,6 +126,9 @@ interface AvailabilitySlot {
   webOfferId: number;
   webOfferTitle: string;
   webOfferDescription?: string;
+  /** QAMF option ID — required on createReservation. For KBF = the 2-game Game option. */
+  optionId?: number;
+  optionType?: "Game" | "Time" | "Unlimited";
 }
 
 interface ShoeProduct {
@@ -346,16 +349,32 @@ export default function KidsBowlFreeV2Page() {
         const slots: AvailabilitySlot[] = (
           data.Availabilities as Array<{
             BookedAt: string;
-            WebOffer: { Id: number; Title: string; Description?: string };
+            WebOffer: {
+              Id: number;
+              Title: string;
+              Description?: string;
+              Options?: {
+                Game?: { Id: number; GamesPerPlayer?: number }[];
+                Time?: { Id: number; Minutes?: number }[];
+                Unlimited?: { Id: number }[];
+              };
+            };
           }>
         )
           .filter((a) => a.WebOffer.Id === KBF_WEB_OFFER_ID)
-          .map((a) => ({
-            bookedAt: a.BookedAt,
-            webOfferId: a.WebOffer.Id,
-            webOfferTitle: a.WebOffer.Title,
-            webOfferDescription: a.WebOffer.Description,
-          }));
+          .map((a) => {
+            // KBF is always "Game" type — prefer the 2-games-per-player option.
+            const gameOpts = a.WebOffer.Options?.Game ?? [];
+            const twoGame = gameOpts.find((g) => g.GamesPerPlayer === 2) ?? gameOpts[0];
+            return {
+              bookedAt: a.BookedAt,
+              webOfferId: a.WebOffer.Id,
+              webOfferTitle: a.WebOffer.Title,
+              webOfferDescription: a.WebOffer.Description,
+              optionId: twoGame ? Number(twoGame.Id) : undefined,
+              optionType: "Game" as const,
+            };
+          });
 
         setAvailableSlots(slots);
         if (slots.length === 0) {
@@ -454,6 +473,8 @@ export default function KidsBowlFreeV2Page() {
         body: JSON.stringify({
           centerId: center.qamfId,
           webOfferId: selectedSlot.webOfferId,
+          optionId: selectedSlot.optionId,
+          optionType: selectedSlot.optionType,
           bookedAt: selectedSlot.bookedAt,
           service: "BookForLater",
           players: selectedBowlers.map((b) => ({ name: b.displayName })),
