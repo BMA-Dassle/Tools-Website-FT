@@ -47,6 +47,7 @@ interface ExperienceDisplay {
   accent: string;
   description: string;
   features: string[];
+  includesShoes?: boolean; // true → show "Bowling Shoes Included" banner + skip shoes step
 }
 
 const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
@@ -74,35 +75,38 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Up to 6 bowlers per lane",
     ],
   },
-  "fun-4-all-regular": {
+  "fun-4-all": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "Standard HeadPinz open bowling — reserve your lane and bowl at your own pace.",
+    description: "1.5 hours of bowling Monday through Thursday — shoes included!",
     features: [
-      "Standard HeadPinz lanes",
+      "Bowling shoes included",
       "Up to 6 bowlers per lane",
+      "Standard HeadPinz lanes",
       "Glow bowling in the evenings",
     ],
+    includesShoes: true,
   },
   "fun-4-all-vip": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "The premium experience — VIP suite with NeoVerse video walls and HyperBowling technology.",
+      "The premium Mon-Thur experience — VIP suite with NeoVerse, HyperBowling, shoes & chips included.",
     features: [
+      "Bowling shoes included",
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
-      "HyperBowling technology",
-      "Up to 6 bowlers per lane",
+      "Complimentary chips & salsa",
     ],
+    includesShoes: true,
   },
-  "hourly-weekday": {
+  "regular-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description: "Reserve a lane by the hour — Monday through Thursday.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
   },
-  "hourly-weekday-vip": {
+  "vip-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
@@ -113,6 +117,30 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Chips & salsa included",
       "Up to 6 bowlers per lane",
     ],
+  },
+  "pizza-bowl": {
+    videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
+    accent: CORAL,
+    description: "Sunday special — bowling + pizza + shoes all included!",
+    features: [
+      "Bowling shoes included",
+      "Pizza included",
+      "Up to 6 bowlers per lane",
+    ],
+    includesShoes: true,
+  },
+  "pizza-bowl-vip": {
+    videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+    accent: GOLD,
+    description:
+      "Sunday VIP special — premium lanes, pizza, shoes & NeoVerse technology included.",
+    features: [
+      "Bowling shoes included",
+      "Pizza included",
+      "VIP lounge & dedicated lanes",
+      "NeoVerse video walls",
+    ],
+    includesShoes: true,
   },
 };
 
@@ -387,6 +415,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   const [selectedTier, setSelectedTier] = useState<"regular" | "vip" | null>(null);
 
+  // VIP upgrade modal (shown after Regular selection on offer step)
+  const [showVipUpgrade, setShowVipUpgrade] = useState(false);
+
   // ── Experience catalog ───────────────────────────────────────────
   // Loaded from the DB once the center is known.
   // Drives offer IDs fetched from QAMF, offer card rendering, and lineItems.
@@ -434,6 +465,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Experience matching the selected QAMF slot
   const selectedExperience = selectedSlot
     ? (experiences.find((e) => e.qamfWebOfferId === selectedSlot.webOfferId) ?? null)
+    : null;
+
+  // Whether the selected experience already includes shoes (skip shoes step)
+  const selectedIncludesShoes =
+    selectedExperience
+      ? (getExperienceDisplay(selectedExperience.slug, selectedExperience.isVip).includesShoes ?? false)
+      : false;
+
+  // VIP counterpart experience for the upgrade modal
+  const vipUpgradeExperience =
+    selectedTier === "regular" && selectedExperience && !selectedExperience.isVip
+      ? (experiences.find((e) => e.isVip && e.kind === selectedExperience.kind) ?? null)
+      : null;
+  const vipUpgradeSlot = vipUpgradeExperience && selectedSlot
+    ? (availableSlots.find(
+        (s) =>
+          s.webOfferId === vipUpgradeExperience.qamfWebOfferId &&
+          slotHourET(s.bookedAt) === slotHourET(selectedSlot.bookedAt),
+      ) ?? null)
     : null;
 
   // Bundled items auto-included in the selected experience (the combo)
@@ -1994,10 +2044,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     );
                     const hasSlots = offerSlots.length > 0;
                     const isExpSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
-                    const includesShoes = exp.items.some((i) => i.productKind === "addon_shoe");
+                    const includesShoes = display.includesShoes ?? false;
 
-                    // Base lane/game item (non-shoe item for pricing)
-                    const baseItem = exp.items.find((i) => i.productKind !== "addon_shoe");
+                    // Base lane/game item for pricing
+                    const baseItem = exp.items[0];
                     const baseItemCents = (baseItem?.priceCents ?? 0) * (baseItem?.quantity ?? 1);
                     const baseTotalCents = exp.items.reduce((s, i) => s + i.priceCents * i.quantity, 0);
 
@@ -2138,7 +2188,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     onClick={() => {
                       if (!selectedSlot) { setError("Please select a time slot"); return; }
                       setError(null);
-                      setStep("shoes");
+                      // Show VIP upgrade modal when Regular selected and VIP slot exists
+                      if (selectedTier === "regular" && vipUpgradeSlot) {
+                        setShowVipUpgrade(true);
+                        return;
+                      }
+                      // Skip shoes if experience includes them, otherwise go to shoes
+                      setStep(selectedIncludesShoes ? "review" : "shoes");
                     }}
                     disabled={!selectedSlot}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
@@ -2146,6 +2202,103 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   >
                     {selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
                   </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
+              VIP UPGRADE MODAL
+          ═══════════════════════════════════════════════════════ */}
+          {showVipUpgrade && vipUpgradeExperience && vipUpgradeSlot && selectedExperience && selectedSlot && (() => {
+            const vipDisplay = getExperienceDisplay(vipUpgradeExperience.slug, true);
+            const regTotal = selectedExperience.items.reduce((s, i) => s + i.priceCents * i.quantity, 0);
+            const vipTotal = vipUpgradeExperience.items.reduce((s, i) => s + i.priceCents * i.quantity, 0);
+            const delta = vipTotal - regTotal;
+            const isHourly = vipUpgradeExperience.kind === "hourly";
+            return (
+              <div
+                className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+                style={{ backgroundColor: "rgba(0,0,0,0.78)" }}
+              >
+                <div
+                  className="w-full max-w-md rounded-2xl overflow-hidden"
+                  style={{ backgroundColor: "#0d1f3c", border: `2px solid ${GOLD}55` }}
+                >
+                  {/* Header video strip */}
+                  <div className="relative h-36 overflow-hidden">
+                    <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover">
+                      <source src={vipDisplay.videoUrl} type="video/mp4" />
+                    </video>
+                    <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, transparent 30%, #0d1f3c 100%)" }} />
+                    <div className="absolute bottom-3 left-4">
+                      <span
+                        className="font-body font-bold text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-full"
+                        style={{ backgroundColor: GOLD, color: "#0a1628" }}
+                      >
+                        VIP Upgrade
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-5">
+                    <h3 className="font-heading uppercase text-white text-xl tracking-wider mb-1" style={{ textShadow: `0 0 20px ${GOLD}40` }}>
+                      Upgrade to VIP?
+                    </h3>
+                    <p className="font-body text-white/55 text-sm mb-4">{vipDisplay.description}</p>
+
+                    {/* Feature list */}
+                    <div className="space-y-2 mb-5">
+                      {vipDisplay.features.map((f) => (
+                        <div key={f} className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ backgroundColor: `${GOLD}25`, color: GOLD }}>✓</span>
+                          <span className="font-body text-white/70 text-sm">{f}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Price differential */}
+                    {delta > 0 && (
+                      <div
+                        className="rounded-xl px-4 py-3 mb-5 flex items-center justify-between"
+                        style={{ backgroundColor: `${GOLD}12`, border: `1px solid ${GOLD}30` }}
+                      >
+                        <span className="font-body text-white/55 text-sm">VIP upgrade</span>
+                        <span className="font-heading font-bold text-lg" style={{ color: GOLD }}>
+                          +{centsToDollars(delta)}<span className="font-body text-sm font-normal text-white/40">/{isHourly ? "lane" : "person"}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Buttons */}
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowVipUpgrade(false);
+                          setStep(selectedIncludesShoes ? "review" : "shoes");
+                        }}
+                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors"
+                      >
+                        No Thanks
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Switch to VIP
+                          setSelectedTier("vip");
+                          setSelectedSlot(vipUpgradeSlot);
+                          setShowVipUpgrade(false);
+                          const vipIncludesShoes = vipDisplay.includesShoes ?? false;
+                          setStep(vipIncludesShoes ? "review" : "shoes");
+                        }}
+                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02]"
+                        style={{ backgroundColor: GOLD, boxShadow: `0 0 18px ${GOLD}40` }}
+                      >
+                        {delta > 0 ? `Upgrade +${centsToDollars(delta)}` : "Upgrade to VIP"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             );
@@ -2218,7 +2371,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
-                  {shoePreTaxTotal > 0 ? `Continue — ${centsToDollars(shoePreTaxTotal)}` : "Skip shoes"}
+                  {shoePreTaxTotal > 0 ? `Continue — ${centsToDollars(shoePreTaxTotal)}` : "Skip Shoes"}
                 </button>
               </div>
             </div>
@@ -2357,7 +2510,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               </div>
 
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button type="button" onClick={() => setStep(selectedIncludesShoes ? "offer" : "shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
                   onClick={() => setStep("details")}

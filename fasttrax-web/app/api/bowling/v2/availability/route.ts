@@ -11,7 +11,7 @@ import redis from "@/lib/redis";
  * A range query is not supported (StartAt must equal EndAt).
  *
  * Both HeadPinz centers are in Eastern time (EDT -04:00 May–Nov, EST -05:00 otherwise).
- * Probes 9:00 am → 11:30 pm in 30-min increments (29 probes, all in parallel).
+ * Probes 9:00 am → 11:45 pm in 15-min increments (60 probes, all in parallel).
  *
  * Results are cached in Redis for 5 minutes per (centerId, date, webOfferId, players)
  * to avoid hammering QAMF on every page view.
@@ -25,15 +25,15 @@ import redis from "@/lib/redis";
 
 const CACHE_TTL_SECONDS = 300; // 5 minutes
 
-// Probe times: 9:00 am to 11:30 pm in 30-min increments
+// Probe times: 9:00 am to 11:45 pm in 15-min increments (60 probes)
 const PROBE_HOURS_START = 9;   // 9am
-const PROBE_HOURS_END   = 23;  // last probe at 11:30pm (23:30)
+const PROBE_HOURS_END   = 23;  // last probe at 11:45pm (23:45)
 
 function buildProbeTimes(date: string, tzOffset: string): string[] {
   const times: string[] = [];
   for (let h = PROBE_HOURS_START; h <= PROBE_HOURS_END; h++) {
-    for (const m of [0, 30]) {
-      if (h === PROBE_HOURS_END && m === 30) break; // stop at 23:30
+    for (const m of [0, 15, 30, 45]) {
+      if (h === PROBE_HOURS_END && m === 45) break; // stop at 23:45
       times.push(
         `${date}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
       );
