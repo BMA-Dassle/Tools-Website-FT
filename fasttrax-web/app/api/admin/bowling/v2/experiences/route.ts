@@ -86,6 +86,8 @@ interface UpsertBody {
   description?: string;
   sortOrder?: number;
   isActive?: boolean;
+  /** 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat. Default: all days. */
+  daysOfWeek?: number[];
   offers: OfferInput[];
   items?: ItemInput[];
 }
@@ -128,6 +130,7 @@ export async function POST(req: NextRequest) {
       description: body.description ?? null,
       sortOrder: body.sortOrder ?? 0,
       isActive: body.isActive ?? true,
+      daysOfWeek: Array.isArray(body.daysOfWeek) ? (body.daysOfWeek as number[]) : [0, 1, 2, 3, 4, 5, 6],
     });
 
     // 2. Upsert all per-center offer mappings

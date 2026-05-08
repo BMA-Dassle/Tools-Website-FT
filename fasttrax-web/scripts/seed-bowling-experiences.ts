@@ -10,31 +10,38 @@
  *
  * Run AFTER seed-bowling-products.ts (square products must exist first).
  *
- * ── Experiences seeded ────────────────────────────────────────────
+ * ── Experiences seeded ─────────────────────────────────────────────────────
  *
- *  slug                  kind    vip   QAMF offers
- *  ─────────────────────────────────────────────────────────────────
- *  kbf-regular           kbf     no    FM:152 / Naples:122
- *  kbf-vip               kbf     yes   FM:153 / Naples:123
- *  regular-mon-thur      hourly  no    FM:154 / Naples:118  (1.5hr + 2hr)
- *  vip-mon-thur          hourly  yes   FM:155 / Naples:119  (1.5hr + 2hr)
- *  fun-4-all             open    no    FM:156 / Naples:120
- *  fun-4-all-vip         open    yes   FM:157 / Naples:121
- *  regular-fri-sun       hourly  no    stub — no offers yet (is_active=false)
- *  vip-fri-sun           hourly  yes   stub — no offers yet (is_active=false)
+ *  slug                  kind    vip   days          QAMF offers
+ *  ──────────────────────────────────────────────────────────────────────────
+ *  kbf-regular           kbf     no    Mon-Fri       FM:152 / Naples:122
+ *  kbf-vip               kbf     yes   Mon-Fri       FM:153 / Naples:123
+ *  regular-mon-thur      hourly  no    Mon-Thu       FM:154 / Naples:118  (1.5hr + 2hr)
+ *  vip-mon-thur          hourly  yes   Mon-Thu       FM:155 / Naples:119  (1.5hr + 2hr)
+ *  fun-4-all             open    no    Mon-Thu       FM:156 / Naples:120
+ *  fun-4-all-vip         open    yes   Mon-Thu       FM:157 / Naples:121
+ *  pizza-bowl            open    no    Sun           stub — QAMF IDs TBD  (is_active=false)
+ *  pizza-bowl-vip        open    yes   Sun           stub — QAMF IDs TBD  (is_active=false)
+ *  regular-fri-sun       hourly  no    Fri-Sun       stub — no offers yet (is_active=false)
+ *  vip-fri-sun           hourly  yes   Fri-Sun       stub — no offers yet (is_active=false)
  *
- * ── Items (bundled Square products) ──────────────────────────────
+ * ── Items (bundled Square products) ───────────────────────────────────────
  *  KBF:              no base charge (free)
- *  KBF VIP:          + VIP Chips & Salsa ($0, FM only)
+ *  KBF VIP:          no base charge (free)
  *  Hourly Regular:   1.5 Hr Mon-Thur lane rate (×multiplier per duration)
- *  Hourly VIP:       1.5 Hr Mon-Thur VIP lane rate (×multiplier)
+ *  Hourly VIP:       1.5 Hr Mon-Thur VIP lane rate (×multiplier) + Chips & Salsa
  *  Fun 4 All:        Fun 4 All per-person rate
  *  Fun 4 All VIP:    Fun 4 All VIP per-person rate + Chips & Salsa (FM only)
+ *  Pizza Bowl:       stub items TBD — seeded inactive
+ *  Pizza Bowl VIP:   stub items TBD — seeded inactive
  *
- * ── Duration options (hourly only) ───────────────────────────────
+ * ── Duration options (hourly only) ────────────────────────────────────────
  *  1.5 Hours → QAMF 90-min option, square_multiplier=1
  *  2 Hours   → QAMF 120-min option, square_multiplier=2
  *             (2 hours is charged as 2 × the 1.5hr lane rate)
+ *
+ * ── days_of_week legend ────────────────────────────────────────────────────
+ *  0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
  */
 
 import { neon } from "@neondatabase/serverless";
@@ -79,18 +86,22 @@ const CAT = {
 async function upsertExperience(e: {
   slug: string; label: string; kind: string; isVip: boolean;
   description?: string; sortOrder: number; isActive: boolean;
+  /** 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat. Default: all days. */
+  daysOfWeek?: number[];
 }): Promise<number> {
+  const days = e.daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6];
   const rows = await sql`
-    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active)
+    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active, days_of_week)
     VALUES (${e.slug}, ${e.label}, ${e.kind}, ${e.isVip},
-            ${e.description ?? null}, ${e.sortOrder}, ${e.isActive})
+            ${e.description ?? null}, ${e.sortOrder}, ${e.isActive}, ${days})
     ON CONFLICT (slug) DO UPDATE SET
-      label       = EXCLUDED.label,
-      kind        = EXCLUDED.kind,
-      is_vip      = EXCLUDED.is_vip,
-      description = EXCLUDED.description,
-      sort_order  = EXCLUDED.sort_order,
-      is_active   = EXCLUDED.is_active
+      label        = EXCLUDED.label,
+      kind         = EXCLUDED.kind,
+      is_vip       = EXCLUDED.is_vip,
+      description  = EXCLUDED.description,
+      sort_order   = EXCLUDED.sort_order,
+      is_active    = EXCLUDED.is_active,
+      days_of_week = EXCLUDED.days_of_week
     RETURNING id, slug, is_active
   `;
   const row = rows[0] as Record<string, unknown>;
@@ -205,6 +216,7 @@ async function main() {
   await sql`CREATE INDEX IF NOT EXISTS bedo_exp ON bowling_experience_duration_options(experience_id, center_code)`;
   await sql`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS square_catalog_object_id TEXT`;
   await sql`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS center_code TEXT`;
+  await sql`ALTER TABLE bowling_experiences ADD COLUMN IF NOT EXISTS days_of_week INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}'`;
 
   console.log("Schema ready.\n");
 
@@ -229,6 +241,7 @@ async function main() {
     slug: "kbf-regular", label: "Kids Bowl Free", kind: "kbf",
     isVip: false, sortOrder: 10, isActive: true,
     description: "2 free games per registered KBF member",
+    daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri (Fri cutoff at 5pm enforced by v1 rules)
   });
   await upsertOffer({ experienceId: kbfRegId, centerCode: FM,     qamfWebOfferId: 152, qamfOptionType: "Game", qamfOptionId: 908 });
   await upsertOffer({ experienceId: kbfRegId, centerCode: NAPLES, qamfWebOfferId: 122, qamfOptionType: "Game", qamfOptionId: 728 });
@@ -240,10 +253,11 @@ async function main() {
     slug: "kbf-vip", label: "Kids Bowl Free VIP", kind: "kbf",
     isVip: true, sortOrder: 11, isActive: true,
     description: "2 free games + VIP lane access",
+    daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri
   });
   await upsertOffer({ experienceId: kbfVipId, centerCode: FM,     qamfWebOfferId: 153, qamfOptionType: "Game", qamfOptionId: 914 });
   await upsertOffer({ experienceId: kbfVipId, centerCode: NAPLES, qamfWebOfferId: 123, qamfOptionType: "Game", qamfOptionId: 734 });
-  // KBF VIP: no Chips & Salsa — free bowling only
+  // No base items — KBF VIP is free
 
   // ── 3. Regular Mon-Thur ─────────────────────────────────────────────────────
   console.log("\n── Regular Mon-Thur");
@@ -251,11 +265,12 @@ async function main() {
     slug: "regular-mon-thur", label: "Regular Mon–Thur", kind: "hourly",
     isVip: false, sortOrder: 20, isActive: true,
     description: "Hourly lane rental — Monday through Thursday",
+    daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({ experienceId: regMonId, centerCode: FM,     qamfWebOfferId: 154, qamfOptionType: "Time" });
   await upsertOffer({ experienceId: regMonId, centerCode: NAPLES, qamfWebOfferId: 118, qamfOptionType: "Time" });
   await setItems(regMonId, [
-    { catalogObjectId: CAT.HOURLY_1_5_MON, quantity: 1 },  // all centers; multiplied by duration choice
+    { catalogObjectId: CAT.HOURLY_1_5_MON, quantity: 1 },  // multiplied by duration choice
   ]);
   await setDurationOptions(regMonId, FM,     [ { qamfOptionId: 1227, durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 1228, durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
   await setDurationOptions(regMonId, NAPLES, [ { qamfOptionId: 939,  durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 940,  durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
@@ -266,6 +281,7 @@ async function main() {
     slug: "vip-mon-thur", label: "VIP Mon–Thur", kind: "hourly",
     isVip: true, sortOrder: 21, isActive: true,
     description: "VIP lane rental — Monday through Thursday",
+    daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({ experienceId: vipMonId, centerCode: FM,     qamfWebOfferId: 155, qamfOptionType: "Time" });
   await upsertOffer({ experienceId: vipMonId, centerCode: NAPLES, qamfWebOfferId: 119, qamfOptionType: "Time" });
@@ -281,7 +297,8 @@ async function main() {
   const f4aRegId = await upsertExperience({
     slug: "fun-4-all", label: "Fun 4 All", kind: "open",
     isVip: false, sortOrder: 30, isActive: true,
-    description: "Unlimited bowling for one low price",
+    description: "Unlimited bowling + shoes included — Monday through Thursday",
+    daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({ experienceId: f4aRegId, centerCode: FM,     qamfWebOfferId: 156, qamfOptionType: "Unlimited", qamfOptionId: 156 });
   await upsertOffer({ experienceId: f4aRegId, centerCode: NAPLES, qamfWebOfferId: 120, qamfOptionType: "Unlimited", qamfOptionId: 120 });
@@ -294,7 +311,8 @@ async function main() {
   const f4aVipId = await upsertExperience({
     slug: "fun-4-all-vip", label: "Fun 4 All VIP", kind: "open",
     isVip: true, sortOrder: 31, isActive: true,
-    description: "Unlimited bowling in VIP lanes",
+    description: "Unlimited VIP bowling + shoes included — Monday through Thursday",
+    daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({ experienceId: f4aVipId, centerCode: FM,     qamfWebOfferId: 157, qamfOptionType: "Unlimited", qamfOptionId: 157 });
   await upsertOffer({ experienceId: f4aVipId, centerCode: NAPLES, qamfWebOfferId: 121, qamfOptionType: "Unlimited", qamfOptionId: 121 });
@@ -303,12 +321,31 @@ async function main() {
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
   ]);
 
-  // ── 7 & 8. Fri-Sun stubs (no QAMF offers yet) ───────────────────────────────
+  // ── 7. Pizza Bowl Regular (stub — QAMF offer IDs TBD) ─────────────────────
+  console.log("\n── Pizza Bowl Regular (stub)");
+  await upsertExperience({
+    slug: "pizza-bowl", label: "Pizza Bowl", kind: "open",
+    isVip: false, sortOrder: 40, isActive: false,
+    description: "Sunday special — bowling + pizza + shoes all included",
+    daysOfWeek: [0], // Sunday only
+  });
+
+  // ── 8. Pizza Bowl VIP (stub — QAMF offer IDs TBD) ─────────────────────────
+  console.log("\n── Pizza Bowl VIP (stub)");
+  await upsertExperience({
+    slug: "pizza-bowl-vip", label: "Pizza Bowl VIP", kind: "open",
+    isVip: true, sortOrder: 41, isActive: false,
+    description: "Sunday VIP special — premium lanes, pizza, shoes & NeoVerse",
+    daysOfWeek: [0], // Sunday only
+  });
+
+  // ── 9 & 10. Fri-Sun hourly stubs (no QAMF offers yet) ─────────────────────
   console.log("\n── Regular Fri-Sun (stub)");
   await upsertExperience({
     slug: "regular-fri-sun", label: "Regular Fri–Sun", kind: "hourly",
     isVip: false, sortOrder: 22, isActive: false,
     description: "Hourly lane rental — Friday through Sunday",
+    daysOfWeek: [5, 6, 0], // Fri-Sun
   });
 
   console.log("\n── VIP Fri-Sun (stub)");
@@ -316,13 +353,15 @@ async function main() {
     slug: "vip-fri-sun", label: "VIP Fri–Sun", kind: "hourly",
     isVip: true, sortOrder: 23, isActive: false,
     description: "VIP lane rental — Friday through Sunday",
+    daysOfWeek: [5, 6, 0], // Fri-Sun
   });
   await setItems(vipFriId, [
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
   ]);
 
-  console.log("\n✓ Done. 8 experiences seeded.");
-  console.log("\nNext: add Fri-Sun QAMF offer IDs via /api/admin/bowling/v2/experiences");
+  console.log("\n✓ Done. 10 experiences seeded.");
+  console.log("\nNext: add Pizza Bowl QAMF offer IDs + activate via /api/admin/bowling/v2/experiences");
+  console.log("      add Fri-Sun QAMF offer IDs via /api/admin/bowling/v2/experiences");
   console.log("      activate shoe rental via /api/admin/bowling/v2/square-products");
 }
 

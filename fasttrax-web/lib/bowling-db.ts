@@ -210,6 +210,11 @@ export async function ensureBowlingSchema(): Promise<void> {
   `;
   await q`CREATE INDEX IF NOT EXISTS brp_res ON bowling_reservation_players(reservation_id)`;
 
+  // ── days_of_week on experiences (idempotent) ─────────────────────
+  // Integer array: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat.
+  // Default all-days so old rows continue to work until seed is re-run.
+  await q`ALTER TABLE bowling_experiences ADD COLUMN IF NOT EXISTS days_of_week INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}'`;
+
   // ── Cancellation / refund columns (idempotent) ───────────────────
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_refund_id TEXT`;
@@ -250,6 +255,12 @@ export interface BowlingExperience {
   description: string | null;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * Day-of-week availability: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat.
+   * Wizard filters experiences by this before probing QAMF.
+   * Default [0..6] (all days) so legacy rows work until seed is re-run.
+   */
+  daysOfWeek: number[];
   insertedAt: string;
 }
 
@@ -869,6 +880,11 @@ export async function upsertReservationPlayer(
 // ─────────────────────────────────────────────────────────────────
 
 function rowToExperience(row: Record<string, unknown>): BowlingExperience {
+  // days_of_week comes back as a JS number[] from Neon (pg INTEGER[])
+  const raw = row.days_of_week;
+  const daysOfWeek: number[] = Array.isArray(raw)
+    ? (raw as number[])
+    : [0, 1, 2, 3, 4, 5, 6]; // fallback: all days
   return {
     id: row.id as number,
     slug: row.slug as string,
@@ -878,6 +894,7 @@ function rowToExperience(row: Record<string, unknown>): BowlingExperience {
     description: (row.description as string) ?? null,
     sortOrder: row.sort_order as number,
     isActive: row.is_active as boolean,
+    daysOfWeek,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -1100,16 +1117,18 @@ export async function upsertBowlingExperience(
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
   await ensureBowlingSchema();
   const q = sql();
+  const days = e.daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6];
   const rows = await q`
-    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active)
-    VALUES (${e.slug}, ${e.label}, ${e.kind}, ${e.isVip}, ${e.description ?? null}, ${e.sortOrder}, ${e.isActive})
+    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active, days_of_week)
+    VALUES (${e.slug}, ${e.label}, ${e.kind}, ${e.isVip}, ${e.description ?? null}, ${e.sortOrder}, ${e.isActive}, ${days})
     ON CONFLICT (slug) DO UPDATE SET
-      label      = EXCLUDED.label,
-      kind       = EXCLUDED.kind,
-      is_vip     = EXCLUDED.is_vip,
-      description = EXCLUDED.description,
-      sort_order  = EXCLUDED.sort_order,
-      is_active   = EXCLUDED.is_active
+      label        = EXCLUDED.label,
+      kind         = EXCLUDED.kind,
+      is_vip       = EXCLUDED.is_vip,
+      description  = EXCLUDED.description,
+      sort_order   = EXCLUDED.sort_order,
+      is_active    = EXCLUDED.is_active,
+      days_of_week = EXCLUDED.days_of_week
     RETURNING *
   `;
   return rowToExperience(rows[0] as Record<string, unknown>);

@@ -633,9 +633,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       }
 
       try {
-        const offerIds = experiences.map((e) => e.qamfWebOfferId);
+        // Filter to only experiences valid on the requested day of week.
+        // e.g. Mon-Thur hourly (daysOfWeek=[1,2,3,4]) won't probe QAMF on a Saturday.
+        const dow = new Date(`${date}T12:00:00`).getDay(); // 0=Sun … 6=Sat
+        const validExperiences = experiences.filter(
+          (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
+        );
+        const offerIds = validExperiences.map((e) => e.qamfWebOfferId);
         if (offerIds.length === 0) {
-          setSlotsError("No experiences are configured for this center. Contact staff.");
+          setSlotsError("No experiences are available on this day.");
           setSlotsLoading(false);
           return;
         }
@@ -1893,6 +1899,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
               : "";
 
+            // Only show tiers that have at least one experience valid for today's day-of-week
+            const tierDow = new Date(`${selectedDate}T12:00:00`).getDay();
             const tiersToShow = ([
               {
                 id: "regular" as const,
@@ -1911,8 +1919,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 features: ["VIP lounge & dedicated lanes", "NeoVerse video walls", "HyperBowling technology"],
               },
             ] as const).filter((t) =>
-              // Show tier if we have any experiences configured for it (active or not)
-              experiences.some((e) => (t.id === "vip" ? e.isVip : !e.isVip)),
+              experiences.some(
+                (e) =>
+                  (t.id === "vip" ? e.isVip : !e.isVip) &&
+                  (!e.daysOfWeek.length || e.daysOfWeek.includes(tierDow)),
+              ),
             );
 
             return (
@@ -2006,21 +2017,26 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               STEP: Offer — video cards + time chips
           ═══════════════════════════════════════════════════════ */}
           {step === "offer" && (() => {
-            // Only show experiences matching the selected tier; hide any with zero slots entirely
-            // Filter by tier. For 'open' kind experiences: hide when no slots (day restriction).
-            // For 'hourly' kind experiences: always show — they can be genuinely sold out.
+            // Filter experiences for offer cards:
+            //   1. Must be valid for the selected day-of-week
+            //   2. Must match the selected tier (Regular vs VIP)
+            //   3. 'open' kind (Fun 4 All, Pizza Bowl) — hide when QAMF has no slots on this day
+            //   4. 'hourly' kind — always show (may be genuinely sold out; show SOLD OUT badge)
+            const selectedDow = new Date(`${selectedDate}T12:00:00`).getDay();
             const offerExperiences = experiences.filter((exp) => {
+              // Day-of-week gate — skip if this experience doesn't run today
+              if (exp.daysOfWeek.length && !exp.daysOfWeek.includes(selectedDow)) return false;
               const tierMatch = selectedTier === null || (selectedTier === "vip" ? exp.isVip : !exp.isVip);
               if (!tierMatch) return false;
               if (exp.kind === "open") {
-                // Fun 4 All — only show when QAMF returns availability (Mon-Thur only offer)
+                // Fun 4 All / Pizza Bowl — only show when QAMF confirms availability
                 return availableSlots.some(
                   (s) =>
                     s.webOfferId === exp.qamfWebOfferId &&
                     (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
                 );
               }
-              return true; // hourly (Mon-Thur lane rental): always show, may be sold out
+              return true; // hourly: always show, may show SOLD OUT
             });
 
             return (
