@@ -300,48 +300,36 @@ export async function setReservationCustomer(
  * Without a person attached, QAMF accepts the PATCH with 2xx but does
  * not actually change the status.
  *
- * After the PATCH we do a GET to verify the status actually changed and
- * log a warning when it hasn't so the issue shows up in Vercel logs.
- */
-/**
- * Returns `true` when QAMF confirms the transition actually took effect,
- * `false` when the PATCH succeeded but the status didn't change (or when
- * the verification GET failed).  Callers use the return value to decide
- * whether to queue a retry.
+ * ALWAYS call setReservationCustomer before calling this function.
+ * The caller is responsible for the prerequisite; this function trusts
+ * that a 2xx response from PATCH means the transition took effect.
+ *
+ * Note: a verification GET was previously done here but caused false
+ * negatives — QAMF propagates status changes asynchronously and the
+ * GET would read stale "Temporary" state, causing spurious retries and
+ * duplicate reservation creation. Removed 2026-05-08.
  */
 export async function setReservationStatus(
   centerId: number,
   reservationId: string,
   status: ReservationStatus,
 ): Promise<boolean> {
-  await call({
-    method: "PATCH",
-    path: `/centers/${centerId}/reservations/${reservationId}/status`,
-    body: { Status: status },
-    errLabel: `setReservationStatus(${reservationId},${status})`,
-    centerId,
-  });
-
-  // Verify the status actually changed (QAMF requires PUT /customer before
-  // /status will accept the transition; without it the PATCH returns 2xx but
-  // the reservation stays Temporary).
   try {
-    const reservation = await getReservation(centerId, reservationId);
-    if (reservation.Status !== status) {
-      console.warn(
-        `[qamf-bowling] setReservationStatus(${reservationId}): PATCH OK` +
-          ` but status still "${reservation.Status}" (expected "${status}")`,
-      );
-      return false;
-    }
+    await call({
+      method: "PATCH",
+      path: `/centers/${centerId}/reservations/${reservationId}/status`,
+      body: { Status: status },
+      errLabel: `setReservationStatus(${reservationId},${status})`,
+      centerId,
+    });
     console.log(
-      `[qamf-bowling] setReservationStatus(${reservationId}): confirmed → "${status}"`,
+      `[qamf-bowling] setReservationStatus(${reservationId}): PATCH accepted → "${status}"`,
     );
     return true;
-  } catch (verifyErr) {
-    console.warn(
-      `[qamf-bowling] setReservationStatus(${reservationId}): verify GET failed:`,
-      verifyErr,
+  } catch (err) {
+    console.error(
+      `[qamf-bowling] setReservationStatus(${reservationId},${status}) PATCH failed:`,
+      err instanceof Error ? err.message : err,
     );
     return false;
   }

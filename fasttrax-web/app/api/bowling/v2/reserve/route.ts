@@ -265,7 +265,11 @@ export async function POST(req: NextRequest) {
     // ── Hold-first path ──────────────────────────────────────────
     qamfReservationId = body.qamfReservationId;
 
-    // Attach guest details to the hold (non-fatal — hold already locked the slot)
+    // Attach guest details then confirm the hold.
+    // Customer attach MUST succeed before /status PATCH will take effect.
+    // If the attach fails (hold expired, QAMF error) we treat the hold as
+    // lost and fall through to the fresh-reservation path.
+    let holdCustomerAttached = false;
     try {
       await setReservationCustomer(centerId, qamfReservationId, {
         Guest: {
@@ -274,15 +278,22 @@ export async function POST(req: NextRequest) {
           Email: guest.email,
         },
       });
+      holdCustomerAttached = true;
     } catch (err) {
-      console.warn("[bowling/v2/reserve] setReservationCustomer (hold) failed (non-fatal):", err);
+      console.warn(
+        "[bowling/v2/reserve] setReservationCustomer (hold) failed — treating hold as expired:",
+        err instanceof Error ? err.message : err,
+      );
     }
 
-    // Confirm the hold (Temporary → Confirmed)
-    try {
+    if (holdCustomerAttached) {
+      // Customer is attached; PATCH /status should take effect.
       qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
-    } catch (err) {
-      console.warn("[bowling/v2/reserve] confirm of existing hold failed, creating fresh reservation:", err);
+      if (!qamfConfirmed) {
+        console.warn(
+          `[bowling/v2/reserve] setReservationStatus returned false for hold ${qamfReservationId} — creating fresh reservation`,
+        );
+      }
     }
 
     if (!qamfConfirmed) {
@@ -307,6 +318,9 @@ export async function POST(req: NextRequest) {
           TotalPlayers: players.length,
         });
         qamfReservationId = reservation.Id;
+        console.log(
+          `[bowling/v2/reserve] fallback fresh reservation created: ${qamfReservationId}`,
+        );
         qamfConfirmed = await attachAndConfirm(qamfReservationId).catch((err) => {
           console.error("[bowling/v2/reserve] attachAndConfirm on fallback failed:", err);
           return false;
