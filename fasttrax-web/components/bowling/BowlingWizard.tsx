@@ -171,6 +171,7 @@ type Step =
   | "bowlers"      // KBF only — select members
   | "players"      // Open only — player count
   | "slots"        // Both — calendar + hour chips
+  | "tier"         // Both — Regular vs VIP picker
   | "offer"        // Both — video cards + exact time chips
   | "shoes"        // Both
   | "attractions"  // Both (stub)
@@ -381,6 +382,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const initCal = new Date(`${initialDate}T12:00:00`);
   const [calMonth, setCalMonth] = useState(initCal.getMonth());
   const [calYear, setCalYear] = useState(initCal.getFullYear());
+
+  // ── Tier picker (Regular vs VIP) ────────────────────────────────
+
+  const [selectedTier, setSelectedTier] = useState<"regular" | "vip" | null>(null);
 
   // ── Experience catalog ───────────────────────────────────────────
   // Loaded from the DB once the center is known.
@@ -1019,6 +1024,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     if (step === "bowlers")    return "Who's Bowling?";
     if (step === "players")    return "How Many Bowlers?";
     if (step === "slots")      return "When Do You Want to Bowl?";
+    if (step === "tier")       return "Choose Your Experience";
     if (step === "offer")      return "Choose a Package";
     if (step === "shoes")      return "Add Shoe Rentals";
     if (step === "attractions")return "Level Up Your Visit";
@@ -1807,7 +1813,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setError(null); setStep("offer"); }}
+                    onClick={() => { setError(null); setSelectedTier(null); setStep("tier"); }}
                     disabled={selectedHour === null || slotsLoading}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
@@ -1820,9 +1826,146 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           })()}
 
           {/* ═══════════════════════════════════════════════════════
+              STEP: Tier — Regular vs VIP picker
+          ═══════════════════════════════════════════════════════ */}
+          {step === "tier" && (() => {
+            const dateLabel = selectedDate
+              ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+              : "";
+
+            const tiersToShow = ([
+              {
+                id: "regular" as const,
+                label: "Regular",
+                subtitle: "Standard HeadPinz lanes — great for families and groups.",
+                accent: CORAL,
+                videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
+                features: ["Standard lanes", "Up to 6 bowlers per lane", "Glow lighting evenings"],
+              },
+              {
+                id: "vip" as const,
+                label: "VIP",
+                subtitle: "Premium VIP suite with NeoVerse video walls and HyperBowling.",
+                accent: GOLD,
+                videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+                features: ["VIP lounge & dedicated lanes", "NeoVerse video walls", "HyperBowling technology"],
+              },
+            ] as const).filter((t) =>
+              // Only show tiers that have at least one experience with available slots
+              experiences
+                .filter((e) => (t.id === "vip" ? e.isVip : !e.isVip))
+                .some((e) =>
+                  availableSlots.some(
+                    (s) =>
+                      s.webOfferId === e.qamfWebOfferId &&
+                      (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
+                  ),
+                ),
+            );
+
+            return (
+              <div className="space-y-6">
+                <p className="text-center text-white/45 text-xs">
+                  {selectedHour !== null ? `Available near ${formatHour(selectedHour)}` : "Available"} on {dateLabel}
+                </p>
+
+                {tiersToShow.length === 0 ? (
+                  <div className="text-center py-10">
+                    <p className="font-body text-white/50 text-sm">No packages available at the selected time.</p>
+                    <button type="button" onClick={() => setStep("slots")} className="mt-4 font-body text-white/60 text-sm underline underline-offset-2">← Choose a different time</button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {tiersToShow.map((tier) => (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        onClick={() => { setSelectedTier(tier.id); setStep("offer"); }}
+                        className="w-full rounded-xl overflow-hidden transition-all text-left hover:scale-[1.01] active:scale-[0.99]"
+                        style={{
+                          backgroundColor: "rgba(7,16,39,0.5)",
+                          border: `1.78px solid ${tier.accent}50`,
+                          boxShadow: `0 0 24px ${tier.accent}18`,
+                        }}
+                      >
+                        <div className="flex flex-col sm:flex-row">
+                          {/* Video thumbnail */}
+                          <div className="relative w-full sm:w-52 h-36 sm:h-auto shrink-0 overflow-hidden">
+                            <video
+                              autoPlay muted loop playsInline preload="metadata"
+                              className="absolute inset-0 w-full h-full object-cover"
+                            >
+                              <source src={tier.videoUrl} type="video/mp4" />
+                            </video>
+                            <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70 pointer-events-none" />
+                          </div>
+                          {/* Content */}
+                          <div className="flex-1 p-5">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3
+                                className="font-heading uppercase text-white text-lg tracking-wider"
+                                style={{ textShadow: `0 0 18px ${tier.accent}30` }}
+                              >
+                                {tier.label}
+                              </h3>
+                              {tier.id === "vip" && (
+                                <span
+                                  className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                                  style={{ backgroundColor: `${GOLD}22`, color: GOLD, border: `1px solid ${GOLD}50` }}
+                                >
+                                  Premium
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-body text-white/55 text-sm mb-3">{tier.subtitle}</p>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4">
+                              {tier.features.map((f) => (
+                                <span key={f} className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tier.accent }} />
+                                  <span className="font-body text-white/40 text-xs">{f}</span>
+                                </span>
+                              ))}
+                            </div>
+                            <div
+                              className="inline-flex items-center gap-1.5 font-body text-xs font-bold uppercase tracking-wider"
+                              style={{ color: tier.accent }}
+                            >
+                              Select {tier.label} →
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setStep("slots")}
+                  className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                >
+                  Back
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
               STEP: Offer — video cards + time chips
           ═══════════════════════════════════════════════════════ */}
           {step === "offer" && (() => {
+            // Only show experiences matching the selected tier; hide any with zero slots entirely
+            const offerExperiences = experiences.filter((exp) => {
+              const tierMatch = selectedTier === null || (selectedTier === "vip" ? exp.isVip : !exp.isVip);
+              if (!tierMatch) return false;
+              const slots = availableSlots.filter(
+                (s) =>
+                  s.webOfferId === exp.qamfWebOfferId &&
+                  (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
+              );
+              return slots.length > 0;
+            });
+
             return (
               <div className="space-y-6">
                 <p className="text-center text-white/45 text-xs">
@@ -1833,7 +1976,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </p>
 
                 <div className="space-y-4">
-                  {experiences.map((exp) => {
+                  {offerExperiences.map((exp) => {
                     const display = getExperienceDisplay(exp.slug, exp.isVip);
                     const accent = display.accent;
                     const offerSlots = availableSlots.filter(
@@ -1841,7 +1984,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         s.webOfferId === exp.qamfWebOfferId &&
                         (selectedHour === null || slotHourET(s.bookedAt) === selectedHour),
                     );
-                    const hasSlots = offerSlots.length > 0;
                     const isSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
 
                     // Price: sum of experience base items; "Free" for KBF with no items
@@ -1859,16 +2001,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     return (
                       <div
                         key={exp.qamfWebOfferId}
-                        className={`w-full rounded-lg overflow-hidden transition-all ${!hasSlots && availableSlots.length > 0 ? "opacity-50" : ""}`}
+                        className="w-full rounded-lg overflow-hidden transition-all"
                         style={{
                           backgroundColor: "rgba(7,16,39,0.5)",
-                          border: `1.78px dashed ${
-                            !hasSlots && availableSlots.length > 0
-                              ? `${accent}30`
-                              : isSelected
-                              ? `${accent}AA`
-                              : `${accent}35`
-                          }`,
+                          border: `1.78px dashed ${isSelected ? `${accent}AA` : `${accent}35`}`,
                           boxShadow: isSelected ? `0 0 24px ${accent}25` : undefined,
                         }}
                       >
@@ -1894,7 +2030,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                               >
                                 {exp.label}
                               </h3>
-                              {hasSlots && priceLabel && (
+                              {priceLabel && (
                                 <span
                                   className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
                                   style={{
@@ -1904,14 +2040,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                   }}
                                 >
                                   {priceLabel}
-                                </span>
-                              )}
-                              {!hasSlots && availableSlots.length > 0 && (
-                                <span
-                                  className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
-                                  style={{ backgroundColor: "rgba(253,91,86,0.2)", color: CORAL, border: `1px solid ${CORAL}40` }}
-                                >
-                                  Sold Out
                                 </span>
                               )}
                             </div>
@@ -1926,7 +2054,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 ))}
                               </div>
                             )}
-                            {hasSlots ? (
+                            {offerSlots.length > 0 && (
                               <div className="flex flex-wrap gap-2">
                                 {offerSlots.map((s) => {
                                   const on =
@@ -1950,13 +2078,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                   );
                                 })}
                               </div>
-                            ) : (
-                              <span
-                                className="font-body text-xs font-bold uppercase tracking-wider"
-                                style={{ color: CORAL }}
-                              >
-                                Not available at this time
-                              </span>
                             )}
                           </div>
                         </div>
@@ -1966,7 +2087,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </div>
 
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => { setSelectedSlot(null); setStep("slots"); }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors">Back</button>
+                  <button type="button" onClick={() => { setSelectedSlot(null); setStep("tier"); }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors">Back</button>
                   <button
                     type="button"
                     onClick={() => {
