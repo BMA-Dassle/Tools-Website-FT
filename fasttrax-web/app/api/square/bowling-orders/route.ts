@@ -4,19 +4,27 @@ import { randomUUID } from "crypto";
 /**
  * POST /api/square/bowling-orders
  *
- * Creates the Square order and payment for a bowling booking:
+ * Creates Square orders and payment for a bowling booking:
  *
- * 1. Day-of order   — full line items at catalog price + county sales tax,
- *                     left OPEN. Redeemed by staff at center when lanes open.
+ * 1. Day-of order    — full line items at catalog price + county sales tax,
+ *                      left OPEN. Redeemed by staff at center when lanes open.
  *
- * 2. Deposit charge — standalone payment (no order attached) for depositCents.
- *                     autocomplete: true — captured immediately.
+ * 2. Deposit order   — single "Bowling Reservation Deposit" line item for
+ *                      depositCents, no tax (deposit is a fraction of the
+ *                      tax-inclusive day-of total). Closed immediately when
+ *                      the deposit payment is captured. Provides financial
+ *                      accountability — the deposit appears as a closed order
+ *                      in Square reports rather than a free-floating payment.
  *
- * 3. eGift card     — a new DIGITAL gift card is created and immediately loaded
- *                     with the exact charged amount. The card balance is the
- *                     ground truth for refunds: no tax-rounding mismatch is
- *                     possible. Staff at center can scan the GAN to apply it
- *                     against the day-of order balance.
+ * 3. Deposit payment — charges the card against the deposit order.
+ *                      autocomplete: true — captured immediately, closing the
+ *                      deposit order.
+ *
+ * 4. eGift card      — a new DIGITAL gift card is created and ACTIVATED with
+ *                      the exact charged amount as its initial balance. The
+ *                      card balance is the ground truth for refunds: no
+ *                      tax-rounding mismatch possible. Staff at center scan
+ *                      the GAN to apply it against the day-of order balance.
  *
  * Tax:
  *   Location → county sales-tax catalog object:
@@ -36,7 +44,7 @@ import { randomUUID } from "crypto";
  *     basePriceMoney:     { amount: number; currency: "USD" }
  *   }>
  *   squareCustomerId?:     string
- *   note?:                 string
+ *   note?:                 string   — shown as deposit order reference
  *   existingDayofOrderId?: string  — pre-created day-of order (skips step 1)
  *   existingDayofTotalCents?: number
  *   existingDepositCents?: number  — use as-is instead of recalculating
@@ -44,13 +52,14 @@ import { randomUUID } from "crypto";
  *
  * Response (200):
  * {
- *   giftCardId:       string | null   — null for $0 bookings
- *   giftCardGan:      string | null
- *   depositPaymentId: string | null
- *   dayofOrderId:     string
- *   depositPaidCents: number
- *   dayofTotalCents:  number
- *   remainingCents:   number
+ *   giftCardId:        string | null   — null for $0 bookings
+ *   giftCardGan:       string | null
+ *   depositPaymentId:  string | null
+ *   depositOrderId:    string | null   — closed Square order for the deposit
+ *   dayofOrderId:      string
+ *   depositPaidCents:  number
+ *   dayofTotalCents:   number
+ *   remainingCents:    number
  * }
  */
 
@@ -201,6 +210,7 @@ export async function POST(req: NextRequest) {
         giftCardId: null,
         giftCardGan: null,
         depositPaymentId: null,
+        depositOrderId: null,
         dayofOrderId,
         depositPaidCents: 0,
         dayofTotalCents,
@@ -208,10 +218,48 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── Step 2: Charge card (standalone payment — no order_id) ───────────────
-    // Keeping the charge separate from any order makes refund arithmetic simple:
-    // the payment amount is always exactly what the customer owes at cancel time
-    // (stored in the gift card balance, step 4).
+    // ── Step 2: Deposit order (single line item, closed at payment) ──────────
+    // A dedicated closed order for the deposit gives financial accountability:
+    // the deposit charge appears in Square sales reports as a named order
+    // rather than a free-floating payment.
+    //
+    // No tax applied — depositCents is already derived from the tax-inclusive
+    // day-of total, so adding tax here would double-count it.
+    const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `bowl-dep-${baseKey}`,
+        order: {
+          location_id: locationId,
+          reference_id: note ?? undefined,
+          line_items: [
+            {
+              name: "Bowling Reservation Deposit",
+              quantity: "1",
+              base_price_money: { amount: depositCents, currency: "USD" },
+            },
+          ],
+        },
+      }),
+    });
+    const depositOrderData = await depositOrderRes.json();
+
+    if (!depositOrderRes.ok || depositOrderData.errors) {
+      const sqErr = depositOrderData.errors?.[0];
+      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(depositOrderData);
+      console.error("[square/bowling-orders] deposit order failed:", detail);
+      return NextResponse.json({ error: `Failed to create deposit order: ${detail}` }, { status: 500 });
+    }
+
+    const depositOrderId: string = depositOrderData.order?.id as string;
+    if (!depositOrderId) {
+      return NextResponse.json({ error: "Deposit order returned no ID" }, { status: 500 });
+    }
+
+    // ── Step 3: Charge card against deposit order ────────────────────────────
+    // order_id links the payment to the deposit order; autocomplete: true
+    // captures the charge immediately and closes the deposit order.
     //
     // Square Payments idempotency_key max = 45 chars.
     // "pay-" (4) + UUID (36) = 40 — within limit.
@@ -220,6 +268,7 @@ export async function POST(req: NextRequest) {
       idempotency_key: `pay-${baseKey}`,
       amount_money: { amount: depositCents, currency: "USD" },
       location_id: locationId,
+      order_id: depositOrderId,
       autocomplete: true,
       note: note ?? "Bowling deposit",
     };
@@ -257,7 +306,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Step 3: Create eGift card ─────────────────────────────────────────────
+    // ── Step 4: Create eGift card ─────────────────────────────────────────────
     const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
       method: "POST",
       headers: sqHeaders(),
@@ -292,7 +341,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Step 4: Activate the gift card (PENDING → ACTIVE) and set balance ───────
+    // ── Step 5: Activate the gift card (PENDING → ACTIVE) and set balance ───────
     // For a standalone activation (no Square order), Square requires BOTH
     // amount_money AND buyer_payment_instrument_ids in activate_activity_details.
     // Omitting amount_money causes BAD_REQUEST: "provide amount and
@@ -335,6 +384,7 @@ export async function POST(req: NextRequest) {
       giftCardId,
       giftCardGan,
       depositPaymentId,
+      depositOrderId,
       dayofOrderId,
       depositPaidCents: depositCents,
       dayofTotalCents,

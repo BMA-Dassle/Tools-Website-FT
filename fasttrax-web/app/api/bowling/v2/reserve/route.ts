@@ -323,6 +323,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Square payment (gift card deposit + day-of order) ──────────
+  let squareDepositOrderId: string | undefined;
   let squareDepositPaymentId: string | undefined;
   let squareDayofOrderId: string | undefined;
   let squareGiftCardId: string | undefined;
@@ -390,6 +391,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    squareDepositOrderId  = sqData.depositOrderId  ?? undefined;
     squareDepositPaymentId = sqData.depositPaymentId ?? undefined;
     squareDayofOrderId = sqData.dayofOrderId;
     squareGiftCardId = sqData.giftCardId ?? undefined;
@@ -415,6 +417,7 @@ export async function POST(req: NextRequest) {
         guestEmail: guest.email,
         guestPhone: guest.phone,
         notes,
+        squareDepositOrderId,
         squareDepositPaymentId,
         squareDayofOrderId,
         squareGiftCardId,
@@ -451,6 +454,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     neonId,
     qamfReservationId,
+    squareDepositOrderId,
     squareDepositPaymentId,
     squareDayofOrderId,
     squareGiftCardId,

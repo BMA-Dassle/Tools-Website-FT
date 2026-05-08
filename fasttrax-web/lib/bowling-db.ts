@@ -377,6 +377,8 @@ export interface BowlingReservation {
   /** BMI bill ID — always a raw string; never coerce to Number. */
   bmiBillId?: string;
   bmiReservationNumber?: string;
+  /** Square deposit order ID — closed immediately when the deposit payment is captured. */
+  squareDepositOrderId?: string;
   /** Square payment ID for the deposit charge. */
   squareDepositPaymentId?: string;
   /** Square day-of order ID — left open for staff to redeem at center. */
@@ -543,6 +545,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     qamfReservationId: (row.qamf_reservation_id as string) ?? undefined,
     bmiBillId: (row.bmi_bill_id as string) ?? undefined,
     bmiReservationNumber: (row.bmi_reservation_number as string) ?? undefined,
+    squareDepositOrderId: (row.square_deposit_order_id as string) ?? undefined,
     squareDepositPaymentId: (row.square_deposit_payment_id as string) ?? undefined,
     squareDayofOrderId: (row.square_dayof_order_id as string) ?? undefined,
     squareGiftCardId: (row.square_gift_card_id as string) ?? undefined,
@@ -599,7 +602,7 @@ export async function insertBowlingReservation(
     INSERT INTO bowling_reservations (
       center_code, product_kind,
       qamf_reservation_id, bmi_bill_id, bmi_reservation_number,
-      square_deposit_payment_id, square_dayof_order_id,
+      square_deposit_order_id, square_deposit_payment_id, square_dayof_order_id,
       square_gift_card_id, square_gift_card_gan,
       deposit_cents, total_cents, status,
       booked_at, player_count,
@@ -607,7 +610,7 @@ export async function insertBowlingReservation(
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
-      ${r.squareDepositPaymentId ?? null}, ${r.squareDayofOrderId ?? null},
+      ${r.squareDepositOrderId ?? null}, ${r.squareDepositPaymentId ?? null}, ${r.squareDayofOrderId ?? null},
       ${r.squareGiftCardId ?? null}, ${r.squareGiftCardGan ?? null},
       ${r.depositCents}, ${r.totalCents}, ${r.status},
       ${r.bookedAt}, ${r.playerCount ?? null},
