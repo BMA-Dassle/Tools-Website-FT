@@ -293,11 +293,12 @@ export async function setReservationCustomer(
 /**
  * Confirm (or otherwise transition) a reservation status.
  *
- * QAMF Internal API note: the spec lists a `/status` sub-resource
- * endpoint but in practice it returns 2xx without actually changing the
- * status.  The main reservation PATCH endpoint (`/reservations/{id}`)
- * with `{ Status }` in the body is the reliable path — same pattern as
- * Title/Notes via patchReservation.
+ * PATCH /centers/{centerId}/reservations/{reservationId}/status
+ *
+ * IMPORTANT: QAMF requires a customer/person to be attached to the
+ * reservation (via PUT /customer) BEFORE this call will succeed.
+ * Without a person attached, QAMF accepts the PATCH with 2xx but does
+ * not actually change the status.
  *
  * After the PATCH we do a GET to verify the status actually changed and
  * log a warning when it hasn't so the issue shows up in Vercel logs.
@@ -309,7 +310,7 @@ export async function setReservationStatus(
 ): Promise<void> {
   await call({
     method: "PATCH",
-    path: `/centers/${centerId}/reservations/${reservationId}`,
+    path: `/centers/${centerId}/reservations/${reservationId}/status`,
     body: { Status: status },
     errLabel: `setReservationStatus(${reservationId},${status})`,
     centerId,

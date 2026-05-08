@@ -276,6 +276,18 @@ export async function POST(req: NextRequest) {
           TotalPlayers: players.length,
         });
         qamfReservationId = reservation.Id;
+
+        // QAMF requires an explicit PUT /customer before /status will confirm.
+        // Even though we include Customer in the create body above, QAMF only
+        // counts the person as "attached" after the dedicated PUT /customer call.
+        await setReservationCustomer(centerId, qamfReservationId, {
+          Guest: {
+            Name: guest.name,
+            PhoneNumber: guest.phone,
+            Email: guest.email,
+          },
+        });
+
         await setReservationStatus(centerId, qamfReservationId, "Confirmed").catch((err) => {
           console.error("[bowling/v2/reserve] setReservationStatus on fallback failed:", err);
         });
@@ -311,6 +323,23 @@ export async function POST(req: NextRequest) {
       const msg = err instanceof Error ? err.message : "QAMF reservation failed";
       console.error("[bowling/v2/reserve] QAMF error:", msg);
       return NextResponse.json({ error: `Reservation failed: ${msg}` }, { status: 502 });
+    }
+
+    // QAMF requires an explicit PUT /customer before /status will confirm.
+    // Even though we include Customer in the create body above, QAMF only
+    // counts the person as "attached" after the dedicated PUT /customer call.
+    try {
+      await setReservationCustomer(centerId, qamfReservationId, {
+        Guest: {
+          Name: guest.name,
+          PhoneNumber: guest.phone,
+          Email: guest.email,
+        },
+      });
+    } catch (err) {
+      // Non-fatal: slot is held even without customer attached.
+      // setReservationStatus will fail to confirm but we log it below.
+      console.error("[bowling/v2/reserve] setReservationCustomer (fresh) failed:", err);
     }
 
     // Confirm the reservation (Temporary → Confirmed)
