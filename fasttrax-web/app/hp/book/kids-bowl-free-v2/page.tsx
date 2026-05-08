@@ -158,6 +158,10 @@ interface BowlerSelection {
   relation: "parent" | "kid" | "family";
   selected: boolean;
   wantBumpers: boolean;
+  /** KBF linkage — used to write prefs back on the confirmation page. */
+  kbfPassId?: number;
+  kbfMemberSlot?: number;
+  kbfRelation?: "kid" | "family";
 }
 
 interface AvailabilitySlot {
@@ -386,15 +390,18 @@ export default function KidsBowlFreeV2Page() {
         key: `${m.relation}:${m.passId}:${m.slot}`,
         displayName: `${m.firstName} ${m.lastName}`,
         relation: m.relation,
-        selected: true, // default to all selected
+        selected: true,
         wantBumpers: m.prefs?.wantBumpers ?? true,
+        kbfPassId: m.passId,
+        kbfMemberSlot: m.slot,
+        kbfRelation: m.relation,
       }));
-      // Add parent
+      // Add parent (not a pass member — no KBF linkage)
       selections.unshift({
         key: "parent",
         displayName: `${p.firstName} ${p.lastName}`,
         relation: "parent",
-        selected: false, // parent not selected by default
+        selected: false,
         wantBumpers: false,
       });
       setBowlerSelections(selections);
@@ -647,7 +654,12 @@ export default function KidsBowlFreeV2Page() {
           optionType: selectedSlot.optionType,
           bookedAt: selectedSlot.bookedAt,
           service: "BookForLater",
-          players: selectedBowlers.map((b) => ({ name: b.displayName })),
+          players: selectedBowlers.map((b) => ({
+            name: b.displayName,
+            kbfPassId: b.kbfPassId ?? null,
+            kbfMemberSlot: b.kbfMemberSlot ?? null,
+            kbfRelation: b.kbfRelation ?? null,
+          })),
           guest: { name: guestName, email: guestEmail, phone: guestPhone },
           lineItems,
           squareToken,

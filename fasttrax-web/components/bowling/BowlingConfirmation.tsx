@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
-import type { BowlingReservation, ReservationLine } from "@/lib/bowling-db";
+import type { BowlingReservation, BowlingReservationPlayer, ReservationLine } from "@/lib/bowling-db";
 
 /**
  * Shared bowling confirmation page component.
@@ -42,6 +42,31 @@ const CENTER_PHONE: Record<string, string> = {
 type ReservationWithLines = BowlingReservation & {
   lines: (ReservationLine & { id: number; reservationId: number })[];
 };
+
+// ── Shoe size catalog ─────────────────────────────────────────────────────
+
+const SHOE_SIZE_OPTIONS = [
+  { value: "", label: "No shoes" },
+  { value: "Kids 5",  label: "Kids 5"  },
+  { value: "Kids 6",  label: "Kids 6"  },
+  { value: "Kids 7",  label: "Kids 7"  },
+  { value: "Kids 8",  label: "Kids 8"  },
+  { value: "Kids 9",  label: "Kids 9"  },
+  { value: "Kids 10", label: "Kids 10" },
+  { value: "Kids 11", label: "Kids 11" },
+  { value: "Kids 12", label: "Kids 12" },
+  { value: "Kids 13", label: "Kids 13" },
+  { value: "Adult 6",  label: "Adult 6"  },
+  { value: "Adult 7",  label: "Adult 7"  },
+  { value: "Adult 8",  label: "Adult 8"  },
+  { value: "Adult 9",  label: "Adult 9"  },
+  { value: "Adult 10", label: "Adult 10" },
+  { value: "Adult 11", label: "Adult 11" },
+  { value: "Adult 12", label: "Adult 12" },
+  { value: "Adult 13", label: "Adult 13" },
+  { value: "Adult 14", label: "Adult 14" },
+  { value: "Adult 15", label: "Adult 15" },
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -242,6 +267,13 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [reservation, setReservation] = useState<ReservationWithLines | null>(null);
   const [fetchError, setFetchError] = useState(false);
 
+  // ── Bowler details state ─────────────────────────────────────────
+  const [players, setPlayers] = useState<BowlingReservationPlayer[]>([]);
+  const [shoePairsAllowed, setShoePairsAllowed] = useState(0);
+  const [playersSaving, setPlayersSaving] = useState(false);
+  const [playersSaved, setPlayersSaved] = useState(false);
+  const [playersError, setPlayersError] = useState<string | null>(null);
+
   const centerName = CENTER_NAME[centerId] ?? "HeadPinz";
   const centerPhone = CENTER_PHONE[centerId] ?? "(239) 302-2155";
   const centerAddress = CENTER_ADDRESS[centerId] ?? "";
@@ -266,6 +298,69 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     })();
     return () => { cancelled = true; };
   }, [neonId, hasNeonRecord]);
+
+  // Fetch player rows after the reservation loads
+  useEffect(() => {
+    if (!hasNeonRecord || !reservation) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/players`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as {
+          players: BowlingReservationPlayer[];
+          shoePairsAllowed: number;
+        };
+        if (!cancelled) {
+          setPlayers(data.players);
+          setShoePairsAllowed(data.shoePairsAllowed);
+        }
+      } catch {
+        // Non-fatal — form just won't render
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [neonId, reservation, hasNeonRecord]);
+
+  function updatePlayer(slot: number, patch: Partial<BowlingReservationPlayer>) {
+    setPlayers((prev) =>
+      prev.map((p) => (p.slot === slot ? { ...p, ...patch } : p)),
+    );
+    setPlayersSaved(false);
+  }
+
+  async function handleSavePlayers() {
+    const shoeSizeCount = players.filter((p) => p.shoeSize).length;
+    if (shoeSizeCount > shoePairsAllowed) {
+      setPlayersError(
+        `You've assigned shoe sizes for ${shoeSizeCount} bowlers but only purchased ${shoePairsAllowed} pair${shoePairsAllowed !== 1 ? "s" : ""}. Please remove a size first.`,
+      );
+      return;
+    }
+    setPlayersSaving(true);
+    setPlayersError(null);
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/players`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          players: players.map((p) => ({
+            slot: p.slot,
+            name: p.name,
+            shoeSize: p.shoeSize,
+            bumpers: p.bumpers,
+          })),
+        }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to save");
+      setPlayersSaved(true);
+    } catch (err) {
+      setPlayersError(err instanceof Error ? err.message : "Failed to save preferences");
+    } finally {
+      setPlayersSaving(false);
+    }
+  }
 
   const displayDepositPaid = reservation ? reservation.depositCents : depositPaidCents;
   const displayTotal = reservation
@@ -392,6 +487,136 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               </>
             )}
           </div>
+
+          {/* ── Bowler details ── */}
+          {players.length > 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
+              <div
+                className="uppercase font-bold mb-1"
+                style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2.5px" }}
+              >
+                Bowler Details
+              </div>
+              <p className="text-white/45 text-xs mb-5 leading-relaxed">
+                {shoePairsAllowed > 0
+                  ? `Help us get your lane ready — bumpers and shoe sizes for up to ${shoePairsAllowed} pair${shoePairsAllowed !== 1 ? "s" : ""}.`
+                  : "Let us know who needs bumpers so your lane is set up when you arrive."}
+              </p>
+
+              <div className="space-y-4">
+                {players.map((player) => {
+                  const shoeSizesAssigned = players.filter((p) => p.shoeSize).length;
+                  const canAddShoeSize = player.shoeSize || shoeSizesAssigned < shoePairsAllowed;
+
+                  return (
+                    <div
+                      key={player.slot}
+                      className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3"
+                    >
+                      {/* Name row */}
+                      {kind === "kbf" ? (
+                        <div className="font-body font-semibold text-white text-sm">
+                          {player.name ?? `Bowler ${player.slot}`}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={player.name ?? ""}
+                          onChange={(e) => updatePlayer(player.slot, { name: e.target.value || null })}
+                          placeholder={`Bowler ${player.slot}`}
+                          className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35"
+                        />
+                      )}
+
+                      <div className="flex flex-wrap gap-3 items-center">
+                        {/* Bumpers toggle */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-white/50 text-xs font-body">Bumpers</span>
+                          <div className="flex rounded-lg overflow-hidden border border-white/15">
+                            {([true, false] as const).map((val) => (
+                              <button
+                                key={String(val)}
+                                type="button"
+                                onClick={() => updatePlayer(player.slot, { bumpers: val })}
+                                className="px-3 py-1.5 text-xs font-body font-semibold transition-colors"
+                                style={{
+                                  backgroundColor:
+                                    player.bumpers === val
+                                      ? val ? CORAL : "rgba(255,255,255,0.15)"
+                                      : "transparent",
+                                  color: player.bumpers === val ? "white" : "rgba(255,255,255,0.4)",
+                                }}
+                              >
+                                {val ? "Yes" : "No"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Shoe size — only when shoes were purchased */}
+                        {shoePairsAllowed > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-white/50 text-xs font-body">Shoe size</span>
+                            <select
+                              value={player.shoeSize ?? ""}
+                              disabled={!canAddShoeSize}
+                              onChange={(e) =>
+                                updatePlayer(player.slot, { shoeSize: e.target.value || null })
+                              }
+                              className="bg-white/8 border border-white/15 rounded-lg px-2 py-1.5 text-white text-xs font-body focus:outline-none focus:border-white/35 disabled:opacity-40 disabled:cursor-not-allowed"
+                              style={{ colorScheme: "dark" }}
+                            >
+                              {SHOE_SIZE_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Shoe pair counter */}
+              {shoePairsAllowed > 0 && (
+                <p className="text-white/35 text-xs mt-3 text-right font-body">
+                  {players.filter((p) => p.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
+                </p>
+              )}
+
+              {/* Error */}
+              {playersError && (
+                <div
+                  className="rounded-xl p-3 text-sm font-body mt-3"
+                  style={{
+                    backgroundColor: "rgba(253,91,86,0.12)",
+                    border: "1.5px solid rgba(253,91,86,0.35)",
+                    color: CORAL,
+                  }}
+                >
+                  {playersError}
+                </div>
+              )}
+
+              {/* Save button */}
+              <button
+                type="button"
+                onClick={() => void handleSavePlayers()}
+                disabled={playersSaving || playersSaved}
+                className="mt-4 w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                style={{ backgroundColor: playersSaved ? "rgba(74,222,128,0.25)" : CORAL }}
+              >
+                {playersSaving
+                  ? "Saving…"
+                  : playersSaved
+                    ? "✓ Saved"
+                    : "Save Preferences"}
+              </button>
+            </div>
+          )}
 
           {/* ── Arrival instructions ── */}
           <div

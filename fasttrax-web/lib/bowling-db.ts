@@ -101,6 +101,29 @@ export async function ensureBowlingSchema(): Promise<void> {
   `;
   await q`CREATE INDEX IF NOT EXISTS brl_res ON bowling_reservation_lines(reservation_id)`;
 
+  // ── bowling_reservation_players ──────────────────────────────────
+  // One row per player slot per reservation.
+  // Created at booking time: pre-filled with names + prefs for KBF,
+  // placeholder rows for open bowling. Shoe sizes + bumpers collected
+  // on the confirmation page and saved back here.
+  await q`
+    CREATE TABLE IF NOT EXISTS bowling_reservation_players (
+      id              SERIAL  PRIMARY KEY,
+      reservation_id  INTEGER NOT NULL REFERENCES bowling_reservations(id),
+      slot            INTEGER NOT NULL,
+      name            TEXT,
+      shoe_size       TEXT,
+      bumpers         BOOLEAN,
+      kbf_pass_id     INTEGER,
+      kbf_member_slot INTEGER,
+      kbf_relation    TEXT CHECK (kbf_relation IN ('kid', 'family')),
+      inserted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (reservation_id, slot)
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS brp_res ON bowling_reservation_players(reservation_id)`;
+
   schemaReady = true;
 }
 
@@ -141,6 +164,36 @@ export interface ReservationLine {
   quantity: number;
   unitPriceCents: number;
 }
+
+export interface BowlingReservationPlayer {
+  id: number;
+  reservationId: number;
+  /** 1-based position within the reservation. */
+  slot: number;
+  /** Display name. Pre-filled for KBF, filled in by user for open bowling. */
+  name: string | null;
+  /** Shoe size label, e.g. "Kids 8" or "Adult 10". null = no shoes needed. */
+  shoeSize: string | null;
+  /** Bumper preference. null = not yet set. */
+  bumpers: boolean | null;
+  /** kbf_passes.id — set for KBF bowlers, null for open bowling. */
+  kbfPassId: number | null;
+  /** kbf_pass_members.slot for this member. */
+  kbfMemberSlot: number | null;
+  kbfRelation: "kid" | "family" | null;
+  insertedAt: string;
+  updatedAt: string;
+}
+
+export type PlayerInput = {
+  slot: number;
+  name?: string | null;
+  shoeSize?: string | null;
+  bumpers?: boolean | null;
+  kbfPassId?: number | null;
+  kbfMemberSlot?: number | null;
+  kbfRelation?: "kid" | "family" | null;
+};
 
 export interface BowlingReservation {
   id: number;
@@ -492,6 +545,113 @@ export async function updateReservationReschedule(
     SET booked_at = ${bookedAt}, qamf_reservation_id = ${qamfReservationId}
     WHERE id = ${id}
   `;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Reservation player helpers
+// ─────────────────────────────────────────────────────────────────
+
+function rowToPlayer(row: Record<string, unknown>): BowlingReservationPlayer {
+  return {
+    id: row.id as number,
+    reservationId: row.reservation_id as number,
+    slot: row.slot as number,
+    name: (row.name as string) ?? null,
+    shoeSize: (row.shoe_size as string) ?? null,
+    bumpers: row.bumpers != null ? (row.bumpers as boolean) : null,
+    kbfPassId: row.kbf_pass_id != null ? (row.kbf_pass_id as number) : null,
+    kbfMemberSlot: row.kbf_member_slot != null ? (row.kbf_member_slot as number) : null,
+    kbfRelation: (row.kbf_relation as "kid" | "family") ?? null,
+    insertedAt: (row.inserted_at as Date).toISOString(),
+    updatedAt: (row.updated_at as Date).toISOString(),
+  };
+}
+
+/**
+ * Insert player rows for a reservation.
+ * Called at booking time — once per player slot.
+ * For KBF: names + KBF linkage pre-filled.
+ * For open bowling: names are "Bowler N" placeholders.
+ */
+export async function insertReservationPlayers(
+  reservationId: number,
+  players: PlayerInput[],
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  for (const p of players) {
+    await q`
+      INSERT INTO bowling_reservation_players
+        (reservation_id, slot, name, shoe_size, bumpers,
+         kbf_pass_id, kbf_member_slot, kbf_relation)
+      VALUES
+        (${reservationId}, ${p.slot}, ${p.name ?? null}, ${p.shoeSize ?? null},
+         ${p.bumpers ?? null}, ${p.kbfPassId ?? null},
+         ${p.kbfMemberSlot ?? null}, ${p.kbfRelation ?? null})
+      ON CONFLICT (reservation_id, slot) DO NOTHING
+    `;
+  }
+}
+
+/**
+ * Fetch players for a reservation plus the number of shoe pairs purchased.
+ * shoePairsAllowed = sum of addon_shoe line quantities.
+ * The confirmation page uses this to validate that shoe sizes aren't
+ * assigned to more bowlers than shoe pairs bought.
+ */
+export async function getReservationPlayersWithShoeAllowance(
+  reservationId: number,
+): Promise<{ players: BowlingReservationPlayer[]; shoePairsAllowed: number }> {
+  if (!isDbConfigured()) return { players: [], shoePairsAllowed: 0 };
+  await ensureBowlingSchema();
+  const q = sql();
+
+  const playerRows = await q`
+    SELECT * FROM bowling_reservation_players
+    WHERE reservation_id = ${reservationId}
+    ORDER BY slot ASC
+  `;
+
+  // Sum qty of addon_shoe lines — join lines → products to check product_kind
+  const shoeRows = await q`
+    SELECT COALESCE(SUM(brl.quantity), 0) AS shoe_qty
+    FROM bowling_reservation_lines brl
+    JOIN bowling_square_products bsp ON bsp.id = brl.square_product_id
+    WHERE brl.reservation_id = ${reservationId}
+      AND bsp.product_kind = 'addon_shoe'
+  `;
+  const shoePairsAllowed = Number((shoeRows[0] as Record<string, unknown>).shoe_qty ?? 0);
+
+  return {
+    players: playerRows.map((r) => rowToPlayer(r as Record<string, unknown>)),
+    shoePairsAllowed,
+  };
+}
+
+/**
+ * Upsert a single player's shoe size and bumpers preference.
+ * Called by the PATCH players API after the confirmation-page form is saved.
+ */
+export async function upsertReservationPlayer(
+  reservationId: number,
+  slot: number,
+  update: { name?: string | null; shoeSize?: string | null; bumpers?: boolean | null },
+): Promise<BowlingReservationPlayer | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE bowling_reservation_players
+    SET
+      name       = CASE WHEN ${update.name !== undefined} THEN ${update.name ?? null} ELSE name END,
+      shoe_size  = CASE WHEN ${update.shoeSize !== undefined} THEN ${update.shoeSize ?? null} ELSE shoe_size END,
+      bumpers    = CASE WHEN ${update.bumpers !== undefined} THEN ${update.bumpers ?? null} ELSE bumpers END,
+      updated_at = NOW()
+    WHERE reservation_id = ${reservationId} AND slot = ${slot}
+    RETURNING *
+  `;
+  return rows.length ? rowToPlayer(rows[0] as Record<string, unknown>) : null;
 }
 
 // ─────────────────────────────────────────────────────────────────

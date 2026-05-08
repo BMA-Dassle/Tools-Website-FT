@@ -4,6 +4,7 @@ import { createReservation, setReservationStatus } from "@/lib/qamf-bowling";
 import {
   getBowlingSquareProduct,
   insertBowlingReservation,
+  insertReservationPlayers,
   type BowlingSquareProduct,
   type ReservationLine,
 } from "@/lib/bowling-db";
@@ -41,8 +42,12 @@ const QAMF_CENTER_ID_TO_CODE: Record<number, string> = {
 
 interface Player {
   name: string;
-  shoeSize?: string;
-  bumpers?: boolean;
+  shoeSize?: string | null;
+  bumpers?: boolean | null;
+  /** KBF linkage — present when this player is a KBF pass member. */
+  kbfPassId?: number | null;
+  kbfMemberSlot?: number | null;
+  kbfRelation?: "kid" | "family" | null;
 }
 
 interface LineItemRequest {
@@ -329,6 +334,26 @@ export async function POST(req: NextRequest) {
       reservationLines,
     );
     neonId = row.id;
+
+    // Insert one player row per slot. For KBF: names + prefs pre-filled.
+    // For open bowling: "Bowler N" placeholders — updated on confirmation page.
+    try {
+      await insertReservationPlayers(
+        neonId,
+        players.map((p, i) => ({
+          slot: i + 1,
+          name: p.name || null,
+          shoeSize: p.shoeSize ?? null,
+          bumpers: p.bumpers ?? null,
+          kbfPassId: p.kbfPassId ?? null,
+          kbfMemberSlot: p.kbfMemberSlot ?? null,
+          kbfRelation: p.kbfRelation ?? null,
+        })),
+      );
+    } catch (err) {
+      // Non-fatal — player rows are convenience data
+      console.error("[bowling/v2/reserve] insertReservationPlayers failed:", err);
+    }
   } catch (err) {
     console.error("[bowling/v2/reserve] Neon insert failed:", err);
     neonId = 0;
