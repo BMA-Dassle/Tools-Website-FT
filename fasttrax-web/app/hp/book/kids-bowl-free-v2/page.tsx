@@ -293,11 +293,12 @@ export default function KidsBowlFreeV2Page() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Verification failed");
 
-      const p: PassWithMembers = data.pass;
+      const p: PassWithMembers | undefined = (data.passes as PassWithMembers[])?.[0];
+      if (!p) throw new Error("No pass found for this account.");
       setPass(p);
 
       // Auto-build bowler selections from members
-      const selections: BowlerSelection[] = p.members.map((m) => ({
+      const selections: BowlerSelection[] = (p.members ?? []).map((m) => ({
         key: `${m.relation}:${m.passId}:${m.slot}`,
         displayName: `${m.firstName} ${m.lastName}`,
         relation: m.relation,
