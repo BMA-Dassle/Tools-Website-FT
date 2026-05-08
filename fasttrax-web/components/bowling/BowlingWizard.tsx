@@ -750,28 +750,23 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     [center.qamfId, activePlayerCount, kind, experiences],
   );
 
-  // Auto-fetch when entering slots/reschedule, and re-fetch once experiences finish loading
+  // On entering the slots step: reset time selection and clear stale slot data.
+  // Availability is NOT fetched here — it's deferred to the "See Packages" click
+  // so the calendar renders instantly with no loading spinner.
+  // Reschedule (KBF only) still fetches immediately since it needs slots inline.
   useEffect(() => {
     if (step !== "slots" && !(step === "reschedule" && kind === "kbf")) return;
-    if (experiencesLoading) return; // wait — will re-run when experiencesLoading → false
+    if (experiencesLoading) return;
 
     setSelectedHour(null);
     setSelectedMinute(null);
+    setAvailableSlots([]);
+    setSlotsError(null);
+
     if (step === "reschedule") {
       void fetchSlots(selectedDate, existingReservation?.playerCount ?? 1);
-    } else {
-      void fetchSlots(selectedDate);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, experiencesLoading]);
-
-  // Prefetch availability while user is on the step BEFORE slots (players/bowlers)
-  // so slots are cached/ready by the time they hit Continue.
-  useEffect(() => {
-    const prefetchStep = kind === "kbf" ? "bowlers" : "players";
-    if (step !== prefetchStep) return;
-    if (experiencesLoading || experiences.length === 0) return;
-    void fetchSlots(selectedDate);
+    // slots step: no fetch — deferred to "See Packages"
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, experiencesLoading]);
 
@@ -1942,7 +1937,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               STEP: Slots — calendar + hour chips
           ═══════════════════════════════════════════════════════ */}
           {step === "slots" && (() => {
-            const hoursWithSlots = new Set(availableSlots.map((s) => slotHourET(s.bookedAt)));
             const filteredHours = getFilteredHours(selectedDate);
 
             return (
@@ -1990,7 +1984,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             key={day}
                             type="button"
                             disabled={!bookable}
-                            onClick={() => { setSelectedDate(dateStr); setSelectedHour(null); setSelectedMinute(null); void fetchSlots(dateStr); }}
+                            onClick={() => { setSelectedDate(dateStr); setSelectedHour(null); setSelectedMinute(null); setAvailableSlots([]); setSlotsError(null); }}
                             className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
                             style={{
                               backgroundColor: isSelected ? CORAL : bookable ? "rgba(253,91,86,0.15)" : "transparent",
@@ -2009,32 +2003,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
                   {/* Hour chips */}
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-                    {slotsLoading ? (
-                      <div className="flex items-center justify-center h-full min-h-[200px] gap-2 font-body text-white/40 text-sm">
-                        <div className="w-4 h-4 border border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
-                        Loading times…
-                      </div>
-                    ) : !selectedDate ? (
+                    {!selectedDate ? (
                       <div className="flex items-center justify-center h-full min-h-[200px]">
                         <p className="font-body text-white/30 text-sm">Pick a date first</p>
                       </div>
                     ) : (
                       <>
                         <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">Time</div>
-                        {slotsError && hoursWithSlots.size === 0 && (
-                          <p className="font-body text-white/40 text-xs text-center mb-3">{slotsError}</p>
-                        )}
                         <div className="flex flex-wrap justify-center gap-2">
                           {filteredHours.map((h) => {
-                            const hasSlot = slotsLoading || hoursWithSlots.has(h);
                             const isActive = selectedHour === h;
                             return (
                               <button
                                 key={h}
                                 type="button"
-                                disabled={!hasSlot && !slotsLoading}
                                 onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
-                                className="rounded-lg px-3 py-2 text-sm font-medium transition-all disabled:opacity-25"
+                                className="rounded-lg px-3 py-2 text-sm font-medium transition-all"
                                 style={{
                                   backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
                                   color: isActive ? "#0a1628" : GOLD,
@@ -2048,14 +2032,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           })}
                         </div>
                         {selectedHour !== null && (() => {
-                          // Show minute sub-chips for all available slots at this hour
-                          const minuteSlots = availableSlots.filter(
-                            (s) => slotHourET(s.bookedAt) === selectedHour,
-                          );
-                          const distinctMinutes = [
-                            ...new Set(minuteSlots.map((s) => slotMinuteET(s.bookedAt))),
-                          ].sort((a, b) => a - b);
-                          if (distinctMinutes.length === 0) return null;
+                          // Always offer :00 / :15 / :30 / :45 — no availability
+                          // pre-check needed; actual slot existence is verified when
+                          // the user hits "See Packages" and availability loads.
+                          const distinctMinutes = [0, 15, 30, 45];
                           return (
                             <div className="mt-4 pt-3 border-t border-white/8">
                               <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
@@ -2102,13 +2082,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setError(null); setSelectedTier(null); setStep("tier"); }}
+                    onClick={() => {
+                      setError(null);
+                      setSelectedTier(null);
+                      void (async () => {
+                        await fetchSlots(selectedDate);
+                        setStep("tier");
+                      })();
+                    }}
                     disabled={selectedHour === null || selectedMinute === null || slotsLoading}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
                     {slotsLoading
-                      ? "Loading…"
+                      ? "Finding packages…"
                       : selectedHour !== null && selectedMinute !== null
                         ? `See Packages — ${formatHourMinute(selectedHour, selectedMinute)}`
                         : selectedHour !== null
