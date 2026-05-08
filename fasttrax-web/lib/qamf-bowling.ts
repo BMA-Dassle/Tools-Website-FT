@@ -290,7 +290,18 @@ export async function setReservationCustomer(
   });
 }
 
-/** PATCH /centers/{centerId}/reservations/{reservationId}/status */
+/**
+ * Confirm (or otherwise transition) a reservation status.
+ *
+ * QAMF Internal API note: the spec lists a `/status` sub-resource
+ * endpoint but in practice it returns 2xx without actually changing the
+ * status.  The main reservation PATCH endpoint (`/reservations/{id}`)
+ * with `{ Status }` in the body is the reliable path — same pattern as
+ * Title/Notes via patchReservation.
+ *
+ * After the PATCH we do a GET to verify the status actually changed and
+ * log a warning when it hasn't so the issue shows up in Vercel logs.
+ */
 export async function setReservationStatus(
   centerId: number,
   reservationId: string,
@@ -298,21 +309,43 @@ export async function setReservationStatus(
 ): Promise<void> {
   await call({
     method: "PATCH",
-    path: `/centers/${centerId}/reservations/${reservationId}/status`,
+    path: `/centers/${centerId}/reservations/${reservationId}`,
     body: { Status: status },
     errLabel: `setReservationStatus(${reservationId},${status})`,
     centerId,
   });
+
+  // Verify the status actually changed (QAMF has been known to accept
+  // a PATCH with 2xx but silently ignore the status transition).
+  try {
+    const reservation = await getReservation(centerId, reservationId);
+    if (reservation.Status !== status) {
+      console.warn(
+        `[qamf-bowling] setReservationStatus(${reservationId}): PATCH returned OK` +
+          ` but status is still "${reservation.Status}" (expected "${status}")`,
+      );
+    } else {
+      console.log(
+        `[qamf-bowling] setReservationStatus(${reservationId}): confirmed — status is now "${status}"`,
+      );
+    }
+  } catch (verifyErr) {
+    // Non-fatal — verify failure doesn't undo the PATCH attempt
+    console.warn(
+      `[qamf-bowling] setReservationStatus(${reservationId}): could not verify status after PATCH:`,
+      verifyErr,
+    );
+  }
 }
 
 /** PATCH /centers/{centerId}/reservations/{reservationId}
- *  — updates mutable fields on a reservation (Title, Notes, etc.).
+ *  — updates mutable fields on a reservation (Title, Notes, Status, etc.).
  *  Used to rename the hold from "Hold (Np)" to "Guest Name (Np)" once
  *  the guest fills in their details. */
 export async function patchReservation(
   centerId: number,
   reservationId: string,
-  fields: { Title?: string; Notes?: string },
+  fields: { Title?: string; Notes?: string; Status?: ReservationStatus },
 ): Promise<void> {
   await call({
     method: "PATCH",

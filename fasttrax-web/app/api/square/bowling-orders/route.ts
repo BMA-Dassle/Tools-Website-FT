@@ -103,6 +103,8 @@ interface LineItemInput {
   quantity: string;
   catalogObjectId?: string;
   basePriceMoney: { amount: number; currency: "USD" };
+  /** Free-text note attached to this line item in Square (e.g. pizza topping, soda flavor). */
+  note?: string;
 }
 
 export async function POST(req: NextRequest) {
