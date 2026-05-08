@@ -124,12 +124,14 @@ export interface NewReservationInput {
 /*  Internal request helper                                           */
 /* ------------------------------------------------------------------ */
 
-function commonHeaders(token: string): Record<string, string> {
-  return {
+function commonHeaders(token: string, subscriptionKey: string): Record<string, string> {
+  const h: Record<string, string> = {
     authorization: `Bearer ${token}`,
     "api-version": API_VERSION,
     "content-type": "application/json",
   };
+  if (subscriptionKey) h["Ocp-Apim-Subscription-Key"] = subscriptionKey;
+  return h;
 }
 
 async function call<T>(opts: {
@@ -139,10 +141,10 @@ async function call<T>(opts: {
   errLabel: string;
 }): Promise<T> {
   const res = await qamfAuthedFetch(
-    (token) =>
+    (token, subKey) =>
       fetch(`${BASE}${opts.path}`, {
         method: opts.method,
-        headers: commonHeaders(token),
+        headers: commonHeaders(token, subKey),
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         cache: "no-store",
       }),

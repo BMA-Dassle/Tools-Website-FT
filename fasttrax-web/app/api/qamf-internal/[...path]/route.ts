@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { qamfAuthedFetch } from "@/lib/qamf-bowling-auth";
+import { qamfAuthedFetch, getQamfSubscriptionKey } from "@/lib/qamf-bowling-auth";
 
 /**
  * Catch-all proxy for the QubicaAMF Internal API (Bowling Reservations).
@@ -55,12 +55,13 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
 
   try {
     const res = await qamfAuthedFetch(
-      (token) =>
+      (token, subKey) =>
         fetch(url, {
           method,
           headers: {
             authorization: `Bearer ${token}`,
             "api-version": API_VERSION,
+            ...(subKey ? { "Ocp-Apim-Subscription-Key": subKey } : {}),
             ...(bodyText ? { "content-type": "application/json" } : {}),
           },
           body: bodyText || undefined,
