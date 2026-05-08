@@ -405,7 +405,7 @@ export default function OpenBowlingPage() {
   return (
     <>
       <HeadPinzNav />
-      <main className="min-h-screen pt-20 pb-16 px-4" style={{ backgroundColor: BG }}>
+      <main className="min-h-screen pt-28 sm:pt-32 pb-16 px-4" style={{ backgroundColor: BG }}>
         <div className="max-w-md mx-auto">
 
           {/* Header */}

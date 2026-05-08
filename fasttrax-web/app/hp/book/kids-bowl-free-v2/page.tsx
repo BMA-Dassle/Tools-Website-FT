@@ -530,7 +530,7 @@ export default function KidsBowlFreeV2Page() {
     <>
       <HeadPinzNav />
       <main
-        className="min-h-screen pt-20 pb-16 px-4"
+        className="min-h-screen pt-28 sm:pt-32 pb-16 px-4"
         style={{ backgroundColor: BG }}
       >
         <div className="max-w-md mx-auto">
