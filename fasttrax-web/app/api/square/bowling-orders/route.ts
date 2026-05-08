@@ -292,10 +292,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Step 4: Activate the gift card (PENDING → ACTIVE) ────────────────────
-    // A freshly-created DIGITAL card is in PENDING state and cannot be loaded
-    // until it is activated. Activation does not set a balance — the LOAD step
-    // (step 5) sets the balance.
+    // ── Step 4: Activate the gift card (PENDING → ACTIVE) and set balance ───────
+    // For a standalone activation (no Square order), Square requires BOTH
+    // amount_money AND buyer_payment_instrument_ids in activate_activity_details.
+    // Omitting amount_money causes BAD_REQUEST: "provide amount and
+    // buyer_payment_instrument_id".
+    //
+    // Crucially, ACTIVATE is the step that sets the initial balance — there is
+    // no separate LOAD step needed. Adding a LOAD after ACTIVATE would
+    // double the card balance.
     const activateRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
       method: "POST",
       headers: sqHeaders(),
@@ -306,6 +311,7 @@ export async function POST(req: NextRequest) {
           location_id: locationId,
           gift_card_id: giftCardId,
           activate_activity_details: {
+            amount_money: { amount: depositCents, currency: "USD" },
             buyer_payment_instrument_ids: [depositPaymentId],
           },
         },
@@ -321,40 +327,6 @@ export async function POST(req: NextRequest) {
       console.error("[square/bowling-orders] gift card activation failed:", detail);
       return NextResponse.json(
         { error: `Payment captured but gift card activation failed: ${detail}` },
-        { status: 500 },
-      );
-    }
-
-    // ── Step 5: Load gift card with the exact charged amount ──────────────────
-    // balance_money is now the authoritative refund amount — no recalculation
-    // needed at cancel time.
-    const loadRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gc-load-${baseKey}`,
-        gift_card_activity: {
-          type: "LOAD",
-          location_id: locationId,
-          gift_card_id: giftCardId,
-          load_activity_details: {
-            amount_money: { amount: depositCents, currency: "USD" },
-            buyer_payment_instrument_ids: [depositPaymentId],
-          },
-        },
-      }),
-    });
-    const loadData = await loadRes.json();
-
-    if (!loadRes.ok || loadData.errors) {
-      const sqErr = loadData.errors?.[0];
-      const detail = sqErr
-        ? `${sqErr.code}: ${sqErr.detail}`
-        : JSON.stringify(loadData);
-      console.error("[square/bowling-orders] gift card load failed:", detail);
-      // Card was activated but not loaded. Log for reconciliation.
-      return NextResponse.json(
-        { error: `Gift card activated but load failed: ${detail}` },
         { status: 500 },
       );
     }
