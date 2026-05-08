@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBowlingReservation, updateBowlingReservationStatus } from "@/lib/bowling-db";
+import { randomUUID } from "crypto";
+import { getBowlingReservation, updateBowlingReservationCancelled } from "@/lib/bowling-db";
 import { deleteReservation } from "@/lib/qamf-bowling";
 
 /**
@@ -10,12 +11,13 @@ import { deleteReservation } from "@/lib/qamf-bowling";
  *
  * DELETE /api/bowling/v2/reservations/[id]
  *
- * Cancels an existing KBF reservation:
- *   1. Deletes the QAMF reservation (best-effort — may have expired)
- *   2. Sets Neon status = 'cancelled'
+ * Cancels a bowling reservation with full refund (up to 1 hour before start):
+ *   1. Validates the 1-hour cancellation window
+ *   2. Deletes the QAMF reservation (best-effort — may have expired)
+ *   3. If a deposit was paid: refunds via Square + cancels day-of order
+ *   4. Updates Neon: status=cancelled, cancelled_at, square_refund_id, refund_cents
  *
- * Note: Square deposit refunds must be handled manually for paid bookings.
- * The response includes `depositCents` so the caller can display a refund notice.
+ * Returns 409 if the booking is within 1 hour of start.
  *
  * Params:
  *   id — bowling_reservations.id (integer)
@@ -42,13 +44,16 @@ export async function GET(
   }
 }
 
-const SQUARE_CODE_TO_QAMF: Record<string, number> = {
+const CENTER_CODE_TO_QAMF: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
 };
 
+/** Cancellations must be requested at least this many ms before the booking. */
+const CANCEL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id: idStr } = await ctx.params;
@@ -62,27 +67,84 @@ export async function DELETE(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
   if (reservation.status === "cancelled") {
-    return NextResponse.json({ message: "already cancelled", depositCents: 0 });
+    return NextResponse.json({
+      message: "already cancelled",
+      refundCents: reservation.refundCents ?? 0,
+    });
+  }
+
+  // ── 1-hour cancellation window ──────────────────────────────────
+  const bookedAtMs  = new Date(reservation.bookedAt).getTime();
+  const nowMs       = Date.now();
+  const msUntilGame = bookedAtMs - nowMs;
+
+  if (msUntilGame < CANCEL_WINDOW_MS) {
+    return NextResponse.json(
+      { error: "too_late", message: "Cancellations must be made at least 1 hour before your start time." },
+      { status: 409 },
+    );
   }
 
   // ── Delete QAMF reservation (best-effort) ───────────────────────
   if (reservation.qamfReservationId) {
-    const qamfId = SQUARE_CODE_TO_QAMF[reservation.centerCode];
-    if (qamfId) {
+    const qamfCenterId = CENTER_CODE_TO_QAMF[reservation.centerCode];
+    if (qamfCenterId) {
       try {
-        await deleteReservation(qamfId, reservation.qamfReservationId);
+        await deleteReservation(qamfCenterId, reservation.qamfReservationId);
       } catch {
-        // Non-fatal — QAMF reservation may have already expired
+        // Non-fatal — QAMF reservation may have already expired or been played
       }
     }
   }
 
-  // ── Mark cancelled in Neon ──────────────────────────────────────
-  await updateBowlingReservationStatus(id, "cancelled");
+  // ── Square refund + day-of order cancellation ───────────────────
+  let squareRefundId: string | undefined;
+  let refundCents = 0;
+
+  if (reservation.squareDepositPaymentId && reservation.depositCents > 0) {
+    const origin = req.nextUrl.origin;
+    try {
+      const refundRes = await fetch(`${origin}/api/square/bowling-refund`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          depositPaymentId: reservation.squareDepositPaymentId,
+          depositOrderId:   reservation.squareDepositOrderId ?? "",
+          dayofOrderId:     reservation.squareDayofOrderId,
+          amountCents:      reservation.depositCents,
+          locationId:       reservation.centerCode,
+          idempotencyKey:   randomUUID(),
+        }),
+      });
+
+      const refundData = (await refundRes.json()) as {
+        refundId?: string;
+        refundedCents?: number;
+        error?: string;
+      };
+
+      if (!refundRes.ok) {
+        // Refund failed — surface the error; don't mark as cancelled
+        return NextResponse.json(
+          { error: refundData.error ?? "Refund failed — please try again or contact the center." },
+          { status: refundRes.status },
+        );
+      }
+
+      squareRefundId = refundData.refundId;
+      refundCents    = refundData.refundedCents ?? reservation.depositCents;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Refund request failed";
+      return NextResponse.json({ error: msg }, { status: 502 });
+    }
+  }
+
+  // ── Persist cancellation to Neon ────────────────────────────────
+  await updateBowlingReservationCancelled(id, { squareRefundId, refundCents });
 
   return NextResponse.json({
     message: "cancelled",
-    depositCents: reservation.depositCents,
-    hasPaidDeposit: reservation.depositCents > 0,
+    refundCents,
+    squareRefundId,
   });
 }

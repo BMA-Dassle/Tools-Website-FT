@@ -124,6 +124,11 @@ export async function ensureBowlingSchema(): Promise<void> {
   `;
   await q`CREATE INDEX IF NOT EXISTS brp_res ON bowling_reservation_players(reservation_id)`;
 
+  // ── Cancellation / refund columns (idempotent) ───────────────────
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_refund_id TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS refund_cents INTEGER NOT NULL DEFAULT 0`;
+
   schemaReady = true;
 }
 
@@ -215,6 +220,12 @@ export interface BowlingReservation {
   guestEmail?: string;
   guestPhone?: string;
   notes?: string;
+  /** ISO timestamp of cancellation. Null if not cancelled. */
+  cancelledAt?: string;
+  /** Square refund ID from /v2/refunds. Null if free booking or not yet refunded. */
+  squareRefundId?: string;
+  /** Actual amount refunded to the customer (cents). 0 if free booking. */
+  refundCents: number;
   insertedAt: string;
 }
 
@@ -366,6 +377,11 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     guestEmail: (row.guest_email as string) ?? undefined,
     guestPhone: (row.guest_phone as string) ?? undefined,
     notes: (row.notes as string) ?? undefined,
+    cancelledAt: row.cancelled_at
+      ? (row.cancelled_at as Date).toISOString()
+      : undefined,
+    squareRefundId: (row.square_refund_id as string) ?? undefined,
+    refundCents: (row.refund_cents as number) ?? 0,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -393,7 +409,7 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt">,
+  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents">,
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -469,6 +485,28 @@ export async function updateBowlingReservationStatus(
   await ensureBowlingSchema();
   const q = sql();
   await q`UPDATE bowling_reservations SET status = ${status} WHERE id = ${id}`;
+}
+
+/**
+ * Mark a reservation as cancelled and record refund details.
+ * Called after Square refund + day-of order cancellation succeed.
+ */
+export async function updateBowlingReservationCancelled(
+  id: number,
+  { squareRefundId, refundCents }: { squareRefundId?: string; refundCents: number },
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET
+      status           = 'cancelled',
+      cancelled_at     = NOW(),
+      square_refund_id = ${squareRefundId ?? null},
+      refund_cents     = ${refundCents}
+    WHERE id = ${id}
+  `;
 }
 
 /**

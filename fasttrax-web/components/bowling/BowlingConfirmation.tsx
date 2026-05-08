@@ -108,7 +108,8 @@ interface KindConfig {
   fetchFailNote: (centerName: string) => string;
   linesHeader: string;
   arrivalBullets: (displayRemaining: number) => React.ReactNode;
-  cancelCard: (centerName: string, centerPhone: string) => React.ReactNode;
+  /** Optional link shown above the cancel section (e.g. reschedule for KBF). */
+  changeLink?: { href: string; label: string };
   navLinks: { href: string; label: string }[];
 }
 
@@ -138,39 +139,7 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
         )}
       </>
     ),
-    cancelCard: (centerName, centerPhone) => (
-      <div
-        className="rounded-xl border px-4 py-4 space-y-3"
-        style={{
-          backgroundColor: "rgba(255,215,0,0.06)",
-          borderColor: "rgba(255,215,0,0.35)",
-        }}
-      >
-        <div
-          className="uppercase font-bold"
-          style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
-        >
-          Need to change or cancel?
-        </div>
-        <Link
-          href="/hp/book/kids-bowl-free-v2"
-          className="flex items-center justify-center w-full rounded-full px-4 py-2.5 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
-          style={{ backgroundColor: NAVY, border: `1.5px solid ${GOLD}50` }}
-        >
-          Change Date &amp; Time
-        </Link>
-        <p className="text-white/50 text-xs leading-relaxed text-center">
-          To cancel or for other help, call{" "}
-          <a
-            className="underline hover:text-white transition-colors"
-            href={`tel:${centerPhone.replace(/\D/g, "")}`}
-          >
-            {centerPhone}
-          </a>{" "}
-          at {centerName} at least 1 hour before your start time.
-        </p>
-      </div>
-    ),
+    changeLink: { href: "/hp/book/kids-bowl-free-v2", label: "Change Date & Time" },
     navLinks: [
       { href: "/hp/kids-bowl-free", label: "Kids Bowl Free info" },
       { href: "/hp/book", label: "Book something else" },
@@ -198,31 +167,6 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
           </li>
         )}
       </>
-    ),
-    cancelCard: (centerName, centerPhone) => (
-      <div
-        className="rounded-xl border px-4 py-4"
-        style={{
-          backgroundColor: "rgba(255,215,0,0.06)",
-          borderColor: "rgba(255,215,0,0.35)",
-        }}
-      >
-        <div
-          className="uppercase font-bold mb-1"
-          style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
-        >
-          Need to cancel or change?
-        </div>
-        <p className="text-white/75 text-xs leading-relaxed">
-          Call {centerName} at least 2 hours before your start time:{" "}
-          <a
-            className="underline hover:text-white transition-colors"
-            href={`tel:${centerPhone.replace(/\D/g, "")}`}
-          >
-            {centerPhone}
-          </a>
-        </p>
-      </div>
     ),
     navLinks: [
       { href: "/hp/book/open-bowling", label: "Book another lane" },
@@ -410,6 +354,12 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [playersSaved, setPlayersSaved] = useState(false);
   const [playersError, setPlayersError] = useState<string | null>(null);
 
+  // ── Cancel state ─────────────────────────────────────────────────
+  type CancelPhase = "idle" | "confirming" | "cancelling" | "cancelled" | "tooLate";
+  const [cancelPhase, setCancelPhase] = useState<CancelPhase>("idle");
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelRefundCents, setCancelRefundCents] = useState(0);
+
   const centerName = CENTER_NAME[centerId] ?? "HeadPinz";
   const centerPhone = CENTER_PHONE[centerId] ?? "(239) 302-2155";
   const centerAddress = CENTER_ADDRESS[centerId] ?? "";
@@ -495,6 +445,50 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
       setPlayersError(err instanceof Error ? err.message : "Failed to save preferences");
     } finally {
       setPlayersSaving(false);
+    }
+  }
+
+  function handleRequestCancel() {
+    if (!reservation) return;
+    // Client-side 1-hour check so we can show the right UI immediately
+    const msUntilGame = new Date(reservation.bookedAt).getTime() - Date.now();
+    if (msUntilGame < 60 * 60 * 1000) {
+      setCancelPhase("tooLate");
+      return;
+    }
+    setCancelPhase("confirming");
+    setCancelError(null);
+  }
+
+  async function handleConfirmCancel() {
+    if (!hasNeonRecord) return;
+    setCancelPhase("cancelling");
+    setCancelError(null);
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json()) as {
+        message?: string;
+        refundCents?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        if (res.status === 409) {
+          setCancelPhase("tooLate");
+        } else {
+          setCancelError(data.error ?? "Cancellation failed. Please call the center.");
+          setCancelPhase("confirming");
+        }
+        return;
+      }
+      setCancelRefundCents(data.refundCents ?? 0);
+      setCancelPhase("cancelled");
+      // Reflect in local reservation state so deposit display updates
+      setReservation((prev) => prev ? { ...prev, status: "cancelled" } : prev);
+    } catch {
+      setCancelError("Network error — please try again or call the center.");
+      setCancelPhase("confirming");
     }
   }
 
@@ -710,7 +704,122 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           </div>
 
           {/* ── Cancel / change card ── */}
-          {cfg.cancelCard(centerName, centerPhone)}
+          {reservation?.status !== "cancelled" && (
+            <div
+              className="rounded-xl border px-4 py-4 space-y-3"
+              style={{
+                backgroundColor: "rgba(255,215,0,0.06)",
+                borderColor: "rgba(255,215,0,0.35)",
+              }}
+            >
+              <div
+                className="uppercase font-bold"
+                style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
+              >
+                Need to change or cancel?
+              </div>
+
+              {/* KBF reschedule link */}
+              {cfg.changeLink && cancelPhase === "idle" && (
+                <Link
+                  href={cfg.changeLink.href}
+                  className="flex items-center justify-center w-full rounded-full px-4 py-2.5 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
+                  style={{ backgroundColor: NAVY, border: `1.5px solid ${GOLD}50` }}
+                >
+                  {cfg.changeLink.label}
+                </Link>
+              )}
+
+              {/* Phase: idle */}
+              {cancelPhase === "idle" && hasNeonRecord && (
+                <button
+                  type="button"
+                  onClick={handleRequestCancel}
+                  className="w-full text-center text-xs text-white/45 hover:text-white/75 underline underline-offset-2 transition-colors py-1"
+                >
+                  Cancel this booking
+                </button>
+              )}
+
+              {/* Phase: confirming */}
+              {cancelPhase === "confirming" && (
+                <div className="space-y-3">
+                  <p className="text-white/80 text-sm">
+                    {displayDepositPaid > 0
+                      ? `Cancel and get a full ${centsToDollars(displayDepositPaid)} refund to your card?`
+                      : "Cancel this booking?"}
+                  </p>
+                  {cancelError && (
+                    <p className="text-xs" style={{ color: CORAL }}>{cancelError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setCancelPhase("idle"); setCancelError(null); }}
+                      className="flex-1 py-2.5 rounded-full border border-white/20 font-body font-bold text-sm text-white/60 hover:text-white transition-colors uppercase tracking-wider"
+                    >
+                      Never mind
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmCancel()}
+                      className="flex-1 py-2.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
+                      style={{ backgroundColor: CORAL }}
+                    >
+                      Yes, cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Phase: cancelling */}
+              {cancelPhase === "cancelling" && (
+                <p className="text-white/60 text-sm text-center py-1 animate-pulse">
+                  Cancelling…
+                </p>
+              )}
+
+              {/* Phase: tooLate */}
+              {cancelPhase === "tooLate" && (
+                <p className="text-white/70 text-xs leading-relaxed">
+                  Cancellations must be made at least 1 hour before your start time. Please call{" "}
+                  <a
+                    className="underline hover:text-white transition-colors"
+                    href={`tel:${centerPhone.replace(/\D/g, "")}`}
+                  >
+                    {centerPhone}
+                  </a>{" "}
+                  at {centerName} for assistance.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Cancelled confirmation */}
+          {(cancelPhase === "cancelled" || reservation?.status === "cancelled") && (
+            <div
+              className="rounded-xl border px-4 py-4 space-y-1"
+              style={{
+                backgroundColor: "rgba(74,222,128,0.06)",
+                borderColor: "rgba(74,222,128,0.30)",
+              }}
+            >
+              <div
+                className="uppercase font-bold"
+                style={{ color: "#4ade80", fontSize: "10px", letterSpacing: "2.5px" }}
+              >
+                Booking cancelled
+              </div>
+              {(cancelRefundCents > 0 || (reservation?.refundCents ?? 0) > 0) && (
+                <p className="text-white/70 text-sm">
+                  {centsToDollars(cancelRefundCents || (reservation?.refundCents ?? 0))} refund will appear on your card in 3–5 business days.
+                </p>
+              )}
+              {(cancelRefundCents === 0 && (reservation?.refundCents ?? 0) === 0) && (
+                <p className="text-white/70 text-sm">No charges were made.</p>
+              )}
+            </div>
+          )}
 
           {/* ── Navigation links ── */}
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
