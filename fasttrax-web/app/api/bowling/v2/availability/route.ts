@@ -39,8 +39,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid centerId or players" }, { status: 400 });
   }
 
-  // QAMF requires StartAt === EndAt. Midnight UTC for the chosen date.
-  const bookedAt = `${startDate}T00:00:00+00:00`;
+  // QAMF requires StartAt === EndAt (point-in-time).
+  // Both centers are in Southwest Florida (Eastern time).
+  // Use 8am Eastern so QAMF returns the full day's available slots.
+  // May–Oct: EDT = -04:00; Nov–Mar: EST = -05:00.
+  const month = parseInt(startDate.slice(5, 7), 10);
+  const tzOffset = month >= 3 && month <= 11 ? "-04:00" : "-05:00";
+  const bookedAt = `${startDate}T08:00:00${tzOffset}`;
 
   try {
     const result = await searchAvailability(centerId, {

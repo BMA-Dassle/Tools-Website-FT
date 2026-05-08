@@ -213,7 +213,7 @@ export default function KidsBowlFreeV2Page() {
   const [bowlerSelections, setBowlerSelections] = useState<BowlerSelection[]>([]);
 
   // Slot selection
-  const [selectedDate, setSelectedDate] = useState(todayYmd());
+  const [selectedDate, setSelectedDate] = useState(() => bookableDateRange()[0] ?? todayYmd());
   const [availableSlots, setAvailableSlots] = useState<AvailabilitySlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
