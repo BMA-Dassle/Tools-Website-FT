@@ -668,7 +668,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       setSlotsError(null);
       setAvailableSlots([]);
       setSelectedSlot(null);
-      setSelectedMinute(null);
+      // Do NOT reset selectedHour/selectedMinute here — we want to preserve the
+      // user's time selection while the fetch runs so the UI stays filled in.
 
       type RawSlot = {
         BookedAt: string;
@@ -1958,7 +1959,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity${slotsLoading ? " opacity-40 pointer-events-none" : ""}`}>
                   {/* Calendar */}
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                     <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">Date</div>
