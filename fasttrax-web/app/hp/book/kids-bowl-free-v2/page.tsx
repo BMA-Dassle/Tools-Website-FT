@@ -3,9 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
-import CardCaptureForm, {
-  type CardCaptureHandle,
-} from "@/components/square/CardCaptureForm";
+import BowlingPaymentStep from "@/components/bowling/BowlingPaymentStep";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import {
@@ -43,8 +41,42 @@ const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
 const BG = "#0a1628";
 
-/** QAMF web offer ID for the KBF program. Only slots from this offer are shown. */
-const KBF_WEB_OFFER_ID = 152;
+/** QAMF web offer IDs for the KBF program. */
+const KBF_REGULAR_OFFER_ID = 152; // standard bowling lanes
+const KBF_VIP_OFFER_ID     = 153; // NeoVerse / HyperBowling suite
+
+const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+
+const KBF_OFFERS = [
+  {
+    id: KBF_REGULAR_OFFER_ID,
+    type: "regular" as const,
+    label: "Kids Bowl Free Regular",
+    accent: CORAL,
+    videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
+    description: "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk.",
+    features: [
+      "Standard HeadPinz lanes",
+      "Up to 6 bowlers per lane",
+      "Glow lighting in the evenings",
+      "Bring your KBF coupon to check in",
+    ],
+  },
+  {
+    id: KBF_VIP_OFFER_ID,
+    type: "vip" as const,
+    label: "Kids Bowl Free VIP",
+    accent: GOLD,
+    videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+    description: "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling.",
+    features: [
+      "VIP lounge & dedicated lanes",
+      "NeoVerse video walls",
+      "Priority check-in",
+      "Up to 6 bowlers per lane",
+    ],
+  },
+];
 
 // ── Center metadata ────────────────────────────────────────────────────────
 
@@ -244,6 +276,8 @@ export default function KidsBowlFreeV2Page() {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  // Offer type selection (Regular vs VIP) — drives which slots are shown
+  const [selectedOfferType, setSelectedOfferType] = useState<"regular" | "vip">("regular");
 
   // Shoe products + selection
   const [shoeProducts, setShoeProducts] = useState<ShoeProduct[]>([]);
@@ -270,7 +304,6 @@ export default function KidsBowlFreeV2Page() {
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
 
   // Square payment
-  const cardRef = useRef<CardCaptureHandle>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // ── Computed values ──────────────────────────────────────────────
@@ -408,31 +441,24 @@ export default function KidsBowlFreeV2Page() {
       setAvailableSlots([]);
       setSelectedSlot(null);
       try {
-        const res = await fetch(
-          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}&webOfferId=${KBF_WEB_OFFER_ID}`,
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed to load slots");
-
-        const slots: AvailabilitySlot[] = (
-          data.Availabilities as Array<{
-            BookedAt: string;
-            WebOffer: {
-              Id: number;
-              Title: string;
-              Description?: string;
-              Options?: {
-                Game?: { Id: number; GamesPerPlayer?: number }[];
-                Time?: { Id: number; Minutes?: number }[];
-                Unlimited?: { Id: number }[];
-              };
+        type RawSlot = {
+          BookedAt: string;
+          WebOffer: {
+            Id: number;
+            Title: string;
+            Description?: string;
+            Options?: {
+              Game?: { Id: number; GamesPerPlayer?: number }[];
+              Time?: { Id: number; Minutes?: number }[];
+              Unlimited?: { Id: number }[];
             };
-          }>
-        )
-          .filter((a) => a.WebOffer.Id === KBF_WEB_OFFER_ID)
-          .map((a) => {
-            // KBF is always "Game" type — prefer the 2-games-per-player option.
+          };
+        };
+
+        const parseRaw = (raw: RawSlot[]): AvailabilitySlot[] =>
+          raw.map((a) => {
             const gameOpts = a.WebOffer.Options?.Game ?? [];
+            // Prefer the 2-games-per-player option; fall back to first
             const twoGame = gameOpts.find((g) => g.GamesPerPlayer === 2) ?? gameOpts[0];
             return {
               bookedAt: a.BookedAt,
@@ -444,8 +470,30 @@ export default function KidsBowlFreeV2Page() {
             };
           });
 
-        setAvailableSlots(slots);
-        if (slots.length === 0) {
+        // Fetch Regular and VIP in parallel
+        const base = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
+        const [regRes, vipRes] = await Promise.all([
+          fetch(`${base}&webOfferId=${KBF_REGULAR_OFFER_ID}`),
+          fetch(`${base}&webOfferId=${KBF_VIP_OFFER_ID}`),
+        ]);
+
+        const [regData, vipData] = await Promise.all([
+          regRes.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
+          vipRes.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
+        ]);
+
+        // Merge — keep all slots; UI filters by selectedOfferType
+        const regSlots = parseRaw(
+          (regData.Availabilities ?? []).filter((a) => a.WebOffer.Id === KBF_REGULAR_OFFER_ID),
+        );
+        const vipSlots = parseRaw(
+          (vipData.Availabilities ?? []).filter((a) => a.WebOffer.Id === KBF_VIP_OFFER_ID),
+        );
+
+        const merged = [...regSlots, ...vipSlots];
+        setAvailableSlots(merged);
+
+        if (regSlots.length === 0 && vipSlots.length === 0) {
           setSlotsError("No slots available for this date. Try another date.");
         }
       } catch (err) {
@@ -556,23 +604,24 @@ export default function KidsBowlFreeV2Page() {
   }, [step]);
 
   // ── Submit ────────────────────────────────────────────────────────
+  //
+  // Called in two ways:
+  //   handleSubmit()         — $0 flow (no payment step, no token needed)
+  //   handleSubmit(token)    — paid flow: BowlingPaymentStep tokenizes
+  //                           internally, then calls onPay(token) which
+  //                           invokes this with the nonce already in hand.
+  //
+  // Tokenization is NEVER done here. BowlingPaymentStep owns the card
+  // widget and tokenizes before calling this, matching the pattern used
+  // by PaymentForm in the karting flow.
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (squareToken?: string) => {
     if (!selectedSlot) return;
     setBusy(true);
     setPaymentError(null);
     setStep("submitting");
 
     try {
-      // Get Square token if payment required
-      let squareToken: string | undefined;
-      if (depositCents > 0) {
-        if (!cardRef.current) throw new Error("Payment form not ready");
-        const result = await cardRef.current.tokenize();
-        if ("error" in result) throw new Error(result.error);
-        squareToken = result.token;
-      }
-
       // Fire clickwrap record (non-fatal)
       void fetch("/api/clickwrap/record", {
         method: "POST",
@@ -603,16 +652,26 @@ export default function KidsBowlFreeV2Page() {
           lineItems,
           squareToken,
           locationId: center.squareCenterCode,
-          notes: `KBF V2 – ${pass?.id ?? ""}`,
-          // Pass pre-created day-of order so bowling-orders doesn't recreate it
+          notes: `${pass?.fpass ? "Families Bowl Free" : "Kids Bowl Free"} - ${selectedBowlers.map((b) => b.displayName).join(" - ")}. Coupons verified online.`,
+          // Pass pre-created day-of order + exact deposit amount from the quote.
+          // This prevents bowling-orders from recalculating the deposit and
+          // guarantees the charged amount = the amount shown on the payment step.
           ...(quoteDayofOrderId
-            ? { dayofOrderId: quoteDayofOrderId, dayofTotalCents: quoteTotalCents }
+            ? {
+                dayofOrderId: quoteDayofOrderId,
+                dayofTotalCents: quoteTotalCents,
+                depositCents: quoteDepositCents,
+              }
             : {}),
         }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Reservation failed");
+      if (!res.ok) {
+        // Surface the Square error code/detail when available so ops can diagnose
+        const detail = data.code ? ` (${data.code}${data.detail ? `: ${data.detail}` : ""})` : "";
+        throw new Error((data.error ?? "Reservation failed") + detail);
+      }
 
       // Navigate to confirmation
       const params = new URLSearchParams({
@@ -625,9 +684,13 @@ export default function KidsBowlFreeV2Page() {
       router.push(`/hp/book/kids-bowl-free-v2/confirmation?${params.toString()}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Reservation failed";
-      setPaymentError(msg);
-      setError(msg);
-      // Back to payment or details step
+      if (depositCents > 0) {
+        // Payment errors go to the inline payment-step banner only — not the global
+        // header banner — so the message appears right next to the card form.
+        setPaymentError(msg);
+      } else {
+        setError(msg);
+      }
       setStep(depositCents > 0 ? "payment" : "details");
     } finally {
       setBusy(false);
@@ -643,6 +706,8 @@ export default function KidsBowlFreeV2Page() {
     lineItems,
     pass,
     router,
+    quoteDayofOrderId,
+    quoteTotalCents,
   ]);
 
   // ── Cancel existing reservation ─────────────────────────────────
@@ -745,7 +810,8 @@ export default function KidsBowlFreeV2Page() {
         className="min-h-screen pt-28 sm:pt-32 pb-16 px-4"
         style={{ backgroundColor: BG }}
       >
-        <div className="max-w-md mx-auto">
+        {/* Container widens on steps that have rich two-column layouts (slots, reschedule) */}
+        <div className={`mx-auto ${step === "slots" || step === "reschedule" ? "max-w-4xl" : "max-w-md"}`}>
           {/* Header */}
           {step !== "submitting" && (
             <div className="text-center mb-8">
@@ -1054,118 +1120,260 @@ export default function KidsBowlFreeV2Page() {
             const exCenter = CENTER_BY_CODE[ex.centerCode] ?? center;
             return (
               <div className="space-y-4">
-                {/* Mini existing booking header */}
-                <div
-                  className="rounded-xl px-4 py-3"
-                  style={{
-                    backgroundColor: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                  }}
-                >
-                  <div
-                    className="uppercase font-bold mb-1"
-                    style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2px" }}
-                  >
-                    Rescheduling · {exCenter.name}
-                  </div>
-                  <div className="font-body text-white/55 text-xs line-through">
-                    {formatDate(ex.bookedAt.slice(0, 10))} · {formatTime(ex.bookedAt)}
-                  </div>
-                </div>
+                <div className="md:grid md:grid-cols-[260px_1fr] md:gap-6 md:items-start">
 
-                {/* Date picker */}
-                <div>
-                  <label htmlFor="reschedule-date-picker" className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
-                    Pick a new date
-                  </label>
-                  <input
-                    id="reschedule-date-picker"
-                    type="date"
-                    min={bookableDates[0] ?? ""}
-                    max={bookableDates[bookableDates.length - 1] ?? ""}
-                    value={selectedDate}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (!isKbfBookableDate(v)) return;
-                      setSelectedDate(v);
-                      void fetchSlots(v, ex.playerCount ?? 1);
-                    }}
-                    className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-body text-sm focus:outline-none focus:border-[#fd5b56]/50"
-                  />
-                </div>
-
-                {/* Slot list — reuse same display */}
-                {slotsLoading && (
-                  <div className="flex items-center gap-2 font-body text-white/40 text-sm py-4 justify-center">
-                    <div className="w-4 h-4 border border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
-                    Loading available times…
-                  </div>
-                )}
-                {slotsError && !slotsLoading && (
-                  <div
-                    className="rounded-xl p-3 text-sm font-body"
-                    style={{
-                      backgroundColor: "rgba(253,91,86,0.08)",
-                      border: "1.5px solid rgba(253,91,86,0.25)",
-                      color: "#fd5b56",
-                    }}
-                  >
-                    {slotsError}
-                  </div>
-                )}
-                {!slotsLoading && availableSlots.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="font-body text-white/55 text-xs uppercase tracking-wider">
-                      Available times — {formatDate(selectedDate)}
-                    </p>
+                  {/* ── Left panel ── */}
+                  <div className="space-y-4">
+                    {/* Mini existing booking header */}
                     <div
-                      className="rounded-xl p-3"
+                      className="rounded-xl px-4 py-3"
                       style={{
                         backgroundColor: "rgba(255,255,255,0.04)",
                         border: "1px solid rgba(255,255,255,0.08)",
                       }}
                     >
-                      <div className="flex flex-wrap gap-2">
-                        {availableSlots.map((s) => {
-                          const on = selectedSlot?.bookedAt === s.bookedAt;
+                      <div
+                        className="uppercase font-bold mb-1"
+                        style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2px" }}
+                      >
+                        Rescheduling · {exCenter.name}
+                      </div>
+                      <div className="font-body text-white/55 text-xs line-through">
+                        {formatDate(ex.bookedAt.slice(0, 10))} · {formatTime(ex.bookedAt)}
+                      </div>
+                    </div>
+
+                    {/* Date picker */}
+                    <div>
+                      <label htmlFor="reschedule-date-picker" className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
+                        Pick a new date
+                      </label>
+                      <input
+                        id="reschedule-date-picker"
+                        type="date"
+                        min={bookableDates[0] ?? ""}
+                        max={bookableDates[bookableDates.length - 1] ?? ""}
+                        value={selectedDate}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!isKbfBookableDate(v)) return;
+                          setSelectedDate(v);
+                          void fetchSlots(v, ex.playerCount ?? 1);
+                        }}
+                        className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-body text-sm focus:outline-none focus:border-[#fd5b56]/50"
+                      />
+                    </div>
+
+                    {/* Selected time summary — desktop */}
+                    {selectedSlot && (
+                      <div
+                        className="hidden md:block rounded-xl px-4 py-3"
+                        style={{
+                          backgroundColor: "rgba(253,91,86,0.08)",
+                          border: `1px solid ${CORAL}40`,
+                        }}
+                      >
+                        <div className="font-body text-white/45 text-[10px] uppercase tracking-wider mb-1">New time</div>
+                        <div className="font-body text-white font-bold text-sm">{formatTime(selectedSlot.bookedAt)}</div>
+                        <div className="font-body text-white/50 text-xs mt-0.5">
+                          {selectedOfferType === "vip" ? "VIP Suite" : "Regular Lanes"}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CTA — desktop */}
+                    <div className="hidden md:flex md:flex-col md:gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleReschedule()}
+                        disabled={!selectedSlot || slotsLoading || busy}
+                        className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                        style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                      >
+                        {busy ? "Rescheduling…" : selectedSlot ? `Confirm — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStep("existing")}
+                        className="w-full font-body text-white/35 text-sm py-1"
+                      >
+                        ← Keep existing time
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── Right panel: offer cards ── */}
+                  <div className="space-y-3 mt-4 md:mt-0">
+                    {slotsLoading && (
+                      <div className="flex items-center gap-2 font-body text-white/40 text-sm py-8 justify-center">
+                        <div className="w-4 h-4 border border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
+                        Loading available times…
+                      </div>
+                    )}
+                    {slotsError && !slotsLoading && (
+                      <div
+                        className="rounded-xl p-3 text-sm font-body"
+                        style={{
+                          backgroundColor: "rgba(253,91,86,0.08)",
+                          border: "1.5px solid rgba(253,91,86,0.25)",
+                          color: "#fd5b56",
+                        }}
+                      >
+                        {slotsError}
+                      </div>
+                    )}
+
+                    {!slotsLoading && (
+                      <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
+                        {KBF_OFFERS.map((offer) => {
+                          const offerSlots = availableSlots.filter((s) => s.webOfferId === offer.id);
+                          const isSelected = selectedOfferType === offer.type;
+                          const accent = offer.accent;
+                          const hasSlotsAvailable = offerSlots.length > 0;
+
                           return (
-                            <button
-                              key={s.bookedAt}
-                              type="button"
-                              onClick={() => setSelectedSlot(s)}
-                              className="px-4 py-2 rounded-lg text-sm font-bold font-body transition-all"
+                            <div
+                              key={offer.id}
+                              className={`w-full rounded-xl overflow-hidden transition-all flex flex-col ${!hasSlotsAvailable && availableSlots.length > 0 ? "opacity-50" : ""}`}
                               style={{
-                                backgroundColor: on ? CORAL : "rgba(255,255,255,0.08)",
-                                color: on ? "white" : "rgba(255,255,255,0.7)",
-                                border: `1px solid ${on ? CORAL : "rgba(255,255,255,0.12)"}`,
-                                boxShadow: on ? `0 0 12px ${CORAL}40` : "none",
+                                backgroundColor: "rgba(7,16,39,0.5)",
+                                border: `1.78px dashed ${
+                                  !hasSlotsAvailable && availableSlots.length > 0
+                                    ? `${accent}30`
+                                    : isSelected
+                                    ? `${accent}AA`
+                                    : `${accent}35`
+                                }`,
+                                boxShadow: isSelected ? `0 0 24px ${accent}20` : undefined,
                               }}
                             >
-                              {formatTime(s.bookedAt)}
-                            </button>
+                              <button
+                                type="button"
+                                className="w-full text-left p-4"
+                                onClick={() => {
+                                  if (!hasSlotsAvailable && availableSlots.length > 0) return;
+                                  setSelectedOfferType(offer.type);
+                                  if (selectedSlot && selectedSlot.webOfferId !== offer.id) {
+                                    setSelectedSlot(null);
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3
+                                    className="font-heading uppercase text-white text-sm tracking-wider"
+                                    style={{ textShadow: `0 0 15px ${accent}25` }}
+                                  >
+                                    {offer.label}
+                                  </h3>
+                                  {hasSlotsAvailable && (
+                                    <span
+                                      className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                                      style={{
+                                        backgroundColor: "rgba(34,197,94,0.18)",
+                                        color: "#4ade80",
+                                        border: "1px solid rgba(74,222,128,0.4)",
+                                      }}
+                                    >
+                                      Free
+                                    </span>
+                                  )}
+                                  {!hasSlotsAvailable && availableSlots.length > 0 && (
+                                    <span
+                                      className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                                      style={{
+                                        backgroundColor: "rgba(253,91,86,0.2)",
+                                        color: CORAL,
+                                        border: `1px solid ${CORAL}40`,
+                                      }}
+                                    >
+                                      Sold out
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-body text-white/45 text-xs">{offer.description}</p>
+                              </button>
+
+                              {hasSlotsAvailable && (
+                                <div
+                                  className={isSelected ? "block" : "hidden md:block"}
+                                  style={{ borderTop: `1px solid ${accent}20` }}
+                                >
+                                  <div className="px-4 pb-4 pt-3">
+                                    <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-2">
+                                      {formatDate(selectedDate)}
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {offerSlots.map((s) => {
+                                        const on = selectedSlot?.bookedAt === s.bookedAt && selectedSlot?.webOfferId === s.webOfferId;
+                                        return (
+                                          <button
+                                            key={s.bookedAt}
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedOfferType(offer.type);
+                                              setSelectedSlot(s);
+                                            }}
+                                            className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-body transition-all"
+                                            style={{
+                                              backgroundColor: on ? accent : "rgba(255,255,255,0.08)",
+                                              color: on ? (offer.type === "vip" ? BG : "white") : "rgba(255,255,255,0.7)",
+                                              border: `1px solid ${on ? accent : "rgba(255,255,255,0.12)"}`,
+                                              boxShadow: on ? `0 0 10px ${accent}40` : "none",
+                                            }}
+                                          >
+                                            {formatTime(s.bookedAt)}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {!isSelected && hasSlotsAvailable && (
+                                <div className="md:hidden px-4 pb-3 pt-1" style={{ borderTop: `1px solid ${accent}15` }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedOfferType(offer.type);
+                                      if (selectedSlot && selectedSlot.webOfferId !== offer.id) {
+                                        setSelectedSlot(null);
+                                      }
+                                    }}
+                                    className="font-body text-xs font-bold uppercase tracking-wider"
+                                    style={{ color: accent }}
+                                  >
+                                    Select {offer.type === "vip" ? "VIP" : "Regular"} →
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
-                    </div>
+                    )}
                   </div>
-                )}
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => void handleReschedule()}
-                  disabled={!selectedSlot || slotsLoading || busy}
-                  className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
-                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-                >
-                  {busy ? "Rescheduling…" : selectedSlot ? `Confirm — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep("existing")}
-                  className="w-full font-body text-white/35 text-sm"
-                >
-                  ← Keep existing time
-                </button>
+                {/* CTA — mobile only */}
+                <div className="md:hidden space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleReschedule()}
+                    disabled={!selectedSlot || slotsLoading || busy}
+                    className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                    style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                  >
+                    {busy ? "Rescheduling…" : selectedSlot ? `Confirm — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep("existing")}
+                    className="w-full font-body text-white/35 text-sm"
+                  >
+                    ← Keep existing time
+                  </button>
+                </div>
               </div>
             );
           })()}
@@ -1320,110 +1528,288 @@ export default function KidsBowlFreeV2Page() {
           {/* ── STEP: Slots ─────────────────────────────────────────── */}
           {step === "slots" && (
             <div className="space-y-4">
-              <div>
-                <label htmlFor="kbf-date-picker" className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
-                  Select a date
-                </label>
-                <input
-                  id="kbf-date-picker"
-                  type="date"
-                  min={minDate}
-                  max={maxDate}
-                  value={selectedDate}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!isKbfBookableDate(v)) return;
-                    setSelectedDate(v);
-                    void fetchSlots(v);
-                  }}
-                  className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-body text-sm focus:outline-none focus:border-[#fd5b56]/50"
-                />
+              {/*
+                Desktop layout: two-column grid — date/controls left, offer cards right.
+                Mobile: single column, stacked.
+              */}
+              <div className="md:grid md:grid-cols-[260px_1fr] md:gap-6 md:items-start">
+
+                {/* ── Left panel: date picker + CTA (desktop) ── */}
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="kbf-date-picker" className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
+                      Select a date
+                    </label>
+                    <input
+                      id="kbf-date-picker"
+                      type="date"
+                      min={minDate}
+                      max={maxDate}
+                      value={selectedDate}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (!isKbfBookableDate(v)) return;
+                        setSelectedDate(v);
+                        void fetchSlots(v);
+                      }}
+                      className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-body text-sm focus:outline-none focus:border-[#fd5b56]/50"
+                    />
+                  </div>
+
+                  {/* Selected time summary — desktop sidebar */}
+                  {selectedSlot && (
+                    <div
+                      className="hidden md:block rounded-xl px-4 py-3"
+                      style={{
+                        backgroundColor: "rgba(253,91,86,0.08)",
+                        border: `1px solid ${CORAL}40`,
+                      }}
+                    >
+                      <div className="font-body text-white/45 text-[10px] uppercase tracking-wider mb-1">Selected</div>
+                      <div className="font-body text-white font-bold text-sm">{formatTime(selectedSlot.bookedAt)}</div>
+                      <div className="font-body text-white/50 text-xs mt-0.5">
+                        {selectedOfferType === "vip" ? "VIP Suite" : "Regular Lanes"}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* CTA buttons — desktop sidebar */}
+                  <div className="hidden md:flex md:flex-col md:gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedSlot) { setError("Please select a time slot"); return; }
+                        setError(null);
+                        setStep("shoes");
+                      }}
+                      disabled={!selectedSlot || slotsLoading}
+                      className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                      style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                    >
+                      {selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep("bowlers")}
+                      className="w-full font-body text-white/35 text-sm py-1"
+                    >
+                      ← Back
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Right panel: offer cards ── */}
+                <div className="space-y-3 mt-4 md:mt-0">
+                  {slotsLoading && (
+                    <div className="flex items-center gap-2 font-body text-white/40 text-sm py-8 justify-center">
+                      <div className="w-4 h-4 border border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
+                      Loading available times…
+                    </div>
+                  )}
+
+                  {slotsError && !slotsLoading && availableSlots.length === 0 && (
+                    <div
+                      className="rounded-xl p-3 text-sm font-body"
+                      style={{
+                        backgroundColor: "rgba(253,91,86,0.08)",
+                        border: "1.5px solid rgba(253,91,86,0.25)",
+                        color: "#fd5b56",
+                      }}
+                    >
+                      {slotsError}
+                    </div>
+                  )}
+
+                  {/* Regular / VIP cards — side-by-side on desktop */}
+                  {!slotsLoading && (
+                    <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
+                      {KBF_OFFERS.map((offer) => {
+                        const offerSlots = availableSlots.filter((s) => s.webOfferId === offer.id);
+                        const isSelected = selectedOfferType === offer.type;
+                        const accent = offer.accent;
+                        const hasSlotsAvailable = offerSlots.length > 0;
+
+                        return (
+                          <div
+                            key={offer.id}
+                            className={`w-full rounded-xl overflow-hidden transition-all flex flex-col ${!hasSlotsAvailable && availableSlots.length > 0 ? "opacity-50" : ""}`}
+                            style={{
+                              backgroundColor: "rgba(7,16,39,0.5)",
+                              border: `1.78px dashed ${
+                                !hasSlotsAvailable && availableSlots.length > 0
+                                  ? `${accent}30`
+                                  : isSelected
+                                  ? `${accent}AA`
+                                  : `${accent}35`
+                              }`,
+                              boxShadow: isSelected ? `0 0 24px ${accent}20` : undefined,
+                            }}
+                          >
+                            {/* Card header — video + info */}
+                            <button
+                              type="button"
+                              className="w-full text-left"
+                              onClick={() => {
+                                if (!hasSlotsAvailable && availableSlots.length > 0) return;
+                                setSelectedOfferType(offer.type);
+                                if (selectedSlot && selectedSlot.webOfferId !== offer.id) {
+                                  setSelectedSlot(null);
+                                }
+                              }}
+                            >
+                              {/* On desktop (side-by-side cards) video stacks on top; on mobile it's sm:flex-row */}
+                              <div className="flex flex-col">
+                                <div className="relative w-full h-32 overflow-hidden">
+                                  <video
+                                    autoPlay
+                                    muted
+                                    loop
+                                    playsInline
+                                    preload="metadata"
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    key={offer.videoUrl}
+                                  >
+                                    <source src={offer.videoUrl} type="video/mp4" />
+                                  </video>
+                                  <div className="absolute inset-0 bg-gradient-to-t from-[#071027]/80 to-transparent pointer-events-none" />
+                                </div>
+                                <div className="p-4">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h3
+                                      className="font-heading uppercase text-white text-sm tracking-wider"
+                                      style={{ textShadow: `0 0 15px ${accent}25` }}
+                                    >
+                                      {offer.label}
+                                    </h3>
+                                    {hasSlotsAvailable && (
+                                      <span
+                                        className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                                        style={{
+                                          backgroundColor: "rgba(34,197,94,0.18)",
+                                          color: "#4ade80",
+                                          border: "1px solid rgba(74,222,128,0.4)",
+                                        }}
+                                      >
+                                        Free
+                                      </span>
+                                    )}
+                                    {!hasSlotsAvailable && availableSlots.length > 0 && (
+                                      <span
+                                        className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                                        style={{
+                                          backgroundColor: "rgba(253,91,86,0.2)",
+                                          color: CORAL,
+                                          border: `1px solid ${CORAL}40`,
+                                        }}
+                                      >
+                                        Sold out
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="font-body text-white/55 text-xs leading-relaxed mb-2">
+                                    {offer.description}
+                                  </p>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {offer.features.map((f) => (
+                                      <span key={f} className="font-body text-white/40 text-xs flex items-center gap-1">
+                                        <span style={{ color: accent }}>·</span> {f}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+
+                            {/* Time pills:
+                                Mobile — only shown when this offer is selected (saves space).
+                                Desktop — always shown so both grids are visible side-by-side.
+                                Clicking any pill also selects this offer type. */}
+                            {hasSlotsAvailable && (
+                              <div
+                                className={isSelected ? "block" : "hidden md:block"}
+                                style={{ borderTop: `1px solid ${accent}20` }}
+                              >
+                                <div className="px-4 pb-4 pt-3">
+                                  <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-2">
+                                    {formatDate(selectedDate)}
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {offerSlots.map((s) => {
+                                      const on = selectedSlot?.bookedAt === s.bookedAt && selectedSlot?.webOfferId === s.webOfferId;
+                                      return (
+                                        <button
+                                          key={s.bookedAt}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedOfferType(offer.type);
+                                            setSelectedSlot(s);
+                                          }}
+                                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-body transition-all"
+                                          style={{
+                                            backgroundColor: on ? accent : "rgba(255,255,255,0.08)",
+                                            color: on ? (offer.type === "vip" ? BG : "white") : "rgba(255,255,255,0.7)",
+                                            border: `1px solid ${on ? accent : "rgba(255,255,255,0.12)"}`,
+                                            boxShadow: on ? `0 0 10px ${accent}40` : "none",
+                                          }}
+                                        >
+                                          {formatTime(s.bookedAt)}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* "Select X →" prompt — mobile only (desktop shows pills directly) */}
+                            {!isSelected && hasSlotsAvailable && (
+                              <div className="md:hidden px-4 pb-3 pt-1" style={{ borderTop: `1px solid ${accent}15` }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedOfferType(offer.type);
+                                    if (selectedSlot && selectedSlot.webOfferId !== offer.id) {
+                                      setSelectedSlot(null);
+                                    }
+                                  }}
+                                  className="font-body text-xs font-bold uppercase tracking-wider"
+                                  style={{ color: accent }}
+                                >
+                                  Select {offer.type === "vip" ? "VIP" : "Regular"} →
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {slotsLoading && (
-                <div className="flex items-center gap-2 font-body text-white/40 text-sm py-4 justify-center">
-                  <div className="w-4 h-4 border border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
-                  Loading available times…
-                </div>
-              )}
-
-              {slotsError && !slotsLoading && (
-                <div
-                  className="rounded-xl p-3 text-sm font-body"
-                  style={{
-                    backgroundColor: "rgba(253,91,86,0.08)",
-                    border: "1.5px solid rgba(253,91,86,0.25)",
-                    color: "#fd5b56",
+              {/* CTA buttons — mobile only (desktop renders them in the left sidebar) */}
+              <div className="md:hidden space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedSlot) { setError("Please select a time slot"); return; }
+                    setError(null);
+                    setStep("shoes");
                   }}
+                  disabled={!selectedSlot || slotsLoading}
+                  className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
-                  {slotsError}
-                </div>
-              )}
-
-              {!slotsLoading && availableSlots.length > 0 && (
-                <div className="space-y-2">
-                  <p className="font-body text-white/55 text-xs uppercase tracking-wider">
-                    Available times — {formatDate(selectedDate)}
-                  </p>
-                  {/* Group by offer */}
-                  {Array.from(new Set(availableSlots.map((s) => s.webOfferId))).map((offerId) => {
-                    const offerSlots = availableSlots.filter((s) => s.webOfferId === offerId);
-                    const offerTitle = offerSlots[0].webOfferTitle;
-                    return (
-                      <div key={offerId} className="rounded-xl p-3" style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                        <div className="font-body text-white/70 text-xs font-bold mb-2 uppercase tracking-wider">
-                          {offerTitle}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {offerSlots.map((s) => {
-                            const on = selectedSlot?.bookedAt === s.bookedAt && selectedSlot?.webOfferId === s.webOfferId;
-                            return (
-                              <button
-                                key={s.bookedAt}
-                                type="button"
-                                onClick={() => setSelectedSlot(s)}
-                                className="px-4 py-2 rounded-lg text-sm font-bold font-body transition-all"
-                                style={{
-                                  backgroundColor: on ? CORAL : "rgba(255,255,255,0.08)",
-                                  color: on ? "white" : "rgba(255,255,255,0.7)",
-                                  border: `1px solid ${on ? CORAL : "rgba(255,255,255,0.12)"}`,
-                                  boxShadow: on ? `0 0 12px ${CORAL}40` : "none",
-                                }}
-                              >
-                                {formatTime(s.bookedAt)}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (!selectedSlot) {
-                    setError("Please select a time slot");
-                    return;
-                  }
-                  setError(null);
-                  setStep("shoes");
-                }}
-                disabled={!selectedSlot || slotsLoading}
-                className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
-                style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-              >
-                Continue
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("bowlers")}
-                className="w-full font-body text-white/35 text-sm"
-              >
-                ← Back
-              </button>
+                  {selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("bowlers")}
+                  className="w-full font-body text-white/35 text-sm"
+                >
+                  ← Back
+                </button>
+              </div>
             </div>
           )}
 
@@ -1719,63 +2105,15 @@ export default function KidsBowlFreeV2Page() {
 
           {/* ── STEP: Payment ────────────────────────────────────────── */}
           {step === "payment" && (
-            <div className="space-y-5">
-              <h2 className="font-heading uppercase text-white text-lg tracking-wider text-center">
-                Secure Payment
-              </h2>
-              <div
-                className="rounded-xl p-4 text-sm"
-                style={{
-                  backgroundColor: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                }}
-              >
-                <div className="flex justify-between font-body">
-                  <span className="text-white/55">Deposit due now</span>
-                  <span className="text-white font-bold">${(depositCents / 100).toFixed(2)}</span>
-                </div>
-                {displayShoeTotal - depositCents > 0 && (
-                  <div className="flex justify-between font-body mt-1">
-                    <span className="text-white/35 text-xs">Remaining at center</span>
-                    <span className="text-white/35 text-xs">${((displayShoeTotal - depositCents) / 100).toFixed(2)}</span>
-                  </div>
-                )}
-              </div>
-
-              <CardCaptureForm
-                ref={cardRef}
-                locationId={center.locationKey}
-              />
-
-              {paymentError && (
-                <div
-                  className="rounded-xl p-3 text-sm font-body"
-                  style={{
-                    backgroundColor: "rgba(253,91,86,0.12)",
-                    border: "1.5px solid rgba(253,91,86,0.35)",
-                    color: "#fd5b56",
-                  }}
-                >
-                  {paymentError}
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("details")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
-                <button
-                  type="button"
-                  onClick={() => void handleSubmit()}
-                  disabled={busy}
-                  className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
-                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
-                >
-                  {busy ? "Processing…" : `Pay $${(depositCents / 100).toFixed(2)}`}
-                </button>
-              </div>
-              <p className="text-center font-body text-white/20 text-xs">
-                Secured by Square. Your card details never touch our servers.
-              </p>
-            </div>
+            <BowlingPaymentStep
+              depositCents={depositCents}
+              totalCents={displayShoeTotal}
+              locationId={center.locationKey}
+              paymentError={paymentError}
+              busy={busy}
+              onBack={() => setStep("details")}
+              onPay={(token) => void handleSubmit(token)}
+            />
           )}
 
           {/* ── STEP: Submitting ─────────────────────────────────────── */}

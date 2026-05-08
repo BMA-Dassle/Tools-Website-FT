@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { createReservation } from "@/lib/qamf-bowling";
+import { createReservation, setReservationStatus } from "@/lib/qamf-bowling";
 import {
   getBowlingSquareProduct,
   insertBowlingReservation,
@@ -78,6 +78,12 @@ interface ReserveBody {
   dayofOrderId?: string;
   /** Tax-inclusive total of the pre-created day-of order (cents). */
   dayofTotalCents?: number;
+  /**
+   * Pre-computed deposit amount from the quote step (cents, tax-inclusive).
+   * When provided this is used as-is for the deposit charge — no recalculation.
+   * This ensures the charged amount is identical to the amount shown to the user.
+   */
+  depositCents?: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -214,6 +220,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Reservation failed: ${msg}` }, { status: 502 });
   }
 
+  // ── Confirm QAMF reservation (moves from Temporary → Confirmed) ──
+  // QAMF creates all reservations as Temporary; they won't appear in
+  // Conqueror until we explicitly set status = Confirmed.
+  try {
+    await setReservationStatus(centerId, qamfReservationId, "Confirmed");
+  } catch (err) {
+    // Non-fatal for the booking itself — the slot is held even while Temporary.
+    // Log so ops can identify and manually confirm if needed.
+    console.error("[bowling/v2/reserve] setReservationStatus failed:", err);
+  }
+
   // ── Square payment (deposit + day-of order) ─────────────────────
   let squareDepositOrderId: string | undefined;
   let squareDepositPaymentId: string | undefined;
@@ -250,10 +267,13 @@ export async function POST(req: NextRequest) {
         lineItems: sqLineItems,
         squareCustomerId: body.squareCustomerId,
         note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
-        // Pass pre-created day-of order if provided (avoids duplicate creation)
+        // Pass pre-created day-of order if provided (avoids duplicate creation).
+        // Also forward the pre-computed deposit amount so bowling-orders uses
+        // the exact figure shown to the customer rather than recalculating.
         ...(body.dayofOrderId ? {
           existingDayofOrderId: body.dayofOrderId,
           existingDayofTotalCents: body.dayofTotalCents,
+          existingDepositCents: body.depositCents,
         } : {}),
       }),
     });
@@ -267,8 +287,13 @@ export async function POST(req: NextRequest) {
       } catch {
         // Non-fatal
       }
+      // Forward Square error code + detail so the client can show a specific message
       return NextResponse.json(
-        { error: sqData.error ?? "Payment failed" },
+        {
+          error: sqData.error ?? "Payment failed",
+          code: sqData.code,
+          detail: sqData.detail,
+        },
         { status: sqRes.status },
       );
     }

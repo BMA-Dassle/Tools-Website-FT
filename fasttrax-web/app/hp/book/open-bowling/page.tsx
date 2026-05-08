@@ -3,9 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
-import CardCaptureForm, {
-  type CardCaptureHandle,
-} from "@/components/square/CardCaptureForm";
+import BowlingPaymentStep from "@/components/bowling/BowlingPaymentStep";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import {
   getBookingLocation,
@@ -58,7 +56,7 @@ const CENTERS = [
     squareCenterCode: "PPTR5G2N0QXF7",
     locationKey: "naples" as const,
     name: "HeadPinz Naples",
-    address: "4360 Thomasson Dr, Naples",
+    address: "8525 Radio Ln, Naples",
     phone: "(239) 455-3755",
   },
 ];
@@ -167,12 +165,19 @@ export default function OpenBowlingPage() {
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
 
+  // ── Square day-of order quote (fetched on review step entry) ────────
+  // Gives us the tax-inclusive total before the customer enters a card.
+  const [quoteDayofOrderId, setQuoteDayofOrderId] = useState<string | null>(null);
+  const [quoteTotalCents, setQuoteTotalCents] = useState(0);
+  const [quoteDepositCents, setQuoteDepositCents] = useState(0);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState("");
+
   // ── Payment + submission ──────────────────────────────────────────
   const [agreed, setAgreed] = useState(false);
   const [paymentError, setPaymentError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const cardRef = useRef<CardCaptureHandle>(null);
 
   // ── URL param init ────────────────────────────────────────────────
   useEffect(() => {
@@ -185,6 +190,71 @@ export default function OpenBowlingPage() {
       setBookingLocation("headpinz");
     }
   }, [searchParams]);
+
+  // ── Quote fetch: tax-inclusive totals from Square ────────────────
+  // Clear stale quote when the user backs up to the shoes step.
+  // Re-fetch when entering the review step with priced items.
+  useEffect(() => {
+    if (step === "shoes") {
+      setQuoteDayofOrderId(null);
+      setQuoteTotalCents(0);
+      setQuoteDepositCents(0);
+      setQuoteError("");
+      return;
+    }
+    if (step !== "review") return;
+    if (lineItems.length === 0) return; // no-op for $0 bookings
+
+    setQuoteLoading(true);
+    setQuoteError("");
+
+    const sqLineItems = lineItems.map((l) => {
+      const prod =
+        l.squareProductId === baseProduct?.id ? baseProduct :
+        l.squareProductId === shoeProducts[0]?.id ? shoeProducts[0] : null;
+      return {
+        name: l.label,
+        quantity: String(l.quantity),
+        ...(prod?.squareCatalogObjectId
+          ? { catalogObjectId: prod.squareCatalogObjectId }
+          : { basePriceMoney: { amount: l.unitPriceCents, currency: "USD" as const } }),
+      };
+    });
+
+    // Compute weighted deposit pct — same logic as /api/bowling/v2/reserve
+    const preTaxTotal = lineItems.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0);
+    const preTaxDeposit = lineItems.reduce((s, l) => s + l.depositCents, 0);
+    const depositPct = preTaxTotal > 0 ? Math.round((preTaxDeposit / preTaxTotal) * 100) : 100;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/square/bowling-orders/quote", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            locationId: center.squareCenterCode,
+            lineItems: sqLineItems,
+            depositPct,
+          }),
+        });
+        const data = await res.json() as {
+          dayofOrderId?: string;
+          dayofTotalCents?: number;
+          depositCents?: number;
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error ?? "Failed to get price");
+        setQuoteDayofOrderId(data.dayofOrderId ?? null);
+        setQuoteTotalCents(data.dayofTotalCents ?? 0);
+        setQuoteDepositCents(data.depositCents ?? 0);
+      } catch (err) {
+        setQuoteError(err instanceof Error ? err.message : "Failed to load price");
+      } finally {
+        setQuoteLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // ── Derived totals ────────────────────────────────────────────────
   const lineItems: LineItem[] = [];
@@ -230,30 +300,40 @@ export default function OpenBowlingPage() {
         service: "BookForLater",
       });
       const res = await fetch(`/api/bowling/v2/availability?${params.toString()}`);
+      // Route returns PascalCase QAMF fields: { Availabilities: [...] }
       const data = await res.json() as {
-        availabilities?: Array<{
-          bookedAt: string;
-          webOffer: { id: number; title: string; openType: string; options?: { game?: { id: number }[]; time?: { id: number }[]; unlimited?: { id: number }[] } };
+        Availabilities?: Array<{
+          BookedAt: string;
+          WebOffer: {
+            Id: number;
+            Title: string;
+            OpenType?: string;
+            Options?: {
+              Game?: { Id: number }[];
+              Time?: { Id: number }[];
+              Unlimited?: { Id: number }[];
+            };
+          };
         }>;
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Failed to load slots");
 
-      const raw = data.availabilities ?? [];
+      const raw = data.Availabilities ?? [];
       const mapped: AvailabilitySlot[] = raw.map((a) => {
         // Pick the first option ID from the web offer
-        const opts = a.webOffer.options ?? {};
+        const opts = a.WebOffer.Options ?? {};
         let optionId: number | undefined;
         let optionType: "Game" | "Time" | "Unlimited" | undefined;
-        if (opts.game?.[0]) { optionId = opts.game[0].id; optionType = "Game"; }
-        else if (opts.time?.[0]) { optionId = opts.time[0].id; optionType = "Time"; }
-        else if (opts.unlimited?.[0]) { optionId = opts.unlimited[0].id; optionType = "Unlimited"; }
+        if (opts.Game?.[0]) { optionId = opts.Game[0].Id; optionType = "Game"; }
+        else if (opts.Time?.[0]) { optionId = opts.Time[0].Id; optionType = "Time"; }
+        else if (opts.Unlimited?.[0]) { optionId = opts.Unlimited[0].Id; optionType = "Unlimited"; }
 
         return {
-          bookedAt: a.bookedAt,
-          webOfferId: a.webOffer.id,
-          webOfferTitle: a.webOffer.title,
-          openType: a.webOffer.openType,
+          bookedAt: a.BookedAt,
+          webOfferId: a.WebOffer.Id,
+          webOfferTitle: a.WebOffer.Title,
+          openType: a.WebOffer.OpenType ?? "",
           optionId,
           optionType,
         };
@@ -268,13 +348,14 @@ export default function OpenBowlingPage() {
   }, [center.qamfId, playerCount, selectedDate]);
 
   // ── Load shoe products ────────────────────────────────────────────
+  // Route returns a plain BowlingSquareProduct[] array (not { products: [] }).
   const loadShoeProducts = useCallback(async () => {
     try {
       const res = await fetch(
         `/api/bowling/v2/square-products?centerCode=${center.squareCenterCode}&kind=addon_shoe`,
       );
-      const data = await res.json() as { products?: BowlingSquareProduct[] };
-      setShoeProducts(data.products ?? []);
+      const data = await res.json() as BowlingSquareProduct[];
+      setShoeProducts(Array.isArray(data) ? data : []);
     } catch {
       setShoeProducts([]);
     }
@@ -286,8 +367,8 @@ export default function OpenBowlingPage() {
       const res = await fetch(
         `/api/bowling/v2/square-products?centerCode=${center.squareCenterCode}&kind=open`,
       );
-      const data = await res.json() as { products?: BowlingSquareProduct[] };
-      const prods = data.products ?? [];
+      const data = await res.json() as BowlingSquareProduct[];
+      const prods = Array.isArray(data) ? data : [];
       // Match by qamfWebOfferId; fall back to first active open product
       const match =
         prods.find((p) => p.qamfWebOfferId === slot.webOfferId) ?? prods[0] ?? null;
@@ -304,10 +385,10 @@ export default function OpenBowlingPage() {
         fetch(`/api/bowling/v2/square-products?centerCode=${center.squareCenterCode}&kind=addon_attraction`),
         fetch(`/api/bowling/v2/square-products?centerCode=${center.squareCenterCode}&kind=addon_food`),
       ]);
-      const attrData = await attrRes.json() as { products?: BowlingSquareProduct[] };
-      const foodData = await foodRes.json() as { products?: BowlingSquareProduct[] };
-      setAttractionProducts(attrData.products ?? []);
-      setFoodProducts(foodData.products ?? []);
+      const attrData = await attrRes.json() as BowlingSquareProduct[];
+      const foodData = await foodRes.json() as BowlingSquareProduct[];
+      setAttractionProducts(Array.isArray(attrData) ? attrData : []);
+      setFoodProducts(Array.isArray(foodData) ? foodData : []);
     } catch {
       setAttractionProducts([]);
       setFoodProducts([]);
@@ -315,27 +396,14 @@ export default function OpenBowlingPage() {
   }, [center.squareCenterCode]);
 
   // ── Submit ────────────────────────────────────────────────────────
-  const handleSubmit = useCallback(async () => {
+  // Tokenization is owned by BowlingPaymentStep (matching PaymentForm
+  // pattern in karting). This receives the token as a parameter.
+  const handleSubmit = useCallback(async (squareToken?: string) => {
     if (!selectedSlot) return;
     setBusy(true);
     setPaymentError("");
     setError("");
-
-    let squareToken: string | undefined;
-    if (depositCents > 0) {
-      const result = await cardRef.current?.tokenize();
-      if (!result || "error" in result) {
-        const msg = typeof result === "object" && "error" in result
-          ? result.error
-          : "Card tokenization failed";
-        setPaymentError(msg as string);
-        setError(msg as string);
-        setStep("payment");
-        setBusy(false);
-        return;
-      }
-      squareToken = result.token;
-    }
+    setStep("submitting");
 
     const reserveLineItems = lineItems.map((l) => ({
       squareProductId: l.squareProductId,
@@ -358,6 +426,11 @@ export default function OpenBowlingPage() {
           lineItems: reserveLineItems,
           squareToken,
           locationId: center.squareCenterCode,
+          // Pass pre-created day-of order + exact deposit so bowling-orders
+          // uses the amount shown to the customer rather than recalculating.
+          ...(quoteDayofOrderId
+            ? { dayofOrderId: quoteDayofOrderId, dayofTotalCents: quoteTotalCents, depositCents: quoteDepositCents }
+            : {}),
         }),
       });
       const data = await res.json() as {
@@ -395,6 +468,9 @@ export default function OpenBowlingPage() {
     guestEmail,
     guestPhone,
     router,
+    quoteDayofOrderId,
+    quoteTotalCents,
+    quoteDepositCents,
   ]);
 
   // ── Render ────────────────────────────────────────────────────────
@@ -904,14 +980,34 @@ export default function OpenBowlingPage() {
                 {totalCents > 0 && (
                   <>
                     <div className="border-t border-white/10 pt-2 mt-1">
-                      <ReviewRow label="Total" value={centsToDollars(totalCents)} />
+                      {/* Show tax-inclusive total from Square quote; fall back to pre-tax estimate */}
                       <ReviewRow
-                        label={`Due now (deposit)`}
-                        value={centsToDollars(depositCents)}
+                        label="Total"
+                        value={quoteLoading ? "calculating…" : centsToDollars(quoteTotalCents > 0 ? quoteTotalCents : totalCents)}
+                      />
+                      {quoteTotalCents > totalCents && !quoteLoading && (
+                        <div className="flex justify-between text-xs text-white/35">
+                          <span>Incl. sales tax</span>
+                          <span>+{centsToDollars(quoteTotalCents - totalCents)}</span>
+                        </div>
+                      )}
+                      <ReviewRow
+                        label="Due now (deposit)"
+                        value={quoteLoading ? "calculating…" : centsToDollars(quoteDepositCents > 0 ? quoteDepositCents : depositCents)}
                         highlight
                       />
-                      {remainingCents > 0 && (
-                        <ReviewRow label="Balance at center" value={centsToDollars(remainingCents)} />
+                      {(() => {
+                        const displayTotal = quoteTotalCents > 0 ? quoteTotalCents : totalCents;
+                        const displayDeposit = quoteDepositCents > 0 ? quoteDepositCents : depositCents;
+                        const displayRemaining = displayTotal - displayDeposit;
+                        return displayRemaining > 0 && !quoteLoading ? (
+                          <ReviewRow label="Balance at center" value={centsToDollars(displayRemaining)} />
+                        ) : null;
+                      })()}
+                      {quoteError && (
+                        <div className="text-xs mt-1" style={{ color: CORAL }}>
+                          {quoteError} — amount shown is pre-tax estimate.
+                        </div>
                       )}
                     </div>
                   </>
@@ -926,11 +1022,15 @@ export default function OpenBowlingPage() {
 
               <button
                 onClick={() => setStep("payment")}
-                disabled={depositCents === 0 && !baseProduct}
+                disabled={(depositCents === 0 && !baseProduct) || quoteLoading}
                 className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: CORAL }}
               >
-                {depositCents > 0 ? `Pay Deposit — ${centsToDollars(depositCents)}` : "Confirm Booking"}
+                {quoteLoading
+                  ? "Calculating…"
+                  : (quoteDepositCents > 0 || depositCents > 0)
+                    ? `Pay Deposit — ${centsToDollars(quoteDepositCents > 0 ? quoteDepositCents : depositCents)}`
+                    : "Confirm Booking"}
               </button>
               <button
                 onClick={() => setStep("details")}
@@ -943,57 +1043,20 @@ export default function OpenBowlingPage() {
 
           {/* ── STEP: payment ── */}
           {step === "payment" && (
-            <div>
-              <h2 className="font-heading font-black uppercase italic text-white text-xl mb-2">
-                Payment
-              </h2>
-              <p className="text-white/45 text-sm mb-5">
-                Deposit due today:{" "}
-                <span className="text-white font-semibold">{centsToDollars(depositCents)}</span>
-                {remainingCents > 0 && (
-                  <> · Balance at center: {centsToDollars(remainingCents)}</>
-                )}
-              </p>
-
-              <div className="mb-4">
-                <CardCaptureForm
-                  ref={cardRef}
-                  locationId={center.squareCenterCode}
-                />
-              </div>
-
-              {paymentError && (
-                <div
-                  className="mb-4 rounded-xl p-3 text-sm"
-                  style={{ backgroundColor: "rgba(253,91,86,0.1)", color: CORAL }}
-                >
-                  {paymentError}
-                </div>
-              )}
-
-              <ClickwrapCheckbox
-                checked={agreed}
-                onChange={setAgreed}
-              />
-
-              <button
-                disabled={!agreed || busy}
-                onClick={() => {
-                  setStep("submitting");
-                  handleSubmit();
-                }}
-                className="w-full mt-4 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ backgroundColor: CORAL }}
-              >
-                {busy ? "Processing…" : `Pay ${centsToDollars(depositCents)} & Reserve`}
-              </button>
-              <button
-                onClick={() => setStep("review")}
-                className="w-full mt-2 py-2 text-sm font-body text-white/40 hover:text-white/70 transition-colors"
-              >
-                ← Back
-              </button>
-            </div>
+            <BowlingPaymentStep
+              depositCents={quoteDepositCents > 0 ? quoteDepositCents : depositCents}
+              totalCents={quoteTotalCents > 0 ? quoteTotalCents : totalCents}
+              locationId={center.squareCenterCode}
+              paymentError={paymentError}
+              busy={busy}
+              heading="Payment"
+              payLabel={`Pay ${centsToDollars(quoteDepositCents > 0 ? quoteDepositCents : depositCents)} & Reserve`}
+              payDisabled={!agreed}
+              onBack={() => setStep("review")}
+              onPay={(token) => { handleSubmit(token); }}
+            >
+              <ClickwrapCheckbox checked={agreed} onChange={setAgreed} />
+            </BowlingPaymentStep>
           )}
 
           {/* ── STEP: submitting ── */}

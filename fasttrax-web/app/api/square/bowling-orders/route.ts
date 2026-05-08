@@ -94,6 +94,12 @@ export async function POST(req: NextRequest) {
       existingDayofOrderId?: string;
       /** Tax-inclusive total of the pre-created day-of order (cents). */
       existingDayofTotalCents?: number;
+      /**
+       * Pre-computed deposit amount from the quote (cents, tax-inclusive).
+       * When provided, used directly instead of recalculating from dayofTotal × depositPct.
+       * Ensures the charged amount is identical to what was shown to the customer.
+       */
+      existingDepositCents?: number;
     };
 
     const {
@@ -183,8 +189,12 @@ export async function POST(req: NextRequest) {
       dayofTotalCents = (dayofOrderData.order?.total_money?.amount as number) ?? 0;
     }
 
-    // Deposit is a percentage of the tax-inclusive total
-    const depositCents = Math.round(dayofTotalCents * depositPct / 100);
+    // Deposit amount: use pre-computed figure from the quote when available
+    // (guarantees the charge matches exactly what was shown to the customer),
+    // otherwise derive it as a percentage of the tax-inclusive day-of total.
+    const depositCents = body.existingDepositCents != null
+      ? body.existingDepositCents
+      : Math.round(dayofTotalCents * depositPct / 100);
 
     if (depositCents <= 0) {
       // Nothing to charge — return without creating deposit order
@@ -237,9 +247,12 @@ export async function POST(req: NextRequest) {
     // ─────────────────────────────────────────────────────────────────
     // Step 3: Charge the deposit (autocomplete: true — immediate)
     // ─────────────────────────────────────────────────────────────────
+    // Square Payments API idempotency_key max = 45 chars.
+    // UUID alone = 36 chars; prefix must be ≤ 9 chars.
+    // "pay-" (4) + UUID (36) = 40 — within limit.
     const paymentBody: Record<string, unknown> = {
       source_id: sourceId,
-      idempotency_key: `bowl-dep-pay-${baseKey}`,
+      idempotency_key: `pay-${baseKey}`,
       amount_money: { amount: depositCents, currency: "USD" },
       order_id: depositOrderId,
       location_id: locationId,
@@ -270,6 +283,19 @@ export async function POST(req: NextRequest) {
         CARD_DECLINED: "Card declined. Please try a different card.",
         CARD_DECLINED_VERIFICATION_REQUIRED:
           "Additional verification required. Please try again.",
+        VERIFY_AVS_FAILURE:
+          "Address verification failed. Check your billing zip code and try again.",
+        ADDRESS_VERIFICATION_FAILURE:
+          "Address verification failed. Check your billing zip code and try again.",
+        CARD_TOKEN_USED_BEFORE:
+          "Payment token already used. Please re-enter your card details.",
+        CARD_TOKEN_EXPIRED:
+          "Payment session expired. Please re-enter your card details.",
+        INVALID_CARD:
+          "Card number could not be validated. Please check and try again.",
+        TRANSACTION_LIMIT:
+          "Transaction limit exceeded. Please try a different card.",
+        BAD_EXPIRATION: "Card expiration date is invalid. Please check and try again.",
       };
 
       return NextResponse.json(

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createReservation, deleteReservation } from "@/lib/qamf-bowling";
+import { createReservation, deleteReservation, setReservationStatus } from "@/lib/qamf-bowling";
 import { getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
 
 /**
@@ -129,6 +129,15 @@ export async function PATCH(
       { error: `Reschedule failed: ${msg}` },
       { status: 502 },
     );
+  }
+
+  // ── Confirm the new QAMF reservation ────────────────────────────
+  // QAMF creates as Temporary; must call Confirmed so it appears in Conqueror.
+  try {
+    await setReservationStatus(qamfCenterId, newQamfId, "Confirmed");
+  } catch (err) {
+    console.error("[bowling/v2/reschedule] setReservationStatus failed:", err);
+    // Non-fatal — slot is held. Log for manual follow-up.
   }
 
   // ── Update Neon ──────────────────────────────────────────────────

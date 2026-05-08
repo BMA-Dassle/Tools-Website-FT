@@ -17,7 +17,6 @@ import { searchAvailability } from "@/lib/qamf-bowling";
  *   players     — number of players (required)
  *   startDate   — ISO date string 'YYYY-MM-DD' (required)
  *   webOfferId  — filter to a specific QAMF web offer ID (optional but recommended)
- *   service     — 'BookForLater' | 'PlayNow' (default: 'BookForLater')
  */
 
 // Probe times: 9:00 am to 11:30 pm in 30-min increments
@@ -40,13 +39,10 @@ function buildProbeTimes(date: string, tzOffset: string): string[] {
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
-  const centerIdStr = searchParams.get("centerId");
-  const playersStr  = searchParams.get("players");
-  const startDate   = searchParams.get("startDate");
+  const centerIdStr   = searchParams.get("centerId");
+  const playersStr    = searchParams.get("players");
+  const startDate     = searchParams.get("startDate");
   const webOfferIdStr = searchParams.get("webOfferId");
-  const service = (searchParams.get("service") ?? "BookForLater") as
-    | "BookForLater"
-    | "PlayNow";
 
   if (!centerIdStr || !playersStr || !startDate) {
     return NextResponse.json(
@@ -69,8 +65,8 @@ export async function GET(req: NextRequest) {
 
   const probeTimes = buildProbeTimes(startDate, tzOffset);
 
-  const webOfferFilter: { Id?: number; Services: ("BookForLater" | "PlayNow")[] } = {
-    Services: [service],
+  const webOfferFilter: { Id?: number; Services: "BookForLater"[] } = {
+    Services: ["BookForLater"],
     ...(webOfferId ? { Id: webOfferId } : {}),
   };
 
