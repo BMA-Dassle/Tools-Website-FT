@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getBowlingReservation,
   getReservationPlayersWithShoeAllowance,
+  insertReservationPlayers,
   upsertReservationPlayer,
 } from "@/lib/bowling-db";
 import { upsertMemberPref } from "@/lib/kbf-prefs";
@@ -40,7 +41,25 @@ export async function GET(
   }
 
   try {
-    const { players, shoePairsAllowed } = await getReservationPlayersWithShoeAllowance(id);
+    let { players, shoePairsAllowed } = await getReservationPlayersWithShoeAllowance(id);
+
+    // Bootstrap: if no player rows exist (reservation pre-dates this feature),
+    // create placeholder rows from the reservation's player_count so the
+    // confirmation-page form always has something to render.
+    if (players.length === 0) {
+      const reservation = await getBowlingReservation(id);
+      if (reservation && (reservation.playerCount ?? 0) > 0) {
+        await insertReservationPlayers(
+          id,
+          Array.from({ length: reservation.playerCount! }, (_, i) => ({
+            slot: i + 1,
+            name: `Bowler ${i + 1}`,
+          })),
+        );
+        ({ players, shoePairsAllowed } = await getReservationPlayersWithShoeAllowance(id));
+      }
+    }
+
     return NextResponse.json({ players, shoePairsAllowed });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
