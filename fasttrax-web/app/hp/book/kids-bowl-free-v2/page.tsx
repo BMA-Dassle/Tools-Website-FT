@@ -251,6 +251,17 @@ export default function KidsBowlFreeV2Page() {
 
   // Existing future reservation (detected at verify time)
   const [existingReservation, setExistingReservation] = useState<ExistingReservation | null>(null);
+  // Inline cancel-confirm state for the "existing" step
+  const [cancelConfirming, setCancelConfirming] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  // Square day-of order quote (fetched when entering review step)
+  // Gives us the tax-inclusive total before the customer enters their card.
+  const [quoteDayofOrderId, setQuoteDayofOrderId] = useState<string | null>(null);
+  const [quoteTotalCents, setQuoteTotalCents] = useState<number>(0);
+  const [quoteDepositCents, setQuoteDepositCents] = useState<number>(0);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
 
   // Review + payment
   const [guestName, setGuestName] = useState("");
@@ -273,11 +284,16 @@ export default function KidsBowlFreeV2Page() {
     return sum + (p ? p.priceCents * qty : 0);
   }, 0);
 
-  const depositCents = Object.entries(shoeQty).reduce((sum, [pidStr, qty]) => {
+  const preTaxDepositCents = Object.entries(shoeQty).reduce((sum, [pidStr, qty]) => {
     const p = shoeProducts.find((sp) => sp.id === Number(pidStr));
     if (!p) return sum;
     return sum + Math.round(p.priceCents * qty * (p.depositPct / 100));
   }, 0);
+
+  // Use Square's tax-inclusive quote once loaded; fall back to pre-tax estimate.
+  const depositCents = quoteDepositCents > 0 ? quoteDepositCents : preTaxDepositCents;
+  // Tax-inclusive shoe total for display (from quote; falls back to pre-tax)
+  const displayShoeTotal = quoteTotalCents > 0 ? quoteTotalCents : shoeTotal;
 
   const lineItems = shoeProducts
     .filter((p) => (shoeQty[p.id] ?? 0) > 0)
@@ -489,6 +505,56 @@ export default function KidsBowlFreeV2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // ── Fetch Square day-of order quote when entering the review step ─
+  // Clears any stale quote when re-entering the shoes step (user went back).
+  useEffect(() => {
+    if (step === "shoes") {
+      // Clear stale quote so review re-fetches if user changes qty then returns
+      setQuoteDayofOrderId(null);
+      setQuoteTotalCents(0);
+      setQuoteDepositCents(0);
+      setQuoteError(null);
+      return;
+    }
+    if (step !== "review") return;
+    if (lineItems.length === 0) return; // $0 booking — no Square order needed
+
+    setQuoteLoading(true);
+    setQuoteError(null);
+
+    const sqLineItems = shoeProducts
+      .filter((p) => (shoeQty[p.id] ?? 0) > 0)
+      .map((p) => ({
+        name: p.label,
+        quantity: String(shoeQty[p.id]),
+        catalogObjectId: p.squareCatalogObjectId,
+      }));
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/square/bowling-orders/quote", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            locationId: center.squareCenterCode,
+            lineItems: sqLineItems,
+            depositPct: 100,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to get price");
+        setQuoteDayofOrderId(data.dayofOrderId as string);
+        setQuoteTotalCents(data.dayofTotalCents as number);
+        setQuoteDepositCents(data.depositCents as number);
+      } catch (err) {
+        setQuoteError(err instanceof Error ? err.message : "Failed to load price");
+      } finally {
+        setQuoteLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   // ── Submit ────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async () => {
@@ -538,6 +604,10 @@ export default function KidsBowlFreeV2Page() {
           squareToken,
           locationId: center.squareCenterCode,
           notes: `KBF V2 – ${pass?.id ?? ""}`,
+          // Pass pre-created day-of order so bowling-orders doesn't recreate it
+          ...(quoteDayofOrderId
+            ? { dayofOrderId: quoteDayofOrderId, dayofTotalCents: quoteTotalCents }
+            : {}),
         }),
       });
 
@@ -574,6 +644,31 @@ export default function KidsBowlFreeV2Page() {
     pass,
     router,
   ]);
+
+  // ── Cancel existing reservation ─────────────────────────────────
+
+  const handleCancelReservation = useCallback(async () => {
+    if (!existingReservation) return;
+    setCancelBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/bowling/v2/reservations/${existingReservation.id}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Cancel failed");
+      // Clear the existing reservation — user can now make a fresh booking
+      setExistingReservation(null);
+      setCancelConfirming(false);
+      setStep("bowlers");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+      setCancelConfirming(false);
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [existingReservation]);
 
   // ── Reschedule existing reservation ─────────────────────────────
 
@@ -876,8 +971,8 @@ export default function KidsBowlFreeV2Page() {
                 </div>
 
                 <p className="font-body text-white/45 text-xs text-center leading-relaxed">
-                  Kids Bowl Free allows one active reservation at a time. Change the date or
-                  time below, or call the center to cancel.
+                  Kids Bowl Free allows one active reservation at a time.
+                  Change the date &amp; time, or cancel to start a new booking.
                 </p>
 
                 <button
@@ -894,9 +989,57 @@ export default function KidsBowlFreeV2Page() {
                 >
                   Change Date &amp; Time
                 </button>
+
+                {/* Cancel — inline confirm flow */}
+                {!cancelConfirming ? (
+                  <button
+                    type="button"
+                    onClick={() => setCancelConfirming(true)}
+                    className="w-full font-body text-white/35 text-xs py-1"
+                  >
+                    Cancel this reservation
+                  </button>
+                ) : (
+                  <div
+                    className="rounded-xl p-4 space-y-3"
+                    style={{
+                      backgroundColor: "rgba(253,91,86,0.08)",
+                      border: "1.5px solid rgba(253,91,86,0.3)",
+                    }}
+                  >
+                    <p className="font-body text-white/75 text-sm text-center">
+                      Cancel this reservation?
+                      {ex.depositCents > 0 && (
+                        <span className="block text-xs text-white/45 mt-1">
+                          A deposit of ${(ex.depositCents / 100).toFixed(2)} was paid.
+                          Refunds are processed by the center — call to confirm.
+                        </span>
+                      )}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCancelConfirming(false)}
+                        className="flex-1 rounded-full px-4 py-2.5 font-body font-bold text-sm uppercase tracking-wider text-white/70 border border-white/20"
+                      >
+                        Keep it
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelReservation()}
+                        disabled={cancelBusy}
+                        className="flex-1 rounded-full px-4 py-2.5 font-body font-bold text-sm uppercase tracking-wider disabled:opacity-50"
+                        style={{ backgroundColor: CORAL, color: "white" }}
+                      >
+                        {cancelBusy ? "Cancelling…" : "Yes, cancel"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => setStep("verify")}
+                  onClick={() => { setCancelConfirming(false); setStep("verify"); }}
                   className="w-full font-body text-white/35 text-sm"
                 >
                   ← Back
@@ -1450,30 +1593,61 @@ export default function KidsBowlFreeV2Page() {
                   <span className="font-body text-white font-bold">Free (KBF)</span>
                 </div>
                 {shoeTotal > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="font-body text-white/55">Shoe rental</span>
-                    <span className="font-body font-bold" style={{ color: CORAL }}>
-                      ${(shoeTotal / 100).toFixed(2)}
-                    </span>
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-body text-white/55">Shoe rental</span>
+                      {quoteLoading ? (
+                        <span className="font-body text-white/35 text-xs italic">calculating…</span>
+                      ) : (
+                        <span className="font-body font-bold" style={{ color: CORAL }}>
+                          ${(displayShoeTotal / 100).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    {quoteTotalCents > shoeTotal && !quoteLoading && (
+                      <div className="flex justify-between text-xs">
+                        <span className="font-body text-white/35">Incl. sales tax</span>
+                        <span className="font-body text-white/35">
+                          +${((quoteTotalCents - shoeTotal) / 100).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {quoteError && (
+                  <div className="text-xs font-body" style={{ color: CORAL }}>
+                    {quoteError} — amount shown is pre-tax estimate.
                   </div>
                 )}
                 <div className="h-px bg-white/10" />
                 <div className="flex justify-between">
                   <span className="font-body text-white/55 text-sm">Due today (deposit)</span>
-                  <span className="font-body text-white font-bold text-base">
-                    ${(depositCents / 100).toFixed(2)}
-                  </span>
+                  {quoteLoading ? (
+                    <span className="font-body text-white/35 text-sm italic">calculating…</span>
+                  ) : (
+                    <span className="font-body text-white font-bold text-base">
+                      ${(depositCents / 100).toFixed(2)}
+                    </span>
+                  )}
                 </div>
-                {depositCents < shoeTotal && (
+                {depositCents < displayShoeTotal && !quoteLoading && (
                   <div className="flex justify-between text-xs">
                     <span className="font-body text-white/35">Remaining due at center</span>
-                    <span className="font-body text-white/35">${((shoeTotal - depositCents) / 100).toFixed(2)}</span>
+                    <span className="font-body text-white/35">${((displayShoeTotal - depositCents) / 100).toFixed(2)}</span>
                   </div>
                 )}
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setStep("shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
-                <button type="button" onClick={() => setStep("details")} className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white" style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}>Continue</button>
+                <button
+                  type="button"
+                  onClick={() => setStep("details")}
+                  disabled={quoteLoading}
+                  className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                >
+                  {quoteLoading ? "Calculating…" : "Continue"}
+                </button>
               </div>
             </div>
           )}
@@ -1560,10 +1734,10 @@ export default function KidsBowlFreeV2Page() {
                   <span className="text-white/55">Deposit due now</span>
                   <span className="text-white font-bold">${(depositCents / 100).toFixed(2)}</span>
                 </div>
-                {shoeTotal - depositCents > 0 && (
+                {displayShoeTotal - depositCents > 0 && (
                   <div className="flex justify-between font-body mt-1">
                     <span className="text-white/35 text-xs">Remaining at center</span>
-                    <span className="text-white/35 text-xs">${((shoeTotal - depositCents) / 100).toFixed(2)}</span>
+                    <span className="text-white/35 text-xs">${((displayShoeTotal - depositCents) / 100).toFixed(2)}</span>
                   </div>
                 )}
               </div>

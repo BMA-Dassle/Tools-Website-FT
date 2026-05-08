@@ -71,6 +71,13 @@ interface ReserveBody {
   squareCustomerId?: string;
   locationId?: string;
   notes?: string;
+  /**
+   * Pre-created Square day-of order ID from the quote step.
+   * When provided, bowling-orders skips creating the day-of order.
+   */
+  dayofOrderId?: string;
+  /** Tax-inclusive total of the pre-created day-of order (cents). */
+  dayofTotalCents?: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -243,6 +250,11 @@ export async function POST(req: NextRequest) {
         lineItems: sqLineItems,
         squareCustomerId: body.squareCustomerId,
         note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
+        // Pass pre-created day-of order if provided (avoids duplicate creation)
+        ...(body.dayofOrderId ? {
+          existingDayofOrderId: body.dayofOrderId,
+          existingDayofTotalCents: body.dayofTotalCents,
+        } : {}),
       }),
     });
 

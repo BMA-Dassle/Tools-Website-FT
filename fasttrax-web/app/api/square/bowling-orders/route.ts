@@ -86,6 +86,14 @@ export async function POST(req: NextRequest) {
       lineItems: LineItemInput[];
       squareCustomerId?: string;
       note?: string;
+      /**
+       * Pre-created day-of order ID (from /api/square/bowling-orders/quote).
+       * When provided, step 1 (creating the day-of order) is skipped and this
+       * order ID is used directly.  Must be paired with existingDayofTotalCents.
+       */
+      existingDayofOrderId?: string;
+      /** Tax-inclusive total of the pre-created day-of order (cents). */
+      existingDayofTotalCents?: number;
     };
 
     const {
@@ -101,7 +109,7 @@ export async function POST(req: NextRequest) {
     if (!sourceId || !locationId) {
       return NextResponse.json({ error: "sourceId and locationId required" }, { status: 400 });
     }
-    if (!lineItems?.length) {
+    if (!lineItems?.length && !body.existingDayofOrderId) {
       return NextResponse.json({ error: "lineItems required" }, { status: 400 });
     }
     if (depositPct < 0 || depositPct > 100) {
@@ -117,56 +125,63 @@ export async function POST(req: NextRequest) {
       : [];
 
     // ─────────────────────────────────────────────────────────────────
-    // Step 1: Create the day-of order (full line items + tax, left OPEN)
+    // Step 1: Day-of order (full line items + tax, left OPEN)
+    // If existingDayofOrderId is provided (pre-created during quote/review),
+    // skip creation and use the existing order + its known total.
     // ─────────────────────────────────────────────────────────────────
     // Build day-of line items.
     // When catalogObjectId is present: let Square use the catalog price (Square
     // rejects base_price_money overrides on fixed-price items). The catalog price
     // is the authoritative amount and the tax will be correctly applied by location.
     // When there is no catalogObjectId: use base_price_money as an ad-hoc line.
-    const dayofLineItems = lineItems.map((li) => {
-      if (li.catalogObjectId) {
+    let dayofOrderId: string;
+    let dayofTotalCents: number;
+
+    if (body.existingDayofOrderId && body.existingDayofTotalCents != null) {
+      // ── Re-use pre-created order from the review/quote step ──────
+      dayofOrderId = body.existingDayofOrderId;
+      dayofTotalCents = body.existingDayofTotalCents;
+    } else {
+      // ── Create the day-of order now ──────────────────────────────
+      const dayofLineItems = (lineItems ?? []).map((li) => {
+        if (li.catalogObjectId) {
+          return { catalog_object_id: li.catalogObjectId, quantity: li.quantity };
+        }
         return {
-          catalog_object_id: li.catalogObjectId,
+          name: li.name,
           quantity: li.quantity,
+          base_price_money: li.basePriceMoney,
         };
+      });
+
+      const dayofOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `bowl-dayof-${baseKey}`,
+          order: {
+            location_id: locationId,
+            line_items: dayofLineItems,
+            ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
+          },
+        }),
+      });
+      const dayofOrderData = await dayofOrderRes.json();
+
+      if (!dayofOrderRes.ok || dayofOrderData.errors) {
+        const sqErr = dayofOrderData.errors?.[0];
+        const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(dayofOrderData);
+        console.error("[square/bowling-orders] day-of order failed:", detail);
+        return NextResponse.json({ error: `Failed to create day-of order: ${detail}` }, { status: 500 });
       }
-      return {
-        name: li.name,
-        quantity: li.quantity,
-        base_price_money: li.basePriceMoney,
-      };
-    });
 
-    const dayofOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `bowl-dayof-${baseKey}`,
-        order: {
-          location_id: locationId,
-          line_items: dayofLineItems,
-          ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
-          // No payment — order stays OPEN for staff to close at center
-        },
-      }),
-    });
-    const dayofOrderData = await dayofOrderRes.json();
-
-    if (!dayofOrderRes.ok || dayofOrderData.errors) {
-      const sqErr = dayofOrderData.errors?.[0];
-      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(dayofOrderData);
-      console.error("[square/bowling-orders] day-of order failed:", detail);
-      return NextResponse.json({ error: `Failed to create day-of order: ${detail}` }, { status: 500 });
+      dayofOrderId = dayofOrderData.order?.id as string;
+      if (!dayofOrderId) {
+        return NextResponse.json({ error: "Day-of order returned no ID" }, { status: 500 });
+      }
+      // Tax-inclusive total from Square — authoritative order value
+      dayofTotalCents = (dayofOrderData.order?.total_money?.amount as number) ?? 0;
     }
-
-    const dayofOrderId: string = dayofOrderData.order?.id;
-    if (!dayofOrderId) {
-      return NextResponse.json({ error: "Day-of order returned no ID" }, { status: 500 });
-    }
-
-    // Tax-inclusive total from Square — use this as the authoritative order value
-    const dayofTotalCents: number = dayofOrderData.order?.total_money?.amount ?? 0;
 
     // Deposit is a percentage of the tax-inclusive total
     const depositCents = Math.round(dayofTotalCents * depositPct / 100);

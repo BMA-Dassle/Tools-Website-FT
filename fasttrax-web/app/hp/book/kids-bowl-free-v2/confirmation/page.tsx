@@ -298,28 +298,36 @@ function ConfirmationContent() {
             </ul>
           </div>
 
-          {/* ── Cancel / change card ── */}
+          {/* ── Change / cancel card ── */}
           <div
-            className="rounded-xl border px-4 py-4"
+            className="rounded-xl border px-4 py-4 space-y-3"
             style={{
               backgroundColor: "rgba(255,215,0,0.06)",
               borderColor: "rgba(255,215,0,0.35)",
             }}
           >
             <div
-              className="uppercase font-bold mb-1"
+              className="uppercase font-bold"
               style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
             >
-              Need to cancel or change?
+              Need to change or cancel?
             </div>
-            <p className="text-white/75 text-xs leading-relaxed">
-              Call {centerName} at least 1 hour before your start time:{" "}
+            <Link
+              href="/hp/book/kids-bowl-free-v2"
+              className="flex items-center justify-center w-full rounded-full px-4 py-2.5 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
+              style={{ backgroundColor: NAVY, border: `1.5px solid ${GOLD}50` }}
+            >
+              Change Date &amp; Time
+            </Link>
+            <p className="text-white/50 text-xs leading-relaxed text-center">
+              To cancel or for other help, call{" "}
               <a
                 className="underline hover:text-white transition-colors"
                 href={`tel:${centerPhone.replace(/\D/g, "")}`}
               >
                 {centerPhone}
               </a>
+              {" "}at least 1 hour before your start time.
             </p>
           </div>
 
