@@ -303,11 +303,17 @@ export async function setReservationCustomer(
  * After the PATCH we do a GET to verify the status actually changed and
  * log a warning when it hasn't so the issue shows up in Vercel logs.
  */
+/**
+ * Returns `true` when QAMF confirms the transition actually took effect,
+ * `false` when the PATCH succeeded but the status didn't change (or when
+ * the verification GET failed).  Callers use the return value to decide
+ * whether to queue a retry.
+ */
 export async function setReservationStatus(
   centerId: number,
   reservationId: string,
   status: ReservationStatus,
-): Promise<void> {
+): Promise<boolean> {
   await call({
     method: "PATCH",
     path: `/centers/${centerId}/reservations/${reservationId}/status`,
@@ -316,26 +322,28 @@ export async function setReservationStatus(
     centerId,
   });
 
-  // Verify the status actually changed (QAMF has been known to accept
-  // a PATCH with 2xx but silently ignore the status transition).
+  // Verify the status actually changed (QAMF requires PUT /customer before
+  // /status will accept the transition; without it the PATCH returns 2xx but
+  // the reservation stays Temporary).
   try {
     const reservation = await getReservation(centerId, reservationId);
     if (reservation.Status !== status) {
       console.warn(
-        `[qamf-bowling] setReservationStatus(${reservationId}): PATCH returned OK` +
-          ` but status is still "${reservation.Status}" (expected "${status}")`,
+        `[qamf-bowling] setReservationStatus(${reservationId}): PATCH OK` +
+          ` but status still "${reservation.Status}" (expected "${status}")`,
       );
-    } else {
-      console.log(
-        `[qamf-bowling] setReservationStatus(${reservationId}): confirmed — status is now "${status}"`,
-      );
+      return false;
     }
+    console.log(
+      `[qamf-bowling] setReservationStatus(${reservationId}): confirmed → "${status}"`,
+    );
+    return true;
   } catch (verifyErr) {
-    // Non-fatal — verify failure doesn't undo the PATCH attempt
     console.warn(
-      `[qamf-bowling] setReservationStatus(${reservationId}): could not verify status after PATCH:`,
+      `[qamf-bowling] setReservationStatus(${reservationId}): verify GET failed:`,
       verifyErr,
     );
+    return false;
   }
 }
 

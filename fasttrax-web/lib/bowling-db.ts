@@ -227,6 +227,14 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_gift_card_id TEXT`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_gift_card_gan TEXT`;
 
+  // ── QAMF confirmation retry tracking (idempotent) ─────────────────
+  // When a paid booking's QAMF status cannot be confirmed at submit time,
+  // status is set to 'confirm_pending' and qamf_confirm_attempts tracks
+  // how many retry attempts the cron has made. After MAX_QAMF_CONFIRM_ATTEMPTS
+  // the status becomes 'confirm_failed' and staff are alerted.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS qamf_confirm_attempts INTEGER NOT NULL DEFAULT 0`;
+  await q`CREATE INDEX IF NOT EXISTS br_confirm_pending ON bowling_reservations(id) WHERE status = 'confirm_pending'`;
+
   schemaReady = true;
 }
 
@@ -393,7 +401,9 @@ export interface BowlingReservation {
   squareGiftCardGan?: string;
   depositCents: number;
   totalCents: number;
-  status: "confirmed" | "arrived" | "completed" | "cancelled";
+  status: "confirmed" | "confirm_pending" | "confirm_failed" | "arrived" | "completed" | "cancelled";
+  /** Number of times the QAMF confirmation has been retried by the cron. */
+  qamfConfirmAttempts: number;
   bookedAt: string;
   playerCount?: number;
   guestName?: string;
@@ -553,6 +563,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     depositCents: row.deposit_cents as number,
     totalCents: row.total_cents as number,
     status: row.status as BowlingReservation["status"],
+    qamfConfirmAttempts: (row.qamf_confirm_attempts as number) ?? 0,
     bookedAt: (row.booked_at as Date).toISOString(),
     playerCount: (row.player_count as number) ?? undefined,
     guestName: (row.guest_name as string) ?? undefined,
@@ -591,7 +602,7 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents">,
+  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts">,
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -669,6 +680,46 @@ export async function updateBowlingReservationStatus(
   await ensureBowlingSchema();
   const q = sql();
   await q`UPDATE bowling_reservations SET status = ${status} WHERE id = ${id}`;
+}
+
+/** Max QAMF confirmation attempts before the row flips to 'confirm_failed'. */
+export const MAX_QAMF_CONFIRM_ATTEMPTS = 5;
+
+/**
+ * Returns all reservations in 'confirm_pending' status, ordered oldest first.
+ * Used by the bowling-confirm-retry cron to drive automatic retries.
+ */
+export async function getPendingQamfConfirms(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE status = 'confirm_pending'
+    ORDER BY inserted_at ASC
+    LIMIT 20
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * Increment qamf_confirm_attempts and optionally update the status.
+ * Called by the bowling-confirm-retry cron after each retry attempt.
+ */
+export async function incrementQamfConfirmAttempt(
+  id: number,
+  newStatus: BowlingReservation["status"],
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET
+      qamf_confirm_attempts = qamf_confirm_attempts + 1,
+      status = ${newStatus}
+    WHERE id = ${id}
+  `;
 }
 
 /**

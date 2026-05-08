@@ -33,6 +33,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/bowling-confirm-retry",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/vt3-shadow-consumer",
       "schedule": "* * * * *"
     }

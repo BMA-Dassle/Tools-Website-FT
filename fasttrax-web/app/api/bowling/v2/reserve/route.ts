@@ -12,6 +12,20 @@ import {
   type BowlingSquareProduct,
   type ReservationLine,
 } from "@/lib/bowling-db";
+import redis from "@/lib/redis";
+
+const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
+
+interface ConfirmRetryEntry {
+  neonId: number;
+  centerId: number;
+  qamfReservationId: string;
+  guestName: string;
+  guestEmail: string;
+  guestPhone: string;
+  depositCents: number;
+  queuedAt: string;
+}
 
 /**
  * POST /api/bowling/v2/reserve
@@ -224,9 +238,28 @@ export async function POST(req: NextRequest) {
   // If the wizard pre-created a Temporary hold (hold-first flow), we:
   //   1. Update the customer info on the hold
   //   2. Confirm the hold (Temporary → Confirmed)
-  //   3. If confirm fails (hold expired), fall back to a fresh createReservation
+  //   3. If confirm fails (hold expired or customer not accepted), fall back
+  //      to a fresh createReservation + explicit PUT /customer + confirm.
   // Otherwise we create a fresh reservation directly.
+  //
+  // qamfConfirmed tracks whether the /status PATCH actually took effect.
+  // When a paid booking's confirmation fails, the Neon row is stored as
+  // 'confirm_pending' and queued for automatic retry by the cron.
   let qamfReservationId: string;
+  let qamfConfirmed = false;
+
+  /** Attach customer then confirm — used by both fresh paths. */
+  async function attachAndConfirm(reservationId: string): Promise<boolean> {
+    // QAMF requires an explicit PUT /customer BEFORE /status will confirm.
+    await setReservationCustomer(centerId, reservationId, {
+      Guest: {
+        Name: guest.name,
+        PhoneNumber: guest.phone,
+        Email: guest.email,
+      },
+    });
+    return setReservationStatus(centerId, reservationId, "Confirmed");
+  }
 
   if (body.qamfReservationId) {
     // ── Hold-first path ──────────────────────────────────────────
@@ -242,20 +275,18 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch (err) {
-      console.warn("[bowling/v2/reserve] setReservationCustomer failed (non-fatal):", err);
+      console.warn("[bowling/v2/reserve] setReservationCustomer (hold) failed (non-fatal):", err);
     }
 
     // Confirm the hold (Temporary → Confirmed)
-    let confirmed = false;
     try {
-      await setReservationStatus(centerId, qamfReservationId, "Confirmed");
-      confirmed = true;
+      qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
     } catch (err) {
       console.warn("[bowling/v2/reserve] confirm of existing hold failed, creating fresh reservation:", err);
     }
 
-    if (!confirmed) {
-      // Hold expired — create a fresh reservation as fallback
+    if (!qamfConfirmed) {
+      // Hold expired or confirm rejected — create a fresh reservation as fallback
       try {
         const reservation = await createReservation(centerId, {
           BookedAt: bookedAt,
@@ -276,20 +307,9 @@ export async function POST(req: NextRequest) {
           TotalPlayers: players.length,
         });
         qamfReservationId = reservation.Id;
-
-        // QAMF requires an explicit PUT /customer before /status will confirm.
-        // Even though we include Customer in the create body above, QAMF only
-        // counts the person as "attached" after the dedicated PUT /customer call.
-        await setReservationCustomer(centerId, qamfReservationId, {
-          Guest: {
-            Name: guest.name,
-            PhoneNumber: guest.phone,
-            Email: guest.email,
-          },
-        });
-
-        await setReservationStatus(centerId, qamfReservationId, "Confirmed").catch((err) => {
-          console.error("[bowling/v2/reserve] setReservationStatus on fallback failed:", err);
+        qamfConfirmed = await attachAndConfirm(qamfReservationId).catch((err) => {
+          console.error("[bowling/v2/reserve] attachAndConfirm on fallback failed:", err);
+          return false;
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "QAMF reservation failed";
@@ -325,30 +345,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Reservation failed: ${msg}` }, { status: 502 });
     }
 
-    // QAMF requires an explicit PUT /customer before /status will confirm.
-    // Even though we include Customer in the create body above, QAMF only
-    // counts the person as "attached" after the dedicated PUT /customer call.
-    try {
-      await setReservationCustomer(centerId, qamfReservationId, {
-        Guest: {
-          Name: guest.name,
-          PhoneNumber: guest.phone,
-          Email: guest.email,
-        },
-      });
-    } catch (err) {
-      // Non-fatal: slot is held even without customer attached.
-      // setReservationStatus will fail to confirm but we log it below.
-      console.error("[bowling/v2/reserve] setReservationCustomer (fresh) failed:", err);
-    }
-
-    // Confirm the reservation (Temporary → Confirmed)
-    try {
-      await setReservationStatus(centerId, qamfReservationId, "Confirmed");
-    } catch (err) {
-      // Non-fatal — slot is held even while Temporary
-      console.error("[bowling/v2/reserve] setReservationStatus failed:", err);
-    }
+    qamfConfirmed = await attachAndConfirm(qamfReservationId).catch((err) => {
+      console.error("[bowling/v2/reserve] attachAndConfirm (fresh) failed:", err);
+      return false;
+    });
   }
 
   // ── Square payment (gift card deposit + day-of order) ──────────
@@ -432,6 +432,12 @@ export async function POST(req: NextRequest) {
   // ── Persist to Neon ─────────────────────────────────────────────
   let neonId: number;
   try {
+    // A paid booking where QAMF didn't confirm is stored as 'confirm_pending'
+    // so the retry cron can pick it up.  Free bookings default to 'confirmed'
+    // regardless — no money at stake and the lane is still held as Temporary.
+    const neonStatus: "confirmed" | "confirm_pending" =
+      depositCents > 0 && !qamfConfirmed ? "confirm_pending" : "confirmed";
+
     const row = await insertBowlingReservation(
       {
         centerCode,
@@ -439,7 +445,7 @@ export async function POST(req: NextRequest) {
         qamfReservationId,
         depositCents,
         totalCents,
-        status: "confirmed",
+        status: neonStatus,
         bookedAt,
         playerCount: players.length,
         guestName: guest.name,
@@ -455,6 +461,30 @@ export async function POST(req: NextRequest) {
       reservationLines,
     );
     neonId = row.id;
+
+    // If QAMF confirmation failed on a paid booking, push to the Redis retry
+    // queue so the bowling-confirm-retry cron can attempt again every 5 min.
+    if (neonStatus === "confirm_pending") {
+      const entry: ConfirmRetryEntry = {
+        neonId,
+        centerId,
+        qamfReservationId,
+        guestName: guest.name,
+        guestEmail: guest.email,
+        guestPhone: guest.phone,
+        depositCents,
+        queuedAt: new Date().toISOString(),
+      };
+      redis
+        .lpush(CONFIRM_RETRY_QUEUE, JSON.stringify(entry))
+        .catch((err) =>
+          console.error("[bowling/v2/reserve] failed to push confirm-retry queue:", err),
+        );
+      console.warn(
+        `[bowling/v2/reserve] neonId=${neonId} qamf=${qamfReservationId}` +
+          ` depositCents=${depositCents} — QAMF not confirmed, queued for retry`,
+      );
+    }
 
     // Insert one player row per slot. For KBF: names + prefs pre-filled.
     // For open bowling: "Bowler N" placeholders — updated on confirmation page.
