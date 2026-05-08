@@ -77,8 +77,12 @@ const CAT = {
   FUN_4_ALL:          "TOKSMRAUZSSCXSTJHSZ22TTU",  // $15.99/person
   FUN_4_ALL_VIP:      "RA3DBEYZVIEKIHON7KVMNRMQ",  // $17.99/person
   HOURLY_1_5_MON:     "43HJHFSYZNB42NWB2CM7UKOV",  // $45.00/lane (1.5hr Mon-Thu)
-  HOURLY_1_5_MON_VIP: "BESYYLCKLOVD7YE4GYJU24HR",  // $67.50/lane
-  CHIPS_SALSA:        "LHZXWYO72N5QFX4CGYKRVPZX",  // $0.00 comp (FM only)
+  HOURLY_1_5_MON_VIP: "BESYYLCKLOVD7YE4GYJU24HR",  // $67.50/lane (1.5hr Mon-Thu VIP)
+  HOURLY_1_5_FRI:     "BA7XH63Z3KZOYEU5GGTEPASR",  // $60.00/lane (1.5hr Fri-Sun)
+  HOURLY_1_5_FRI_VIP: "UFD6XVXU6GKCIRCLRUFLSKMJ",  // $82.50/lane (1.5hr Fri-Sun VIP)
+  PIZZA_BOWL:         "GWQQDLD5J3XAZAOU5STJL3VF",  // $64.95/lane (Pizza Bowl Regular)
+  PIZZA_BOWL_VIP:     "3BET7DOSFNF64GNPMOZTI5SJ",  // $79.95/lane (Pizza Bowl VIP)
+  CHIPS_SALSA:        "LHZXWYO72N5QFX4CGYKRVPZX",  // $0.00 comp
 } as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -245,7 +249,7 @@ async function main() {
   });
   await upsertOffer({ experienceId: kbfRegId, centerCode: FM,     qamfWebOfferId: 152, qamfOptionType: "Game", qamfOptionId: 908 });
   await upsertOffer({ experienceId: kbfRegId, centerCode: NAPLES, qamfWebOfferId: 122, qamfOptionType: "Game", qamfOptionId: 728 });
-  // No base items — KBF is free
+  await setItems(kbfRegId, []); // KBF is free — no items
 
   // ── 2. KBF VIP ──────────────────────────────────────────────────────────────
   console.log("\n── KBF VIP");
@@ -257,7 +261,7 @@ async function main() {
   });
   await upsertOffer({ experienceId: kbfVipId, centerCode: FM,     qamfWebOfferId: 153, qamfOptionType: "Game", qamfOptionId: 914 });
   await upsertOffer({ experienceId: kbfVipId, centerCode: NAPLES, qamfWebOfferId: 123, qamfOptionType: "Game", qamfOptionId: 734 });
-  // No base items — KBF VIP is free
+  await setItems(kbfVipId, []); // KBF VIP is free — no items (clear any stale Chips & Salsa)
 
   // ── 3. Regular Mon-Thur ─────────────────────────────────────────────────────
   console.log("\n── Regular Mon-Thur");
@@ -321,48 +325,90 @@ async function main() {
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
   ]);
 
-  // ── 7. Pizza Bowl Regular (stub — QAMF offer IDs TBD) ─────────────────────
-  console.log("\n── Pizza Bowl Regular (stub)");
-  await upsertExperience({
+  // ── 7. Pizza Bowl Regular (ACTIVE — QAMF IDs confirmed 2026-05-08) ─────────
+  console.log("\n── Pizza Bowl Regular");
+  const pizzaRegId = await upsertExperience({
     slug: "pizza-bowl", label: "Pizza Bowl", kind: "open",
-    isVip: false, sortOrder: 40, isActive: false,
-    description: "Sunday special — bowling + pizza + shoes all included",
+    isVip: false, sortOrder: 40, isActive: true,
+    description: "Sunday special — 2 hours bowling + pizza + soda + shoes included!",
     daysOfWeek: [0], // Sunday only
   });
+  await upsertOffer({ experienceId: pizzaRegId, centerCode: FM,     qamfWebOfferId: 161, qamfOptionType: "Time", qamfOptionId: 1284 });
+  await upsertOffer({ experienceId: pizzaRegId, centerCode: NAPLES, qamfWebOfferId: 127, qamfOptionType: "Time", qamfOptionId: 1012 });
+  await setItems(pizzaRegId, [
+    { catalogObjectId: CAT.PIZZA_BOWL, quantity: 1 },
+  ]);
 
-  // ── 8. Pizza Bowl VIP (stub — QAMF offer IDs TBD) ─────────────────────────
-  console.log("\n── Pizza Bowl VIP (stub)");
-  await upsertExperience({
+  // ── 8. Pizza Bowl VIP (ACTIVE — QAMF IDs confirmed 2026-05-08) ─────────────
+  console.log("\n── Pizza Bowl VIP");
+  const pizzaVipId = await upsertExperience({
     slug: "pizza-bowl-vip", label: "Pizza Bowl VIP", kind: "open",
-    isVip: true, sortOrder: 41, isActive: false,
-    description: "Sunday VIP special — premium lanes, pizza, shoes & NeoVerse",
+    isVip: true, sortOrder: 41, isActive: true,
+    description: "Sunday VIP special — 2 hours premium bowling, pizza, soda, shoes & NeoVerse!",
     daysOfWeek: [0], // Sunday only
   });
-
-  // ── 9 & 10. Fri-Sun hourly stubs (no QAMF offers yet) ─────────────────────
-  console.log("\n── Regular Fri-Sun (stub)");
-  await upsertExperience({
-    slug: "regular-fri-sun", label: "Regular Fri–Sun", kind: "hourly",
-    isVip: false, sortOrder: 22, isActive: false,
-    description: "Hourly lane rental — Friday through Sunday",
-    daysOfWeek: [5, 6, 0], // Fri-Sun
-  });
-
-  console.log("\n── VIP Fri-Sun (stub)");
-  const vipFriId = await upsertExperience({
-    slug: "vip-fri-sun", label: "VIP Fri–Sun", kind: "hourly",
-    isVip: true, sortOrder: 23, isActive: false,
-    description: "VIP lane rental — Friday through Sunday",
-    daysOfWeek: [5, 6, 0], // Fri-Sun
-  });
-  await setItems(vipFriId, [
+  await upsertOffer({ experienceId: pizzaVipId, centerCode: FM,     qamfWebOfferId: 162, qamfOptionType: "Time", qamfOptionId: 1292 });
+  await upsertOffer({ experienceId: pizzaVipId, centerCode: NAPLES, qamfWebOfferId: 126, qamfOptionType: "Time", qamfOptionId: 1004 });
+  await setItems(pizzaVipId, [
+    { catalogObjectId: CAT.PIZZA_BOWL_VIP, quantity: 1 },
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
   ]);
 
-  console.log("\n✓ Done. 10 experiences seeded.");
-  console.log("\nNext: add Pizza Bowl QAMF offer IDs + activate via /api/admin/bowling/v2/experiences");
-  console.log("      add Fri-Sun QAMF offer IDs via /api/admin/bowling/v2/experiences");
-  console.log("      activate shoe rental via /api/admin/bowling/v2/square-products");
+  // ── 9. Regular Fri-Sun (ACTIVE — QAMF IDs confirmed 2026-05-08) ───────────
+  console.log("\n── Regular Fri-Sun");
+  const regFriId = await upsertExperience({
+    slug: "regular-fri-sun", label: "Regular Fri–Sun", kind: "hourly",
+    isVip: false, sortOrder: 22, isActive: true,
+    description: "Reserve a lane by the hour — Friday through Sunday.",
+    daysOfWeek: [5, 6, 0], // Fri-Sun
+  });
+  await upsertOffer({ experienceId: regFriId, centerCode: FM,     qamfWebOfferId: 158, qamfOptionType: "Time" });
+  await upsertOffer({ experienceId: regFriId, centerCode: NAPLES, qamfWebOfferId: 124, qamfOptionType: "Time" });
+  await setItems(regFriId, [
+    { catalogObjectId: CAT.HOURLY_1_5_FRI, quantity: 1 }, // all centers
+  ]);
+  await setDurationOptions(regFriId, FM,     [ { qamfOptionId: 1259, durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 1260, durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
+  await setDurationOptions(regFriId, NAPLES, [ { qamfOptionId: 987,  durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 988,  durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
+
+  // ── 10. VIP Fri-Sun (ACTIVE — QAMF IDs confirmed 2026-05-08) ──────────────
+  console.log("\n── VIP Fri-Sun");
+  const vipFriId = await upsertExperience({
+    slug: "vip-fri-sun", label: "VIP Fri–Sun", kind: "hourly",
+    isVip: true, sortOrder: 23, isActive: true,
+    description: "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology.",
+    daysOfWeek: [5, 6, 0], // Fri-Sun
+  });
+  await upsertOffer({ experienceId: vipFriId, centerCode: FM,     qamfWebOfferId: 159, qamfOptionType: "Time" });
+  await upsertOffer({ experienceId: vipFriId, centerCode: NAPLES, qamfWebOfferId: 125, qamfOptionType: "Time" });
+  await setItems(vipFriId, [
+    { catalogObjectId: CAT.HOURLY_1_5_FRI_VIP, quantity: 1 },
+    { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
+  ]);
+  await setDurationOptions(vipFriId, FM,     [ { qamfOptionId: 1267, durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 1268, durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
+  await setDurationOptions(vipFriId, NAPLES, [ { qamfOptionId: 995,  durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 996,  durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
+
+  // ── Activate Square products used by newly-activated experiences ────────────
+  console.log("\n── Activating Square products for Fri-Sun + Pizza Bowl");
+  for (const center of [FM, NAPLES]) {
+    for (const catalogId of [CAT.HOURLY_1_5_FRI, CAT.HOURLY_1_5_FRI_VIP, CAT.PIZZA_BOWL, CAT.PIZZA_BOWL_VIP]) {
+      const result = await sql`
+        UPDATE bowling_square_products
+        SET is_active = TRUE
+        WHERE center_code = ${center} AND square_catalog_object_id = ${catalogId}
+        RETURNING id, label, price_cents
+      `;
+      if (result.length) {
+        const r = result[0] as Record<string, unknown>;
+        console.log(`  activated  [${center.slice(0, 6)}] id=${r.id}  "${r.label}"  $${((r.price_cents as number) / 100).toFixed(2)}`);
+      } else {
+        console.log(`  MISSING    [${center.slice(0, 6)}] ${catalogId} — run seed-bowling-products.ts first`);
+      }
+    }
+  }
+
+  console.log("\n✓ Done. 10 experiences seeded (all active).");
+  console.log("\nNote: Pizza Bowl pizza/soda modifier items TBD — seed via admin endpoint once Square catalog IDs confirmed.");
+  console.log("      Activate shoe rental via /api/admin/bowling/v2/square-products");
 }
 
 main().catch((err) => { console.error("Seed failed:", err); process.exit(1); });

@@ -118,6 +118,24 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Up to 6 bowlers per lane",
     ],
   },
+  "regular-fri-sun": {
+    videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
+    accent: CORAL,
+    description: "Reserve a lane by the hour — Friday through Sunday.",
+    features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
+  },
+  "vip-fri-sun": {
+    videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+    accent: GOLD,
+    description:
+      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology.",
+    features: [
+      "VIP lounge & dedicated lanes",
+      "NeoVerse video walls",
+      "Chips & salsa included",
+      "Up to 6 bowlers per lane",
+    ],
+  },
   "pizza-bowl": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
