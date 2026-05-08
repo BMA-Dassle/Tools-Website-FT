@@ -482,7 +482,7 @@ export default function KidsBowlFreeV2Page() {
 
   // ── Pre-launch gate ──────────────────────────────────────────────
 
-  const preLaunch = isKbfPreLaunchPeriod();
+  const preLaunch = isKbfPreLaunchPeriod() && searchParams.get("preview") !== "1";
   if (preLaunch) {
     return (
       <>
