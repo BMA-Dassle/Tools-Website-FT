@@ -2895,8 +2895,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     if (!guestName || !guestEmail || !guestPhone) { setError("Please fill in all contact details"); return; }
                     if (!clickwrapAccepted) { setError("Please accept the cancellation policy"); return; }
                     setError(null);
-                    // Rename the hold in Conqueror so staff see the guest name
-                    // instead of "Hold (Np)" while the customer is in checkout.
+                    // Attach the customer to the hold + rename it so staff see
+                    // the guest name. Pre-attaching the customer here ensures
+                    // PATCH /status at submit time takes effect immediately,
+                    // eliminating the timing race that caused Temporary holds
+                    // not to confirm.
                     if (holdRef.current) {
                       void fetch(`/api/bowling/v2/reserve/hold/${holdRef.current.qamfId}`, {
                         method: "PATCH",
@@ -2904,6 +2907,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         body: JSON.stringify({
                           centerId: holdRef.current.centerId,
                           title: `${guestName} (${activePlayerCount}p)`,
+                          guest: { name: guestName, email: guestEmail, phone: guestPhone },
                         }),
                       }).catch(() => {});
                     }
