@@ -73,12 +73,19 @@ const CENTER_BY_ID: Record<string, (typeof CENTERS)[0]> = Object.fromEntries(
   CENTERS.map((c) => [c.id, c]),
 );
 
+/** Reverse lookup: Square center code → center metadata */
+const CENTER_BY_CODE: Record<string, (typeof CENTERS)[0]> = Object.fromEntries(
+  CENTERS.map((c) => [c.squareCenterCode, c]),
+);
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Step =
   | "location"
   | "lookup"
   | "verify"
+  | "existing"    // future reservation detected — show it + offer reschedule
+  | "reschedule"  // pick a new date/time for an existing reservation
   | "bowlers"
   | "slots"
   | "shoes"
@@ -137,6 +144,25 @@ interface ShoeProduct {
   squareCatalogObjectId: string;
   priceCents: number;
   depositPct: number;
+}
+
+/** Existing KBF reservation returned by /api/bowling/v2/my-reservations */
+interface ExistingReservation {
+  id: number;
+  centerCode: string;
+  qamfReservationId?: string;
+  depositCents: number;
+  totalCents: number;
+  status: string;
+  bookedAt: string;
+  playerCount?: number;
+  guestName?: string;
+  lines: Array<{
+    id: number;
+    label: string;
+    quantity: number;
+    unitPriceCents: number;
+  }>;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -222,6 +248,9 @@ export default function KidsBowlFreeV2Page() {
   // Shoe products + selection
   const [shoeProducts, setShoeProducts] = useState<ShoeProduct[]>([]);
   const [shoeQty, setShoeQty] = useState<Record<number, number>>({}); // productId → qty
+
+  // Existing future reservation (detected at verify time)
+  const [existingReservation, setExistingReservation] = useState<ExistingReservation | null>(null);
 
   // Review + payment
   const [guestName, setGuestName] = useState("");
@@ -323,6 +352,28 @@ export default function KidsBowlFreeV2Page() {
       setGuestName(`${p.firstName} ${p.lastName}`);
       setGuestEmail(p.email);
       setGuestPhone(p.phone ?? "");
+
+      // Check whether this guest already has a future KBF reservation.
+      // Non-fatal: if the check fails we proceed to the bowlers step normally.
+      try {
+        const checkRes = await fetch(
+          `/api/bowling/v2/my-reservations?email=${encodeURIComponent(p.email)}`,
+        );
+        if (checkRes.ok) {
+          const checkData = (await checkRes.json()) as { reservation: ExistingReservation | null };
+          if (checkData.reservation) {
+            setExistingReservation(checkData.reservation);
+            // Snap the wizard's center to match the existing booking's center
+            const existingCenter = CENTER_BY_CODE[checkData.reservation.centerCode];
+            if (existingCenter) setCenterId(existingCenter.id);
+            setStep("existing");
+            return;
+          }
+        }
+      } catch {
+        // Non-fatal — network/DB error; proceed to bowlers step as normal
+      }
+
       setStep("bowlers");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed");
@@ -334,14 +385,15 @@ export default function KidsBowlFreeV2Page() {
   // ── Step: Slots ──────────────────────────────────────────────────
 
   const fetchSlots = useCallback(
-    async (date: string) => {
+    async (date: string, forPlayerCount?: number) => {
+      const count = forPlayerCount ?? playerCount;
       setSlotsLoading(true);
       setSlotsError(null);
       setAvailableSlots([]);
       setSelectedSlot(null);
       try {
         const res = await fetch(
-          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(playerCount, 1)}&startDate=${date}&webOfferId=${KBF_WEB_OFFER_ID}`,
+          `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}&webOfferId=${KBF_WEB_OFFER_ID}`,
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to load slots");
@@ -389,10 +441,13 @@ export default function KidsBowlFreeV2Page() {
     [center.qamfId, playerCount],
   );
 
-  // Auto-fetch when entering the slots step
+  // Auto-fetch when entering the slots or reschedule step
   useEffect(() => {
     if (step === "slots") {
       void fetchSlots(selectedDate);
+    } else if (step === "reschedule") {
+      // Use the existing reservation's player count (selectedBowlers isn't populated)
+      void fetchSlots(selectedDate, existingReservation?.playerCount ?? 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -519,6 +574,47 @@ export default function KidsBowlFreeV2Page() {
     pass,
     router,
   ]);
+
+  // ── Reschedule existing reservation ─────────────────────────────
+
+  const handleReschedule = useCallback(async () => {
+    if (!existingReservation || !selectedSlot) return;
+    setBusy(true);
+    setError(null);
+    setStep("submitting");
+    try {
+      const res = await fetch(
+        `/api/bowling/v2/reservations/${existingReservation.id}/reschedule`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            bookedAt: selectedSlot.bookedAt,
+            webOfferId: selectedSlot.webOfferId,
+            optionId: selectedSlot.optionId,
+            optionType: selectedSlot.optionType,
+          }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Reschedule failed");
+
+      const params = new URLSearchParams({
+        neonId: String(existingReservation.id),
+        qamfId: data.qamfReservationId ?? "",
+        centerId: center.id,
+        depositPaid: String(existingReservation.depositCents),
+        remaining: String(existingReservation.totalCents - existingReservation.depositCents),
+      });
+      router.push(`/hp/book/kids-bowl-free-v2/confirmation?${params.toString()}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Reschedule failed";
+      setError(msg);
+      setStep("reschedule");
+    } finally {
+      setBusy(false);
+    }
+  }, [existingReservation, selectedSlot, center.id, router]);
 
   // ── Pre-launch gate ──────────────────────────────────────────────
 
@@ -695,6 +791,241 @@ export default function KidsBowlFreeV2Page() {
               </button>
             </div>
           )}
+
+          {/* ── STEP: Existing reservation ──────────────────────────── */}
+          {step === "existing" && existingReservation && (() => {
+            const ex = existingReservation;
+            const exCenter = CENTER_BY_CODE[ex.centerCode] ?? center;
+            const hasPaid = ex.depositCents > 0;
+            const remaining = ex.totalCents - ex.depositCents;
+            return (
+              <div className="space-y-4">
+                {/* You already have a booking */}
+                <div
+                  className="rounded-2xl p-5"
+                  style={{
+                    backgroundColor: "rgba(253,91,86,0.08)",
+                    border: `1.78px solid ${CORAL}55`,
+                  }}
+                >
+                  <div
+                    className="uppercase font-bold mb-3"
+                    style={{ color: CORAL, fontSize: "10px", letterSpacing: "2.5px" }}
+                  >
+                    You&apos;re already booked
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-body text-white/50">Center</span>
+                      <span className="font-body text-white font-semibold">{exCenter.name}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-body text-white/50">Date</span>
+                      <span className="font-body text-white font-semibold">
+                        {formatDate(ex.bookedAt.slice(0, 10))}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-body text-white/50">Time</span>
+                      <span className="font-body text-white font-semibold">
+                        {formatTime(ex.bookedAt)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-body text-white/50">Bowlers</span>
+                      <span className="font-body text-white font-semibold">{ex.playerCount ?? "—"}</span>
+                    </div>
+
+                    {ex.lines.length > 0 && (
+                      <>
+                        <div className="h-px bg-white/10 my-1" />
+                        {ex.lines.map((line, i) => (
+                          <div key={i} className="flex justify-between text-sm">
+                            <span className="font-body text-white/50">
+                              {line.label}{line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                            </span>
+                            <span className="font-body text-white">
+                              {line.unitPriceCents === 0
+                                ? "Free"
+                                : `$${((line.unitPriceCents * line.quantity) / 100).toFixed(2)}`}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {hasPaid && (
+                      <>
+                        <div className="h-px bg-white/10 my-1" />
+                        <div className="flex justify-between text-sm">
+                          <span className="font-body text-white/50">Paid at booking</span>
+                          <span className="font-body font-semibold" style={{ color: "#4ade80" }}>
+                            ${(ex.depositCents / 100).toFixed(2)}
+                          </span>
+                        </div>
+                        {remaining > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="font-body text-white/50">Due at center</span>
+                            <span className="font-body text-white">${(remaining / 100).toFixed(2)}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <p className="font-body text-white/45 text-xs text-center leading-relaxed">
+                  Kids Bowl Free allows one active reservation at a time. Change the date or
+                  time below, or call the center to cancel.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(bookableDateRange()[0] ?? todayYmd());
+                    setAvailableSlots([]);
+                    setSelectedSlot(null);
+                    setSlotsError(null);
+                    setStep("reschedule");
+                  }}
+                  className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                >
+                  Change Date &amp; Time
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("verify")}
+                  className="w-full font-body text-white/35 text-sm"
+                >
+                  ← Back
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* ── STEP: Reschedule ─────────────────────────────────────── */}
+          {step === "reschedule" && existingReservation && (() => {
+            const ex = existingReservation;
+            const exCenter = CENTER_BY_CODE[ex.centerCode] ?? center;
+            return (
+              <div className="space-y-4">
+                {/* Mini existing booking header */}
+                <div
+                  className="rounded-xl px-4 py-3"
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <div
+                    className="uppercase font-bold mb-1"
+                    style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2px" }}
+                  >
+                    Rescheduling · {exCenter.name}
+                  </div>
+                  <div className="font-body text-white/55 text-xs line-through">
+                    {formatDate(ex.bookedAt.slice(0, 10))} · {formatTime(ex.bookedAt)}
+                  </div>
+                </div>
+
+                {/* Date picker */}
+                <div>
+                  <label htmlFor="reschedule-date-picker" className="font-body text-white/55 text-xs uppercase tracking-wider block mb-2">
+                    Pick a new date
+                  </label>
+                  <input
+                    id="reschedule-date-picker"
+                    type="date"
+                    min={bookableDates[0] ?? ""}
+                    max={bookableDates[bookableDates.length - 1] ?? ""}
+                    value={selectedDate}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!isKbfBookableDate(v)) return;
+                      setSelectedDate(v);
+                      void fetchSlots(v, ex.playerCount ?? 1);
+                    }}
+                    className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-body text-sm focus:outline-none focus:border-[#fd5b56]/50"
+                  />
+                </div>
+
+                {/* Slot list — reuse same display */}
+                {slotsLoading && (
+                  <div className="flex items-center gap-2 font-body text-white/40 text-sm py-4 justify-center">
+                    <div className="w-4 h-4 border border-white/20 border-t-[#fd5b56] rounded-full animate-spin" />
+                    Loading available times…
+                  </div>
+                )}
+                {slotsError && !slotsLoading && (
+                  <div
+                    className="rounded-xl p-3 text-sm font-body"
+                    style={{
+                      backgroundColor: "rgba(253,91,86,0.08)",
+                      border: "1.5px solid rgba(253,91,86,0.25)",
+                      color: "#fd5b56",
+                    }}
+                  >
+                    {slotsError}
+                  </div>
+                )}
+                {!slotsLoading && availableSlots.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="font-body text-white/55 text-xs uppercase tracking-wider">
+                      Available times — {formatDate(selectedDate)}
+                    </p>
+                    <div
+                      className="rounded-xl p-3"
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                      }}
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        {availableSlots.map((s) => {
+                          const on = selectedSlot?.bookedAt === s.bookedAt;
+                          return (
+                            <button
+                              key={s.bookedAt}
+                              type="button"
+                              onClick={() => setSelectedSlot(s)}
+                              className="px-4 py-2 rounded-lg text-sm font-bold font-body transition-all"
+                              style={{
+                                backgroundColor: on ? CORAL : "rgba(255,255,255,0.08)",
+                                color: on ? "white" : "rgba(255,255,255,0.7)",
+                                border: `1px solid ${on ? CORAL : "rgba(255,255,255,0.12)"}`,
+                                boxShadow: on ? `0 0 12px ${CORAL}40` : "none",
+                              }}
+                            >
+                              {formatTime(s.bookedAt)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void handleReschedule()}
+                  disabled={!selectedSlot || slotsLoading || busy}
+                  className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                >
+                  {busy ? "Rescheduling…" : selectedSlot ? `Confirm — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("existing")}
+                  className="w-full font-body text-white/35 text-sm"
+                >
+                  ← Keep existing time
+                </button>
+              </div>
+            );
+          })()}
 
           {/* ── STEP: Bowlers ───────────────────────────────────────── */}
           {step === "bowlers" && (() => {

@@ -441,6 +441,59 @@ export async function updateBowlingReservationSquareIds(
   `;
 }
 
+/**
+ * Find the soonest future, non-cancelled KBF reservation for a guest email.
+ * Used by the KBF wizard immediately after 2FA verify to detect duplicate
+ * bookings — only one active KBF reservation is allowed at a time.
+ */
+export async function getFutureKbfReservationByEmail(
+  email: string,
+): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+  const normalizedEmail = email.toLowerCase().trim();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE product_kind = 'kbf'
+      AND status NOT IN ('cancelled', 'completed')
+      AND booked_at > NOW()
+      AND LOWER(guest_email) = ${normalizedEmail}
+    ORDER BY booked_at ASC
+    LIMIT 1
+  `;
+  if (!rows.length) return null;
+  const reservation = rowToReservation(rows[0] as Record<string, unknown>);
+  const lineRows = await q`
+    SELECT * FROM bowling_reservation_lines
+    WHERE reservation_id = ${reservation.id}
+    ORDER BY id
+  `;
+  return {
+    ...reservation,
+    lines: lineRows.map((r) => rowToLine(r as Record<string, unknown>)),
+  };
+}
+
+/**
+ * Update booked_at + qamf_reservation_id on an existing reservation after a
+ * successful reschedule (old QAMF slot deleted, new one created).
+ */
+export async function updateReservationReschedule(
+  id: number,
+  bookedAt: string,
+  qamfReservationId: string,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET booked_at = ${bookedAt}, qamf_reservation_id = ${qamfReservationId}
+    WHERE id = ${id}
+  `;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Utility: compute deposit amount from a list of products + quantities
 // ─────────────────────────────────────────────────────────────────
