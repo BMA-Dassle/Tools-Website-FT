@@ -316,8 +316,13 @@ function formatDate(ymd: string): string {
   });
 }
 
+/**
+ * Format a Date as YYYY-MM-DD in Eastern Time (America/New_York).
+ * Both HeadPinz centers are in SW Florida (Eastern time zone).
+ * Using toISOString() would give UTC and flip to the next day after 8 PM ET.
+ */
 function ymdFromDate(dt: Date): string {
-  return dt.toISOString().slice(0, 10);
+  return dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
 function todayYmd(): string {
@@ -325,9 +330,10 @@ function todayYmd(): string {
 }
 
 function addDays(ymd: string, n: number): string {
+  // Anchor at noon ET to avoid DST / day-boundary drift.
   const d = new Date(`${ymd}T12:00:00`);
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return ymdFromDate(d);
 }
 
 /**
@@ -550,6 +556,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [shoeProducts, setShoeProducts] = useState<BowlingSquareProduct[]>([]);
   const [shoeQty, setShoeQty] = useState<Record<number, number>>({});
 
+  // ── Pizza Bowl modifier selections ───────────────────────────────
+  // Loaded from Square catalog once a pizza-bowl experience is selected.
+  // groups      — the modifier lists (e.g. "Pizza Toppings", "Soda Choice")
+  // selections  — { [groupId]: string[] }
+  //               SINGLE groups store at most one ID; MULTIPLE groups store many.
+  //               Special key "__note__" holds fallback free-text when no groups loaded.
+
+  interface ModifierGroup {
+    id: string;
+    name: string;
+    selectionType: "SINGLE" | "MULTIPLE";
+    options: Array<{ id: string; name: string }>;
+  }
+
+  const [pizzaModifierGroups, setPizzaModifierGroups] = useState<ModifierGroup[]>([]);
+  const [pizzaModifiersLoading, setPizzaModifiersLoading] = useState(false);
+  // Record<groupId, selectedOptionId[]>  (single = max 1 entry; multiple = n entries)
+  const [pizzaModifierSelections, setPizzaModifierSelections] = useState<Record<string, string[]>>({});
+
   // ── KBF: existing reservation ────────────────────────────────────
 
   const [existingReservation, setExistingReservation] = useState<ExistingReservation | null>(null);
@@ -592,6 +617,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     selectedExperience
       ? (getExperienceDisplay(selectedExperience.slug, selectedExperience.isVip).includesShoes ?? false)
       : false;
+
+  // Whether the selected experience is a pizza-bowl package (needs modifier selection)
+  const isPizzaBowl = (selectedExperience?.slug ?? "").includes("pizza-bowl");
 
   // VIP counterpart experience for the upgrade modal
   const vipUpgradeExperience =
@@ -638,9 +666,50 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const depositCents = quoteDepositCents > 0 ? quoteDepositCents : preTaxDepositCents;
   const displayTotal = quoteTotalCents   > 0 ? quoteTotalCents   : preTaxTotalCents;
 
+  // Pizza bowl modifier selections:
+  //   - When Square catalog modifier groups exist: attach as applied_modifiers AND as a
+  //     human-readable note (Square silently drops applied_modifiers if modifier lists
+  //     aren't attached to the catalog item; the note ensures staff always see the choices)
+  //   - When catalog not yet configured: fall back to a text note on the line item
+  const selectedModifiers =
+    isPizzaBowl && pizzaModifierGroups.length > 0
+      ? Object.entries(pizzaModifierSelections)
+          .filter(([key]) => key !== "__note__")
+          .flatMap(([, optionIds]) => (optionIds ?? []).map((id) => ({ catalog_object_id: id })))
+      : [];
+
+  // Build human-readable note from selections so staff can always see choices.
+  // Belt-and-suspenders: sent alongside applied_modifiers in case Square drops them.
+  const pizzaNoteText: string | undefined = (() => {
+    if (!isPizzaBowl) return undefined;
+    if (pizzaModifierGroups.length > 0) {
+      // Build "Group Name: Opt1, Opt2 | Other Group: Opt3" from current selections
+      const parts = pizzaModifierGroups
+        .map((group) => {
+          const selectedIds = pizzaModifierSelections[group.id] ?? [];
+          if (selectedIds.length === 0) return null;
+          const names = selectedIds
+            .map((id) => group.options.find((o) => o.id === id)?.name ?? id)
+            .join(", ");
+          return `${group.name}: ${names}`;
+        })
+        .filter(Boolean);
+      return parts.length > 0 ? parts.join(" | ") : undefined;
+    }
+    // Fallback: free-text textarea value
+    return ((pizzaModifierSelections["__note__"] ?? [])[0] ?? "").trim() || undefined;
+  })();
+
   // Line items sent to /api/bowling/v2/reserve
   const lineItems = [
-    ...baseItems.map((item) => ({ squareProductId: item.squareProductId, quantity: item.quantity })),
+    ...baseItems.map((item) => ({
+      squareProductId: item.squareProductId,
+      quantity: item.quantity,
+      // Attach modifier selections to the pizza-bowl base item in Square
+      ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
+      // Human-readable note: always set for pizza-bowl so staff see selections
+      ...(pizzaNoteText ? { note: pizzaNoteText } : {}),
+    })),
     ...shoeProducts
       .filter((p) => (shoeQty[p.id] ?? 0) > 0)
       .map((p) => ({ squareProductId: p.id, quantity: shoeQty[p.id] })),
@@ -864,6 +933,49 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // ── Fetch Square modifier groups for pizza-bowl experiences ─────
+  // Runs whenever the selected experience changes. Clears previous groups/
+  // selections if the new experience is not a pizza-bowl package.
+
+  useEffect(() => {
+    if (!isPizzaBowl) {
+      setPizzaModifierGroups([]);
+      setPizzaModifierSelections({});
+      return;
+    }
+
+    // Prefer squareModifierListIds stored on the experience (avoids Square
+    // catalog item permission issues). Fall back to catalog object lookup
+    // when present.
+    const modifierListIds = selectedExperience?.squareModifierListIds ?? [];
+    const catalogObjectId = selectedExperience?.items.find((i) => i.squareCatalogObjectId)?.squareCatalogObjectId;
+
+    if (modifierListIds.length === 0 && !catalogObjectId) return;
+
+    const url =
+      modifierListIds.length > 0
+        ? `/api/bowling/v2/catalog-modifiers?modifierListIds=${encodeURIComponent(modifierListIds.join(","))}`
+        : `/api/bowling/v2/catalog-modifiers?catalogObjectId=${encodeURIComponent(catalogObjectId!)}`;
+
+    setPizzaModifiersLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(url);
+        const data = await res.json() as ModifierGroup[];
+        if (res.ok && Array.isArray(data)) {
+          setPizzaModifierGroups(data as ModifierGroup[]);
+          // Reset selections when experience changes
+          setPizzaModifierSelections({});
+        }
+      } catch {
+        // Non-fatal — modifiers are a convenience, booking proceeds without them
+      } finally {
+        setPizzaModifiersLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedExperience?.slug]);
+
   // ── Clear stale quote when user backs up to shoes step ────────────
 
   useEffect(() => {
@@ -885,6 +997,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         name: item.label,
         quantity: String(item.quantity),
         catalogObjectId: item.squareCatalogObjectId,
+        // Include modifier selections so the quote price includes any priced modifiers
+        ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
+        ...(pizzaNoteText ? { note: pizzaNoteText } : {}),
       })),
       ...shoeProducts
         .filter((p) => (shoeQty[p.id] ?? 0) > 0)
@@ -2528,7 +2643,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       }
                       // Hold was already created when user tapped the time chip.
                       // Just advance to the next step.
-                      setStep(selectedIncludesShoes ? "review" : "shoes");
+                      // Pizza-bowl includes shoes but needs modifier selection → go to food step.
+      // Other shoe-included experiences skip straight to review.
+      setStep(
+        selectedIncludesShoes
+          ? isPizzaBowl ? "food" : "review"
+          : "shoes",
+      );
                     }}
                     disabled={!selectedSlot || holdBusy}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
@@ -2704,7 +2825,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button type="button" onClick={() => { if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); } }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
-                  onClick={() => { setError(null); setStep("review"); }}
+                  onClick={() => { setError(null); setStep(isPizzaBowl ? "food" : "review"); }}
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
@@ -2730,16 +2851,114 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           )}
 
           {/* ═══════════════════════════════════════════════════════
-              STEP: Food (stub)
+              STEP: Food / Pizza Bowl Modifiers
+              For pizza-bowl experiences: show modifier selectors so
+              the customer can choose pizza topping + soda flavor.
+              These selections attach as applied_modifiers on the
+              Square day-of order line item.
+              For all other experiences: stub / coming soon.
           ═══════════════════════════════════════════════════════ */}
           {step === "food" && (
-            <div className="space-y-4">
-              <div className="rounded-xl p-6 text-center" style={{ border: "1.78px dashed rgba(255,255,255,0.08)" }}>
-                <p className="font-body text-white/35 text-sm">Food packages coming soon.</p>
-              </div>
+            <div className="space-y-5">
+              {isPizzaBowl ? (
+                <>
+                  {pizzaModifiersLoading ? (
+                    <div className="rounded-xl p-8 text-center" style={{ border: "1.78px dashed rgba(255,255,255,0.08)" }}>
+                      <div className="inline-block w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin mb-3" />
+                      <p className="font-body text-white/55 text-sm">Loading options…</p>
+                    </div>
+                  ) : pizzaModifierGroups.length > 0 ? (
+                    <div className="space-y-5">
+                      {pizzaModifierGroups.map((group) => (
+                        <div key={group.id}>
+                          <p className="font-body text-white/70 text-sm mb-2">{group.name}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {group.options.map((option) => {
+                              const currentIds = pizzaModifierSelections[group.id] ?? [];
+                              const selected = currentIds.includes(option.id);
+                              return (
+                                <button
+                                  key={option.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setPizzaModifierSelections((prev) => {
+                                      const cur = prev[group.id] ?? [];
+                                      if (group.selectionType === "SINGLE") {
+                                        // Toggle: deselect if already selected, else replace
+                                        return { ...prev, [group.id]: selected ? [] : [option.id] };
+                                      } else {
+                                        // MULTIPLE: toggle in/out of set
+                                        return {
+                                          ...prev,
+                                          [group.id]: selected
+                                            ? cur.filter((id) => id !== option.id)
+                                            : [...cur, option.id],
+                                        };
+                                      }
+                                    })
+                                  }
+                                  className="rounded-full px-4 py-2 font-body text-sm font-bold transition-all"
+                                  style={
+                                    selected
+                                      ? {
+                                          backgroundColor: CORAL,
+                                          color: "#fff",
+                                          boxShadow: `0 0 14px ${CORAL}55`,
+                                        }
+                                      : {
+                                          backgroundColor: "rgba(255,255,255,0.07)",
+                                          color: "rgba(255,255,255,0.7)",
+                                          border: "1.78px solid rgba(255,255,255,0.12)",
+                                        }
+                                  }
+                                >
+                                  {option.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    // Modifier groups empty (not yet configured in Square) — show a
+                    // plain note input so staff still see preferences in the order.
+                    <div className="space-y-2">
+                      <p className="font-body text-white/70 text-sm">Any pizza or drink preferences?</p>
+                      <textarea
+                        rows={3}
+                        placeholder="e.g. pepperoni pizza, Diet Coke"
+                        className="w-full rounded-xl px-4 py-3 font-body text-sm text-white bg-white/5 border border-white/15 placeholder:text-white/25 resize-none focus:outline-none focus:border-white/40"
+                        value={(pizzaModifierSelections["__note__"] ?? [])[0] ?? ""}
+                        onChange={(e) =>
+                          setPizzaModifierSelections({ __note__: [e.target.value] })
+                        }
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl p-6 text-center" style={{ border: "1.78px dashed rgba(255,255,255,0.08)" }}>
+                  <p className="font-body text-white/35 text-sm">Food packages coming soon.</p>
+                </div>
+              )}
+
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("attractions")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
-                <button type="button" onClick={() => setStep("review")} className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white" style={{ backgroundColor: CORAL }}>Skip</button>
+                <button
+                  type="button"
+                  onClick={() => setStep(selectedIncludesShoes ? "offer" : "shoes")}
+                  className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("review")}
+                  className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
+                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                >
+                  {isPizzaBowl && pizzaModifierGroups.length > 0 ? "Continue" : "Skip"}
+                </button>
               </div>
             </div>
           )}
@@ -2774,6 +2993,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   <span className="font-body text-white/55">Bowlers</span>
                   <span className="font-body text-white font-bold">{activePlayerCount}</span>
                 </div>
+                {/* Pizza bowl selections summary */}
+                {isPizzaBowl && pizzaNoteText && (
+                  <div className="flex justify-between text-sm">
+                    <span className="font-body text-white/55">Selections</span>
+                    <span className="font-body text-white font-bold text-right max-w-[60%]">{pizzaNoteText}</span>
+                  </div>
+                )}
                 <div className="h-px bg-white/10" />
 
                 {/* Base experience line items */}

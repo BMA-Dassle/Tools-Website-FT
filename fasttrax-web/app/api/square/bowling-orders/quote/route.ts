@@ -46,6 +46,8 @@ interface LineItemInput {
   quantity: string;
   catalogObjectId?: string;
   basePriceMoney?: { amount: number; currency: "USD" };
+  note?: string;
+  modifiers?: Array<{ catalog_object_id: string }>;
 }
 
 export async function POST(req: NextRequest) {
@@ -73,13 +75,20 @@ export async function POST(req: NextRequest) {
     // Mirror the same line-item building logic as bowling-orders:
     // catalog items → catalog_object_id only; ad-hoc → name + base_price_money
     const dayofLineItems = lineItems.map((li) => {
+      const modifiers =
+        li.modifiers?.length
+          ? { applied_modifiers: li.modifiers.map((m) => ({ catalog_object_id: m.catalog_object_id })) }
+          : {};
+      const noteField = li.note ? { note: li.note } : {};
       if (li.catalogObjectId) {
-        return { catalog_object_id: li.catalogObjectId, quantity: li.quantity };
+        return { catalog_object_id: li.catalogObjectId, quantity: li.quantity, ...modifiers, ...noteField };
       }
       return {
         name: li.name,
         quantity: li.quantity,
         base_price_money: li.basePriceMoney,
+        ...modifiers,
+        ...noteField,
       };
     });
 

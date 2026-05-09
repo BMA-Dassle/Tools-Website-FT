@@ -105,6 +105,12 @@ interface LineItemInput {
   basePriceMoney: { amount: number; currency: "USD" };
   /** Free-text note attached to this line item in Square (e.g. pizza topping, soda flavor). */
   note?: string;
+  /**
+   * Square catalog modifier option IDs to attach to this line item.
+   * These become `applied_modifiers` on the Square order line item so staff
+   * see the customer's selections (e.g. pizza topping, soda flavor) in POS.
+   */
+  modifiers?: Array<{ catalog_object_id: string }>;
 }
 
 export async function POST(req: NextRequest) {
@@ -163,13 +169,20 @@ export async function POST(req: NextRequest) {
       dayofTotalCents = body.existingDayofTotalCents;
     } else {
       const dayofLineItems = (lineItems ?? []).map((li) => {
+        const modifiers =
+          li.modifiers?.length
+            ? { applied_modifiers: li.modifiers.map((m) => ({ catalog_object_id: m.catalog_object_id })) }
+            : {};
+        const noteField = li.note ? { note: li.note } : {};
         if (li.catalogObjectId) {
-          return { catalog_object_id: li.catalogObjectId, quantity: li.quantity };
+          return { catalog_object_id: li.catalogObjectId, quantity: li.quantity, ...modifiers, ...noteField };
         }
         return {
           name: li.name,
           quantity: li.quantity,
           base_price_money: li.basePriceMoney,
+          ...modifiers,
+          ...noteField,
         };
       });
 

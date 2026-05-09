@@ -215,6 +215,11 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Default all-days so old rows continue to work until seed is re-run.
   await q`ALTER TABLE bowling_experiences ADD COLUMN IF NOT EXISTS days_of_week INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}'`;
 
+  // ── square_modifier_list_ids on experiences (idempotent) ─────────
+  // Square catalog modifier list IDs to surface for this experience.
+  // Default empty so existing rows show no modifier step until seeded.
+  await q`ALTER TABLE bowling_experiences ADD COLUMN IF NOT EXISTS square_modifier_list_ids TEXT[] NOT NULL DEFAULT '{}'`;
+
   // ── Cancellation / refund columns (idempotent) ───────────────────
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_refund_id TEXT`;
@@ -271,6 +276,13 @@ export interface BowlingExperience {
    * Default [0..6] (all days) so legacy rows work until seed is re-run.
    */
   daysOfWeek: number[];
+  /**
+   * Square catalog modifier list IDs to show for this experience's wizard step.
+   * For pizza-bowl packages these are "Pizza Toppings" + "Soda Choice".
+   * The catalog-modifiers endpoint fetches options for these lists from Square.
+   * Empty array (default) means no modifier step is shown.
+   */
+  squareModifierListIds: string[];
   insertedAt: string;
 }
 
@@ -972,6 +984,11 @@ function rowToExperience(row: Record<string, unknown>): BowlingExperience {
   const daysOfWeek: number[] = Array.isArray(raw)
     ? (raw as number[])
     : [0, 1, 2, 3, 4, 5, 6]; // fallback: all days
+
+  // square_modifier_list_ids comes back as string[] from Neon (pg TEXT[])
+  const rawMods = row.square_modifier_list_ids;
+  const squareModifierListIds: string[] = Array.isArray(rawMods) ? (rawMods as string[]) : [];
+
   return {
     id: row.id as number,
     slug: row.slug as string,
@@ -982,6 +999,7 @@ function rowToExperience(row: Record<string, unknown>): BowlingExperience {
     sortOrder: row.sort_order as number,
     isActive: row.is_active as boolean,
     daysOfWeek,
+    squareModifierListIds,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -1205,17 +1223,19 @@ export async function upsertBowlingExperience(
   await ensureBowlingSchema();
   const q = sql();
   const days = e.daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6];
+  const modListIds = e.squareModifierListIds ?? [];
   const rows = await q`
-    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active, days_of_week)
-    VALUES (${e.slug}, ${e.label}, ${e.kind}, ${e.isVip}, ${e.description ?? null}, ${e.sortOrder}, ${e.isActive}, ${days})
+    INSERT INTO bowling_experiences (slug, label, kind, is_vip, description, sort_order, is_active, days_of_week, square_modifier_list_ids)
+    VALUES (${e.slug}, ${e.label}, ${e.kind}, ${e.isVip}, ${e.description ?? null}, ${e.sortOrder}, ${e.isActive}, ${days}, ${modListIds})
     ON CONFLICT (slug) DO UPDATE SET
-      label        = EXCLUDED.label,
-      kind         = EXCLUDED.kind,
-      is_vip       = EXCLUDED.is_vip,
-      description  = EXCLUDED.description,
-      sort_order   = EXCLUDED.sort_order,
-      is_active    = EXCLUDED.is_active,
-      days_of_week = EXCLUDED.days_of_week
+      label                    = EXCLUDED.label,
+      kind                     = EXCLUDED.kind,
+      is_vip                   = EXCLUDED.is_vip,
+      description              = EXCLUDED.description,
+      sort_order               = EXCLUDED.sort_order,
+      is_active                = EXCLUDED.is_active,
+      days_of_week             = EXCLUDED.days_of_week,
+      square_modifier_list_ids = EXCLUDED.square_modifier_list_ids
     RETURNING *
   `;
   return rowToExperience(rows[0] as Record<string, unknown>);

@@ -88,6 +88,8 @@ interface UpsertBody {
   isActive?: boolean;
   /** 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat. Default: all days. */
   daysOfWeek?: number[];
+  /** Square catalog modifier list IDs (e.g. pizza toppings, soda choice). Default: []. */
+  squareModifierListIds?: string[];
   offers: OfferInput[];
   items?: ItemInput[];
 }
@@ -131,6 +133,7 @@ export async function POST(req: NextRequest) {
       sortOrder: body.sortOrder ?? 0,
       isActive: body.isActive ?? true,
       daysOfWeek: Array.isArray(body.daysOfWeek) ? (body.daysOfWeek as number[]) : [0, 1, 2, 3, 4, 5, 6],
+      squareModifierListIds: Array.isArray(body.squareModifierListIds) ? (body.squareModifierListIds as string[]) : [],
     });
 
     // 2. Upsert all per-center offer mappings

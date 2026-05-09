@@ -73,6 +73,17 @@ interface Player {
 interface LineItemRequest {
   squareProductId: number;
   quantity: number;
+  /**
+   * Square catalog modifier option catalog_object_ids selected by the customer
+   * (e.g. pizza topping, soda flavor for pizza-bowl packages).
+   * Forwarded to bowling-orders as applied_modifiers on the day-of order line item.
+   */
+  modifiers?: Array<{ catalog_object_id: string }>;
+  /**
+   * Free-text note attached to this line item in Square.
+   * Used as a fallback when Square catalog modifier groups are not yet configured.
+   */
+  note?: string;
 }
 
 interface ReserveBody {
@@ -437,8 +448,11 @@ export async function POST(req: NextRequest) {
     const squareLocationId =
       body.locationId ?? centerCode;
 
+    // Build Square line items, passing through catalog IDs, modifier selections, and notes.
+    // lineItems (from the request body) carry modifier arrays keyed by squareProductId.
     const sqLineItems = reservationLines.map((l) => {
       const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
+      const reqItem  = lineItems.find((li) => li.squareProductId === l.squareProductId);
       return {
         name: l.label,
         quantity: String(l.quantity),
@@ -447,6 +461,12 @@ export async function POST(req: NextRequest) {
         ...(product?.squareCatalogObjectId
           ? { catalogObjectId: product.squareCatalogObjectId }
           : {}),
+        // Forward modifier selections (e.g. pizza topping, soda flavor) to Square
+        ...(reqItem?.modifiers?.length
+          ? { modifiers: reqItem.modifiers }
+          : {}),
+        // Forward free-text note (fallback when catalog modifiers not yet configured)
+        ...(reqItem?.note ? { note: reqItem.note } : {}),
       };
     });
 
