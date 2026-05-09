@@ -198,7 +198,17 @@ export async function POST(req: NextRequest) {
   const eventType = typeof body.Type === "string" ? body.Type : "unknown";
   const centerId = typeof body.CenterId === "number" ? body.CenterId : null;
 
-  // ── 7. Push to FIFO + heartbeat ────────────────────────────────────
+  // ── 7. Drop events the consumer always skips ───────────────────────
+  // lanes.updated fires constantly during active sessions and is never
+  // actioned by the consumer — filtering it here keeps the queue lean.
+  if (eventType === "lanes.updated") {
+    redis
+      .set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL)
+      .catch(() => void 0);
+    return NextResponse.json({ ok: true, kind: "skipped", eventType });
+  }
+
+  // ── 8. Push to FIFO + heartbeat ────────────────────────────────────
   const entry = JSON.stringify({
     webhookId,
     webhookTimestamp,
@@ -220,9 +230,7 @@ export async function POST(req: NextRequest) {
     // and the dedup key would already be set, so it'd be a no-op.
   }
 
-  // Heartbeat — useful for "is the QAMF webhook flowing?" admin checks
-  // and any future heartbeat-gated cron, mirroring the VT3 + kart-bridge
-  // patterns.
+  // Heartbeat
   redis
     .set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL)
     .catch(() => void 0);

@@ -35,12 +35,6 @@ interface PollResult {
 }
 
 export async function GET(req: NextRequest) {
-  // Vercel cron authentication
-  const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET ?? ""}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
   const started = Date.now();
   const allResults: PollResult[] = [];
 
