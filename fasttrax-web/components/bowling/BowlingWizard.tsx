@@ -618,6 +618,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Track what we last fetched to skip redundant QAMF calls
   const lastFetchKey = useRef("");
 
+  // Auto-scroll refs for the slots step (date → hours → minutes → CTA)
+  const hoursRef = useRef<HTMLDivElement>(null);
+  const minutesRef = useRef<HTMLDivElement>(null);
+  const seePackagesRef = useRef<HTMLDivElement>(null);
+
   // Calendar nav
   const initCal = new Date(`${initialDate}T12:00:00`);
   const [calMonth, setCalMonth] = useState(initCal.getMonth());
@@ -2508,7 +2513,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             key={day}
                             type="button"
                             disabled={!bookable}
-                            onClick={() => { setSelectedDate(dateStr); setSelectedHour(null); setSelectedMinute(null); setAvailableSlots([]); setSlotsError(null); }}
+                            onClick={() => { setSelectedDate(dateStr); setSelectedHour(null); setSelectedMinute(null); setAvailableSlots([]); setSlotsError(null); setTimeout(() => hoursRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100); }}
                             className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
                             style={{
                               backgroundColor: isSelected ? CORAL : bookable ? "rgba(253,91,86,0.15)" : "transparent",
@@ -2526,7 +2531,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </div>
 
                   {/* Hour chips */}
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                  <div ref={hoursRef} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                     {!selectedDate ? (
                       <div className="flex items-center justify-center h-full min-h-[200px]">
                         <p className="font-body text-white/30 text-sm">Pick a date first</p>
@@ -2541,7 +2546,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                               <button
                                 key={h}
                                 type="button"
-                                onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
+                                onClick={() => { setSelectedHour(h); setSelectedMinute(null); setTimeout(() => minutesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100); }}
                                 className="rounded-lg px-3 py-2 text-sm font-medium transition-all"
                                 style={{
                                   backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
@@ -2579,7 +2584,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             setSelectedMinute(null);
                           }
                           return (
-                            <div className="mt-4 pt-3 border-t border-white/8">
+                            <div ref={minutesRef} className="mt-4 pt-3 border-t border-white/8">
                               <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
                                 Select Time
                               </div>
@@ -2590,7 +2595,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                     <button
                                       key={m}
                                       type="button"
-                                      onClick={() => setSelectedMinute(m)}
+                                      onClick={() => { setSelectedMinute(m); setTimeout(() => seePackagesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100); }}
                                       className="rounded-lg px-3 py-2 text-sm font-medium transition-all hover:scale-[1.02]"
                                       style={{
                                         backgroundColor: isActive ? GOLD : "rgba(255,215,0,0.10)",
@@ -2614,7 +2619,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </div>
 
                 {/* CTA */}
-                <div className="flex gap-2">
+                <div ref={seePackagesRef} className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setStep(kind === "kbf" ? "bowlers" : "players")}
