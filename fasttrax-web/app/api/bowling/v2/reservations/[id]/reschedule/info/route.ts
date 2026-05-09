@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReservation } from "@/lib/qamf-bowling";
 import { getBowlingReservation } from "@/lib/bowling-db";
+import { sql } from "@/lib/db";
 
 const CENTER_CODE_TO_QAMF: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
@@ -12,8 +13,11 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
  *
  * Returns the QAMF web offer details for an existing reservation so the
  * confirmation page's reschedule panel can fetch availability constrained
- * to the same web offer. The web offer ID is pulled from the live QAMF
- * reservation.
+ * to the same web offer.
+ *
+ * Also returns `daysOfWeek` (0=Sun..6=Sat) from the linked experience
+ * so the UI can grey out dates that won't have availability without
+ * making 14 QAMF availability probes.
  *
  * No auth — customer-facing, but requires knowing the neonId.
  */
@@ -72,6 +76,27 @@ export async function GET(
       optionId = opts.Game[0].Id;
     }
 
+    // Look up days_of_week from the experience linked to this web offer
+    // bowling_experience_offers → bowling_experiences.days_of_week
+    let daysOfWeek: number[] = [0, 1, 2, 3, 4, 5, 6]; // default: all days
+    try {
+      const q = sql();
+      const rows = await q`
+        SELECT e.days_of_week, e.label
+        FROM bowling_experience_offers eo
+        JOIN bowling_experiences e ON e.id = eo.experience_id
+        WHERE eo.center_code = ${reservation.centerCode}
+          AND eo.qamf_web_offer_id = ${woId}
+        LIMIT 1
+      `;
+      if (rows.length > 0) {
+        const raw = rows[0].days_of_week;
+        if (Array.isArray(raw)) daysOfWeek = raw as number[];
+      }
+    } catch {
+      // Non-fatal — default to all days
+    }
+
     return NextResponse.json({
       webOfferId: woId,
       optionId,
@@ -79,6 +104,7 @@ export async function GET(
       centerId: qamfCenterId,
       playerCount: reservation.playerCount ?? 1,
       bookedAt: reservation.bookedAt,
+      daysOfWeek,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";

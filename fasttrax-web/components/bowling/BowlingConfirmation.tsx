@@ -611,7 +611,10 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [checkInOpen, setCheckInOpen] = useState(false);
 
   // ── Reschedule state ─────────────────────────────────────────────
-  type RescheduleInfo = { webOfferId: number; optionId?: number; optionType?: string; centerId: number; playerCount: number };
+  type RescheduleInfo = {
+    webOfferId: number; optionId?: number; optionType?: string;
+    centerId: number; playerCount: number; daysOfWeek?: number[];
+  };
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleInfo, setRescheduleInfo] = useState<RescheduleInfo | null>(null);
   const [rescheduleInfoLoading, setRescheduleInfoLoading] = useState(false);
@@ -720,17 +723,10 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     setRescheduleSelected(null);
     setRescheduleSuccess(false);
 
-    // Default date to current booking date in ET
-    if (reservation) {
-      try {
-        const d = new Date(reservation.bookedAt).toLocaleDateString("en-CA", {
-          timeZone: "America/New_York",
-        });
-        setRescheduleDate(d);
-      } catch {
-        setRescheduleDate(new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }));
-      }
-    }
+    // Default to today in ET
+    setRescheduleDate(
+      new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+    );
 
     // Fetch web offer info if not already loaded
     if (!rescheduleInfo && !rescheduleInfoLoading) {
@@ -771,8 +767,12 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
         const data = await res.json();
         if (!alive) return;
         if (data.Availabilities) {
+          const nowMs = Date.now();
+          const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const isToday = rescheduleDate === todayET;
           const matching = (data.Availabilities as Array<{ BookedAt: string; WebOffer: { Id: number } }>)
             .filter((a) => a.WebOffer.Id === rescheduleInfo.webOfferId)
+            .filter((a) => !isToday || new Date(a.BookedAt).getTime() > nowMs)
             .map((a) => ({ bookedAt: a.BookedAt }));
           setRescheduleSlots(matching);
         }
@@ -1321,7 +1321,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               ?.label;
 
             // Build date pills: next 14 days from today in ET
-            const datePills: { dateStr: string; dayLabel: string; dateLabel: string }[] = [];
+            // daysOfWeek from the experience (0=Sun..6=Sat) — grey out days with no availability
+            const allowedDays = rescheduleInfo?.daysOfWeek;
+            const datePills: { dateStr: string; dayLabel: string; dateLabel: string; disabled: boolean }[] = [];
             for (let i = 0; i < 14; i++) {
               const d = new Date();
               d.setDate(d.getDate() + i);
@@ -1329,7 +1331,10 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               const dayLabel = i === 0 ? "Today" : i === 1 ? "Tomorrow"
                 : d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
               const dateLabel = d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
-              datePills.push({ dateStr, dayLabel, dateLabel });
+              // JS getDay() returns 0=Sun..6=Sat — matches our DB convention
+              const jsDay = d.getDay();
+              const disabled = Array.isArray(allowedDays) && allowedDays.length > 0 && !allowedDays.includes(jsDay);
+              datePills.push({ dateStr, dayLabel, dateLabel, disabled });
             }
 
             return (
@@ -1346,20 +1351,20 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                 {/* Reschedule panel */}
                 {rescheduleOpen && !rescheduleSuccess && (
                   <div className="px-3 sm:px-4 pb-4 space-y-3 border-t border-[#00E2E5]/15">
-                    {/* Experience tag — makes the constraint visible */}
-                    {expLabel && (
-                      <div className="flex items-center gap-2 pt-3">
-                        <span className="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-[#00E2E5]/15 text-[#00E2E5] border border-[#00E2E5]/20">
-                          {expLabel}
-                        </span>
-                        <span className="text-[11px] text-white/35">same package &amp; price</span>
-                      </div>
-                    )}
-                    {!expLabel && (
-                      <p className="text-xs text-white/40 pt-3">
-                        Pick a new date and time. Same experience &amp; price.
+                    {/* Experience constraint notice */}
+                    <div className="pt-3 space-y-1.5">
+                      {expLabel && (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-[#00E2E5]/15 text-[#00E2E5] border border-[#00E2E5]/20">
+                            {expLabel}
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-[11px] text-white/40 leading-relaxed">
+                        You can reschedule to a different date or time within the same experience.
+                        To switch experiences, please cancel and rebook.
                       </p>
-                    )}
+                    </div>
 
                     {/* Loading info */}
                     {rescheduleInfoLoading && (
@@ -1389,10 +1394,12 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                               <button
                                 key={dp.dateStr}
                                 type="button"
+                                disabled={dp.disabled}
                                 onClick={() => setRescheduleDate(dp.dateStr)}
-                                className="flex-shrink-0 rounded-lg px-2.5 py-2 text-center transition-colors"
+                                className="flex-shrink-0 rounded-lg px-2.5 py-2 text-center transition-colors disabled:cursor-not-allowed"
                                 style={{
                                   minWidth: 56,
+                                  opacity: dp.disabled ? 0.25 : 1,
                                   backgroundColor: isActive ? "rgba(0,226,229,0.18)" : "rgba(255,255,255,0.05)",
                                   border: isActive ? "1.5px solid #00E2E5" : "1px solid rgba(255,255,255,0.08)",
                                 }}
