@@ -782,6 +782,50 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
       <main className="pt-28 sm:pt-36 pb-24 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
+        {/* ── Check-in status — mobile top (hidden on lg, shown in right column there) ── */}
+        {!isCancelled && hasNeonRecord && laneReadyPhase !== "idle" && (
+          <div className="lg:hidden mb-4 space-y-3">
+            {laneReadyPhase === "not_ready" && (
+              <div
+                className="w-full rounded-2xl border px-5 py-3.5 flex items-center gap-3"
+                style={{ backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.3)" }}
+              >
+                <span style={{ fontSize: "18px" }}>🔴</span>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "#f87171" }}>Lane Not Ready Yet</p>
+                  <p className="text-xs text-white/45 mt-0.5">We&apos;ll let you know as soon as it&apos;s set up.</p>
+                </div>
+              </div>
+            )}
+            {laneReadyPhase === "ready" && (
+              <button
+                type="button"
+                onClick={() => setCheckInOpen(true)}
+                className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
+                style={{
+                  background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                  fontSize: "15px",
+                  letterSpacing: "1.5px",
+                  boxShadow: "0 4px 24px rgba(34,197,94,0.4)",
+                }}
+              >
+                🎳 Your Lane is Ready! Check In Now!
+              </button>
+            )}
+            {laneReadyPhase === "running" && (
+              <div
+                className="rounded-2xl border p-5 text-center space-y-1"
+                style={{ backgroundColor: "rgba(74,222,128,0.07)", borderColor: "rgba(74,222,128,0.3)" }}
+              >
+                <p className="font-heading font-black uppercase italic" style={{ color: "#4ade80", fontSize: "clamp(18px,4vw,22px)" }}>
+                  {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
+                </p>
+                <p className="text-white/60 text-sm">🥿 Shoes will be delivered directly to you.</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Two-column on large screens: left = booking info, right = interactive ── */}
         <div className="lg:grid lg:grid-cols-5 lg:gap-6 space-y-4 lg:space-y-0">
 
@@ -1047,66 +1091,51 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
         {/* ── RIGHT COLUMN ── */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* ── Lane not ready indicator ── */}
-          {!isCancelled && hasNeonRecord && laneReadyPhase === "not_ready" && (
-            <div
-              className="w-full rounded-2xl border px-5 py-3.5 flex items-center gap-3"
-              style={{
-                backgroundColor: "rgba(239,68,68,0.08)",
-                borderColor: "rgba(239,68,68,0.3)",
-              }}
-            >
-              <span style={{ fontSize: "18px" }}>🔴</span>
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "#f87171" }}>
-                  Lane Not Ready Yet
-                </p>
-                <p className="text-xs text-white/45 mt-0.5">
-                  We&apos;ll let you know as soon as it&apos;s set up.
-                </p>
-              </div>
+          {/* ── Check-in status (desktop only — mobile version sits above grid) ── */}
+          {!isCancelled && hasNeonRecord && laneReadyPhase !== "idle" && (
+            <div className="hidden lg:block space-y-3">
+              {laneReadyPhase === "not_ready" && (
+                <div
+                  className="w-full rounded-2xl border px-5 py-3.5 flex items-center gap-3"
+                  style={{ backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.3)" }}
+                >
+                  <span style={{ fontSize: "18px" }}>🔴</span>
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: "#f87171" }}>Lane Not Ready Yet</p>
+                    <p className="text-xs text-white/45 mt-0.5">We&apos;ll let you know as soon as it&apos;s set up.</p>
+                  </div>
+                </div>
+              )}
+              {laneReadyPhase === "ready" && (
+                <button
+                  type="button"
+                  onClick={() => setCheckInOpen(true)}
+                  className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
+                  style={{
+                    background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                    fontSize: "15px",
+                    letterSpacing: "1.5px",
+                    boxShadow: "0 4px 24px rgba(34,197,94,0.4)",
+                  }}
+                >
+                  🎳 Your Lane is Ready! Check In Now!
+                </button>
+              )}
+              {laneReadyPhase === "running" && (
+                <div
+                  className="rounded-2xl border p-5 text-center space-y-1"
+                  style={{ backgroundColor: "rgba(74,222,128,0.07)", borderColor: "rgba(74,222,128,0.3)" }}
+                >
+                  <p className="font-heading font-black uppercase italic" style={{ color: "#4ade80", fontSize: "clamp(18px,4vw,22px)" }}>
+                    {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
+                  </p>
+                  <p className="text-white/60 text-sm">🥿 Shoes will be delivered directly to you.</p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* ── Check In button — only when lane is Ready ── */}
-          {!isCancelled && hasNeonRecord && laneReadyPhase === "ready" && (
-            <button
-              type="button"
-              onClick={() => setCheckInOpen(true)}
-              className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
-              style={{
-                background: `linear-gradient(135deg, ${CORAL} 0%, #e03d38 100%)`,
-                fontSize: "15px",
-                letterSpacing: "1.5px",
-                boxShadow: `0 4px 24px rgba(253,91,86,0.35)`,
-              }}
-            >
-              🎳 Your Lane is Ready! Check In Now!
-            </button>
-          )}
-
-          {/* ── Lane already open banner ── */}
-          {!isCancelled && laneReadyPhase === "running" && (
-            <div
-              className="rounded-2xl border p-5 text-center space-y-1"
-              style={{
-                backgroundColor: "rgba(74,222,128,0.07)",
-                borderColor: "rgba(74,222,128,0.3)",
-              }}
-            >
-              <p
-                className="font-heading font-black uppercase italic"
-                style={{ color: "#4ade80", fontSize: "clamp(18px,4vw,22px)" }}
-              >
-                {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
-              </p>
-              <p className="text-white/60 text-sm">
-                🥿 Shoes will be delivered directly to you.
-              </p>
-            </div>
-          )}
-
-          {/* Check-in modal */}
+          {/* Check-in modal (portal renders over everything) */}
           {checkInOpen && hasNeonRecord && (
             <CheckInModal neonId={neonId} onClose={() => setCheckInOpen(false)} />
           )}
