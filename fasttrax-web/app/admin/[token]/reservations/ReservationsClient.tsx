@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface Reservation {
   id: number;
@@ -85,12 +85,41 @@ function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function confirmUrl(r: Reservation): string {
+  const base =
+    r.productKind === "kbf"
+      ? "/hp/book/kids-bowl-free/confirmation"
+      : "/hp/book/bowling/confirmation";
+  return `${base}?neonId=${r.id}`;
+}
+
+const INPUT_STYLE: React.CSSProperties = {
+  backgroundColor: "rgba(255,255,255,0.08)",
+  border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: 8,
+  color: "#fff",
+  padding: "0.5rem 0.75rem",
+  fontSize: "0.875rem",
+};
+
+const NAV_BTN: React.CSSProperties = {
+  backgroundColor: "rgba(255,255,255,0.08)",
+  border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: 8,
+  color: "rgba(255,255,255,0.6)",
+  padding: "0.5rem 0.75rem",
+  fontSize: "0.875rem",
+  cursor: "pointer",
+};
+
 export default function ReservationsClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayET);
   const [center, setCenter] = useState<string>("");
+  const [search, setSearch] = useState("");
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,12 +151,38 @@ export default function ReservationsClient({ token }: { token: string }) {
     void load();
   }, [load]);
 
-  // Stats
-  const active = reservations.filter((r) => r.status !== "cancelled");
-  const cancelled = reservations.filter((r) => r.status === "cancelled");
+  // Client-side search filter
+  const filtered = useMemo(() => {
+    if (!search.trim()) return reservations;
+    const q = search.toLowerCase().trim();
+    return reservations.filter((r) => {
+      const fields = [
+        r.guestName,
+        r.guestEmail,
+        r.guestPhone,
+        r.qamfReservationId,
+        r.notes,
+        r.dayofOrderLane,
+        String(r.id),
+      ];
+      return fields.some((f) => f?.toLowerCase().includes(q));
+    });
+  }, [reservations, search]);
+
+  // Stats (on filtered set)
+  const active = filtered.filter((r) => r.status !== "cancelled");
+  const cancelled = filtered.filter((r) => r.status === "cancelled");
   const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
   const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
   const totalPlayers = active.reduce((s, r) => s + (r.playerCount ?? 0), 0);
+
+  function copyLink(r: Reservation) {
+    const url = `${window.location.origin}${confirmUrl(r)}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(r.id);
+      setTimeout(() => setCopiedId((prev) => (prev === r.id ? null : prev)), 1500);
+    });
+  }
 
   return (
     <div
@@ -140,13 +195,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       }}
     >
       {/* Header */}
-      <div
-        style={{
-          maxWidth: 1200,
-          margin: "0 auto",
-          marginBottom: "1.5rem",
-        }}
-      >
+      <div style={{ maxWidth: 1200, margin: "0 auto", marginBottom: "1.5rem" }}>
         <h1
           style={{
             fontSize: "1.5rem",
@@ -159,32 +208,18 @@ export default function ReservationsClient({ token }: { token: string }) {
           Bowling Reservations
         </h1>
 
-        {/* Filters */}
+        {/* Filters row */}
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8,
-              color: "#fff",
-              padding: "0.5rem 0.75rem",
-              fontSize: "0.875rem",
-            }}
+            style={INPUT_STYLE}
           />
           <select
             value={center}
             onChange={(e) => setCenter(e.target.value)}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8,
-              color: "#fff",
-              padding: "0.5rem 0.75rem",
-              fontSize: "0.875rem",
-            }}
+            style={INPUT_STYLE}
           >
             <option value="">All Centers</option>
             <option value="TXBSQN0FEKQ11">Fort Myers</option>
@@ -193,18 +228,7 @@ export default function ReservationsClient({ token }: { token: string }) {
           <button
             type="button"
             onClick={() => setDate(todayET())}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8,
-              color: "rgba(255,255,255,0.6)",
-              padding: "0.5rem 0.75rem",
-              fontSize: "0.75rem",
-              cursor: "pointer",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              fontWeight: 600,
-            }}
+            style={{ ...NAV_BTN, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}
           >
             Today
           </button>
@@ -215,15 +239,7 @@ export default function ReservationsClient({ token }: { token: string }) {
               d.setDate(d.getDate() - 1);
               setDate(d.toISOString().slice(0, 10));
             }}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8,
-              color: "rgba(255,255,255,0.6)",
-              padding: "0.5rem 0.75rem",
-              fontSize: "0.875rem",
-              cursor: "pointer",
-            }}
+            style={NAV_BTN}
           >
             &larr;
           </button>
@@ -234,30 +250,37 @@ export default function ReservationsClient({ token }: { token: string }) {
               d.setDate(d.getDate() + 1);
               setDate(d.toISOString().slice(0, 10));
             }}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8,
-              color: "rgba(255,255,255,0.6)",
-              padding: "0.5rem 0.75rem",
-              fontSize: "0.875rem",
-              cursor: "pointer",
-            }}
+            style={NAV_BTN}
           >
             &rarr;
           </button>
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.875rem", marginLeft: "0.5rem" }}>
+          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.875rem" }}>
             {fmtDate(date + "T12:00:00")}
           </span>
         </div>
 
+        {/* Search */}
+        <div style={{ marginTop: "0.75rem" }}>
+          <input
+            type="text"
+            placeholder="Search name, email, phone, QAMF ID, lane..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              ...INPUT_STYLE,
+              width: "100%",
+              maxWidth: 400,
+            }}
+          />
+        </div>
+
         {/* Stats bar */}
-        {!loading && reservations.length > 0 && (
+        {!loading && filtered.length > 0 && (
           <div
             style={{
               display: "flex",
               gap: "1.5rem",
-              marginTop: "1rem",
+              marginTop: "0.75rem",
               fontSize: "0.8rem",
               color: "rgba(255,255,255,0.5)",
               flexWrap: "wrap",
@@ -301,9 +324,9 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             {error}
           </div>
-        ) : reservations.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div style={{ textAlign: "center", padding: "3rem", color: "rgba(255,255,255,0.3)" }}>
-            No reservations for this date.
+            {search ? "No matching reservations." : "No reservations for this date."}
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -321,7 +344,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Center", "Type", "Players", "Status", "Lane", "Deposit", "Total", "QAMF ID", "Notes"].map(
+                  {["Time", "Guest", "Center", "Type", "Players", "Status", "Lane", "Deposit", "Total", "QAMF ID", "Link", "Notes"].map(
                     (h) => (
                       <th
                         key={h}
@@ -342,7 +365,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                 </tr>
               </thead>
               <tbody>
-                {reservations.map((r) => {
+                {filtered.map((r) => {
                   const isCancelled = r.status === "cancelled";
                   const rowOpacity = isCancelled ? 0.45 : 1;
                   return (
@@ -415,12 +438,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       </td>
 
                       {/* Players */}
-                      <td
-                        style={{
-                          padding: "0.6rem 0.5rem",
-                          textAlign: "center",
-                        }}
-                      >
+                      <td style={{ padding: "0.6rem 0.5rem", textAlign: "center" }}>
                         {r.playerCount ?? "—"}
                       </td>
 
@@ -441,13 +459,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {STATUS_LABELS[r.status] ?? r.status}
                         </span>
                         {r.dayofOrderError && (
-                          <div
-                            style={{
-                              color: "#ef4444",
-                              fontSize: "0.65rem",
-                              marginTop: 2,
-                            }}
-                          >
+                          <div style={{ color: "#ef4444", fontSize: "0.65rem", marginTop: 2 }}>
                             {r.dayofOrderError}
                           </div>
                         )}
@@ -490,6 +502,38 @@ export default function ReservationsClient({ token }: { token: string }) {
                         }}
                       >
                         {r.qamfReservationId ?? "—"}
+                      </td>
+
+                      {/* Confirmation link */}
+                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <a
+                            href={confirmUrl(r)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: "#60a5fa",
+                              fontSize: "0.7rem",
+                              textDecoration: "none",
+                            }}
+                          >
+                            Open
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => copyLink(r)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: copiedId === r.id ? "#22c55e" : "rgba(255,255,255,0.3)",
+                              cursor: "pointer",
+                              fontSize: "0.65rem",
+                              padding: "2px 4px",
+                            }}
+                          >
+                            {copiedId === r.id ? "Copied!" : "Copy"}
+                          </button>
+                        </div>
                       </td>
 
                       {/* Notes */}
