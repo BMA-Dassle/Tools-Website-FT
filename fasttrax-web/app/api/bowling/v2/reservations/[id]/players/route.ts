@@ -6,7 +6,7 @@ import {
   upsertReservationPlayer,
 } from "@/lib/bowling-db";
 import { upsertMemberPref } from "@/lib/kbf-prefs";
-import { setLanePlayers } from "@/lib/qamf-bowling";
+import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
 
 /**
  * GET  /api/bowling/v2/reservations/[id]/players
@@ -152,16 +152,27 @@ export async function PATCH(
         }));
 
       if (qamfPlayers.length > 0) {
-        // QAMF requires a laneId — for advance reservations the lane isn't
-        // assigned yet. We pass "0" as a sentinel; some QAMF versions
-        // accept it for pre-arrival player data. Non-fatal on any error.
+        // GET the reservation to find the actual assigned lane IDs, then
+        // distribute players across lanes and push per-lane player data.
+        // Non-fatal — player data is saved in Neon; staff can enter at desk.
         try {
-          await setLanePlayers(
-            qamfCenterId,
-            reservation.qamfReservationId,
-            "0",
-            qamfPlayers,
-          );
+          const qamfRes = await getReservation(qamfCenterId, reservation.qamfReservationId);
+          const lanes = qamfRes.Lanes ?? [];
+          if (lanes.length > 0) {
+            const perLane = Math.ceil(qamfPlayers.length / lanes.length);
+            await Promise.all(
+              lanes.map((lane, idx) => {
+                const slice = qamfPlayers.slice(idx * perLane, idx * perLane + perLane);
+                if (slice.length === 0) return Promise.resolve();
+                return setLanePlayers(
+                  qamfCenterId,
+                  reservation.qamfReservationId!,
+                  lane.Id,
+                  slice,
+                );
+              }),
+            );
+          }
         } catch {
           // Non-fatal — player data is saved in Neon; staff can enter at desk
         }
