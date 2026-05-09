@@ -507,8 +507,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   const confirmationBase =
     kind === "kbf"
-      ? "/hp/book/kids-bowl-free-v2/confirmation"
-      : "/hp/book/open-bowling/confirmation";
+      ? "/hp/book/kids-bowl-free/confirmation"
+      : "/hp/book/bowling/confirmation";
 
   // ── Center ───────────────────────────────────────────────────────
 

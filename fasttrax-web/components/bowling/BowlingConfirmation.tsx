@@ -141,7 +141,7 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
         )}
       </>
     ),
-    changeLink: { href: "/hp/book/kids-bowl-free-v2", label: "Change Date & Time" },
+    changeLink: { href: "/hp/book/kids-bowl-free", label: "Change Date & Time" },
     navLinks: [
       { href: "/hp/kids-bowl-free", label: "Kids Bowl Free info" },
       { href: "/hp/book", label: "Book something else" },
@@ -171,7 +171,7 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
       </>
     ),
     navLinks: [
-      { href: "/hp/book/open-bowling", label: "Book another lane" },
+      { href: "/hp/book/bowling", label: "Book another lane" },
       { href: "/hp/book", label: "Book something else" },
     ],
   },

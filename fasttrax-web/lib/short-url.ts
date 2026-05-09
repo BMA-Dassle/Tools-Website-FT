@@ -9,7 +9,7 @@ const SHORT_TTL = 90 * 24 * 60 * 60; // 90 days — matches /api/s
  * the existing /s/[code] redirect page resolves it.
  *
  * @param url  Absolute URL or root-relative path to store.
- *             Example: "/hp/book/open-bowling/confirmation?neonId=42"
+ *             Example: "/hp/book/bowling/confirmation?neonId=42"
  * @returns    6-char base64url code — navigate the browser to /s/{code}
  */
 export async function shortenUrl(url: string): Promise<string> {

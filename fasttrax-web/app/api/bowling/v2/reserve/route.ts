@@ -652,8 +652,8 @@ export async function POST(req: NextRequest) {
   // Store only neonId — the confirmation page fetches everything else from Neon.
   const confirmBase =
     productKind === "kbf"
-      ? "/hp/book/kids-bowl-free-v2/confirmation"
-      : "/hp/book/open-bowling/confirmation";
+      ? "/hp/book/kids-bowl-free/confirmation"
+      : "/hp/book/bowling/confirmation";
   let shortCode: string | undefined;
   try {
     shortCode = await shortenUrl(`${confirmBase}?neonId=${neonId}`);
