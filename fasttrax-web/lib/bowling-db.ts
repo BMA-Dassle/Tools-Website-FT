@@ -1032,7 +1032,12 @@ async function fetchExperienceItems(
   const itemRows = centerCode
     ? await q`
         SELECT
-          bei.id, bei.experience_id, bei.square_product_id,
+          bei.id, bei.experience_id,
+          -- Use the center-resolved product ID (bsp.id), not the seed-time
+          -- bei.square_product_id which may reference a different center's row.
+          -- e.g. pizza-bowl items were seeded with FM IDs; Naples must get its
+          -- own product IDs so Square catalog object IDs, prices, etc. are correct.
+          bsp.id AS square_product_id,
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
           bsp.product_kind,
