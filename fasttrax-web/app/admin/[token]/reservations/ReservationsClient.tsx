@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 interface Reservation {
   id: number;
@@ -184,7 +185,7 @@ function ResendModal({
         backgroundColor: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(4px)",
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...modalBackdropProps(onClose)}
     >
       <div
         style={{
@@ -429,7 +430,7 @@ function CancelModal({
         backgroundColor: "rgba(0,0,0,0.75)",
         backdropFilter: "blur(4px)",
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...modalBackdropProps(onClose)}
     >
       <div
         style={{
