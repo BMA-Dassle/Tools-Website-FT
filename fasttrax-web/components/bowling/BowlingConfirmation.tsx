@@ -341,12 +341,27 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [playersError, setPlayersError] = useState<string | null>(null);
 
   // ── Cancel state ─────────────────────────────────────────────────
-  // cancelPhase drives isCancelled below; stays "idle" — the page detects
-  // cancellation purely from reservation.status set by the QAMF webhook consumer.
-  const [cancelPhase] = useState<"idle" | "cancelled">("idle");
-  const cancelRefundCents = 0; // always read from reservation.refundCents (Neon)
+  const [cancelPhase, setCancelPhase] = useState<"idle" | "confirming" | "busy" | "cancelled">("idle");
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelRefundCents, setCancelRefundCents] = useState(0);
 
   const isCancelled = cancelPhase === "cancelled" || reservation?.status === "cancelled";
+
+  async function handleCancel() {
+    if (!hasNeonRecord) return;
+    setCancelPhase("busy");
+    setCancelError(null);
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/cancel`, { method: "POST" });
+      const data = await res.json() as { ok?: boolean; refundCents?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      setCancelRefundCents(data.refundCents ?? 0);
+      setCancelPhase("cancelled");
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Cancellation failed");
+      setCancelPhase("confirming");
+    }
+  }
 
   // Derive center info + QAMF ID from the fetched reservation object.
   // URL carries only neonId; everything else comes from Neon.
@@ -493,14 +508,16 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             </p>
 
             {/* Refund line — shown directly in hero when cancelled */}
-            {isCancelled && (cancelRefundCents > 0 || (reservation?.refundCents ?? 0) > 0) && (
-              <p className="text-white/55 text-sm mt-2">
-                {centsToDollars(cancelRefundCents || (reservation?.refundCents ?? 0))} refund will appear on your card in 3–5 business days.
-              </p>
-            )}
-            {isCancelled && cancelRefundCents === 0 && (reservation?.refundCents ?? 0) === 0 && (
-              <p className="text-white/55 text-sm mt-2">No charges were made.</p>
-            )}
+            {isCancelled && (() => {
+              const refund = cancelRefundCents || (reservation?.refundCents ?? 0);
+              return refund > 0 ? (
+                <p className="text-white/55 text-sm mt-2">
+                  {centsToDollars(refund)} refund will appear on your card in 3–5 business days.
+                </p>
+              ) : (
+                <p className="text-white/55 text-sm mt-2">No charges were made.</p>
+              );
+            })()}
           </div>
 
           {/* ── Fetch-failed warning ── */}
@@ -731,6 +748,56 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               <ul className="text-white/75 text-sm space-y-1 list-disc list-inside">
                 {cfg.arrivalBullets(displayRemaining)}
               </ul>
+            </div>
+          )}
+
+          {/* ── Cancel section (hidden when already cancelled) ── */}
+          {!isCancelled && hasNeonRecord && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+              {cancelPhase === "idle" && (
+                <button
+                  type="button"
+                  onClick={() => setCancelPhase("confirming")}
+                  className="w-full text-center text-sm font-body text-white/35 hover:text-white/60 transition-colors underline underline-offset-2"
+                >
+                  Cancel this booking
+                </button>
+              )}
+
+              {cancelPhase === "confirming" && (
+                <div className="text-center space-y-3">
+                  <p className="text-white/70 text-sm">
+                    Are you sure you want to cancel?
+                    {displayDepositPaid > 0
+                      ? ` Your deposit of ${centsToDollars(displayDepositPaid)} will be refunded within 3–5 business days.`
+                      : " No charges will be made."}
+                  </p>
+                  {cancelError && (
+                    <p className="text-sm" style={{ color: CORAL }}>{cancelError}</p>
+                  )}
+                  <div className="flex gap-2 justify-center">
+                    <button
+                      type="button"
+                      onClick={() => { setCancelPhase("idle"); setCancelError(null); }}
+                      className="px-5 py-2 rounded-full text-sm font-body font-semibold border border-white/20 text-white/60 hover:text-white transition-colors"
+                    >
+                      Keep booking
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCancel()}
+                      className="px-5 py-2 rounded-full text-sm font-body font-bold text-white transition-colors"
+                      style={{ backgroundColor: CORAL }}
+                    >
+                      Yes, cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {cancelPhase === "busy" && (
+                <p className="text-center text-sm text-white/50 animate-pulse">Cancelling…</p>
+              )}
             </div>
           )}
 

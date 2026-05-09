@@ -601,20 +601,33 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       .flatMap(([, ids]) => ids.map((id) => ({ catalog_object_id: id })));
   }
 
-  // Split one lane's modifier selections into pizza-topping mods vs soda mods.
-  // Groups whose name contains "soda", "drink", or "pitcher" go to the
-  // Pizza Bowl Soda Pitcher $0 item; all others go to Pizza Bowl Pizza.
-  function splitPizzaBowlMods(sel: Record<string, string[]>, groups: ModifierGroup[]) {
-    const pizzaMods: Array<{ catalog_object_id: string }> = [];
-    const sodaMods:  Array<{ catalog_object_id: string }> = [];
+  // Helpers to build human-readable notes for the $0 split items.
+  // Applied-modifiers on Square catalog items only work when those modifier
+  // groups are configured in the Square catalog for that specific item.
+  // Since the $0 Pizza Bowl Pizza / Soda Pitcher items don't have those groups
+  // attached, we use notes instead — Square stores them as visible line-item text.
+
+  /** Returns the pizza-topping selection as a note string (e.g. "Pepperoni, Cheese"). */
+  function buildPizzaNote(sel: Record<string, string[]>, groups: ModifierGroup[]): string | undefined {
+    const names: string[] = [];
     for (const group of groups) {
-      const selectedIds = sel[group.id] ?? [];
-      if (!selectedIds.length) continue;
-      const isSoda = /soda|drink|pitcher/i.test(group.name);
-      const target = isSoda ? sodaMods : pizzaMods;
-      for (const id of selectedIds) target.push({ catalog_object_id: id });
+      if (/soda|drink|pitcher/i.test(group.name)) continue;
+      for (const id of sel[group.id] ?? []) {
+        names.push(group.options.find((o) => o.id === id)?.name ?? id);
+      }
     }
-    return { pizzaMods, sodaMods };
+    return names.length > 0 ? names.join(", ") : undefined;
+  }
+
+  /** Returns the soda-choice selection as a note string (e.g. "Diet Pepsi"). */
+  function buildSodaNote(sel: Record<string, string[]>, groups: ModifierGroup[]): string | undefined {
+    for (const group of groups) {
+      if (!/soda|drink|pitcher/i.test(group.name)) continue;
+      const ids = sel[group.id] ?? [];
+      if (!ids.length) continue;
+      return ids.map((id) => group.options.find((o) => o.id === id)?.name ?? id).join(", ");
+    }
+    return undefined;
   }
 
   // Build human-readable note for one lane's selection map.
@@ -771,28 +784,28 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   // $0 pass-through items for pizza-bowl bookings sent alongside lineItems to
   // /api/bowling/v2/reserve as rawItems.  One Pizza Bowl Pizza + one Pizza Bowl
-  // Soda Pitcher per lane, with the customer's modifier selections attached.
+  // Soda Pitcher per lane, with the customer's selections as item notes.
   // These are $0 catalog items that must appear as separate Square order lines
   // so staff can see the exact pizza topping + soda choice on each item.
+  // Notes (not applied_modifiers) are used because Square only applies
+  // modifiers when the group is explicitly configured on the catalog item.
   const pizzaBowlRawItems = isPizzaBowl
     ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
-        const { pizzaMods, sodaMods } = splitPizzaBowlMods(sel, pizzaModifierGroups);
-        const laneNote = buildLaneNote(sel, pizzaModifierGroups);
+        const pizzaNote = buildPizzaNote(sel, pizzaModifierGroups);
+        const sodaNote  = buildSodaNote(sel, pizzaModifierGroups);
         const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
-        const noteStr = laneNote ? `${prefix}${laneNote}` : undefined;
         return [
           {
             catalogObjectId: PIZZA_BOWL_PIZZA_CATALOG_ID,
             name: "Pizza Bowl Pizza",
             quantity: 1,
-            ...(pizzaMods.length > 0 ? { modifiers: pizzaMods } : {}),
-            ...(noteStr ? { note: noteStr } : {}),
+            ...(pizzaNote ? { note: `${prefix}${pizzaNote}` } : {}),
           },
           {
             catalogObjectId: PIZZA_BOWL_SODA_CATALOG_ID,
             name: "Pizza Bowl Soda Pitcher",
             quantity: 1,
-            ...(sodaMods.length > 0 ? { modifiers: sodaMods } : {}),
+            ...(sodaNote ? { note: `${prefix}${sodaNote}` } : {}),
           },
         ];
       })
@@ -803,14 +816,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // All other per-lane experiences: multiply quantity by laneMultiplier.
   const lineItems = [
     ...(isPizzaBowl
-      ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
-          const laneNote = buildLaneNote(sel, pizzaModifierGroups);
-          const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
+      ? pizzaModifierSelections.flatMap((_sel, _laneIdx) => {
+          // No note on the base item — selections appear as notes on the
+          // $0 Pizza Bowl Pizza / Soda Pitcher items (see pizzaBowlRawItems).
           return baseItems.map((item) => ({
             squareProductId: item.squareProductId,
             quantity: item.quantity,
-            // Note on the base item for QAMF/Conqueror staff visibility
-            ...(laneNote ? { note: `${prefix}${laneNote}` } : {}),
           }));
         })
       : baseItems.map((item) => ({
@@ -1116,31 +1127,29 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     const sqLineItems = [
       ...(isPizzaBowl
         ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
-            const { pizzaMods, sodaMods } = splitPizzaBowlMods(sel, pizzaModifierGroups);
-            const laneNote = buildLaneNote(sel, pizzaModifierGroups);
+            const pizzaNote = buildPizzaNote(sel, pizzaModifierGroups);
+            const sodaNote  = buildSodaNote(sel, pizzaModifierGroups);
             const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
-            const noteStr = laneNote ? `${prefix}${laneNote}` : undefined;
             return [
-              // Base pizza-bowl item — note only, no modifiers (modifiers go on $0 items below)
+              // Base pizza-bowl item — no note (selections live on the $0 items below)
               ...baseItems.map((item) => ({
                 name: item.label,
                 quantity: String(item.quantity),
                 catalogObjectId: item.squareCatalogObjectId,
-                ...(noteStr ? { note: noteStr } : {}),
               })),
-              // Pizza Bowl Pizza $0 item — carries the pizza-topping modifier selection
+              // Pizza Bowl Pizza $0 item — customer's topping choice as a note
               {
                 name: "Pizza Bowl Pizza",
                 quantity: "1",
                 catalogObjectId: PIZZA_BOWL_PIZZA_CATALOG_ID,
-                ...(pizzaMods.length > 0 ? { modifiers: pizzaMods } : {}),
+                ...(pizzaNote ? { note: `${prefix}${pizzaNote}` } : {}),
               },
-              // Pizza Bowl Soda Pitcher $0 item — carries the soda-choice modifier selection
+              // Pizza Bowl Soda Pitcher $0 item — customer's soda choice as a note
               {
                 name: "Pizza Bowl Soda Pitcher",
                 quantity: "1",
                 catalogObjectId: PIZZA_BOWL_SODA_CATALOG_ID,
-                ...(sodaMods.length > 0 ? { modifiers: sodaMods } : {}),
+                ...(sodaNote ? { note: `${prefix}${sodaNote}` } : {}),
               },
             ];
           })
