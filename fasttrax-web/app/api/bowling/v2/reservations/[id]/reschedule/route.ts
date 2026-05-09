@@ -1,24 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createReservation, deleteReservation, setReservationStatus } from "@/lib/qamf-bowling";
+import {
+  createReservation,
+  deleteReservation,
+  setReservationStatus,
+} from "@/lib/qamf-bowling";
 import { getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
+import { sql } from "@/lib/db";
 
 /**
  * PATCH /api/bowling/v2/reservations/[id]/reschedule
  *
- * Moves an existing KBF reservation to a new date/time:
- *  1. Load existing Neon record (must be a KBF reservation)
+ * Moves an existing reservation to a new date/time within the same web offer.
+ * Works for all product kinds (KBF + open bowling).
+ *
+ * Flow:
+ *  1. Load existing Neon record
  *  2. Delete old QAMF reservation (best-effort — may have already expired)
  *  3. Create new QAMF reservation at the new time with identical guest/player data
- *  4. Update bowling_reservations: booked_at + qamf_reservation_id
- *  5. Return { id, bookedAt, qamfReservationId }
+ *  4. Confirm new QAMF reservation — MUST succeed or whole operation fails
+ *  5. Update bowling_reservations: booked_at + qamf_reservation_id + status
+ *  6. Resend confirmation email + SMS
+ *  7. Return { id, bookedAt, qamfReservationId }
  *
  * Payment is not touched — Square deposit/day-of orders are unchanged.
- * A reschedule is a time-only change; if the customer wants different add-ons
- * they should cancel and rebook.
+ * A reschedule is a time-only change within the same web offer; price stays the same.
  *
  * Body:
  *   bookedAt    — ISO 8601 with ET offset from the new availability slot
- *   webOfferId  — QAMF web offer ID (from the slot, typically 152 for KBF)
+ *   webOfferId  — QAMF web offer ID (from the slot)
  *   optionId?   — QAMF option ID (game/time/unlimited, from the slot)
  *   optionType? — "Game" | "Time" | "Unlimited" (default "Game")
  */
@@ -63,9 +72,15 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "reservation not found" }, { status: 404 });
   }
-  if (existing.productKind !== "kbf") {
+  if (existing.status === "cancelled") {
     return NextResponse.json(
-      { error: "only KBF reservations can be rescheduled via this endpoint" },
+      { error: "cannot reschedule a cancelled reservation" },
+      { status: 400 },
+    );
+  }
+  if (existing.status === "completed") {
+    return NextResponse.json(
+      { error: "cannot reschedule a completed reservation" },
       { status: 400 },
     );
   }
@@ -131,17 +146,56 @@ export async function PATCH(
     );
   }
 
-  // ── Confirm the new QAMF reservation ────────────────────────────
-  // QAMF creates as Temporary; must call Confirmed so it appears in Conqueror.
+  // ── Confirm the new QAMF reservation — MUST succeed ─────────────
   try {
     await setReservationStatus(qamfCenterId, newQamfId, "Confirmed");
   } catch (err) {
-    console.error("[bowling/v2/reschedule] setReservationStatus failed:", err);
-    // Non-fatal — slot is held. Log for manual follow-up.
+    const msg = err instanceof Error ? err.message : "QAMF error";
+    console.error("[bowling/v2/reschedule] setReservationStatus failed:", msg);
+    // Clean up the orphaned temporary reservation
+    try {
+      await deleteReservation(qamfCenterId, newQamfId);
+    } catch { /* best effort */ }
+    return NextResponse.json(
+      { error: `QAMF confirm failed: ${msg}` },
+      { status: 502 },
+    );
   }
 
   // ── Update Neon ──────────────────────────────────────────────────
   await updateReservationReschedule(neonId, bookedAt, newQamfId);
+
+  // Reset status + clear lane-open fields
+  try {
+    const q = sql();
+    await q`
+      UPDATE bowling_reservations
+      SET status = 'confirmed',
+          dayof_order_sent_at = NULL,
+          dayof_order_lane = NULL,
+          dayof_payment_id = NULL,
+          dayof_order_error = NULL
+      WHERE id = ${neonId}
+        AND status NOT IN ('cancelled')
+    `;
+  } catch (err) {
+    console.error("[bowling/v2/reschedule] status reset failed:", err);
+  }
+
+  // ── Resend confirmation (fire-and-forget) ────────────────────────
+  try {
+    const origin = req.nextUrl.origin;
+    void fetch(`${origin}/api/notifications/bowling-confirmation`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        neonId,
+        smsOptIn: true,
+        channel: "both",
+        forceResend: true,
+      }),
+    }).catch(() => {});
+  } catch { /* non-fatal */ }
 
   return NextResponse.json({ id: neonId, bookedAt, qamfReservationId: newQamfId });
 }

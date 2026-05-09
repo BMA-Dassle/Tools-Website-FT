@@ -610,6 +610,20 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   // ── Check-in modal state ─────────────────────────────────────────
   const [checkInOpen, setCheckInOpen] = useState(false);
 
+  // ── Reschedule state ─────────────────────────────────────────────
+  type RescheduleInfo = { webOfferId: number; optionId?: number; optionType?: string; centerId: number; playerCount: number };
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleInfo, setRescheduleInfo] = useState<RescheduleInfo | null>(null);
+  const [rescheduleInfoLoading, setRescheduleInfoLoading] = useState(false);
+  const [rescheduleInfoError, setRescheduleInfoError] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleSlots, setRescheduleSlots] = useState<{ bookedAt: string }[]>([]);
+  const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
+  const [rescheduleSelected, setRescheduleSelected] = useState<string | null>(null);
+  const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  const [rescheduleSuccess, setRescheduleSuccess] = useState(false);
+
   // ── Cancel state ─────────────────────────────────────────────────
   const [cancelPhase, setCancelPhase] = useState<"idle" | "confirming" | "busy" | "cancelled">("idle");
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -683,6 +697,115 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     } catch (err) {
       setCancelError(err instanceof Error ? err.message : "Cancellation failed");
       setCancelPhase("confirming");
+    }
+  }
+
+  // ── Reschedule handlers ──────────────────────────────────────────
+  function fmtTimeET(iso: string): string {
+    try {
+      return new Date(iso).toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return iso;
+    }
+  }
+
+  async function openReschedule() {
+    setRescheduleOpen(true);
+    setRescheduleError(null);
+    setRescheduleSelected(null);
+    setRescheduleSuccess(false);
+
+    // Default date to current booking date in ET
+    if (reservation) {
+      try {
+        const d = new Date(reservation.bookedAt).toLocaleDateString("en-CA", {
+          timeZone: "America/New_York",
+        });
+        setRescheduleDate(d);
+      } catch {
+        setRescheduleDate(new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }));
+      }
+    }
+
+    // Fetch web offer info if not already loaded
+    if (!rescheduleInfo && !rescheduleInfoLoading) {
+      setRescheduleInfoLoading(true);
+      setRescheduleInfoError(null);
+      try {
+        const res = await fetch(
+          `/api/bowling/v2/reservations/${neonId}/reschedule/info`,
+          { cache: "no-store" },
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        setRescheduleInfo(data as RescheduleInfo);
+      } catch (err) {
+        setRescheduleInfoError(err instanceof Error ? err.message : "Failed to load");
+      } finally {
+        setRescheduleInfoLoading(false);
+      }
+    }
+  }
+
+  // Fetch availability when date or info changes
+  useEffect(() => {
+    if (!rescheduleOpen || !rescheduleInfo || !rescheduleDate) return;
+    let alive = true;
+    setRescheduleSlotsLoading(true);
+    setRescheduleSlots([]);
+    setRescheduleSelected(null);
+    (async () => {
+      try {
+        const qs = new URLSearchParams({
+          centerId: String(rescheduleInfo.centerId),
+          players: String(rescheduleInfo.playerCount),
+          startDate: rescheduleDate,
+          webOfferId: String(rescheduleInfo.webOfferId),
+        });
+        const res = await fetch(`/api/bowling/v2/availability?${qs}`, { cache: "no-store" });
+        const data = await res.json();
+        if (!alive) return;
+        if (data.Availabilities) {
+          const matching = (data.Availabilities as Array<{ BookedAt: string; WebOffer: { Id: number } }>)
+            .filter((a) => a.WebOffer.Id === rescheduleInfo.webOfferId)
+            .map((a) => ({ bookedAt: a.BookedAt }));
+          setRescheduleSlots(matching);
+        }
+      } catch { /* slots stay empty */ }
+      finally { if (alive) setRescheduleSlotsLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [rescheduleOpen, rescheduleInfo, rescheduleDate]);
+
+  async function handleReschedule() {
+    if (!rescheduleSelected || !rescheduleInfo) return;
+    setRescheduleSubmitting(true);
+    setRescheduleError(null);
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/reschedule`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          bookedAt: rescheduleSelected,
+          webOfferId: rescheduleInfo.webOfferId,
+          optionId: rescheduleInfo.optionId,
+          optionType: rescheduleInfo.optionType,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Reschedule failed (${res.status})`);
+      setRescheduleSuccess(true);
+      // Reload the page to show updated time
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      setRescheduleError(err instanceof Error ? err.message : "Reschedule failed");
+    } finally {
+      setRescheduleSubmitting(false);
     }
   }
 
@@ -1190,14 +1313,123 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             </div>
           )}
 
-          {/* ── Change Date & Time (hidden when cancelled / lane running) ── */}
+          {/* ── Change Date & Time (hidden when cancelled / lane running / within 1hr) ── */}
           {!isCancelled && hasNeonRecord && cfg.changeLink && laneReadyPhase !== "running" && !isWithin1Hour && (
-            <Link
-              href={cfg.changeLink.href}
-              className="block w-full text-center rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/[0.06] px-5 py-4 font-body font-semibold text-sm text-[#00E2E5] hover:bg-[#00E2E5]/[0.12] transition-colors"
-            >
-              {cfg.changeLink.label}
-            </Link>
+            <div className="rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/[0.04] overflow-hidden">
+              {/* Toggle button */}
+              <button
+                type="button"
+                onClick={() => rescheduleOpen ? setRescheduleOpen(false) : openReschedule()}
+                className="w-full text-center px-5 py-4 font-body font-semibold text-sm text-[#00E2E5] hover:bg-[#00E2E5]/[0.08] transition-colors"
+              >
+                {rescheduleSuccess ? "Time Updated!" : cfg.changeLink.label}
+              </button>
+
+              {/* Reschedule panel */}
+              {rescheduleOpen && !rescheduleSuccess && (
+                <div className="px-4 pb-4 space-y-3 border-t border-[#00E2E5]/15">
+                  <p className="text-xs text-white/40 pt-3">
+                    Pick a new date and time. Your current experience and price stay the same.
+                  </p>
+
+                  {/* Loading info */}
+                  {rescheduleInfoLoading && (
+                    <p className="text-center text-sm text-white/40 py-4 animate-pulse">
+                      Loading available options...
+                    </p>
+                  )}
+
+                  {/* Info error */}
+                  {rescheduleInfoError && (
+                    <p className="text-sm text-center py-2" style={{ color: CORAL }}>
+                      {rescheduleInfoError}
+                    </p>
+                  )}
+
+                  {/* Date + slots picker */}
+                  {rescheduleInfo && (
+                    <>
+                      <input
+                        type="date"
+                        value={rescheduleDate}
+                        onChange={(e) => setRescheduleDate(e.target.value)}
+                        className="w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white"
+                      />
+
+                      {rescheduleSlotsLoading ? (
+                        <p className="text-center text-sm text-white/30 py-3 animate-pulse">
+                          Checking availability...
+                        </p>
+                      ) : rescheduleSlots.length === 0 ? (
+                        <p className="text-center text-sm text-white/30 py-3">
+                          No available times. Try another date.
+                        </p>
+                      ) : (
+                        <div
+                          className="grid gap-1.5"
+                          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(85px, 1fr))" }}
+                        >
+                          {rescheduleSlots.map((slot) => {
+                            const isCurrent = reservation && slot.bookedAt === reservation.bookedAt;
+                            const isSelected = rescheduleSelected === slot.bookedAt;
+                            return (
+                              <button
+                                key={slot.bookedAt}
+                                type="button"
+                                onClick={() => setRescheduleSelected(slot.bookedAt)}
+                                disabled={!!isCurrent}
+                                className="rounded-lg text-xs font-semibold py-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                style={{
+                                  backgroundColor: isSelected ? "rgba(0,226,229,0.2)" : "rgba(255,255,255,0.06)",
+                                  border: isSelected ? "1.5px solid #00E2E5" : "1px solid rgba(255,255,255,0.1)",
+                                  color: isSelected ? "#00E2E5" : isCurrent ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.8)",
+                                }}
+                              >
+                                {fmtTimeET(slot.bookedAt)}
+                                {isCurrent && (
+                                  <span className="block text-[10px] text-white/25 mt-0.5">current</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Error */}
+                      {rescheduleError && (
+                        <p className="text-sm text-center" style={{ color: CORAL }}>
+                          {rescheduleError}
+                        </p>
+                      )}
+
+                      {/* Submit */}
+                      <button
+                        type="button"
+                        onClick={() => void handleReschedule()}
+                        disabled={!rescheduleSelected || rescheduleSubmitting}
+                        className="w-full rounded-full py-3 text-sm font-body font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{
+                          backgroundColor: rescheduleSelected && !rescheduleSubmitting ? "#00E2E5" : "rgba(0,226,229,0.15)",
+                          color: rescheduleSelected && !rescheduleSubmitting ? "#000418" : "rgba(0,226,229,0.4)",
+                        }}
+                      >
+                        {rescheduleSubmitting ? "Updating..." : "Confirm New Time"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Success message */}
+              {rescheduleSuccess && (
+                <div className="px-4 pb-4 text-center">
+                  <p className="text-sm text-emerald-400 font-semibold">
+                    Your reservation has been moved. Updated confirmation sent!
+                  </p>
+                  <p className="text-xs text-white/30 mt-1">Refreshing...</p>
+                </div>
+              )}
+            </div>
           )}
 
           {/* ── Cancel section (hidden when already cancelled) ── */}
