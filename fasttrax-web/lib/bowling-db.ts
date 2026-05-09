@@ -754,6 +754,35 @@ export async function getBowlingReservationByQamfId(
   };
 }
 
+/**
+ * List bowling reservations filtered by booked_at date range.
+ * Used by the admin reservations board.
+ */
+export async function listBowlingReservations(opts: {
+  startDate: string; // 'YYYY-MM-DD' inclusive
+  endDate: string;   // 'YYYY-MM-DD' inclusive
+  centerCode?: string;
+}): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const startAt = `${opts.startDate}T00:00:00Z`;
+  const endAt   = `${opts.endDate}T23:59:59Z`;
+  const rows = opts.centerCode
+    ? await q`
+        SELECT * FROM bowling_reservations
+        WHERE booked_at >= ${startAt} AND booked_at <= ${endAt}
+          AND center_code = ${opts.centerCode}
+        ORDER BY booked_at ASC
+      `
+    : await q`
+        SELECT * FROM bowling_reservations
+        WHERE booked_at >= ${startAt} AND booked_at <= ${endAt}
+        ORDER BY booked_at ASC
+      `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
 export async function updateBowlingReservationStatus(
   id: number,
   status: BowlingReservation["status"],
