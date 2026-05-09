@@ -186,7 +186,9 @@ export async function processLaneOpen(opts: {
       }
 
       // ── 3. Apply gift card to day-of order ────────────────────
-      if (reservation.squareGiftCardId && reservation.squareGiftCardGan) {
+      // Square /v2/payments requires the gift card ID (gftc:...) as source_id,
+      // NOT the raw GAN. The GAN returns BAD_REQUEST "Invalid source_id".
+      if (reservation.squareGiftCardId) {
         try {
           // Get authoritative gift card balance
           const gcRes = await fetch(
@@ -209,7 +211,7 @@ export async function processLaneOpen(opts: {
               headers: sqHeaders(),
               body:    JSON.stringify({
                 idempotency_key: `${idempotencyBase}-pay`,
-                source_id:       reservation.squareGiftCardGan,
+                source_id:       reservation.squareGiftCardId,
                 amount_money:    { amount: amountToPay, currency: "USD" },
                 order_id:        reservation.squareDayofOrderId,
                 location_id:     reservation.centerCode,
