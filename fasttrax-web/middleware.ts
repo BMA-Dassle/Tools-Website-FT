@@ -356,12 +356,22 @@ export function middleware(request: NextRequest) {
 
   // HeadPinz domain on shared routes (/book, /api):
   //   - /book (exactly) → rewrite to /hp/book (HP-branded booking hub)
+  //   - /book/bowling/* → rewrite to /hp/book/bowling/* (bowling pages
+  //     live at app/hp/book/bowling/, not app/book/bowling/; without this
+  //     rewrite, the dynamic [attraction] catch-all serves the wrong page)
   //   - /book/* sub-paths → pass through to the shared app/book/* flows
   //     (checkout, confirmation, race, etc.) with brand header set
   //   - /api/* → pass through, brand header set
   if (isHeadPinz && (pathname === "/book" || pathname === "/book/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/hp/book";
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+  }
+  if (isHeadPinz && (pathname.startsWith("/book/bowling") || pathname.startsWith("/book/kids-bowl-free"))) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/hp${pathname}`;
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });

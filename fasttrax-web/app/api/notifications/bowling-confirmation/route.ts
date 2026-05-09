@@ -275,8 +275,12 @@ export async function POST(req: NextRequest) {
     })();
 
     // ── Build confirmation link ────────────────────────────────────
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+    // Bowling is HeadPinz-only. The short URL stores a /hp/book/bowling/…
+    // path, which only resolves correctly on the headpinz.com domain.
+    // Using fasttraxent.com here caused a redirect loop that dropped the
+    // /hp prefix and landed on the wrong (FastTrax attractions)
+    // confirmation page — stuck on "Confirming your booking…" forever.
+    const siteUrl = "https://headpinz.com";
     const confirmLink = r.shortCode
       ? `${siteUrl}/s/${r.shortCode}`
       : undefined;

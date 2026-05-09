@@ -539,6 +539,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Scroll to top on step change so the user always starts at the top.
+  // Without this, long steps (slots with calendar) leave the viewport
+  // scrolled down when advancing, making the next step feel broken.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
+
   // ── QAMF hold state ──────────────────────────────────────────────
   // A Temporary hold is created as soon as the user taps a time chip on
   // the offer step. The hold is extended every 8 min and released when
@@ -2361,10 +2368,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     setError(null);
                     setStep("slots");
                   }}
-                  className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider text-white"
+                  className="w-full rounded-full px-4 sm:px-6 py-3.5 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white whitespace-nowrap"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
-                  Continue with {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}
+                  Continue — {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}
                 </button>
                 <button type="button" onClick={() => setStep("verify")} className="w-full font-body text-white/35 text-sm">← Back</button>
               </div>
@@ -2418,10 +2425,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               <button
                 type="button"
                 onClick={() => setStep("slots")}
-                className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.02]"
+                className="w-full py-3.5 rounded-full font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.02] whitespace-nowrap"
                 style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
               >
-                Continue with {playerCount} {playerCount === 1 ? "bowler" : "bowlers"}
+                Continue — {playerCount} {playerCount === 1 ? "bowler" : "bowlers"}
               </button>
               <button type="button" onClick={() => setStep("location")} className="w-full font-body text-white/35 text-sm">← Back</button>
             </div>
@@ -2588,7 +2595,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   <button
                     type="button"
                     onClick={() => setStep(kind === "kbf" ? "bowlers" : "players")}
-                    className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                    className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
                   >
                     Back
                   </button>
@@ -2605,14 +2612,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       void fetchSlots(selectedDate);
                     }}
                     disabled={selectedHour === null || selectedMinute === null || slotsLoading}
-                    className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
+                    className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50 text-center whitespace-nowrap"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
                     {selectedHour !== null && selectedMinute !== null
-                      ? `See Packages — ${formatHourMinute(selectedHour, selectedMinute)}`
+                      ? "See Packages"
                       : selectedHour !== null
-                        ? "Pick a time above"
-                        : "See Available Packages"}
+                        ? "Pick a time"
+                        : "See Packages"}
                   </button>
                 </div>
               </div>
@@ -2629,15 +2636,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
             // Only show tiers that have at least one experience valid for today's day-of-week
             const tierDow = new Date(`${selectedDate}T12:00:00`).getDay();
+            // VIP first — it's the premium upsell and should be the first
+            // thing the customer sees above the fold.
             const tiersToShow = ([
-              {
-                id: "regular" as const,
-                label: "Regular",
-                subtitle: "Standard HeadPinz lanes — great for families and groups.",
-                accent: CORAL,
-                videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
-                features: ["Standard lanes", "Up to 20 bowlers per lane", "Glow lighting evenings"],
-              },
               {
                 id: "vip" as const,
                 label: "VIP",
@@ -2645,6 +2646,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 accent: GOLD,
                 videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
                 features: ["VIP lounge & dedicated lanes", "NeoVerse video walls", "HyperBowling technology"],
+              },
+              {
+                id: "regular" as const,
+                label: "Regular",
+                subtitle: "Standard HeadPinz lanes — great for families and groups.",
+                accent: CORAL,
+                videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
+                features: ["Standard lanes", "Up to 20 bowlers per lane", "Glow lighting evenings"],
               },
             ] as const).filter((t) =>
               experiences.some(
@@ -3096,7 +3105,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </div>
 
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => { setSelectedSlot(null); setStep("tier"); }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors">Back</button>
+                  <button type="button" onClick={() => { setSelectedSlot(null); setStep("tier"); }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors">Back</button>
                   <button
                     type="button"
                     onClick={() => {
@@ -3119,10 +3128,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       }
                     }}
                     disabled={!selectedSlot}
-                    className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
+                    className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50 text-center whitespace-nowrap"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
-                    {selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                    {selectedSlot ? "Continue" : "Select a time"}
                   </button>
                 </div>
               </div>
@@ -3288,7 +3297,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 })
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => { if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); } }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button type="button" onClick={() => { if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); } }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
                   onClick={() => { setError(null); setStep(isPizzaBowl ? "food" : "review"); }}
@@ -3310,7 +3319,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <p className="font-body text-white/35 text-sm">Coming soon — laser tag, gel blasters, and more.</p>
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button type="button" onClick={() => setStep("shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button type="button" onClick={() => setStep("food")} className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white" style={{ backgroundColor: CORAL }}>Skip</button>
               </div>
             </div>
@@ -3443,7 +3452,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button
                   type="button"
                   onClick={() => setStep("offer")}
-                  className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15"
+                  className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
                   Back
                 </button>
@@ -3605,7 +3614,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       setStep(backTo);
                     }
                   }}
-                  className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15"
+                  className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
                   Back
                 </button>
@@ -3613,7 +3622,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   type="button"
                   onClick={() => setStep("details")}
                   disabled={quoteLoading}
-                  className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white disabled:opacity-50"
+                  className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white disabled:opacity-50 whitespace-nowrap"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
                   {quoteLoading ? "Calculating…" : "Continue"}
@@ -3669,7 +3678,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 cancellationHours={1}
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("review")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
+                <button type="button" onClick={() => setStep("review")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
                   onClick={() => {
@@ -3696,10 +3705,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     else void handleSubmit();
                   }}
                   disabled={busy || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
-                  className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider disabled:opacity-50"
+                  className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider disabled:opacity-50 whitespace-nowrap"
                   style={{ backgroundColor: GOLD, color: BG }}
                 >
-                  {depositCents > 0 ? "Continue to payment" : "Confirm reservation"}
+                  {depositCents > 0 ? "Continue to payment" : "Confirm"}
                 </button>
               </div>
             </div>
