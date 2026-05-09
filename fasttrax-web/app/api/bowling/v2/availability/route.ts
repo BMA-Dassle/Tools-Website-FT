@@ -223,6 +223,9 @@ export async function GET(req: NextRequest) {
       if (nowH < 6) nowTotalMin += 24 * 60;
       earliestMin = Math.max(earliestMin, nowTotalMin + 15);
     }
+    // Snap earliestMin UP to next multiple of 15 so QAMF gets clean
+    // quarter-hour probe times (QAMF rejects minutes not divisible by 5).
+    earliestMin = Math.ceil(earliestMin / 15) * 15;
 
     const windowStart = Math.max(hour * 60 + minute - 300, earliestMin); // -5h, clamped
     const windowEnd = Math.min(hour * 60 + minute + 300, closeHour * 60);  // +5h, clamped
