@@ -26,13 +26,14 @@ const NAVY = "#123075";
 const GOLD = "#FFD700";
 const BG = "#0a1628";
 
+// Keyed by Square location / center code (stored on BowlingReservation.centerCode)
 const CENTER_NAME: Record<string, string> = {
-  "9172": "HeadPinz Fort Myers",
-  "3148": "HeadPinz Naples",
+  TXBSQN0FEKQ11: "HeadPinz Fort Myers",
+  PPTR5G2N0QXF7: "HeadPinz Naples",
 };
 const CENTER_ADDRESS: Record<string, string> = {
-  "9172": "14513 Global Pkwy, Fort Myers",
-  "3148": "8525 Radio Ln, Naples",
+  TXBSQN0FEKQ11: "14513 Global Pkwy, Fort Myers",
+  PPTR5G2N0QXF7: "8525 Radio Ln, Naples",
 };
 
 type ReservationWithLines = BowlingReservation & {
@@ -324,10 +325,6 @@ function BowlerCard({
 function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const sp = useSearchParams();
   const neonIdStr = sp.get("neonId") ?? "0";
-  const qamfId = sp.get("qamfId") ?? "";
-  const centerId = sp.get("centerId") ?? "";
-  const depositPaidCents = parseInt(sp.get("depositPaid") ?? "0", 10);
-  const remainingCents = parseInt(sp.get("remaining") ?? "0", 10);
 
   const neonId = parseInt(neonIdStr, 10);
   const hasNeonRecord = !isNaN(neonId) && neonId > 0;
@@ -351,8 +348,12 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
   const isCancelled = cancelPhase === "cancelled" || reservation?.status === "cancelled";
 
-  const centerName = CENTER_NAME[centerId] ?? "HeadPinz";
-  const centerAddress = CENTER_ADDRESS[centerId] ?? "";
+  // Derive center info + QAMF ID from the fetched reservation object.
+  // URL carries only neonId; everything else comes from Neon.
+  const centerCode = reservation?.centerCode ?? "";
+  const centerName = CENTER_NAME[centerCode] ?? "HeadPinz";
+  const centerAddress = CENTER_ADDRESS[centerCode] ?? "";
+  const qamfId = reservation?.qamfReservationId ?? "";
 
   useEffect(() => {
     if (!hasNeonRecord) return;
@@ -441,10 +442,8 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     }
   }
 
-  const displayDepositPaid = reservation ? reservation.depositCents : depositPaidCents;
-  const displayTotal = reservation
-    ? reservation.totalCents
-    : displayDepositPaid + remainingCents;
+  const displayDepositPaid = reservation?.depositCents ?? 0;
+  const displayTotal = reservation?.totalCents ?? 0;
   const displayRemaining = displayTotal - displayDepositPaid;
   const hasPaidDeposit = displayDepositPaid > 0;
 

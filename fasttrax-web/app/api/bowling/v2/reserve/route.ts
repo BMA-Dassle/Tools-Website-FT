@@ -15,6 +15,7 @@ import {
   type ReservationLine,
 } from "@/lib/bowling-db";
 import redis from "@/lib/redis";
+import { shortenUrl } from "@/lib/short-url";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -647,6 +648,20 @@ export async function POST(req: NextRequest) {
     neonId = 0;
   }
 
+  // ── Shorten confirmation URL ────────────────────────────────────
+  // Store only neonId — the confirmation page fetches everything else from Neon.
+  const confirmBase =
+    productKind === "kbf"
+      ? "/hp/book/kids-bowl-free-v2/confirmation"
+      : "/hp/book/open-bowling/confirmation";
+  let shortCode: string | undefined;
+  try {
+    shortCode = await shortenUrl(`${confirmBase}?neonId=${neonId}`);
+  } catch (err) {
+    // Non-fatal — wizard falls back to navigating with neonId param directly
+    console.error("[bowling/v2/reserve] shortenUrl failed (non-fatal):", err);
+  }
+
   return NextResponse.json({
     neonId,
     qamfReservationId,
@@ -658,6 +673,7 @@ export async function POST(req: NextRequest) {
     depositPaidCents: depositCents,
     totalCents,
     remainingCents: totalCents - depositCents,
-    confirmationPath: `/hp/book/kids-bowl-free-v2/confirmation?neonId=${neonId}&qamfId=${qamfReservationId}&centerId=${centerId}`,
+    shortCode,
+    confirmationPath: `${confirmBase}?neonId=${neonId}`,
   });
 }

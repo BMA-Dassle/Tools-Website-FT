@@ -1350,17 +1350,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Reschedule failed");
 
-      const params = new URLSearchParams({
-        neonId: String(existingReservation.id),
-        qamfId: data.qamfReservationId ?? "",
-        centerId: center.id,
-        depositPaid: String(existingReservation.depositCents),
-        remaining: String(existingReservation.totalCents - existingReservation.depositCents),
-      });
       // Clear hold ref before navigation to prevent unmount DELETE
       if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
       holdRef.current = null;
-      router.push(`${confirmationBase}?${params.toString()}`);
+      router.push(`${confirmationBase}?neonId=${existingReservation.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reschedule failed");
       setStep("reschedule");
@@ -1559,18 +1552,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           throw new Error((data.error ?? "Reservation failed") + detail);
         }
 
-        const params = new URLSearchParams({
-          neonId: String(data.neonId),
-          qamfId: data.qamfReservationId ?? "",
-          centerId: center.id,
-          depositPaid: String(data.depositPaidCents ?? 0),
-          remaining: String(data.remainingCents ?? 0),
-        });
         // Clear the hold ref BEFORE navigating away so the unmount cleanup
         // doesn't fire a DELETE against the now-confirmed QAMF reservation.
         if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
         holdRef.current = null;
-        router.push(`${confirmationBase}?${params.toString()}`);
+        // Navigate via short URL if the reserve route returned one;
+        // fall back to a plain neonId param (confirmation page fetches everything else).
+        const dest = data.shortCode
+          ? `/s/${data.shortCode}`
+          : `${confirmationBase}?neonId=${data.neonId}`;
+        router.push(dest);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Reservation failed";
         if (depositCents > 0) {
