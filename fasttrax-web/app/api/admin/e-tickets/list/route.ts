@@ -179,25 +179,18 @@ export async function GET(req: NextRequest) {
     const pool = await readSmsLog(date, { limit: poolSize, offset: 0 });
 
     // Pre-filter by fields that live on SmsLogEntry directly.
-    // The e-ticket admin board surfaces ticket-flow traffic only:
-    //   pre-race-cron, checkin-cron, admin-resend (e-ticket admin resends).
-    // Sources we hide by default (still drillable via ?source=…):
-    //   video-match    → race-video auto-notifies (videos board)
-    //   video-resend   → video admin resends (videos board)
-    //   pov-resend     → POV / Voucher admin resends (voucher board)
-    //   booking-confirm → sales dashboard SMS volume section
-    // Without these exclusions, video-resend SMS started leaking into
-    // the e-ticket admin's "RESEND" rows because both surfaces used to
-    // share `source: "admin-resend"`. Per-surface source values now
-    // distinguish them cleanly.
-    const HIDDEN_BY_DEFAULT = new Set([
-      "video-match",
-      "video-resend",
-      "pov-resend",
-      "booking-confirm",
+    // The e-ticket admin board surfaces ticket-flow traffic only.
+    // Allowlist approach: only show sources that belong here. New SMS
+    // sources (bowling-confirm, video-match, etc.) are excluded
+    // automatically — no need to update a blocklist every time we add
+    // a new notification type.
+    const ETICKET_SOURCES = new Set([
+      "pre-race-cron",   // e-ticket 2hrs before race
+      "checkin-cron",    // check-in live notification
+      "admin-resend",    // manual resend from this page
     ]);
     const preFiltered = pool.filter((e) => {
-      if (!source && HIDDEN_BY_DEFAULT.has(e.source)) return false;
+      if (!source && !ETICKET_SOURCES.has(e.source)) return false;
       if (source && e.source !== source) return false;
       if (phone && e.phone !== phone) return false;
       if (sessionId && !(e.sessionIds || []).map(String).includes(sessionId)) return false;
