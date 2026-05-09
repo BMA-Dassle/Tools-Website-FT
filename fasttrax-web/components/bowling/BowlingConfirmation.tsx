@@ -35,6 +35,10 @@ const CENTER_ADDRESS: Record<string, string> = {
   TXBSQN0FEKQ11: "14513 Global Pkwy, Fort Myers",
   PPTR5G2N0QXF7: "8525 Radio Ln, Naples",
 };
+const CENTER_PHONE: Record<string, string> = {
+  TXBSQN0FEKQ11: "(239) 302-2155",
+  PPTR5G2N0QXF7: "(239) 455-3755",
+};
 
 type ReservationWithLines = BowlingReservation & {
   lines: (ReservationLine & { id: number; reservationId: number })[];
@@ -346,6 +350,11 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [cancelRefundCents, setCancelRefundCents] = useState(0);
 
   const isCancelled = cancelPhase === "cancelled" || reservation?.status === "cancelled";
+
+  // Block self-serve cancellation within 1 hour of the reservation start.
+  const isWithin1Hour = reservation
+    ? new Date(reservation.bookedAt).getTime() - Date.now() < 60 * 60 * 1000
+    : false;
 
   async function handleCancel() {
     if (!hasNeonRecord) return;
@@ -764,7 +773,34 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           {/* ── Cancel section (hidden when already cancelled) ── */}
           {!isCancelled && hasNeonRecord && (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
-              {cancelPhase === "idle" && (
+              {/* Within 1 hour: self-serve disabled — must call center */}
+              {isWithin1Hour && cancelPhase === "idle" && (() => {
+                const phone = reservation ? CENTER_PHONE[reservation.centerCode] : null;
+                return (
+                  <div className="text-center space-y-1">
+                    <p className="text-sm text-white/50">
+                      Need to cancel? Your reservation starts in less than an hour.
+                    </p>
+                    <p className="text-sm text-white/70">
+                      Please call us
+                      {phone ? (
+                        <>
+                          {" at "}
+                          <a
+                            href={`tel:${phone.replace(/\D/g, "")}`}
+                            className="font-semibold text-white hover:underline"
+                          >
+                            {phone}
+                          </a>
+                        </>
+                      ) : ""}{" "}
+                      to make any changes.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {!isWithin1Hour && cancelPhase === "idle" && (
                 <button
                   type="button"
                   onClick={() => setCancelPhase("confirming")}

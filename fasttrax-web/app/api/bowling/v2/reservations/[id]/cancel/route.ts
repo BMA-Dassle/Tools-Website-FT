@@ -45,6 +45,19 @@ export async function POST(
     return NextResponse.json({ error: "already cancelled" }, { status: 409 });
   }
 
+  // ── Within-1-hour cutoff ──────────────────────────────────────────
+  // Cancellations less than 1 hour before the reservation start must be
+  // handled by the center — automated refunds at this point require staff
+  // coordination. Return a distinct error code so the UI can show the
+  // "please call" message rather than a generic error.
+  const msUntilStart = new Date(reservation.bookedAt).getTime() - Date.now();
+  if (msUntilStart < 60 * 60 * 1000) {
+    return NextResponse.json(
+      { error: "within_1_hour" },
+      { status: 409 },
+    );
+  }
+
   // ── 1. Cancel in QAMF (best-effort) ──────────────────────────────
   const qamfCenterId = CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
   if (qamfCenterId && reservation.qamfReservationId) {
