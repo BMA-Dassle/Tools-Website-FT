@@ -72,18 +72,26 @@ export default function AdminResendModal({
     setSending(true);
     setErr(null);
     try {
-      // Resolve phone
+      // Resolve phone — normalize to E.164 (+1XXXXXXXXXX) so every
+      // downstream API gets a consistent format regardless of what
+      // the user typed or what was stored on file.
       let destPhone: string | null = null;
       if (showPhone) {
-        if (phoneMode === "same") {
-          destPhone = originalPhone || null;
-          if (!destPhone) throw new Error("No phone on file. Switch to 'Different number' and enter one.");
+        const raw = phoneMode === "same" ? (originalPhone || "") : phone.trim();
+        if (!raw) {
+          throw new Error(
+            phoneMode === "same"
+              ? "No phone on file. Switch to 'Different number' and enter one."
+              : "Enter a phone number.",
+          );
+        }
+        const digits = raw.replace(/\D/g, "");
+        if (digits.length === 10) {
+          destPhone = `+1${digits}`;
+        } else if (digits.length === 11 && digits.startsWith("1")) {
+          destPhone = `+${digits}`;
         } else {
-          destPhone = phone.trim();
-          if (!destPhone) throw new Error("Enter a phone number.");
-          const digits = destPhone.replace(/\D/g, "");
-          const valid = digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
-          if (!valid) throw new Error("Enter 10 digits, or 11 starting with 1.");
+          throw new Error("Enter 10 digits (area code + number), or 11 starting with 1.");
         }
       }
 
