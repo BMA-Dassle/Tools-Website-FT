@@ -1663,6 +1663,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             squareToken,
             locationId: center.squareCenterCode,
             notes,
+            smsOptIn,
             // Pass existing hold ID so reserve route confirms it instead of
             // creating a duplicate QAMF reservation
             ...(holdRef.current?.qamfId
@@ -1691,14 +1692,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
         holdRef.current = null;
 
-        // Fire confirmation email + SMS (non-blocking — don't delay redirect)
-        if (data.neonId) {
-          fetch("/api/notifications/bowling-confirmation", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ neonId: data.neonId, smsOptIn }),
-          }).catch(() => {}); // fire-and-forget
-        }
+        // Notification (email + SMS) is now fired server-side in the
+        // reserve route — no client-side fetch needed.
 
         // Navigate via short URL if the reserve route returned one;
         // fall back to a plain neonId param (confirmation page fetches everything else).

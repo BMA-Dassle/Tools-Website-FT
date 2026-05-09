@@ -159,6 +159,11 @@ interface ReserveBody {
    * we fall back to creating a fresh reservation.
    */
   qamfReservationId?: string;
+  /**
+   * Whether the customer opted in to SMS confirmation.
+   * Passed through to the bowling-confirmation notification route.
+   */
+  smsOptIn?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -681,6 +686,18 @@ export async function POST(req: NextRequest) {
     // Non-fatal — wizard falls back to navigating with neonId param directly
     console.error("[bowling/v2/reserve] shortenUrl failed (non-fatal):", err);
   }
+
+  // ── Fire confirmation email + SMS (server-side, non-blocking) ────
+  // Triggered here instead of the client to avoid the browser aborting
+  // the request during the post-booking redirect.
+  const notifOrigin = req.nextUrl.origin;
+  fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ neonId, smsOptIn: body.smsOptIn ?? true }),
+  }).catch((err) => {
+    console.error("[bowling/v2/reserve] notification fire-and-forget failed:", err);
+  });
 
   return NextResponse.json({
     neonId,
