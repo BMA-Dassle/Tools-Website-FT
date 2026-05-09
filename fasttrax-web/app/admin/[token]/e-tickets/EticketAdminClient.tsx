@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { modalBackdropProps } from "@/lib/a11y";
 import type { SmsLogEntry } from "@/lib/sms-log";
+import AdminResendModal from "@/components/admin/AdminResendModal";
 
 type EnrichedLogEntry = SmsLogEntry & {
   racerNames: string[];
@@ -640,16 +640,15 @@ export default function EticketAdminClient({ token }: { token: string }) {
 
         {/* Resend modal */}
         {resendTarget && (
-          <ResendModal
+          <EticketResendModal
             entry={resendTarget}
             token={token}
             onClose={() => setResendTarget(null)}
-            onSuccess={(msg) => {
+            onFlash={(msg) => {
               if (resendTarget.shortCode) {
                 setFlash({ shortCode: resendTarget.shortCode, msg });
                 setTimeout(() => setFlash(null), 4000);
               }
-              setResendTarget(null);
               load();
             }}
           />
@@ -659,240 +658,95 @@ export default function EticketAdminClient({ token }: { token: string }) {
   );
 }
 
-function ResendModal({
+// ── E-ticket Resend (uses shared AdminResendModal) ────────────────────────
+
+function EticketResendModal({
   entry,
   token,
   onClose,
-  onSuccess,
+  onFlash,
 }: {
   entry: EnrichedLogEntry;
   token: string;
   onClose: () => void;
-  onSuccess: (msg: string) => void;
+  onFlash: (msg: string) => void;
 }) {
   const noConsent = isConsentSkip(entry);
-  // Two explicit modes — staff picks one. Defaults to "same" so the
-  // common case (resend to the already-known number) is one click.
-  // No-consent and missing-original-phone cases force "new" since
-  // there's nothing to reuse.
-  const hasOriginal = !!entry.phone;
-  const [destMode, setDestMode] = useState<"same" | "new">(
-    !hasOriginal || noConsent ? "new" : "same",
-  );
-  const [phone, setPhone] = useState(noConsent ? (entry.phone || "") : "");
-  const [sending, setSending] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
-  async function submit() {
-    if (!entry.shortCode) { setErr("No shortCode on this entry — can't resend."); return; }
-    if (!entry.body) { setErr("No body text — can't resend."); return; }
-
-    // Resolve destination phone: "same" reuses the original, "new"
-    // takes the typed value. Validation happens here so the user gets
-    // a clear inline message instead of an opaque server 400.
-    let destPhone = "";
-    if (destMode === "same") {
-      destPhone = entry.phone || "";
-      if (!destPhone) {
-        setErr("No original phone on file. Switch to 'Different number' and enter one.");
-        return;
-      }
-    } else {
-      destPhone = phone.trim();
-      if (!destPhone) {
-        setErr("Enter a phone number.");
-        return;
-      }
-    }
-
-    setSending(true);
-    setErr(null);
-    try {
-      // Always send overridePhone explicitly. Side benefit: the backend
-      // can fire even when the ticket has expired (12h TTL) — without
-      // the override, an expired-ticket resend hits a 404.
-      const res = await fetch("/api/admin/e-tickets/resend", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({
-          shortCode: entry.shortCode,
-          body: entry.body,
-          overridePhone: destPhone,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `send failed (${res.status})`);
-      }
-      onSuccess(`resent to ${data.sentTo}`);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "failed");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
+  const alertBanner = noConsent ? (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
-      style={{ height: "100dvh" }}
-      {...modalBackdropProps(onClose)}
+      className="mb-4 rounded-lg border-2 border-red-500 bg-red-500/10 p-4"
+      role="alert"
     >
-      <div
-        className="relative w-full max-w-lg rounded-xl"
-        style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,255,255,0.1)", maxHeight: "calc(100dvh - 1.5rem)", overflowY: "auto" }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close dialog"
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-          style={{ fontSize: "20px", lineHeight: 1 }}
-        >
-          &times;
-        </button>
-        <div className="p-5 sm:p-6">
-          <h3 className="text-lg font-bold uppercase tracking-wide mb-3 pr-10">
-            {noConsent ? "Resend — NO SMS CONSENT ON FILE" : "Resend e-ticket"}
-          </h3>
-
-          {/*
-            No-consent path: cron logged this racer's e-ticket but didn't
-            send because Pandora has acceptSmsCommercial=false (or unset).
-            Staff MUST read the verbal consent script below before clicking
-            Send, and update BMI permissions afterward.
-          */}
-          {noConsent && (
-            <div
-              className="mb-4 rounded-lg border-2 border-red-500 bg-red-500/10 p-4"
-              role="alert"
-            >
-              <div className="text-red-200 font-bold text-base leading-snug mb-2">
-                Guest Services — ask the racer verbally, word-for-word:
-              </div>
-              <div className="text-red-100 font-bold text-xl leading-tight mb-3 italic">
-                &ldquo;Do I have permission to send eTickets to you? These contain no marketing.&rdquo;
-              </div>
-              <div className="text-red-100 text-sm leading-snug space-y-1">
-                <div>✅ If YES: click <b>Send</b> below, then update BMI:</div>
-                <ol className="list-decimal list-inside pl-2 text-red-100/90 text-sm">
-                  <li>Open the member in BMI</li>
-                  <li>Go to the <b>Permissions</b> tab</li>
-                  <li>Check <b>BOTH</b> SMS fields (commercial + scores)</li>
-                  <li>Save</li>
-                </ol>
-                <div className="pt-1">
-                  You can send the text first — the BMI update keeps future cron
-                  e-tickets flowing automatically, no more manual resend needed.
-                </div>
-                <div className="pt-1">❌ If NO: close this dialog. Do not send.</div>
-              </div>
-            </div>
-          )}
-
-          <div className="text-xs text-white/50 mb-3 space-y-0.5">
-            <div>Racer: <span className="text-white/80">{entry.racerNames.join(", ") || "(no ticket)"}</span></div>
-            {entry.track && entry.heatNumber && (
-              <div>Race: <span className="text-white/80">{entry.track} · Heat {entry.heatNumber}{entry.raceType ? ` · ${entry.raceType}` : ""}</span></div>
-            )}
-            <div>{noConsent ? "eTicket for:" : "Originally sent:"} <span className="text-white/80">{formatEt(entry.ts)} · {entry.phone}</span></div>
-            {entry.clickCount && entry.clickCount > 0 ? (
-              <div className="text-emerald-400">
-                Ticket opened {entry.clickCount > 1 ? `${entry.clickCount}× · last` : "at"} {entry.clickLast ? formatEt(entry.clickLast) : ""}
-              </div>
-            ) : entry.shortCode && entry.ok ? (
-              <div className="text-white/40">Ticket not opened yet</div>
-            ) : null}
-          </div>
-
-          <fieldset className="mb-3">
-            <legend className="text-xs text-white/60 mb-1.5">Send to</legend>
-            <div className="flex flex-col gap-2">
-              {hasOriginal && !noConsent && (
-                <label className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="destMode"
-                    value="same"
-                    checked={destMode === "same"}
-                    onChange={() => setDestMode("same")}
-                    className="accent-[#00E2E5]"
-                  />
-                  <span>Same number <span className="font-mono text-white/60">{entry.phone}</span></span>
-                </label>
-              )}
-              <label className="flex flex-col gap-1.5">
-                <span className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="destMode"
-                    value="new"
-                    checked={destMode === "new"}
-                    onChange={() => setDestMode("new")}
-                    className="accent-[#00E2E5]"
-                  />
-                  Different number
-                </span>
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  onFocus={() => setDestMode("new")}
-                  disabled={destMode !== "new"}
-                  className="ml-6 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white font-mono disabled:opacity-40 disabled:cursor-not-allowed"
-                  placeholder="2395551234"
-                />
-                {destMode === "new" && (
-                  <span className="ml-6 text-[11px] text-white/40">10 digits, or 11 starting with 1</span>
-                )}
-              </label>
-            </div>
-          </fieldset>
-
-          <div className="text-xs text-white/60 mb-1">Body preview</div>
-          <pre
-            className="text-xs bg-black/40 rounded border border-white/10 p-3 whitespace-pre-wrap font-sans text-white/80 mb-4"
-            style={{ maxHeight: "180px", overflow: "auto" }}
-          >
-            {entry.body || "(no body on this entry)"}
-          </pre>
-
-          {err && (
-            <div className="text-xs text-red-400 mb-3">{err}</div>
-          )}
-
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={sending}
-              className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            {/* Effective destination phone — derived once for both
-                the disabled-state check and the visible feedback.
-                Was a bug here: the disabled flag only checked the
-                "Different number" input box (`phone` state), so
-                with "Same number" selected and phone="" (default)
-                the Send button was always disabled. Operators saw
-                a button that looked clickable but did nothing. */}
-            <button
-              type="button"
-              onClick={submit}
-              disabled={
-                sending ||
-                !entry.body ||
-                (destMode === "same" ? !entry.phone : !phone.trim())
-              }
-              className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
-            >
-              {sending ? "Sending…" : "Send"}
-            </button>
-          </div>
+      <div className="text-red-200 font-bold text-base leading-snug mb-2">
+        Guest Services — ask the racer verbally, word-for-word:
+      </div>
+      <div className="text-red-100 font-bold text-xl leading-tight mb-3 italic">
+        &ldquo;Do I have permission to send eTickets to you? These contain no marketing.&rdquo;
+      </div>
+      <div className="text-red-100 text-sm leading-snug space-y-1">
+        <div>✅ If YES: click <b>Send</b> below, then update BMI:</div>
+        <ol className="list-decimal list-inside pl-2 text-red-100/90 text-sm">
+          <li>Open the member in BMI</li>
+          <li>Go to the <b>Permissions</b> tab</li>
+          <li>Check <b>BOTH</b> SMS fields (commercial + scores)</li>
+          <li>Save</li>
+        </ol>
+        <div className="pt-1">
+          You can send the text first — the BMI update keeps future cron
+          e-tickets flowing automatically, no more manual resend needed.
         </div>
+        <div className="pt-1">❌ If NO: close this dialog. Do not send.</div>
       </div>
     </div>
+  ) : undefined;
+
+  const contextSection = (
+    <div className="text-xs text-white/50 mb-3 space-y-0.5">
+      <div>Racer: <span className="text-white/80">{entry.racerNames.join(", ") || "(no ticket)"}</span></div>
+      {entry.track && entry.heatNumber && (
+        <div>Race: <span className="text-white/80">{entry.track} · Heat {entry.heatNumber}{entry.raceType ? ` · ${entry.raceType}` : ""}</span></div>
+      )}
+      <div>{noConsent ? "eTicket for:" : "Originally sent:"} <span className="text-white/80">{formatEt(entry.ts)} · {entry.phone}</span></div>
+      {entry.clickCount && entry.clickCount > 0 ? (
+        <div className="text-emerald-400">
+          Ticket opened {entry.clickCount > 1 ? `${entry.clickCount}× · last` : "at"} {entry.clickLast ? formatEt(entry.clickLast) : ""}
+        </div>
+      ) : entry.shortCode && entry.ok ? (
+        <div className="text-white/40">Ticket not opened yet</div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <AdminResendModal
+      title={noConsent ? "Resend — NO SMS CONSENT ON FILE" : "Resend e-ticket"}
+      channels={["sms"]}
+      defaultChannel="sms"
+      originalPhone={entry.phone}
+      forceNew={noConsent}
+      onSend={async ({ phone }) => {
+        if (!entry.shortCode) throw new Error("No shortCode on this entry — can't resend.");
+        if (!entry.body) throw new Error("No body text — can't resend.");
+        const res = await fetch("/api/admin/e-tickets/resend", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": token },
+          body: JSON.stringify({
+            shortCode: entry.shortCode,
+            body: entry.body,
+            overridePhone: phone,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || `send failed (${res.status})`);
+        const msg = `resent to ${data.sentTo}`;
+        onFlash(msg);
+        return msg;
+      }}
+      onClose={onClose}
+      alertBanner={alertBanner}
+      contextSection={contextSection}
+      bodyPreview={entry.body}
+    />
   );
 }

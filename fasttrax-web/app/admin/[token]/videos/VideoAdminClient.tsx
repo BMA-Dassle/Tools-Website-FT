@@ -726,6 +726,8 @@ export default function VideoAdminClient({ token }: { token: string }) {
   );
 }
 
+import AdminResendModal from "@/components/admin/AdminResendModal";
+
 function ResendModal({
   entry,
   token,
@@ -737,180 +739,43 @@ function ResendModal({
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }) {
-  // A row is "unmatched" if it's flagged so by the server, OR if its
-  // identifiers are empty strings (a corrupted match record from an
-  // earlier manual send where we didn't capture identifiers). Either
-  // way, we can't use the matched-resend API path — fall through to
-  // the manual-send flow which only needs videoCode + contact info.
   const isUnmatched = !entry.matched || !entry.sessionId || !entry.personId;
+  const defaultPhone = entry.phone || entry.mobilePhone || entry.homePhone || "";
+  const defaultEmail = entry.email || "";
 
   // Default channel: if one channel already succeeded, default to
-  // the OTHER one (admin is presumably resending because the prior
-  // channel got the wrong recipient). Otherwise default SMS — text
-  // is the higher-confidence delivery medium for race notifications.
+  // the OTHER one. Otherwise default SMS.
   const defaultChannel: "sms" | "email" = useMemo(() => {
     if (entry.notifySmsOk && !entry.notifyEmailOk) return "email";
     if (entry.notifyEmailOk && !entry.notifySmsOk) return "sms";
     return "sms";
   }, [entry]);
 
-  const [channel, setChannel] = useState<"sms" | "email">(defaultChannel);
-  const defaultPhone = entry.phone || entry.mobilePhone || entry.homePhone || "";
-  const defaultEmail = entry.email || "";
-
-  // Same/Different radio mode per channel — mirrors the e-ticket
-  // resend modal. Forced to "new" when there's no default to reuse
-  // (unmatched videos OR matches without that contact field).
-  const hasOriginalPhone = !!defaultPhone;
-  const hasOriginalEmail = !!defaultEmail;
-  const [phoneMode, setPhoneMode] = useState<"same" | "new">(
-    !hasOriginalPhone || isUnmatched ? "new" : "same",
-  );
-  const [emailMode, setEmailMode] = useState<"same" | "new">(
-    !hasOriginalEmail || isUnmatched ? "new" : "same",
-  );
-
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  // Unmatched videos need optional name fields for the greeting
   const [firstName, setFirstName] = useState(isUnmatched ? "" : entry.firstName);
   const [lastName, setLastName] = useState(isUnmatched ? "" : entry.lastName);
-  const [sending, setSending] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
-  async function submit() {
-    setSending(true);
-    setErr(null);
-    try {
-      // Resolve destination based on the radio mode for the active
-      // channel. "Same" reuses the default; "Different" pulls from
-      // the typed input. Validation is inline so the user gets a
-      // clear message instead of an opaque server 400.
-      let destPhone = "";
-      let destEmail = "";
-      if (channel === "sms") {
-        if (phoneMode === "same") {
-          destPhone = defaultPhone;
-          if (!destPhone) {
-            throw new Error("No phone on file. Switch to 'Different number' and enter one.");
-          }
-        } else {
-          destPhone = phone.trim();
-          if (!destPhone) {
-            throw new Error("Enter a phone number.");
-          }
-          // Validate: 10 digits, or 11 starting with 1. Server's
-          // canonicalizePhone applies the same rule and rejects
-          // anything else with a 400, but doing it here gives a
-          // clearer inline message.
-          const digits = destPhone.replace(/\D/g, "");
-          const valid = digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
-          if (!valid) {
-            throw new Error("Enter 10 digits, or 11 starting with 1.");
-          }
-        }
-      } else {
-        if (emailMode === "same") {
-          destEmail = defaultEmail;
-          if (!destEmail) {
-            throw new Error("No email on file. Switch to 'Different email' and enter one.");
-          }
-        } else {
-          destEmail = email.trim();
-          if (!destEmail) {
-            throw new Error("Enter an email address.");
-          }
-        }
-      }
-
-      const payload: Record<string, unknown> = { channel };
-      if (isUnmatched) {
-        // Manual send on an unmatched video — server expects videoCode
-        // + raw fields + the contact staff is typing into the form.
-        payload.videoCode = entry.videoCode;
-        payload.systemNumber = entry.systemNumber;
-        payload.cameraNumber = entry.cameraNumber;
-        payload.customerUrl = entry.customerUrl;
-        payload.thumbnailUrl = entry.thumbnailUrl;
-        payload.capturedAt = entry.capturedAt;
-        payload.duration = entry.duration;
-        payload.firstName = firstName.trim() || undefined;
-        payload.lastName = lastName.trim() || undefined;
-        if (destPhone) payload.overridePhone = destPhone;
-        if (destEmail) payload.overrideEmail = destEmail;
-      } else {
-        // Matched resend.
-        payload.sessionId = entry.sessionId;
-        payload.personId = entry.personId;
-        // Also include videoCode + raw vt3 fields as a manual-send
-        // fallback in case the match record is missing on the server
-        // (e.g., trimmed from the match log). The server will only
-        // use these if the primary match lookup fails.
-        payload.videoCode = entry.videoCode;
-        payload.systemNumber = entry.systemNumber;
-        payload.cameraNumber = entry.cameraNumber;
-        payload.customerUrl = entry.customerUrl;
-        payload.thumbnailUrl = entry.thumbnailUrl;
-        payload.capturedAt = entry.capturedAt;
-        payload.duration = entry.duration;
-        // Always send the override explicitly — keeps "Same number"
-        // working even when the match record's phone field has
-        // drifted (e.g., trimmed from the match log).
-        if (destPhone) payload.overridePhone = destPhone;
-        if (destEmail) payload.overrideEmail = destEmail;
-      }
-
-      const res = await fetch("/api/admin/videos/resend", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `send failed (${res.status})`);
-      const r = data.result || {};
-      const bits: string[] = [];
-      if (r.sms?.ok) bits.push(`SMS → ${r.sms.sentTo}`);
-      if (r.sms && !r.sms.ok) bits.push(`SMS failed: ${r.sms.error || "?"}`);
-      if (r.email?.ok) bits.push(`email → ${r.email.sentTo}`);
-      if (r.email && !r.email.ok) bits.push(`email failed: ${r.email.error || "?"}`);
-      onSuccess(bits.join(" · ") || "sent");
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "failed");
-    } finally {
-      setSending(false);
-    }
-  }
+  const previewText = `FastTrax — your race video is ready!\n\n${(isUnmatched ? firstName.trim() : entry.firstName) || "Hey there"}, your ${entry.track ? `${entry.track.replace(" Track", "")} Track` : "race"}${entry.heatNumber ? ` Heat ${entry.heatNumber}` : ""} video is live.\n\nWatch + share: ${entry.customerUrl.includes("?") ? `${entry.customerUrl}&referrer=receipt` : `${entry.customerUrl}?referrer=receipt`}`;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
-      style={{ height: "100dvh" }}
-      {...modalBackdropProps(onClose)}
-    >
-      <div
-        className="relative w-full max-w-lg rounded-xl"
-        style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,255,255,0.1)", maxHeight: "calc(100dvh - 1.5rem)", overflowY: "auto" }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close dialog"
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
-          style={{ fontSize: "20px", lineHeight: 1 }}
-        >
-          &times;
-        </button>
-        <div className="p-5 sm:p-6">
-          <h3 className="text-lg font-bold uppercase tracking-wide mb-3 pr-10">
-            {isUnmatched ? "Send video (unmatched)" : "Resend video"}
-          </h3>
-
-          {isUnmatched && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">
-              This video has no racer on file (no camera-assign scan, or the assignment
-              window expired). Type the racer&apos;s phone and/or email to send directly.
-            </div>
-          )}
-
+    <AdminResendModal
+      title={isUnmatched ? "Send video (unmatched)" : "Resend video"}
+      channels={["sms", "email"]}
+      defaultChannel={defaultChannel}
+      originalPhone={defaultPhone || null}
+      originalEmail={defaultEmail || null}
+      forceNew={isUnmatched}
+      onClose={onClose}
+      alertBanner={
+        isUnmatched ? (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">
+            This video has no racer on file (no camera-assign scan, or the assignment
+            window expired). Type the racer&apos;s phone and/or email to send directly.
+          </div>
+        ) : undefined
+      }
+      contextSection={
+        <>
           <div className="text-xs text-white/50 mb-3 space-y-0.5">
             {!isUnmatched && (
               <>
@@ -941,180 +806,59 @@ function ResendModal({
               <div>Last email: <span className="text-white/80">{entry.notifyEmailSentTo} · {formatEt(entry.notifyEmailSentAt)}</span>{entry.notifyEmailOk === false && <span className="text-red-400 ml-1">(failed)</span>}</div>
             )}
           </div>
-
-          {/* Racer name — only editable on unmatched (manual) sends.
-              Optional, used just for greeting in the SMS/email body. */}
           {isUnmatched && (
             <div className="grid grid-cols-2 gap-2 mb-3">
               <label className="flex flex-col gap-1 text-xs text-white/60">
                 First name (optional)
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="Alice"
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                />
+                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Alice" className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white" />
               </label>
               <label className="flex flex-col gap-1 text-xs text-white/60">
                 Last name (optional)
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Smith"
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                />
+                <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Smith" className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white" />
               </label>
             </div>
           )}
+        </>
+      }
+      bodyPreview={previewText}
+      onSend={async ({ channel, phone, email }) => {
+        const payload: Record<string, unknown> = { channel };
+        // Always include video raw fields for fallback
+        payload.videoCode = entry.videoCode;
+        payload.systemNumber = entry.systemNumber;
+        payload.cameraNumber = entry.cameraNumber;
+        payload.customerUrl = entry.customerUrl;
+        payload.thumbnailUrl = entry.thumbnailUrl;
+        payload.capturedAt = entry.capturedAt;
+        payload.duration = entry.duration;
 
-          {/* Channel picker — SMS or Email (no "Both"). Sending one
-              at a time keeps the destination semantics clear. */}
-          <div className="mb-3">
-            <div className="text-xs text-white/60 mb-1">Channel</div>
-            <div className="flex gap-2">
-              {(["sms", "email"] as const).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setChannel(c)}
-                  className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${
-                    channel === c
-                      ? "bg-[#00E2E5] border-[#00E2E5] text-[#000418]"
-                      : "border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10"
-                  }`}
-                >
-                  {c.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
+        if (isUnmatched) {
+          payload.firstName = firstName.trim() || undefined;
+          payload.lastName = lastName.trim() || undefined;
+        } else {
+          payload.sessionId = entry.sessionId;
+          payload.personId = entry.personId;
+        }
+        if (phone) payload.overridePhone = phone;
+        if (email) payload.overrideEmail = email;
 
-          {channel === "sms" && (
-            <fieldset className="mb-3">
-              <legend className="text-xs text-white/60 mb-1.5">Send to</legend>
-              <div className="flex flex-col gap-2">
-                {hasOriginalPhone && !isUnmatched && (
-                  <label className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="phoneMode"
-                      value="same"
-                      checked={phoneMode === "same"}
-                      onChange={() => setPhoneMode("same")}
-                      className="accent-[#00E2E5]"
-                    />
-                    <span>Same number <span className="font-mono text-white/60">{defaultPhone}</span></span>
-                  </label>
-                )}
-                <label className="flex flex-col gap-1.5">
-                  <span className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="phoneMode"
-                      value="new"
-                      checked={phoneMode === "new"}
-                      onChange={() => setPhoneMode("new")}
-                      className="accent-[#00E2E5]"
-                    />
-                    Different number
-                  </span>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    onFocus={() => setPhoneMode("new")}
-                    disabled={phoneMode !== "new"}
-                    className="ml-6 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white font-mono disabled:opacity-40 disabled:cursor-not-allowed"
-                    placeholder="2395551234"
-                  />
-                  {phoneMode === "new" && (
-                    <span className="ml-6 text-[11px] text-white/40">10 digits, or 11 starting with 1</span>
-                  )}
-                </label>
-              </div>
-            </fieldset>
-          )}
-
-          {channel === "email" && (
-            <fieldset className="mb-3">
-              <legend className="text-xs text-white/60 mb-1.5">Send to</legend>
-              <div className="flex flex-col gap-2">
-                {hasOriginalEmail && !isUnmatched && (
-                  <label className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="emailMode"
-                      value="same"
-                      checked={emailMode === "same"}
-                      onChange={() => setEmailMode("same")}
-                      className="accent-[#00E2E5]"
-                    />
-                    <span>Same email <span className="text-white/60">{defaultEmail}</span></span>
-                  </label>
-                )}
-                <label className="flex flex-col gap-1.5">
-                  <span className="flex items-center gap-2 text-sm text-white/85 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="emailMode"
-                      value="new"
-                      checked={emailMode === "new"}
-                      onChange={() => setEmailMode("new")}
-                      className="accent-[#00E2E5]"
-                    />
-                    Different email
-                  </span>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onFocus={() => setEmailMode("new")}
-                    disabled={emailMode !== "new"}
-                    className="ml-6 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                    placeholder="racer@example.com"
-                  />
-                </label>
-              </div>
-            </fieldset>
-          )}
-
-          <div className="text-xs text-white/60 mb-1">Preview</div>
-          <pre
-            className="text-xs bg-black/40 rounded border border-white/10 p-3 whitespace-pre-wrap font-sans text-white/80 mb-4"
-            style={{ maxHeight: "180px", overflow: "auto" }}
-          >
-{`FastTrax — your race video is ready!
-
-${(isUnmatched ? firstName.trim() : entry.firstName) || "Hey there"}, your ${entry.track ? `${entry.track.replace(" Track", "")} Track` : "race"}${entry.heatNumber ? ` Heat ${entry.heatNumber}` : ""} video is live.
-
-Watch + share: ${entry.customerUrl.includes("?") ? `${entry.customerUrl}&referrer=receipt` : `${entry.customerUrl}?referrer=receipt`}`}
-          </pre>
-
-          {err && <div className="text-xs text-red-400 mb-3">{err}</div>}
-
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={sending}
-              className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={sending}
-              className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
-            >
-              {sending ? "Sending…" : "Send"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+        const res = await fetch("/api/admin/videos/resend", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": token },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `send failed (${res.status})`);
+        const r = data.result || {};
+        const bits: string[] = [];
+        if (r.sms?.ok) bits.push(`SMS → ${r.sms.sentTo}`);
+        if (r.sms && !r.sms.ok) bits.push(`SMS failed: ${r.sms.error || "?"}`);
+        if (r.email?.ok) bits.push(`email → ${r.email.sentTo}`);
+        if (r.email && !r.email.ok) bits.push(`email failed: ${r.email.error || "?"}`);
+        const msg = bits.join(" · ") || "sent";
+        onSuccess(msg);
+        return msg;
+      }}
+    />
   );
 }
