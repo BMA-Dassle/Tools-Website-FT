@@ -343,6 +343,22 @@ function todayYmd(): string {
   return ymdFromDate(new Date());
 }
 
+/**
+ * Current Eastern Time expressed as minutes-from-midnight.
+ * Used to compute the earliest bookable slot for today's date.
+ */
+function etNowMinutes(): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "numeric",
+    hourCycle: "h23",
+    timeZone: "America/New_York",
+  }).formatToParts(new Date());
+  const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+  const m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  return h * 60 + m;
+}
+
 function addDays(ymd: string, n: number): string {
   // Anchor at noon ET to avoid DST / day-boundary drift.
   const d = new Date(`${ymd}T12:00:00`);
@@ -855,18 +871,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       if (dow === 5) filtered = filtered.filter((h) => h < 17);
     }
 
-    // Today: hide hours that are already past (+ 30-min lookahead buffer)
+    // Today: hide hours where every slot is < 15 min from now.
+    // An hour chip stays visible if its last slot (h:45) is still >= 15 min away.
+    // Individual minute chips within that hour are filtered separately in the UI.
     if (dateStr === todayYmd()) {
-      const parts = new Intl.DateTimeFormat("en-US", {
-        hour: "numeric",
-        minute: "numeric",
-        hourCycle: "h23",
-        timeZone: "America/New_York",
-      }).formatToParts(new Date());
-      const etH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-      const etM = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
-      const cutoffMins = etH * 60 + etM + 30; // must be bookable at least 30 min from now
-      filtered = filtered.filter((h) => h * 60 >= cutoffMins);
+      const cutoffMins = etNowMinutes() + 15;
+      filtered = filtered.filter((h) => h * 60 + 45 >= cutoffMins);
     }
 
     return filtered;
@@ -2392,10 +2402,24 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           })}
                         </div>
                         {selectedHour !== null && (() => {
-                          // Always offer :00 / :15 / :30 / :45 — no availability
-                          // pre-check needed; actual slot existence is verified when
-                          // the user hits "See Packages" and availability loads.
-                          const distinctMinutes = [0, 15, 30, 45];
+                          // Offer :00 / :15 / :30 / :45 for the selected hour.
+                          // For today, hide minutes whose slot is < 15 min from now.
+                          // Actual QAMF availability is checked when the user hits
+                          // "See Packages" — these chips just gate the CTA button.
+                          const cutoffToday = selectedDate === todayYmd()
+                            ? etNowMinutes() + 15
+                            : 0;
+                          const distinctMinutes = [0, 15, 30, 45].filter(
+                            (m) => selectedHour * 60 + m >= cutoffToday,
+                          );
+                          // If the previously-selected minute was filtered out (e.g. page
+                          // left open and time advanced past the cutoff), deselect it.
+                          if (
+                            selectedMinute !== null &&
+                            !distinctMinutes.includes(selectedMinute)
+                          ) {
+                            setSelectedMinute(null);
+                          }
                           return (
                             <div className="mt-4 pt-3 border-t border-white/8">
                               <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">
