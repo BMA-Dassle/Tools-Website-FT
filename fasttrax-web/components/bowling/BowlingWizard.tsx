@@ -2347,6 +2347,46 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               ),
             );
 
+            // Per-tier availability at the selected time + next-available fallback.
+            // availableSlots contains all QAMF slots already fetched for this date.
+            function tierAvailability(tierId: "regular" | "vip") {
+              const tierExps = experiences.filter(
+                (e) =>
+                  (tierId === "vip" ? e.isVip : !e.isVip) &&
+                  (!e.daysOfWeek.length || e.daysOfWeek.includes(tierDow)),
+              );
+              // Slots belonging to any experience in this tier
+              const tierSlots = availableSlots.filter((s) =>
+                tierExps.some((e) => e.qamfWebOfferId === s.webOfferId),
+              );
+
+              // Check if any slot matches the currently selected hour+minute
+              const hasAtTime =
+                selectedHour === null ||
+                tierSlots.some(
+                  (s) =>
+                    slotHourET(s.bookedAt, selectedDate) === selectedHour &&
+                    (selectedMinute === null ||
+                      slotMinuteET(s.bookedAt) === selectedMinute),
+                );
+
+              // If nothing at the chosen time, find the nearest slot after it
+              const nextSlot = hasAtTime
+                ? null
+                : tierSlots
+                    .filter((s) => {
+                      if (selectedHour === null) return true;
+                      const h = slotHourET(s.bookedAt, selectedDate);
+                      const m = slotMinuteET(s.bookedAt);
+                      if (h > selectedHour) return true;
+                      if (h === selectedHour && m > (selectedMinute ?? -1)) return true;
+                      return false;
+                    })
+                    .sort((a, b) => a.bookedAt.localeCompare(b.bookedAt))[0] ?? null;
+
+              return { hasAtTime, nextSlot };
+            }
+
             return (
               <div className="space-y-6">
                 <p className="text-center text-white/45 text-xs">
@@ -2363,66 +2403,116 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {tiersToShow.map((tier) => (
-                      <button
-                        key={tier.id}
-                        type="button"
-                        onClick={() => { setSelectedTier(tier.id); setStep("offer"); }}
-                        className="w-full rounded-xl overflow-hidden transition-all text-left hover:scale-[1.01] active:scale-[0.99]"
-                        style={{
-                          backgroundColor: "rgba(7,16,39,0.5)",
-                          border: `1.78px solid ${tier.accent}50`,
-                          boxShadow: `0 0 24px ${tier.accent}18`,
-                        }}
-                      >
-                        <div className="flex flex-col sm:flex-row">
-                          {/* Video thumbnail */}
-                          <div className="relative w-full sm:w-52 h-36 sm:h-auto shrink-0 overflow-hidden">
-                            <video
-                              autoPlay muted loop playsInline preload="metadata"
-                              className="absolute inset-0 w-full h-full object-cover"
-                            >
-                              <source src={tier.videoUrl} type="video/mp4" />
-                            </video>
-                            <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70 pointer-events-none" />
-                          </div>
-                          {/* Content */}
-                          <div className="flex-1 p-5">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3
-                                className="font-heading uppercase text-white text-lg tracking-wider"
-                                style={{ textShadow: `0 0 18px ${tier.accent}30` }}
-                              >
-                                {tier.label}
-                              </h3>
-                              {tier.id === "vip" && (
-                                <span
-                                  className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
-                                  style={{ backgroundColor: `${GOLD}22`, color: GOLD, border: `1px solid ${GOLD}50` }}
+                    {tiersToShow.map((tier) => {
+                      const { hasAtTime, nextSlot } = tierAvailability(tier.id);
+                      const nextH = nextSlot ? slotHourET(nextSlot.bookedAt, selectedDate) : null;
+                      const nextM = nextSlot ? slotMinuteET(nextSlot.bookedAt) : null;
+                      return (
+                        <div
+                          key={tier.id}
+                          className="w-full rounded-xl overflow-hidden"
+                          style={{
+                            backgroundColor: "rgba(7,16,39,0.5)",
+                            border: `1.78px solid ${tier.accent}${hasAtTime ? "50" : "28"}`,
+                            boxShadow: hasAtTime ? `0 0 24px ${tier.accent}18` : "none",
+                            opacity: hasAtTime ? 1 : 0.85,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => { setSelectedTier(tier.id); setStep("offer"); }}
+                            className="w-full text-left transition-all hover:scale-[1.005] active:scale-[0.99]"
+                          >
+                            <div className="flex flex-col sm:flex-row">
+                              {/* Video thumbnail */}
+                              <div className="relative w-full sm:w-52 h-36 sm:h-auto shrink-0 overflow-hidden">
+                                <video
+                                  autoPlay muted loop playsInline preload="metadata"
+                                  className="absolute inset-0 w-full h-full object-cover"
                                 >
-                                  Premium
-                                </span>
-                              )}
+                                  <source src={tier.videoUrl} type="video/mp4" />
+                                </video>
+                                <div className="absolute inset-0 bg-gradient-to-b sm:bg-gradient-to-r from-transparent to-[#071027]/70 pointer-events-none" />
+                              </div>
+                              {/* Content */}
+                              <div className="flex-1 p-5">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3
+                                    className="font-heading uppercase text-white text-lg tracking-wider"
+                                    style={{ textShadow: `0 0 18px ${tier.accent}30` }}
+                                  >
+                                    {tier.label}
+                                  </h3>
+                                  {tier.id === "vip" && (
+                                    <span
+                                      className="font-body text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-bold"
+                                      style={{ backgroundColor: `${GOLD}22`, color: GOLD, border: `1px solid ${GOLD}50` }}
+                                    >
+                                      Premium
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-body text-white/55 text-sm mb-3">{tier.subtitle}</p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4">
+                                  {tier.features.map((f) => (
+                                    <span key={f} className="flex items-center gap-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tier.accent }} />
+                                      <span className="font-body text-white/40 text-xs">{f}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                                {hasAtTime ? (
+                                  <div
+                                    className="inline-flex items-center gap-1.5 font-body text-xs font-bold uppercase tracking-wider"
+                                    style={{ color: tier.accent }}
+                                  >
+                                    Select {tier.label} →
+                                  </div>
+                                ) : (
+                                  <p className="font-body text-white/35 text-xs">
+                                    No lanes available at {selectedHour !== null ? formatHourMinute(selectedHour, selectedMinute ?? 0) : "this time"}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                            <p className="font-body text-white/55 text-sm mb-3">{tier.subtitle}</p>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4">
-                              {tier.features.map((f) => (
-                                <span key={f} className="flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tier.accent }} />
-                                  <span className="font-body text-white/40 text-xs">{f}</span>
-                                </span>
-                              ))}
-                            </div>
+                          </button>
+
+                          {/* Next-available chip — shown when selected time has no slots */}
+                          {!hasAtTime && nextSlot && nextH !== null && nextM !== null && (
                             <div
-                              className="inline-flex items-center gap-1.5 font-body text-xs font-bold uppercase tracking-wider"
-                              style={{ color: tier.accent }}
+                              className="px-5 pb-4 pt-0 flex items-center gap-3"
+                              style={{ borderTop: `1px solid ${tier.accent}18` }}
                             >
-                              Select {tier.label} →
+                              <span className="font-body text-white/40 text-xs">Next available:</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedHour(nextH);
+                                  setSelectedMinute(nextM);
+                                  setSelectedTier(tier.id);
+                                  setStep("offer");
+                                }}
+                                className="font-body text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-90 active:scale-95"
+                                style={{
+                                  backgroundColor: `${tier.accent}22`,
+                                  color: tier.accent,
+                                  border: `1px solid ${tier.accent}50`,
+                                }}
+                              >
+                                {formatHourMinute(nextH, nextM)} →
+                              </button>
                             </div>
-                          </div>
+                          )}
+                          {/* No availability at all today */}
+                          {!hasAtTime && !nextSlot && selectedHour !== null && (
+                            <div className="px-5 pb-4 pt-0">
+                              <span className="font-body text-white/30 text-xs">No more availability today — try another date</span>
+                            </div>
+                          )}
                         </div>
-                      </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
