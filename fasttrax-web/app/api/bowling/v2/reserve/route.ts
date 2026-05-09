@@ -249,7 +249,40 @@ export async function POST(req: NextRequest) {
   let qamfReservationId: string;
   let qamfConfirmed = false;
 
-  /** Attach customer then confirm — used by both fresh paths. */
+  // ── Build Conqueror notes with payment summary ──────────────────
+  // Staff see these in the Conqueror reservation panel.
+  // Format: "Fun 4 All (1.5hr) $54.00 + 4x Shoe Rental $24.00 | Deposit $60.00 paid"
+  // Free bookings (KBF, no add-ons) omit the payment line.
+  function buildQamfNotes(): string | undefined {
+    const parts: string[] = [];
+
+    if (reservationLines.length > 0) {
+      const itemParts = reservationLines.map((l) => {
+        const total = l.quantity * l.unitPriceCents;
+        const totalStr = `$${(total / 100).toFixed(2)}`;
+        return l.quantity > 1
+          ? `${l.quantity}x ${l.label} ${totalStr}`
+          : `${l.label} ${totalStr}`;
+      });
+      parts.push(itemParts.join(" + "));
+    }
+
+    if (preTaxDepositCents > 0) {
+      // Use the pre-tax figure here since Square tax happens after this call.
+      // The actual charged amount will be in squareDepositPaymentId later.
+      parts.push(`Deposit $${(preTaxDepositCents / 100).toFixed(2)} paid`);
+    }
+
+    const summary = parts.join(" | ");
+    if (!summary && !notes) return undefined;
+    if (!summary) return notes;
+    if (!notes) return summary;
+    return `${summary}\n${notes}`;
+  }
+
+  const qamfNotes = buildQamfNotes();
+
+  /** Attach customer then confirm — used by fresh reservation paths. */
   async function attachAndConfirm(reservationId: string): Promise<boolean> {
     // QAMF requires an explicit PUT /customer BEFORE /status will confirm.
     await setReservationCustomer(centerId, reservationId, {
@@ -266,19 +299,29 @@ export async function POST(req: NextRequest) {
     // ── Hold-first path ──────────────────────────────────────────
     qamfReservationId = body.qamfReservationId;
 
-    // Attach guest details then confirm the hold.
+    // Attach customer + rename title + set notes all in parallel.
     // Customer attach MUST succeed before /status PATCH will take effect.
-    // If the attach fails (hold expired, QAMF error) we treat the hold as
-    // lost and fall through to the fresh-reservation path.
+    // Title rename and notes are fire-and-forget — non-fatal.
+    // If the customer attach fails (hold expired) we fall through to fresh.
     let holdCustomerAttached = false;
     try {
-      await setReservationCustomer(centerId, qamfReservationId, {
-        Guest: {
-          Name: guest.name,
-          PhoneNumber: guest.phone,
-          Email: guest.email,
-        },
-      });
+      await Promise.all([
+        // 1. Attach guest — required before /status will confirm
+        setReservationCustomer(centerId, qamfReservationId, {
+          Guest: {
+            Name: guest.name,
+            PhoneNumber: guest.phone,
+            Email: guest.email,
+          },
+        }),
+        // 2. Rename "Hold (Np)" → "Guest Name (Np)" and write payment notes
+        patchReservation(centerId, qamfReservationId, {
+          Title: `${guest.name} (${players.length}p)`,
+          Notes: qamfNotes,
+        }).catch((err) =>
+          console.warn("[bowling/v2/reserve] hold patch (title/notes) failed (non-fatal):", err),
+        ),
+      ]);
       holdCustomerAttached = true;
     } catch (err) {
       console.warn(
@@ -288,14 +331,6 @@ export async function POST(req: NextRequest) {
     }
 
     if (holdCustomerAttached) {
-      // Rename "Hold (Np)" → "Guest Name (Np)" so staff see the correct name
-      // in Conqueror. Fire in parallel with the status confirm — non-fatal.
-      void patchReservation(centerId, qamfReservationId, {
-        Title: `${guest.name} (${players.length}p)`,
-      }).catch((err) =>
-        console.warn("[bowling/v2/reserve] title rename failed (non-fatal):", err),
-      );
-
       // Customer is attached; PATCH /status should take effect.
       qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
       if (!qamfConfirmed) {
@@ -311,7 +346,7 @@ export async function POST(req: NextRequest) {
         const reservation = await createReservation(centerId, {
           BookedAt: bookedAt,
           Title: `${guest.name} (${players.length}p)`,
-          Notes: notes,
+          Notes: qamfNotes,
           Customer: {
             Guest: {
               Name: guest.name,
@@ -346,7 +381,7 @@ export async function POST(req: NextRequest) {
       const reservation = await createReservation(centerId, {
         BookedAt: bookedAt,
         Title: `${guest.name} (${players.length}p)`,
-        Notes: notes,
+        Notes: qamfNotes,
         Customer: {
           Guest: {
             Name: guest.name,
