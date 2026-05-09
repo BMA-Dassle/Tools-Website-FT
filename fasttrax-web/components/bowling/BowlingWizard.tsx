@@ -60,7 +60,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk.",
     features: [
       "Standard HeadPinz lanes",
-      "Up to 6 bowlers per lane",
+      "Up to 20 bowlers per lane",
       "Glow lighting in the evenings",
       "Bring your KBF coupon to check in",
     ],
@@ -74,7 +74,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
       "Priority check-in",
-      "Up to 6 bowlers per lane",
+      "Up to 20 bowlers per lane",
     ],
   },
   "fun-4-all": {
@@ -83,7 +83,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     description: "1.5 hours of bowling Monday through Thursday — shoes included!",
     features: [
       "Bowling shoes included",
-      "Up to 6 bowlers per lane",
+      "Up to 20 bowlers per lane",
       "Standard HeadPinz lanes",
       "Glow bowling in the evenings",
     ],
@@ -106,7 +106,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description: "Reserve a lane by the hour — Monday through Thursday.",
-    features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
+    features: ["Standard HeadPinz lanes", "Up to 20 bowlers per lane", "Flexible hourly rate"],
   },
   "vip-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
@@ -117,14 +117,14 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
       "Chips & salsa included",
-      "Up to 6 bowlers per lane",
+      "Up to 20 bowlers per lane",
     ],
   },
   "regular-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description: "Reserve a lane by the hour — Friday through Sunday.",
-    features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
+    features: ["Standard HeadPinz lanes", "Up to 20 bowlers per lane", "Flexible hourly rate"],
   },
   "vip-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
@@ -135,7 +135,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
       "Chips & salsa included",
-      "Up to 6 bowlers per lane",
+      "Up to 20 bowlers per lane",
     ],
   },
   "pizza-bowl": {
@@ -145,7 +145,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     features: [
       "Bowling shoes included",
       "Pizza included",
-      "Up to 6 bowlers per lane",
+      "Up to 20 bowlers per lane",
     ],
     includesShoes: true,
     perLane: true,
@@ -2097,7 +2097,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           ═══════════════════════════════════════════════════════ */}
           {step === "players" && kind === "open" && (
             <div className="space-y-6">
-              <p className="font-body text-white/55 text-sm text-center">Up to 6 bowlers per lane</p>
+              <p className="font-body text-white/55 text-sm text-center">Up to 20 bowlers</p>
               <div className="flex items-center justify-center gap-6">
                 <button
                   type="button"
@@ -2124,13 +2124,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setPlayerCount((n) => Math.min(6, n + 1))}
+                  onClick={() => setPlayerCount((n) => Math.min(20, n + 1))}
                   className="w-14 h-14 rounded-full flex items-center justify-center font-heading font-black text-2xl transition-all hover:scale-105"
                   style={{
-                    backgroundColor: playerCount < 6 ? `${CORAL}22` : "rgba(255,255,255,0.07)",
-                    border: `1.78px solid ${playerCount < 6 ? `${CORAL}60` : "rgba(255,255,255,0.18)"}`,
-                    color: playerCount < 6 ? CORAL : "rgba(255,255,255,0.75)",
-                    boxShadow: playerCount < 6 ? `0 0 14px ${CORAL}30` : undefined,
+                    backgroundColor: playerCount < 20 ? `${CORAL}22` : "rgba(255,255,255,0.07)",
+                    border: `1.78px solid ${playerCount < 20 ? `${CORAL}60` : "rgba(255,255,255,0.18)"}`,
+                    color: playerCount < 20 ? CORAL : "rgba(255,255,255,0.75)",
+                    boxShadow: playerCount < 20 ? `0 0 14px ${CORAL}30` : undefined,
                   }}
                 >
                   +
@@ -2339,7 +2339,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 subtitle: "Standard HeadPinz lanes — great for families and groups.",
                 accent: CORAL,
                 videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
-                features: ["Standard lanes", "Up to 6 bowlers per lane", "Glow lighting evenings"],
+                features: ["Standard lanes", "Up to 20 bowlers per lane", "Glow lighting evenings"],
               },
               {
                 id: "vip" as const,
