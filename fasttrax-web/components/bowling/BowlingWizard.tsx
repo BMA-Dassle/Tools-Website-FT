@@ -1093,6 +1093,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         depositPaid: String(existingReservation.depositCents),
         remaining: String(existingReservation.totalCents - existingReservation.depositCents),
       });
+      // Clear hold ref before navigation to prevent unmount DELETE
+      if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
+      holdRef.current = null;
       router.push(`${confirmationBase}?${params.toString()}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reschedule failed");
@@ -1293,6 +1296,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           depositPaid: String(data.depositPaidCents ?? 0),
           remaining: String(data.remainingCents ?? 0),
         });
+        // Clear the hold ref BEFORE navigating away so the unmount cleanup
+        // doesn't fire a DELETE against the now-confirmed QAMF reservation.
+        if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
+        holdRef.current = null;
         router.push(`${confirmationBase}?${params.toString()}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Reservation failed";
