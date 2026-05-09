@@ -997,17 +997,21 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           {/* ── Bowler details ── (hidden when cancelled) */}
           {players.length > 0 && !isCancelled && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
+              {/* Eye-catching header — drives pre-arrival data entry so
+                  staff have names, shoes, and bumpers before the party walks in. */}
               <div
-                className="uppercase font-bold mb-1"
-                style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2.5px" }}
+                className="rounded-xl px-4 py-3 mb-5 text-center"
+                style={{ backgroundColor: `${CORAL}15`, border: `1.5px solid ${CORAL}35` }}
               >
-                Bowler Details
+                <p className="font-heading uppercase text-white text-sm sm:text-base tracking-wider mb-1" style={{ textShadow: `0 0 12px ${CORAL}30` }}>
+                  Save time when you arrive
+                </p>
+                <p className="text-white/55 text-xs font-body leading-relaxed">
+                  {shoePairsAllowed > 0
+                    ? "Add your bowler names, shoe sizes, and bumper preferences now so your lane is ready to go."
+                    : "Add your bowler names and bumper preferences now so your lane is ready when you get here."}
+                </p>
               </div>
-              <p className="text-white/45 text-xs mb-5 leading-relaxed">
-                {shoePairsAllowed > 0
-                  ? `Help us get your lane ready — bumpers and shoe sizes for up to ${shoePairsAllowed} pair${shoePairsAllowed !== 1 ? "s" : ""}.`
-                  : "Let us know who needs bumpers so your lane is set up when you arrive."}
-              </p>
 
               {laneNumbers.length > 1 ? (
                 // Multi-lane: group by lane with lane headers + move buttons
