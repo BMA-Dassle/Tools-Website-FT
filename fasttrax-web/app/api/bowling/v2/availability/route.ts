@@ -139,7 +139,10 @@ export async function GET(req: NextRequest) {
   const webOfferIdStr  = searchParams.get("webOfferId");
   const durationMinStr = searchParams.get("durationMinutes");
 
+  console.log(`[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kind=${kindStr}`);
+
   if (!centerIdStr || !playersStr || !startDate) {
+    console.log(`[avail] EXIT: missing required params`);
     return NextResponse.json(
       { error: "centerId, players, and startDate are required" },
       { status: 400 },
@@ -152,12 +155,14 @@ export async function GET(req: NextRequest) {
   const durationMinOver = durationMinStr ? parseInt(durationMinStr, 10) : undefined;
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
+    console.log(`[avail] EXIT: invalid centerId or players`);
     return NextResponse.json({ error: "invalid centerId or players" }, { status: 400 });
   }
 
   // ── Resolve center code → look up valid experiences from DB ──────
   const centerCode = QAMF_TO_CENTER_CODE[centerId];
   if (!centerCode) {
+    console.log(`[avail] EXIT: unknown centerId ${centerId}`);
     return NextResponse.json({ error: `unknown centerId: ${centerId}` }, { status: 400 });
   }
 
@@ -169,6 +174,8 @@ export async function GET(req: NextRequest) {
     (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
   );
 
+  console.log(`[avail] experiences: all=${allExperiences.length} valid=${validExperiences.length} dow=${dow} offerIds=[${validExperiences.map(e => e.qamfWebOfferId).join(",")}]`);
+
   // When webOfferId is specified (e.g. reschedule), narrow to just that offer
   if (webOfferId) {
     validExperiences = validExperiences.filter(
@@ -177,6 +184,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (validExperiences.length === 0) {
+    console.log(`[avail] EXIT: no valid experiences for dow=${dow} centerCode=${centerCode} kind=${kindStr}`);
     return NextResponse.json({ Availabilities: [] });
   }
 
