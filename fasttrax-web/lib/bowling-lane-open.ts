@@ -15,8 +15,10 @@ import {
  * Steps per reservation:
  *  1. Guard: cancelled or already processed → skip
  *  2. Fetch the open day-of Square order
- *  3. Prepend "Lane N |" to kitchen display item notes (Chips & Salsa,
- *     Pizza Bowl Pizza, Pizza Bowl Soda Pitcher) via sparse UpdateOrder
+ *  3. Add SHIPMENT fulfillment (display_name = laneLabel) so the KDS
+ *     routes the order to kitchen staff, AND prepend "Lane N |" to
+ *     kitchen display item notes (Chips & Salsa, Pizza Bowl Pizza,
+ *     Pizza Bowl Soda Pitcher) via sparse UpdateOrder
  *  4. Apply the eGift card balance to the day-of order via POST /v2/payments
  *  5. Write result to Neon (idempotent — conditional on dayof_order_sent_at IS NULL)
  *
@@ -146,43 +148,56 @@ export async function processLaneOpen(opts: {
     // If order is already terminal, skip Square steps but still record in Neon
     const terminal = order.state === "CANCELED" || order.state === "COMPLETED";
     if (!terminal && laneLabel) {
-      // ── 2. Update kitchen item notes ──────────────────────────
+      // ── 2. Add SHIPMENT fulfillment + update kitchen item notes ───
+      // The SHIPMENT fulfillment (display_name = lane label) is what routes
+      // the order to the KDS so kitchen staff see it. Line item notes are
+      // updated concurrently so staff see the lane on each item.
+      // Square adds new fulfillments (no uid provided) without removing
+      // existing ones — no fields_to_clear required.
       const kitchenItems = (order.line_items ?? []).filter(isKitchenItem);
-      if (kitchenItems.length > 0) {
-        const updatedItems = kitchenItems.map((li) => ({
-          uid:  li.uid,
-          note: li.note ? `${laneLabel} | ${li.note}` : laneLabel,
-        }));
-        try {
-          const noteRes = await fetch(
-            `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-            {
-              method:  "PUT",
-              headers: sqHeaders(),
-              body:    JSON.stringify({
-                order: {
-                  version:     order.version,
-                  location_id: reservation.centerCode,
-                  line_items:  updatedItems,
-                },
-                idempotency_key: `${idempotencyBase}-notes`,
-              }),
-            },
+      const updatedItems = kitchenItems.map((li) => ({
+        uid:  li.uid,
+        note: li.note ? `${laneLabel} | ${li.note}` : laneLabel,
+      }));
+      try {
+        const noteRes = await fetch(
+          `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+          {
+            method:  "PUT",
+            headers: sqHeaders(),
+            body:    JSON.stringify({
+              order: {
+                version:      order.version,
+                location_id:  reservation.centerCode,
+                // SHIPMENT fulfillment → KDS routing
+                fulfillments: [
+                  {
+                    type: "SHIPMENT",
+                    shipment_details: {
+                      recipient: { display_name: laneLabel },
+                    },
+                  },
+                ],
+                // Sparse note update — only present when there are kitchen items
+                ...(updatedItems.length > 0 ? { line_items: updatedItems } : {}),
+              },
+              idempotency_key: `${idempotencyBase}-notes`,
+            }),
+          },
+        );
+        if (noteRes.ok) {
+          kitchenItemsUpdated = kitchenItems.length;
+        } else {
+          const noteBody = await noteRes.json().catch(() => ({})) as {
+            errors?: { detail: string }[];
+          };
+          console.warn(
+            `[lane-open] neonId=${neonId} fulfillment/notes update failed:`,
+            noteBody.errors?.[0]?.detail ?? noteRes.status,
           );
-          if (noteRes.ok) {
-            kitchenItemsUpdated = kitchenItems.length;
-          } else {
-            const noteBody = await noteRes.json().catch(() => ({})) as {
-              errors?: { detail: string }[];
-            };
-            console.warn(
-              `[lane-open] neonId=${neonId} note update failed:`,
-              noteBody.errors?.[0]?.detail ?? noteRes.status,
-            );
-          }
-        } catch (err) {
-          console.warn(`[lane-open] neonId=${neonId} note update threw:`, err);
         }
+      } catch (err) {
+        console.warn(`[lane-open] neonId=${neonId} fulfillment/notes update threw:`, err);
       }
 
       // ── 3. Apply gift card to day-of order ────────────────────
