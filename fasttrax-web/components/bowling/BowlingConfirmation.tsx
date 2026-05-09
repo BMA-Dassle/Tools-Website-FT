@@ -328,10 +328,10 @@ function CheckInModal({
               className="w-full py-3.5 rounded-full font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
               style={{ backgroundColor: CORAL, fontSize: "15px", letterSpacing: "1.5px" }}
             >
-              Open Lane
+              Set Arrived
             </button>
             <p className="text-white/40 text-xs">
-              This signals the system that you&apos;re here.
+              Notifies staff that you&apos;re here and ready to bowl.
             </p>
           </>
         )}
