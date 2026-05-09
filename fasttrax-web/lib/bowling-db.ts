@@ -250,6 +250,12 @@ export async function ensureBowlingSchema(): Promise<void> {
 
   await q`ALTER TABLE bowling_reservation_players ADD COLUMN IF NOT EXISTS lane_number INTEGER`;
 
+  // ── Short code for confirmation links (idempotent) ────────────────
+  // Stable 6-char base64url code stored at booking time. Reused for
+  // admin board links, email notifications, and SMS — avoids exposing
+  // the Neon ID in customer-facing URLs.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS short_code TEXT`;
+
   // ── Lane-open tracking (idempotent) ──────────────────────────────
   // Set when the bowling-lane-poll / bowling-events-consumer cron processes
   // the day-of Square order (kitchen notes + gift card payment) on lane open.
@@ -458,6 +464,8 @@ export interface BowlingReservation {
   squareRefundId?: string;
   /** Actual amount refunded to the customer (cents). 0 if free booking. */
   refundCents: number;
+  /** Stable 6-char short code for confirmation links (stored at booking time). */
+  shortCode?: string;
   /** ISO timestamp set when the lane-open processor runs (kitchen notes + gift card payment). */
   dayofOrderSentAt?: string;
   /** Comma-separated lane numbers assigned when lanes opened, e.g. "12" or "12,13". */
@@ -625,6 +633,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
       : undefined,
     squareRefundId: (row.square_refund_id as string) ?? undefined,
     refundCents: (row.refund_cents as number) ?? 0,
+    shortCode: (row.short_code as string) ?? undefined,
     dayofOrderSentAt: row.dayof_order_sent_at
       ? (row.dayof_order_sent_at as Date).toISOString()
       : undefined,
@@ -876,6 +885,24 @@ export async function updateBowlingReservationSquareIds(
       square_dayof_order_id     = COALESCE(${ids.squareDayofOrderId ?? null}, square_dayof_order_id),
       square_gift_card_id       = COALESCE(${ids.squareGiftCardId ?? null}, square_gift_card_id),
       square_gift_card_gan      = COALESCE(${ids.squareGiftCardGan ?? null}, square_gift_card_gan)
+    WHERE id = ${id}
+  `;
+}
+
+/**
+ * Store a short code on a reservation.
+ * Called once at booking time — the code lives in Redis (for redirect resolution)
+ * AND in Neon (for stable reuse across admin board, emails, SMS).
+ */
+export async function updateBowlingReservationShortCode(
+  id: number,
+  shortCode: string,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET short_code = ${shortCode}
     WHERE id = ${id}
   `;
 }

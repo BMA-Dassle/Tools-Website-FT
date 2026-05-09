@@ -109,6 +109,271 @@ const NAV_BTN: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// ── Resend Modal ──────────────────────────────────────────────────────────
+
+function ResendModal({
+  reservation,
+  token,
+  onClose,
+  onSent,
+}: {
+  reservation: Reservation;
+  token: string;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const [channel, setChannel] = useState<"both" | "email" | "sms">("both");
+  const [contactMode, setContactMode] = useState<"same" | "different">("same");
+  const [overridePhone, setOverridePhone] = useState("");
+  const [overrideEmail, setOverrideEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const hasEmail = !!reservation.guestEmail;
+  const hasPhone = !!reservation.guestPhone;
+
+  async function handleSend() {
+    setSending(true);
+    setResult(null);
+    try {
+      const body: Record<string, unknown> = {
+        neonId: reservation.id,
+        channel,
+      };
+      if (contactMode === "different") {
+        if (overridePhone.trim()) body.overridePhone = overridePhone.trim();
+        if (overrideEmail.trim()) body.overrideEmail = overrideEmail.trim();
+      }
+
+      const res = await fetch(
+        `/api/admin/bowling/reservations/resend?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setResult({ ok: false, message: data.error || `HTTP ${res.status}` });
+      } else {
+        const parts: string[] = [];
+        if (data.email) parts.push("Email sent");
+        if (data.sms) parts.push("SMS sent");
+        if (data.sms === false && (channel === "sms" || channel === "both")) parts.push("SMS failed");
+        setResult({ ok: true, message: parts.join(", ") || "Sent" });
+        onSent();
+      }
+    } catch (err) {
+      setResult({ ok: false, message: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+        backgroundColor: "rgba(0,0,0,0.75)",
+        backdropFilter: "blur(4px)",
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          backgroundColor: "#0e1d3a",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 16,
+          padding: "1.5rem",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#fff", margin: 0 }}>
+            Resend Confirmation
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: "1.2rem" }}
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Guest info */}
+        <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.5)", marginBottom: "1rem", lineHeight: 1.6 }}>
+          <div><strong style={{ color: "#fff" }}>{reservation.guestName || "Guest"}</strong></div>
+          {hasEmail && <div>{reservation.guestEmail}</div>}
+          {hasPhone && <div>{reservation.guestPhone}</div>}
+          <div style={{ marginTop: 4 }}>
+            {reservation.productKind === "kbf" ? "KBF" : "Open"} &middot; {fmtTime(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          </div>
+        </div>
+
+        {/* Channel toggle */}
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+            Send via
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {(["both", "email", "sms"] as const).map((ch) => (
+              <button
+                key={ch}
+                type="button"
+                onClick={() => setChannel(ch)}
+                style={{
+                  flex: 1,
+                  padding: "0.4rem",
+                  borderRadius: 8,
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  border: `1px solid ${channel === ch ? "#60a5fa" : "rgba(255,255,255,0.15)"}`,
+                  backgroundColor: channel === ch ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.05)",
+                  color: channel === ch ? "#60a5fa" : "rgba(255,255,255,0.5)",
+                }}
+              >
+                {ch === "both" ? "Both" : ch === "email" ? "Email" : "SMS"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Contact mode */}
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+            Send to
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => setContactMode("same")}
+              style={{
+                flex: 1,
+                padding: "0.4rem",
+                borderRadius: 8,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: `1px solid ${contactMode === "same" ? "#22c55e" : "rgba(255,255,255,0.15)"}`,
+                backgroundColor: contactMode === "same" ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.05)",
+                color: contactMode === "same" ? "#22c55e" : "rgba(255,255,255,0.5)",
+              }}
+            >
+              Same contact
+            </button>
+            <button
+              type="button"
+              onClick={() => setContactMode("different")}
+              style={{
+                flex: 1,
+                padding: "0.4rem",
+                borderRadius: 8,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: `1px solid ${contactMode === "different" ? "#f59e0b" : "rgba(255,255,255,0.15)"}`,
+                backgroundColor: contactMode === "different" ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.05)",
+                color: contactMode === "different" ? "#f59e0b" : "rgba(255,255,255,0.5)",
+              }}
+            >
+              Different
+            </button>
+          </div>
+
+          {contactMode === "different" && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+              {(channel === "email" || channel === "both") && (
+                <input
+                  type="email"
+                  placeholder="Override email"
+                  value={overrideEmail}
+                  onChange={(e) => setOverrideEmail(e.target.value)}
+                  style={{ ...INPUT_STYLE, fontSize: "0.8rem" }}
+                />
+              )}
+              {(channel === "sms" || channel === "both") && (
+                <input
+                  type="tel"
+                  placeholder="Override phone"
+                  value={overridePhone}
+                  onChange={(e) => setOverridePhone(e.target.value)}
+                  style={{ ...INPUT_STYLE, fontSize: "0.8rem" }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Result message */}
+        {result && (
+          <div
+            style={{
+              padding: "0.5rem 0.75rem",
+              borderRadius: 8,
+              fontSize: "0.8rem",
+              fontWeight: 600,
+              marginBottom: "1rem",
+              backgroundColor: result.ok ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+              color: result.ok ? "#22c55e" : "#ef4444",
+              border: `1px solid ${result.ok ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+            }}
+          >
+            {result.message}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              ...NAV_BTN,
+              fontSize: "0.8rem",
+            }}
+          >
+            {result?.ok ? "Done" : "Cancel"}
+          </button>
+          {!result?.ok && (
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={sending}
+              style={{
+                padding: "0.5rem 1.25rem",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                cursor: sending ? "not-allowed" : "pointer",
+                border: "none",
+                backgroundColor: sending ? "rgba(96,165,250,0.3)" : "#3b82f6",
+                color: "#fff",
+                opacity: sending ? 0.6 : 1,
+              }}
+            >
+              {sending ? "Sending..." : "Send"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────
+
 export default function ReservationsClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayET);
   const [center, setCenter] = useState<string>("");
@@ -118,6 +383,8 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,7 +442,6 @@ export default function ReservationsClient({ token }: { token: string }) {
 
   // Stats
   const active = filtered.filter((r) => r.status !== "cancelled");
-  const cancelled = filtered.filter((r) => r.status === "cancelled");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
   const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
@@ -191,6 +457,11 @@ export default function ReservationsClient({ token }: { token: string }) {
     });
   }
 
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }
+
   return (
     <div
       style={{
@@ -201,6 +472,37 @@ export default function ReservationsClient({ token }: { token: string }) {
         padding: "1rem",
       }}
     >
+      {/* Toast */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 16,
+            right: 16,
+            zIndex: 60,
+            padding: "0.75rem 1.25rem",
+            borderRadius: 10,
+            backgroundColor: "rgba(34,197,94,0.9)",
+            color: "#fff",
+            fontWeight: 600,
+            fontSize: "0.85rem",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* Resend modal */}
+      {resendTarget && (
+        <ResendModal
+          reservation={resendTarget}
+          token={token}
+          onClose={() => setResendTarget(null)}
+          onSent={() => showToast(`Confirmation resent to ${resendTarget.guestName || "guest"}`)}
+        />
+      )}
+
       {/* Header */}
       <div style={{ maxWidth: 1200, margin: "0 auto", marginBottom: "1.5rem" }}>
         <h1
@@ -367,10 +669,10 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Center", "Type", "Players", "Status", "Lane", "Deposit", "Total", "QAMF ID", "Link", "Notes"].map(
+                  {["Time", "Guest", "Center", "Type", "Players", "Status", "Lane", "Deposit", "Total", "QAMF ID", "Link", "Notes", ""].map(
                     (h) => (
                       <th
-                        key={h}
+                        key={h || "actions"}
                         style={{
                           padding: "0.6rem 0.5rem",
                           color: "rgba(255,255,255,0.4)",
@@ -559,7 +861,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.7rem" }}>—</span>
+                          <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.7rem" }}>{"—"}</span>
                         )}
                       </td>
 
@@ -577,6 +879,30 @@ export default function ReservationsClient({ token }: { token: string }) {
                         title={r.notes ?? ""}
                       >
                         {r.notes ?? ""}
+                      </td>
+
+                      {/* Resend action */}
+                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
+                        {!isCancelled && (r.guestEmail || r.guestPhone) && (
+                          <button
+                            type="button"
+                            onClick={() => setResendTarget(r)}
+                            style={{
+                              background: "none",
+                              border: "1px solid rgba(96,165,250,0.3)",
+                              borderRadius: 6,
+                              color: "#60a5fa",
+                              cursor: "pointer",
+                              fontSize: "0.65rem",
+                              fontWeight: 600,
+                              padding: "3px 8px",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.03em",
+                            }}
+                          >
+                            Resend
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

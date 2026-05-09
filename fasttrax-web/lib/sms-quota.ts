@@ -59,6 +59,7 @@ export interface QueuedSend {
     | "admin-resend"
     | "video-resend"
     | "pov-resend"
+    | "bowling-confirm"
     | "other";
   /** ISO timestamp of original (failed) attempt */
   queuedAt: string;

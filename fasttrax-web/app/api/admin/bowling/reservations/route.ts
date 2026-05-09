@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listBowlingReservations } from "@/lib/bowling-db";
+import {
+  listBowlingReservations,
+  updateBowlingReservationShortCode,
+} from "@/lib/bowling-db";
 import { shortenUrl } from "@/lib/short-url";
 
 /**
  * GET /api/admin/bowling/reservations?token=...&date=YYYY-MM-DD&center=...
  *
  * Returns all bowling reservations for the given date.
- * Each reservation includes a `shortCode` for the confirmation page
- * (generated on demand, no neonId exposed in URLs).
+ * Each reservation includes a `shortCode` for the confirmation page,
+ * read from the stored short_code column. Legacy rows that pre-date
+ * the column get a code generated + backfilled on first access.
  *
  * Auth: ADMIN_CAMERA_TOKEN query param.
  */
@@ -36,20 +40,24 @@ export async function GET(req: NextRequest) {
       centerCode: center,
     });
 
-    // Generate short codes for confirmation links (parallel)
+    // Backfill short codes for legacy rows that don't have one stored yet
     const withCodes = await Promise.all(
       reservations.map(async (r) => {
+        if (r.shortCode) return r; // already stored — use as-is
+
+        // Legacy row — generate + persist so future reads don't regenerate
         const confirmBase =
           r.productKind === "kbf"
             ? "/hp/book/kids-bowl-free/confirmation"
             : "/hp/book/bowling/confirmation";
-        let shortCode: string | undefined;
         try {
-          shortCode = await shortenUrl(`${confirmBase}?neonId=${r.id}`);
+          const code = await shortenUrl(`${confirmBase}?neonId=${r.id}`);
+          // Fire-and-forget persist to Neon
+          updateBowlingReservationShortCode(r.id, code).catch(() => {});
+          return { ...r, shortCode: code };
         } catch {
-          // Non-fatal — client falls back to no link
+          return r; // non-fatal
         }
-        return { ...r, shortCode };
       }),
     );
 

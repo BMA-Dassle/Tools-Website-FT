@@ -729,6 +729,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
+  const [smsOptIn, setSmsOptIn] = useState(true);
 
   // ── Payment ──────────────────────────────────────────────────────
 
@@ -1689,6 +1690,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         // doesn't fire a DELETE against the now-confirmed QAMF reservation.
         if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
         holdRef.current = null;
+
+        // Fire confirmation email + SMS (non-blocking — don't delay redirect)
+        if (data.neonId) {
+          fetch("/api/notifications/bowling-confirmation", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ neonId: data.neonId, smsOptIn }),
+          }).catch(() => {}); // fire-and-forget
+        }
+
         // Navigate via short URL if the reserve route returned one;
         // fall back to a plain neonId param (confirmation page fetches everything else).
         const dest = data.shortCode
@@ -1724,6 +1735,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       quoteDayofOrderId,
       quoteTotalCents,
       quoteDepositCents,
+      smsOptIn,
     ],
   );
 
@@ -3630,6 +3642,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 onChange={(e) => setGuestPhone(e.target.value)}
                 className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3.5 text-white font-body text-sm placeholder:text-white/25 focus:outline-none focus:border-[#fd5b56]/50"
               />
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={smsOptIn}
+                  onChange={(e) => setSmsOptIn(e.target.checked)}
+                  className="w-4 h-4 rounded border-white/20 bg-white/5 focus:ring-[#fd5b56]/50 focus:ring-offset-0 cursor-pointer accent-[#fd5b56]"
+                />
+                <span className="text-sm text-white/50 group-hover:text-white/70 transition-colors">
+                  Send me a text confirmation
+                </span>
+              </label>
               <ClickwrapCheckbox
                 checked={clickwrapAccepted}
                 onChange={setClickwrapAccepted}

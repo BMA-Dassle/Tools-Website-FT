@@ -11,6 +11,7 @@ import {
   getBowlingSquareProduct,
   insertBowlingReservation,
   insertReservationPlayers,
+  updateBowlingReservationShortCode,
   type BowlingSquareProduct,
   type ReservationLine,
 } from "@/lib/bowling-db";
@@ -670,6 +671,12 @@ export async function POST(req: NextRequest) {
   let shortCode: string | undefined;
   try {
     shortCode = await shortenUrl(`${confirmBase}?neonId=${neonId}`);
+    // Persist to Neon for stable reuse (admin board, emails, SMS)
+    if (shortCode && neonId) {
+      updateBowlingReservationShortCode(neonId, shortCode).catch((err) =>
+        console.error("[bowling/v2/reserve] failed to store short_code (non-fatal):", err),
+      );
+    }
   } catch (err) {
     // Non-fatal — wizard falls back to navigating with neonId param directly
     console.error("[bowling/v2/reserve] shortenUrl failed (non-fatal):", err);
