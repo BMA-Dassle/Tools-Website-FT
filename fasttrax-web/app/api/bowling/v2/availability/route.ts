@@ -189,17 +189,45 @@ export async function GET(req: NextRequest) {
 
   // ── Build probe times ────────────────────────────────────────────
   const hasSelectedTime = hourStr !== null && minuteStr !== null;
+  const { open: openHour, close: closeHour } = centerHoursForDate(centerId, startDate);
   let probeTimes: string[];
 
   if (hasSelectedTime) {
-    // Targeted mode: probe only at the selected time
+    // Targeted mode: probe ±2 hours around the selected time so the tier
+    // step can show "Next available at …" when the exact time is sold out.
+    // Never probe before the current time if startDate is today.
     const hour = parseInt(hourStr!, 10);
     const minute = parseInt(minuteStr!, 10);
-    probeTimes = [buildProbeTime(startDate, hour, minute, tzOffset)];
+
+    // Determine earliest allowed probe (in total minutes from midnight).
+    // For today: current ET time + 15 min lead. For future dates: open hour.
+    const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    let earliestMin = openHour * 60;
+    if (startDate === todayET) {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "numeric", hourCycle: "h23",
+        timeZone: "America/New_York",
+      }).formatToParts(new Date());
+      const nowH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+      const nowM = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      let nowTotalMin = nowH * 60 + nowM;
+      // Post-midnight (0–2 AM) → 24*60+ so it compares correctly with 24+ hour chips
+      if (nowH < 6) nowTotalMin += 24 * 60;
+      earliestMin = Math.max(earliestMin, nowTotalMin + 15);
+    }
+
+    const windowStart = Math.max(hour * 60 + minute - 120, earliestMin); // -2h, clamped
+    const windowEnd = Math.min(hour * 60 + minute + 120, closeHour * 60);  // +2h, clamped
+
+    probeTimes = [];
+    for (let t = windowStart; t <= windowEnd; t += 15) {
+      const probeH = Math.floor(t / 60);
+      const probeM = t % 60;
+      probeTimes.push(buildProbeTime(startDate, probeH, probeM, tzOffset));
+    }
   } else {
     // Full-day mode: probe every 15 min from open to close
-    const { open, close } = centerHoursForDate(centerId, startDate);
-    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, open, close);
+    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, openHour, closeHour);
   }
 
   // ── Probe QAMF ──────────────────────────────────────────────────
@@ -233,7 +261,6 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => a.BookedAt.localeCompare(b.BookedAt));
 
     // Filter slots that would run past closing time
-    const { close: closeHour } = centerHoursForDate(centerId, startDate);
     availabilities = availabilities.filter((a) => {
       const mins = durationMinOver
         ?? a.WebOffer?.Options?.Time?.[0]?.Minutes
