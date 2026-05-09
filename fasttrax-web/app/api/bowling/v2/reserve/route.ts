@@ -4,6 +4,7 @@ import {
   createReservation,
   setReservationStatus,
   setReservationCustomer,
+  patchReservation,
 } from "@/lib/qamf-bowling";
 import {
   getBowlingSquareProduct,
@@ -287,6 +288,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (holdCustomerAttached) {
+      // Rename "Hold (Np)" → "Guest Name (Np)" so staff see the correct name
+      // in Conqueror. Fire in parallel with the status confirm — non-fatal.
+      void patchReservation(centerId, qamfReservationId, {
+        Title: `${guest.name} (${players.length}p)`,
+      }).catch((err) =>
+        console.warn("[bowling/v2/reserve] title rename failed (non-fatal):", err),
+      );
+
       // Customer is attached; PATCH /status should take effect.
       qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
       if (!qamfConfirmed) {
