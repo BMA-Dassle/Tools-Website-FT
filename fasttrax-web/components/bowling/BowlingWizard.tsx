@@ -225,6 +225,7 @@ type Step =
   | "slots"        // Both — calendar + hour chips
   | "tier"         // Both — Regular vs VIP picker
   | "offer"        // Both — video cards + exact time chips
+  | "lanes"        // Per-lane experiences (pizza bowl) — lane count picker
   | "shoes"        // Both
   | "attractions"  // Both (stub)
   | "food"         // Both (stub)
@@ -544,6 +545,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   const [selectedTier, setSelectedTier] = useState<"regular" | "vip" | null>(null);
 
+  // Lane count for per-lane experiences (pizza bowl, etc.)
+  const [laneCount, setLaneCount] = useState(1);
+
   // Confirmation popup when user clicks a tier card whose time has no slots
   const [tierTimeConfirm, setTierTimeConfirm] = useState<{
     tierId: "regular" | "vip";
@@ -631,6 +635,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Whether the selected experience is a pizza-bowl package (needs modifier selection)
   const isPizzaBowl = (selectedExperience?.slug ?? "").includes("pizza-bowl");
 
+  // Whether the selected experience is priced per lane (not per person)
+  const selectedIsPerLane = selectedExperience
+    ? (getExperienceDisplay(selectedExperience.slug, selectedExperience.isVip).perLane ?? false)
+    : false;
+
+  // Multiplier applied to per-lane item quantities / totals
+  const laneMultiplier = selectedIsPerLane ? laneCount : 1;
+
   // VIP counterpart experience for the upgrade modal
   const vipUpgradeExperience =
     selectedTier === "regular" && selectedExperience && !selectedExperience.isVip
@@ -660,12 +672,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   }, 0);
 
   // Base (experience) totals pre-tax
+  // For per-lane experiences, multiply by laneMultiplier (number of lanes booked).
   const basePreTaxTotal = baseItems.reduce(
-    (s, item) => s + item.priceCents * item.quantity,
+    (s, item) => s + item.priceCents * item.quantity * laneMultiplier,
     0,
   );
   const basePreTaxDeposit = baseItems.reduce(
-    (s, item) => s + Math.round(item.priceCents * item.quantity * (item.depositPct / 100)),
+    (s, item) => s + Math.round(item.priceCents * item.quantity * laneMultiplier * (item.depositPct / 100)),
     0,
   );
 
@@ -711,10 +724,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   })();
 
   // Line items sent to /api/bowling/v2/reserve
+  // For per-lane experiences, multiply each base item's quantity by laneMultiplier.
   const lineItems = [
     ...baseItems.map((item) => ({
       squareProductId: item.squareProductId,
-      quantity: item.quantity,
+      quantity: item.quantity * laneMultiplier,
       // Attach modifier selections to the pizza-bowl base item in Square
       ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
       // Human-readable note: always set for pizza-bowl so staff see selections
@@ -1005,7 +1019,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     const sqLineItems = [
       ...baseItems.map((item) => ({
         name: item.label,
-        quantity: String(item.quantity),
+        quantity: String(item.quantity * laneMultiplier),
         catalogObjectId: item.squareCatalogObjectId,
         // Include modifier selections so the quote price includes any priced modifiers
         ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
@@ -1311,9 +1325,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   // Used by VIP upgrade modal — creates hold AND advances to next step.
   const createHoldAndAdvance = useCallback(
-    async (slot: AvailabilitySlot, incShoes: boolean) => {
+    async (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
       await createHold(slot);
-      setStep(incShoes ? "review" : "shoes");
+      setLaneCount(1);
+      if (isPerLaneExp) {
+        setStep("lanes");
+      } else {
+        setStep(incShoes ? "review" : "shoes");
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [createHold],
@@ -1477,6 +1496,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     if (step === "slots")      return "When Do You Want to Bowl?";
     if (step === "tier")       return "Choose Your Experience";
     if (step === "offer")      return "Choose a Package";
+    if (step === "lanes")      return "How Many Lanes?";
     if (step === "shoes")      return "Add Shoe Rentals";
     if (step === "attractions")return "Level Up Your Visit";
     if (step === "food")       return "Add Food & Drinks";
@@ -2797,13 +2817,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       }
                       // Hold was already created when user tapped the time chip.
                       // Just advance to the next step.
-                      // Pizza-bowl includes shoes but needs modifier selection → go to food step.
-      // Other shoe-included experiences skip straight to review.
-      setStep(
-        selectedIncludesShoes
-          ? isPizzaBowl ? "food" : "review"
-          : "shoes",
-      );
+                      setLaneCount(1); // reset lane count for fresh selection
+                      if (selectedIsPerLane) {
+                        // Per-lane experiences: ask how many lanes before food/shoes
+                        setStep("lanes");
+                      } else if (selectedIncludesShoes) {
+                        setStep(isPizzaBowl ? "food" : "review");
+                      } else {
+                        setStep("shoes");
+                      }
                     }}
                     disabled={!selectedSlot || holdBusy}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
@@ -2888,7 +2910,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         onClick={() => {
                           setShowVipUpgrade(false);
                           // Create hold on the regular slot and advance
-                          void createHoldAndAdvance(selectedSlot, selectedIncludesShoes);
+                          void createHoldAndAdvance(selectedSlot, selectedIncludesShoes, selectedIsPerLane);
                         }}
                         className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors disabled:opacity-50"
                       >
@@ -2903,7 +2925,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           setSelectedSlot(vipUpgradeSlot);
                           setShowVipUpgrade(false);
                           const vipIncludesShoes = vipDisplay.includesShoes ?? false;
-                          void createHoldAndAdvance(vipUpgradeSlot, vipIncludesShoes);
+                          void createHoldAndAdvance(vipUpgradeSlot, vipIncludesShoes, vipIsPerLane);
                         }}
                         className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02] disabled:opacity-50"
                         style={{ backgroundColor: GOLD, boxShadow: `0 0 18px ${GOLD}40` }}
@@ -3006,6 +3028,74 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           )}
 
           {/* ═══════════════════════════════════════════════════════
+              STEP: Lanes
+              Per-lane experiences (pizza bowl) — how many lanes?
+          ═══════════════════════════════════════════════════════ */}
+          {step === "lanes" && selectedExperience && (
+            <div className="space-y-6">
+              <p className="font-body text-white/55 text-sm text-center">
+                {selectedExperience.label} is priced per lane — select how many lanes you need.
+              </p>
+              <div className="flex items-center justify-center gap-6">
+                <button
+                  type="button"
+                  onClick={() => setLaneCount((n) => Math.max(1, n - 1))}
+                  className="w-14 h-14 rounded-full flex items-center justify-center font-heading font-black text-2xl transition-all hover:scale-105"
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.07)",
+                    border: "1.78px solid rgba(255,255,255,0.18)",
+                    color: "rgba(255,255,255,0.75)",
+                  }}
+                >
+                  −
+                </button>
+                <div className="text-center">
+                  <div
+                    className="font-heading font-black text-white"
+                    style={{ fontSize: "72px", lineHeight: 1, textShadow: `0 0 40px ${GOLD}40` }}
+                  >
+                    {laneCount}
+                  </div>
+                  <div className="font-body text-white/40 text-xs uppercase tracking-[3px] mt-1">
+                    {laneCount === 1 ? "lane" : "lanes"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLaneCount((n) => Math.min(10, n + 1))}
+                  className="w-14 h-14 rounded-full flex items-center justify-center font-heading font-black text-2xl transition-all hover:scale-105"
+                  style={{
+                    backgroundColor: laneCount < 10 ? `${GOLD}22` : "rgba(255,255,255,0.07)",
+                    border: `1.78px solid ${laneCount < 10 ? `${GOLD}60` : "rgba(255,255,255,0.18)"}`,
+                    color: laneCount < 10 ? GOLD : "rgba(255,255,255,0.75)",
+                    boxShadow: laneCount < 10 ? `0 0 14px ${GOLD}30` : undefined,
+                  }}
+                >
+                  +
+                </button>
+              </div>
+              {/* Price preview */}
+              <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <span className="font-body text-white/50 text-sm">
+                  {laneCount} {laneCount === 1 ? "lane" : "lanes"} × {centsToDollars(basePreTaxTotal / laneCount)}
+                </span>
+                <span className="font-heading font-bold text-white text-lg" style={{ color: GOLD }}>
+                  {centsToDollars(basePreTaxTotal)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep(isPizzaBowl ? "food" : "review")}
+                className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.02]"
+                style={{ backgroundColor: GOLD, boxShadow: `0 0 18px ${GOLD}40` }}
+              >
+                Continue with {laneCount} {laneCount === 1 ? "Lane" : "Lanes"}
+              </button>
+              <button type="button" onClick={() => setStep("offer")} className="w-full font-body text-white/35 text-sm">← Back</button>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════
               STEP: Food / Pizza Bowl Modifiers
               For pizza-bowl experiences: show modifier selectors so
               the customer can choose pizza topping + soda flavor.
@@ -3101,7 +3191,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setStep(selectedIncludesShoes ? "offer" : "shoes")}
+                  onClick={() => setStep(selectedIsPerLane ? "lanes" : selectedIncludesShoes ? "offer" : "shoes")}
                   className="flex-1 rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
                   Back
@@ -3168,12 +3258,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 ) : (
                   baseItems.map((item, idx) => (
                     <div key={idx} className="flex justify-between text-sm">
-                      <span className="font-body text-white/55">{item.label}</span>
+                      <span className="font-body text-white/55">
+                        {item.label}
+                        {selectedIsPerLane && laneCount > 1 && (
+                          <span className="text-white/35"> × {laneCount} lanes</span>
+                        )}
+                      </span>
                       {quoteLoading ? (
                         <span className="font-body text-white/35 text-xs italic">calculating…</span>
                       ) : (
                         <span className="font-body font-bold" style={{ color: CORAL }}>
-                          {centsToDollars(item.priceCents * item.quantity)}
+                          {centsToDollars(item.priceCents * item.quantity * laneMultiplier)}
                         </span>
                       )}
                     </div>
