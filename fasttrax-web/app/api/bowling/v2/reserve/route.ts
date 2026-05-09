@@ -141,6 +141,11 @@ interface ReserveBody {
    */
   depositCents?: number;
   /**
+   * Extra pizza topping surcharge (cents). 1 topping included per lane,
+   * $1 each additional. Added as an ad-hoc line item on the Square order.
+   */
+  extraToppingsCents?: number;
+  /**
    * Booking flow kind — drives product_kind stored on the reservation row.
    * 'kbf' for Kids Bowl Free; 'open' for open / Fun 4 All bowling; 'hourly' for hourly rental.
    * Defaults to 'open' if omitted (backward-compatible).
@@ -501,6 +506,14 @@ export async function POST(req: NextRequest) {
         ...(ri.modifiers?.length ? { modifiers: ri.modifiers } : {}),
         ...(ri.note ? { note: ri.note } : {}),
       })),
+      // Extra pizza topping surcharge ($1 each beyond the 1 included)
+      ...(body.extraToppingsCents && body.extraToppingsCents > 0
+        ? [{
+            name: "Extra Pizza Topping",
+            quantity: String(body.extraToppingsCents / 100),
+            basePriceMoney: { amount: 100, currency: "USD" as const },
+          }]
+        : []),
     ];
 
     const origin = req.nextUrl.origin;

@@ -45,6 +45,10 @@ const BLOB  = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const PIZZA_BOWL_PIZZA_CATALOG_ID = "2IKZB4O2HQBXWMTSUQ2SEKJY";
 const PIZZA_BOWL_SODA_CATALOG_ID  = "SJUBJLB4QGHIHCW5AKTTMLH7";
 
+// Pizza bowl: 1 topping included per lane, $1 each additional
+const PIZZA_BOWL_FREE_TOPPINGS = 1;
+const EXTRA_TOPPING_CENTS = 100;
+
 // ── Experience display map ─────────────────────────────────────────────────
 // Visual presentation data keyed by experience slug.
 // The DB drives which experiences exist and what QAMF offer IDs they map to;
@@ -640,6 +644,21 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Since the $0 Pizza Bowl Pizza / Soda Pitcher items don't have those groups
   // attached, we use notes instead — Square stores them as visible line-item text.
 
+  /** Count selected toppings across all topping groups (excludes soda/drink groups). */
+  function countToppings(sel: Record<string, string[]>, groups: ModifierGroup[]): number {
+    let count = 0;
+    for (const group of groups) {
+      if (/soda|drink|pitcher/i.test(group.name)) continue;
+      count += (sel[group.id] ?? []).length;
+    }
+    return count;
+  }
+
+  /** Number of extra (paid) toppings for one lane's selections. */
+  function extraToppingCount(sel: Record<string, string[]>, groups: ModifierGroup[]): number {
+    return Math.max(0, countToppings(sel, groups) - PIZZA_BOWL_FREE_TOPPINGS);
+  }
+
   /** Returns the pizza-topping selection as a note string (e.g. "Pepperoni, Cheese"). */
   function buildPizzaNote(sel: Record<string, string[]>, groups: ModifierGroup[]): string | undefined {
     const names: string[] = [];
@@ -736,6 +755,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Whether the selected experience is a pizza-bowl package (needs modifier selection)
   const isPizzaBowl = (selectedExperience?.slug ?? "").includes("pizza-bowl");
 
+  // Extra-topping surcharge across all lanes (1 free, $1 each additional per lane)
+  const extraToppingsCents = isPizzaBowl && pizzaModifierGroups.length > 0
+    ? pizzaModifierSelections.reduce(
+        (sum, sel) => sum + extraToppingCount(sel, pizzaModifierGroups) * EXTRA_TOPPING_CENTS,
+        0,
+      )
+    : 0;
+
   // Whether the selected experience is priced per lane (not per person)
   const selectedIsPerLane = selectedExperience
     ? ((getExperienceDisplay(selectedExperience.slug, selectedExperience.isVip).perLane ?? false) ||
@@ -787,12 +814,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     0,
   );
 
-  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal;
-  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit;
+  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents;
+  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents;
 
-  // Use Square's tax-inclusive quote once loaded
-  const depositCents = quoteDepositCents > 0 ? quoteDepositCents : preTaxDepositCents;
-  const displayTotal = quoteTotalCents   > 0 ? quoteTotalCents   : preTaxTotalCents;
+  // Use Square's tax-inclusive quote once loaded.
+  // Extra toppings are added to the quote (Square doesn't know about them).
+  const depositCents = (quoteDepositCents > 0 ? quoteDepositCents + extraToppingsCents : preTaxDepositCents);
+  const displayTotal = (quoteTotalCents   > 0 ? quoteTotalCents   + extraToppingsCents : preTaxTotalCents);
 
   // Pizza bowl modifier selections:
   //   - selectedModifiers: lane-0 selections (used for Square quote approximation)
@@ -1569,6 +1597,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             lineItems,
             // $0 pizza/soda items — must be separate Square order line items
             ...(pizzaBowlRawItems.length > 0 ? { rawItems: pizzaBowlRawItems } : {}),
+            // Extra topping surcharge (1 free per lane, $1 each extra)
+            ...(extraToppingsCents > 0 ? { extraToppingsCents } : {}),
             squareToken,
             locationId: center.squareCenterCode,
             notes,
@@ -3230,12 +3260,24 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           )}
                           {pizzaModifierGroups.map((group) => {
                             const currentIds = pizzaModifierSelections[laneIdx]?.[group.id] ?? [];
+                            const isToppingGroup = !/soda|drink|pitcher/i.test(group.name);
+                            const laneSel = pizzaModifierSelections[laneIdx] ?? {};
+                            const laneToppingCount = isToppingGroup ? countToppings(laneSel, pizzaModifierGroups) : 0;
                             return (
                               <div key={group.id}>
-                                <p className="font-body text-white/70 text-sm mb-2">{group.name}</p>
+                                <p className="font-body text-white/70 text-sm mb-2">
+                                  {group.name}
+                                  {isToppingGroup && (
+                                    <span className="text-white/40 text-xs ml-2">
+                                      ({PIZZA_BOWL_FREE_TOPPINGS} included · ${(EXTRA_TOPPING_CENTS / 100).toFixed(0)} each extra)
+                                    </span>
+                                  )}
+                                </p>
                                 <div className="flex flex-wrap gap-2">
                                   {group.options.map((option) => {
                                     const selected = currentIds.includes(option.id);
+                                    // For topping groups: would selecting this option be an extra (paid) topping?
+                                    const wouldBeExtra = isToppingGroup && !selected && laneToppingCount >= PIZZA_BOWL_FREE_TOPPINGS;
                                     return (
                                       <button
                                         key={option.id}
@@ -3243,16 +3285,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                         onClick={() =>
                                           setPizzaModifierSelections((prev) => {
                                             const next = [...prev];
-                                            const laneSel = { ...(next[laneIdx] ?? {}) };
-                                            const cur = laneSel[group.id] ?? [];
+                                            const ls = { ...(next[laneIdx] ?? {}) };
+                                            const cur = ls[group.id] ?? [];
                                             if (group.selectionType === "SINGLE") {
-                                              laneSel[group.id] = selected ? [] : [option.id];
+                                              ls[group.id] = selected ? [] : [option.id];
                                             } else {
-                                              laneSel[group.id] = selected
+                                              ls[group.id] = selected
                                                 ? cur.filter((id) => id !== option.id)
                                                 : [...cur, option.id];
                                             }
-                                            next[laneIdx] = laneSel;
+                                            next[laneIdx] = ls;
                                             return next;
                                           })
                                         }
@@ -3264,6 +3306,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                         }
                                       >
                                         {option.name}
+                                        {isToppingGroup && wouldBeExtra && !selected && (
+                                          <span className="ml-1 text-xs opacity-60">+$1</span>
+                                        )}
                                       </button>
                                     );
                                   })}
@@ -3407,6 +3452,19 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         {centsToDollars(shoePreTaxTotal)}
                       </span>
                     )}
+                  </div>
+                )}
+
+                {/* Extra toppings line */}
+                {extraToppingsCents > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="font-body text-white/55">
+                      Extra toppings
+                      <span className="text-white/35"> × {extraToppingsCents / EXTRA_TOPPING_CENTS}</span>
+                    </span>
+                    <span className="font-body font-bold" style={{ color: CORAL }}>
+                      {centsToDollars(extraToppingsCents)}
+                    </span>
                   </div>
                 )}
 
