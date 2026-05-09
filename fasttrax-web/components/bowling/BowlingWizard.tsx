@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import BowlingPaymentStep from "@/components/bowling/BowlingPaymentStep";
@@ -107,6 +108,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     accent: CORAL,
     description: "Reserve a lane by the hour — Monday through Thursday.",
     features: ["Standard HeadPinz lanes", "Up to 20 bowlers per lane", "Flexible hourly rate"],
+    perLane: true,
   },
   "vip-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
@@ -119,12 +121,14 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Chips & salsa included",
       "Up to 20 bowlers per lane",
     ],
+    perLane: true,
   },
   "regular-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description: "Reserve a lane by the hour — Friday through Sunday.",
     features: ["Standard HeadPinz lanes", "Up to 20 bowlers per lane", "Flexible hourly rate"],
+    perLane: true,
   },
   "vip-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
@@ -137,6 +141,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Chips & salsa included",
       "Up to 20 bowlers per lane",
     ],
+    perLane: true,
   },
   "pizza-bowl": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
@@ -573,7 +578,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // ── Pizza Bowl modifier selections ───────────────────────────────
   // Loaded from Square catalog once a pizza-bowl experience is selected.
   // groups      — the modifier lists (e.g. "Pizza Toppings", "Soda Choice")
-  // selections  — { [groupId]: string[] }
+  // selections  — Array indexed by lane (0..laneCount-1).
+  //               Each entry: { [groupId]: string[] }
   //               SINGLE groups store at most one ID; MULTIPLE groups store many.
   //               Special key "__note__" holds fallback free-text when no groups loaded.
 
@@ -584,10 +590,39 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     options: Array<{ id: string; name: string }>;
   }
 
+  // Build Square applied_modifiers array from one lane's selection map.
+  function buildLaneModifiers(sel: Record<string, string[]>) {
+    return Object.entries(sel)
+      .filter(([key]) => key !== "__note__")
+      .flatMap(([, ids]) => ids.map((id) => ({ catalog_object_id: id })));
+  }
+
+  // Build human-readable note for one lane's selection map.
+  function buildLaneNote(
+    sel: Record<string, string[]>,
+    groups: ModifierGroup[],
+  ): string | undefined {
+    if (groups.length > 0) {
+      const parts = groups
+        .map((g) => {
+          const selectedIds = sel[g.id] ?? [];
+          if (!selectedIds.length) return null;
+          const names = selectedIds
+            .map((id) => g.options.find((o) => o.id === id)?.name ?? id)
+            .join(", ");
+          return `${g.name}: ${names}`;
+        })
+        .filter(Boolean) as string[];
+      return parts.length > 0 ? parts.join(" | ") : undefined;
+    }
+    return ((sel["__note__"] ?? [])[0] ?? "").trim() || undefined;
+  }
+
   const [pizzaModifierGroups, setPizzaModifierGroups] = useState<ModifierGroup[]>([]);
   const [pizzaModifiersLoading, setPizzaModifiersLoading] = useState(false);
-  // Record<groupId, selectedOptionId[]>  (single = max 1 entry; multiple = n entries)
-  const [pizzaModifierSelections, setPizzaModifierSelections] = useState<Record<string, string[]>>({});
+  // Per-lane selections: Array<Record<groupId, selectedOptionId[]>>
+  // Length == laneCount; index 0 = Lane 1, index 1 = Lane 2, etc.
+  const [pizzaModifierSelections, setPizzaModifierSelections] = useState<Array<Record<string, string[]>>>([{}]);
 
   // ── KBF: existing reservation ────────────────────────────────────
 
@@ -637,7 +672,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   // Whether the selected experience is priced per lane (not per person)
   const selectedIsPerLane = selectedExperience
-    ? (getExperienceDisplay(selectedExperience.slug, selectedExperience.isVip).perLane ?? false)
+    ? ((getExperienceDisplay(selectedExperience.slug, selectedExperience.isVip).perLane ?? false) ||
+       selectedExperience.kind === "hourly")
     : false;
 
   // Multiplier applied to per-lane item quantities / totals
@@ -690,50 +726,46 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const displayTotal = quoteTotalCents   > 0 ? quoteTotalCents   : preTaxTotalCents;
 
   // Pizza bowl modifier selections:
-  //   - When Square catalog modifier groups exist: attach as applied_modifiers AND as a
-  //     human-readable note (Square silently drops applied_modifiers if modifier lists
-  //     aren't attached to the catalog item; the note ensures staff always see the choices)
-  //   - When catalog not yet configured: fall back to a text note on the line item
+  //   - selectedModifiers: lane-0 selections (used for Square quote approximation)
+  //   - pizzaNoteText: aggregated note across all lanes for review display
+  //   - lineItems for pizza bowl: one item per lane each with per-lane modifiers
   const selectedModifiers =
     isPizzaBowl && pizzaModifierGroups.length > 0
-      ? Object.entries(pizzaModifierSelections)
-          .filter(([key]) => key !== "__note__")
-          .flatMap(([, optionIds]) => (optionIds ?? []).map((id) => ({ catalog_object_id: id })))
+      ? buildLaneModifiers(pizzaModifierSelections[0] ?? {})
       : [];
 
-  // Build human-readable note from selections so staff can always see choices.
-  // Belt-and-suspenders: sent alongside applied_modifiers in case Square drops them.
+  // Aggregated human-readable note across all lanes (used on review step).
   const pizzaNoteText: string | undefined = (() => {
     if (!isPizzaBowl) return undefined;
-    if (pizzaModifierGroups.length > 0) {
-      // Build "Group Name: Opt1, Opt2 | Other Group: Opt3" from current selections
-      const parts = pizzaModifierGroups
-        .map((group) => {
-          const selectedIds = pizzaModifierSelections[group.id] ?? [];
-          if (selectedIds.length === 0) return null;
-          const names = selectedIds
-            .map((id) => group.options.find((o) => o.id === id)?.name ?? id)
-            .join(", ");
-          return `${group.name}: ${names}`;
-        })
-        .filter(Boolean);
-      return parts.length > 0 ? parts.join(" | ") : undefined;
-    }
-    // Fallback: free-text textarea value
-    return ((pizzaModifierSelections["__note__"] ?? [])[0] ?? "").trim() || undefined;
+    const laneNotes = pizzaModifierSelections
+      .map((sel, i) => {
+        const note = buildLaneNote(sel, pizzaModifierGroups);
+        return laneCount > 1 && note ? `Lane ${i + 1}: ${note}` : note;
+      })
+      .filter(Boolean) as string[];
+    return laneNotes.length > 0 ? laneNotes.join(" | ") : undefined;
   })();
 
-  // Line items sent to /api/bowling/v2/reserve
-  // For per-lane experiences, multiply each base item's quantity by laneMultiplier.
+  // Line items sent to /api/bowling/v2/reserve.
+  // Pizza bowl: one item per lane with that lane's modifiers.
+  // All other per-lane experiences: multiply quantity by laneMultiplier.
   const lineItems = [
-    ...baseItems.map((item) => ({
-      squareProductId: item.squareProductId,
-      quantity: item.quantity * laneMultiplier,
-      // Attach modifier selections to the pizza-bowl base item in Square
-      ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
-      // Human-readable note: always set for pizza-bowl so staff see selections
-      ...(pizzaNoteText ? { note: pizzaNoteText } : {}),
-    })),
+    ...(isPizzaBowl
+      ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
+          const laneMods = buildLaneModifiers(sel);
+          const laneNote = buildLaneNote(sel, pizzaModifierGroups);
+          const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
+          return baseItems.map((item) => ({
+            squareProductId: item.squareProductId,
+            quantity: item.quantity,
+            ...(laneMods.length > 0 ? { modifiers: laneMods } : {}),
+            ...(laneNote ? { note: `${prefix}${laneNote}` } : {}),
+          }));
+        })
+      : baseItems.map((item) => ({
+          squareProductId: item.squareProductId,
+          quantity: item.quantity * laneMultiplier,
+        }))),
     ...shoeProducts
       .filter((p) => (shoeQty[p.id] ?? 0) > 0)
       .map((p) => ({ squareProductId: p.id, quantity: shoeQty[p.id] })),
@@ -964,7 +996,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   useEffect(() => {
     if (!isPizzaBowl) {
       setPizzaModifierGroups([]);
-      setPizzaModifierSelections({});
+      setPizzaModifierSelections([{}]);
       return;
     }
 
@@ -989,7 +1021,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         if (res.ok && Array.isArray(data)) {
           setPizzaModifierGroups(data as ModifierGroup[]);
           // Reset selections when experience changes
-          setPizzaModifierSelections({});
+          setPizzaModifierSelections([{}]);
         }
       } catch {
         // Non-fatal — modifiers are a convenience, booking proceeds without them
@@ -1017,14 +1049,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     setQuoteError(null);
 
     const sqLineItems = [
-      ...baseItems.map((item) => ({
-        name: item.label,
-        quantity: String(item.quantity * laneMultiplier),
-        catalogObjectId: item.squareCatalogObjectId,
-        // Include modifier selections so the quote price includes any priced modifiers
-        ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
-        ...(pizzaNoteText ? { note: pizzaNoteText } : {}),
-      })),
+      ...(isPizzaBowl
+        ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
+            const laneMods = buildLaneModifiers(sel);
+            const laneNote = buildLaneNote(sel, pizzaModifierGroups);
+            const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
+            return baseItems.map((item) => ({
+              name: item.label,
+              quantity: String(item.quantity),
+              catalogObjectId: item.squareCatalogObjectId,
+              ...(laneMods.length > 0 ? { modifiers: laneMods } : {}),
+              ...(laneNote ? { note: `${prefix}${laneNote}` } : {}),
+            }));
+          })
+        : baseItems.map((item) => ({
+            name: item.label,
+            quantity: String(item.quantity * laneMultiplier),
+            catalogObjectId: item.squareCatalogObjectId,
+            ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
+          }))),
       ...shoeProducts
         .filter((p) => (shoeQty[p.id] ?? 0) > 0)
         .map((p) => ({
@@ -2556,12 +2599,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     <div
                       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
                       style={{ backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
-                      onClick={() => setTierTimeConfirm(null)}
+                      {...modalBackdropProps(() => setTierTimeConfirm(null))}
                     >
                       <div
                         className="w-full sm:max-w-sm mx-0 sm:mx-4 rounded-t-2xl sm:rounded-2xl p-6 pb-8 sm:pb-6"
                         style={{ backgroundColor: "#0d1829", border: "1px solid rgba(255,255,255,0.10)" }}
-                        onClick={(e) => e.stopPropagation()}
                       >
                         <p className="font-heading uppercase tracking-widest text-white/50 text-xs mb-3">Switch time?</p>
                         <p className="font-body text-white text-base mb-1">
@@ -3085,7 +3127,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               </div>
               <button
                 type="button"
-                onClick={() => setStep(isPizzaBowl ? "food" : "review")}
+                onClick={() => {
+                // Resize per-lane modifier selections array to match laneCount
+                setPizzaModifierSelections((prev) => {
+                  if (laneCount === prev.length) return prev;
+                  if (laneCount > prev.length)
+                    return [...prev, ...Array.from({ length: laneCount - prev.length }, () => ({}))];
+                  return prev.slice(0, laneCount);
+                });
+                setStep(isPizzaBowl ? "food" : "review");
+              }}
                 className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.02]"
                 style={{ backgroundColor: GOLD, boxShadow: `0 0 18px ${GOLD}40` }}
               >
@@ -3113,72 +3164,87 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       <p className="font-body text-white/55 text-sm">Loading options…</p>
                     </div>
                   ) : pizzaModifierGroups.length > 0 ? (
-                    <div className="space-y-5">
-                      {pizzaModifierGroups.map((group) => (
-                        <div key={group.id}>
-                          <p className="font-body text-white/70 text-sm mb-2">{group.name}</p>
-                          <div className="flex flex-wrap gap-2">
-                            {group.options.map((option) => {
-                              const currentIds = pizzaModifierSelections[group.id] ?? [];
-                              const selected = currentIds.includes(option.id);
-                              return (
-                                <button
-                                  key={option.id}
-                                  type="button"
-                                  onClick={() =>
-                                    setPizzaModifierSelections((prev) => {
-                                      const cur = prev[group.id] ?? [];
-                                      if (group.selectionType === "SINGLE") {
-                                        // Toggle: deselect if already selected, else replace
-                                        return { ...prev, [group.id]: selected ? [] : [option.id] };
-                                      } else {
-                                        // MULTIPLE: toggle in/out of set
-                                        return {
-                                          ...prev,
-                                          [group.id]: selected
-                                            ? cur.filter((id) => id !== option.id)
-                                            : [...cur, option.id],
-                                        };
-                                      }
-                                    })
-                                  }
-                                  className="rounded-full px-4 py-2 font-body text-sm font-bold transition-all"
-                                  style={
-                                    selected
-                                      ? {
-                                          backgroundColor: CORAL,
-                                          color: "#fff",
-                                          boxShadow: `0 0 14px ${CORAL}55`,
+                    // Render one set of modifier groups per lane
+                    <div className="space-y-6">
+                      {Array.from({ length: laneCount }, (_, laneIdx) => (
+                        <div key={laneIdx} className="space-y-4">
+                          {laneCount > 1 && (
+                            <p className="font-heading uppercase text-white/60 text-xs tracking-widest border-b border-white/10 pb-2">
+                              Lane {laneIdx + 1}
+                            </p>
+                          )}
+                          {pizzaModifierGroups.map((group) => {
+                            const currentIds = pizzaModifierSelections[laneIdx]?.[group.id] ?? [];
+                            return (
+                              <div key={group.id}>
+                                <p className="font-body text-white/70 text-sm mb-2">{group.name}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {group.options.map((option) => {
+                                    const selected = currentIds.includes(option.id);
+                                    return (
+                                      <button
+                                        key={option.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setPizzaModifierSelections((prev) => {
+                                            const next = [...prev];
+                                            const laneSel = { ...(next[laneIdx] ?? {}) };
+                                            const cur = laneSel[group.id] ?? [];
+                                            if (group.selectionType === "SINGLE") {
+                                              laneSel[group.id] = selected ? [] : [option.id];
+                                            } else {
+                                              laneSel[group.id] = selected
+                                                ? cur.filter((id) => id !== option.id)
+                                                : [...cur, option.id];
+                                            }
+                                            next[laneIdx] = laneSel;
+                                            return next;
+                                          })
                                         }
-                                      : {
-                                          backgroundColor: "rgba(255,255,255,0.07)",
-                                          color: "rgba(255,255,255,0.7)",
-                                          border: "1.78px solid rgba(255,255,255,0.12)",
+                                        className="rounded-full px-4 py-2 font-body text-sm font-bold transition-all"
+                                        style={
+                                          selected
+                                            ? { backgroundColor: CORAL, color: "#fff", boxShadow: `0 0 14px ${CORAL}55` }
+                                            : { backgroundColor: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.7)", border: "1.78px solid rgba(255,255,255,0.12)" }
                                         }
-                                  }
-                                >
-                                  {option.name}
-                                </button>
-                              );
-                            })}
-                          </div>
+                                      >
+                                        {option.name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    // Modifier groups empty (not yet configured in Square) — show a
-                    // plain note input so staff still see preferences in the order.
-                    <div className="space-y-2">
-                      <p className="font-body text-white/70 text-sm">Any pizza or drink preferences?</p>
-                      <textarea
-                        rows={3}
-                        placeholder="e.g. pepperoni pizza, Diet Coke"
-                        className="w-full rounded-xl px-4 py-3 font-body text-sm text-white bg-white/5 border border-white/15 placeholder:text-white/25 resize-none focus:outline-none focus:border-white/40"
-                        value={(pizzaModifierSelections["__note__"] ?? [])[0] ?? ""}
-                        onChange={(e) =>
-                          setPizzaModifierSelections({ __note__: [e.target.value] })
-                        }
-                      />
+                    // Modifier groups empty — plain note input per lane
+                    <div className="space-y-4">
+                      {Array.from({ length: laneCount }, (_, laneIdx) => (
+                        <div key={laneIdx} className="space-y-2">
+                          {laneCount > 1 && (
+                            <p className="font-heading uppercase text-white/60 text-xs tracking-widest">
+                              Lane {laneIdx + 1}
+                            </p>
+                          )}
+                          <p className="font-body text-white/70 text-sm">Any pizza or drink preferences?</p>
+                          <textarea
+                            rows={2}
+                            placeholder="e.g. pepperoni pizza, Diet Coke"
+                            className="w-full rounded-xl px-4 py-3 font-body text-sm text-white bg-white/5 border border-white/15 placeholder:text-white/25 resize-none focus:outline-none focus:border-white/40"
+                            value={(pizzaModifierSelections[laneIdx]?.["__note__"] ?? [])[0] ?? ""}
+                            onChange={(e) =>
+                              setPizzaModifierSelections((prev) => {
+                                const next = [...prev];
+                                next[laneIdx] = { ...(next[laneIdx] ?? {}), __note__: [e.target.value] };
+                                return next;
+                              })
+                            }
+                          />
+                        </div>
+                      ))}
                     </div>
                   )}
                 </>
@@ -3202,7 +3268,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
-                  {isPizzaBowl && pizzaModifierGroups.length > 0 ? "Continue" : "Skip"}
+                  {isPizzaBowl && pizzaModifierGroups.length > 0 ? "Continue" : isPizzaBowl ? "Skip" : "Continue"}
                 </button>
               </div>
             </div>
