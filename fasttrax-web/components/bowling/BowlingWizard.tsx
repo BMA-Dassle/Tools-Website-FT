@@ -344,6 +344,23 @@ function todayYmd(): string {
 }
 
 /**
+ * Effective "today" for booking purposes.
+ * Between midnight and 2 AM ET on Sat/Sun mornings (= Fri/Sat late-night
+ * extension), returns yesterday so post-midnight time slots remain bookable.
+ * Both centers close at 2 AM on Fri-Sat.
+ */
+function effectiveToday(): string {
+  const today = todayYmd();
+  const nowMins = etNowMinutes();
+  if (nowMins >= 120) return today; // past 2 AM → normal day
+  // Between midnight and 2 AM — check if yesterday was Fri (5) or Sat (6)
+  const yesterday = addDays(today, -1);
+  const dow = new Date(`${yesterday}T12:00:00`).getDay();
+  if (dow === 5 || dow === 6) return yesterday;
+  return today;
+}
+
+/**
  * Current Eastern Time expressed as minutes-from-midnight.
  * Used to compute the earliest bookable slot for today's date.
  */
@@ -553,7 +570,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   // ── Slots ────────────────────────────────────────────────────────
 
-  const initialDate = kind === "kbf" ? (bookableDateRange()[0] ?? todayYmd()) : todayYmd();
+  const initialDate = kind === "kbf" ? (bookableDateRange()[0] ?? todayYmd()) : effectiveToday();
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [availableSlots, setAvailableSlots] = useState<AvailabilitySlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -853,9 +870,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   function isBookableDate(dateStr: string): boolean {
     if (kind === "kbf") return isKbfBookableDate(dateStr);
-    const today = todayYmd();
-    const max = addDays(today, 30);
-    return dateStr >= today && dateStr <= max;
+    const earliest = effectiveToday();
+    const max = addDays(todayYmd(), 30);
+    return dateStr >= earliest && dateStr <= max;
   }
 
   function getFilteredHours(dateStr: string): number[] {
@@ -874,8 +891,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     // Today: hide hours where every slot is < 15 min from now.
     // An hour chip stays visible if its last slot (h:45) is still >= 15 min away.
     // Individual minute chips within that hour are filtered separately in the UI.
-    if (dateStr === todayYmd()) {
-      const cutoffMins = etNowMinutes() + 15;
+    const today = todayYmd();
+    const nowMins = etNowMinutes();
+    if (dateStr === today) {
+      const cutoffMins = nowMins + 15;
+      filtered = filtered.filter((h) => h * 60 + 45 >= cutoffMins);
+    } else if (dateStr < today && nowMins < 120) {
+      // Post-midnight window: booking for yesterday's late-night slots.
+      // Convert current time to 24+ representation (midnight=1440, 1:15AM=1515, …)
+      const cutoffMins = nowMins + 24 * 60 + 15;
       filtered = filtered.filter((h) => h * 60 + 45 >= cutoffMins);
     }
 
@@ -2406,9 +2430,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           // For today, hide minutes whose slot is < 15 min from now.
                           // Actual QAMF availability is checked when the user hits
                           // "See Packages" — these chips just gate the CTA button.
-                          const cutoffToday = selectedDate === todayYmd()
-                            ? etNowMinutes() + 15
-                            : 0;
+                          const cutoffToday = (() => {
+                            const td = todayYmd();
+                            const nm = etNowMinutes();
+                            if (selectedDate === td) return nm + 15;
+                            if (selectedDate < td && nm < 120) return nm + 24 * 60 + 15;
+                            return 0;
+                          })();
                           const distinctMinutes = [0, 15, 30, 45].filter(
                             (m) => selectedHour * 60 + m >= cutoffToday,
                           );
