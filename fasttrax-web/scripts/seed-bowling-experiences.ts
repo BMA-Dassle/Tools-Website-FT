@@ -400,7 +400,7 @@ async function main() {
     daysOfWeek: [5, 6], // Fri-Sat
   });
   await upsertOffer({ experienceId: mmRegId, centerCode: FM,     qamfWebOfferId: 167, qamfOptionType: "Unlimited", qamfOptionId: 167 });
-  await upsertOffer({ experienceId: mmRegId, centerCode: NAPLES, qamfWebOfferId: 131, qamfOptionType: "Unlimited", qamfOptionId: 131 });
+  await upsertOffer({ experienceId: mmRegId, centerCode: NAPLES, qamfWebOfferId: 136, qamfOptionType: "Unlimited", qamfOptionId: 136 });
   await setItems(mmRegId, [
     { catalogObjectId: CAT.MIDNIGHT_MADNESS, quantity: 1 },
   ]);
@@ -414,7 +414,7 @@ async function main() {
     daysOfWeek: [5, 6], // Fri-Sat
   });
   await upsertOffer({ experienceId: mmVipId, centerCode: FM,     qamfWebOfferId: 166, qamfOptionType: "Unlimited", qamfOptionId: 166 });
-  await upsertOffer({ experienceId: mmVipId, centerCode: NAPLES, qamfWebOfferId: 130, qamfOptionType: "Unlimited", qamfOptionId: 130 });
+  await upsertOffer({ experienceId: mmVipId, centerCode: NAPLES, qamfWebOfferId: 137, qamfOptionType: "Unlimited", qamfOptionId: 137 });
   await setItems(mmVipId, [
     { catalogObjectId: CAT.MIDNIGHT_MADNESS_VIP, quantity: 1 },
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
