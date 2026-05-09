@@ -61,7 +61,8 @@ export async function GET(
     const laneLabel = buildLaneLabel(laneNumbers);
 
     // Determine phase from lane statuses.
-    // "Confirmed" means the lane is assigned — eligible for self-service open.
+    // Only "Ready" means staff has prepared the lane for self-service open.
+    // "Confirmed" just means the reservation is confirmed — lane not yet assigned.
     // See docs/qamf-lane-lifecycle.md for the full state machine.
     const statuses = lanes.map((l) => l.Status);
     let phase: "not_ready" | "ready" | "running" | "completed";
@@ -69,7 +70,7 @@ export async function GET(
       phase = "completed";
     } else if (statuses.some((s) => s === "Running")) {
       phase = "running";
-    } else if (statuses.some((s) => s === "Ready" || s === "Confirmed")) {
+    } else if (statuses.some((s) => s === "Ready")) {
       phase = "ready";
     } else {
       phase = "not_ready";
