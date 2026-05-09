@@ -39,6 +39,12 @@ const GOLD  = "#FFD700";
 const BG    = "#0a1628";
 const BLOB  = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
+// $0 Square catalog item IDs for pizza-bowl packages.
+// These must be added as separate line items on the day-of order so staff
+// can see the pizza topping / soda flavor selections as individual items.
+const PIZZA_BOWL_PIZZA_CATALOG_ID = "2IKZB4O2HQBXWMTSUQ2SEKJY";
+const PIZZA_BOWL_SODA_CATALOG_ID  = "SJUBJLB4QGHIHCW5AKTTMLH7";
+
 // ── Experience display map ─────────────────────────────────────────────────
 // Visual presentation data keyed by experience slug.
 // The DB drives which experiences exist and what QAMF offer IDs they map to;
@@ -595,6 +601,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       .flatMap(([, ids]) => ids.map((id) => ({ catalog_object_id: id })));
   }
 
+  // Split one lane's modifier selections into pizza-topping mods vs soda mods.
+  // Groups whose name contains "soda", "drink", or "pitcher" go to the
+  // Pizza Bowl Soda Pitcher $0 item; all others go to Pizza Bowl Pizza.
+  function splitPizzaBowlMods(sel: Record<string, string[]>, groups: ModifierGroup[]) {
+    const pizzaMods: Array<{ catalog_object_id: string }> = [];
+    const sodaMods:  Array<{ catalog_object_id: string }> = [];
+    for (const group of groups) {
+      const selectedIds = sel[group.id] ?? [];
+      if (!selectedIds.length) continue;
+      const isSoda = /soda|drink|pitcher/i.test(group.name);
+      const target = isSoda ? sodaMods : pizzaMods;
+      for (const id of selectedIds) target.push({ catalog_object_id: id });
+    }
+    return { pizzaMods, sodaMods };
+  }
+
   // Build human-readable note for one lane's selection map.
   function buildLaneNote(
     sel: Record<string, string[]>,
@@ -747,19 +769,47 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     return laneNotes.length > 0 ? laneNotes.join(" | ") : undefined;
   })();
 
+  // $0 pass-through items for pizza-bowl bookings sent alongside lineItems to
+  // /api/bowling/v2/reserve as rawItems.  One Pizza Bowl Pizza + one Pizza Bowl
+  // Soda Pitcher per lane, with the customer's modifier selections attached.
+  // These are $0 catalog items that must appear as separate Square order lines
+  // so staff can see the exact pizza topping + soda choice on each item.
+  const pizzaBowlRawItems = isPizzaBowl
+    ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
+        const { pizzaMods, sodaMods } = splitPizzaBowlMods(sel, pizzaModifierGroups);
+        const laneNote = buildLaneNote(sel, pizzaModifierGroups);
+        const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
+        const noteStr = laneNote ? `${prefix}${laneNote}` : undefined;
+        return [
+          {
+            catalogObjectId: PIZZA_BOWL_PIZZA_CATALOG_ID,
+            name: "Pizza Bowl Pizza",
+            quantity: 1,
+            ...(pizzaMods.length > 0 ? { modifiers: pizzaMods } : {}),
+            ...(noteStr ? { note: noteStr } : {}),
+          },
+          {
+            catalogObjectId: PIZZA_BOWL_SODA_CATALOG_ID,
+            name: "Pizza Bowl Soda Pitcher",
+            quantity: 1,
+            ...(sodaMods.length > 0 ? { modifiers: sodaMods } : {}),
+          },
+        ];
+      })
+    : [];
+
   // Line items sent to /api/bowling/v2/reserve.
-  // Pizza bowl: one item per lane with that lane's modifiers.
+  // Pizza bowl: one base item per lane (note only — modifiers go on rawItems above).
   // All other per-lane experiences: multiply quantity by laneMultiplier.
   const lineItems = [
     ...(isPizzaBowl
       ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
-          const laneMods = buildLaneModifiers(sel);
           const laneNote = buildLaneNote(sel, pizzaModifierGroups);
           const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
           return baseItems.map((item) => ({
             squareProductId: item.squareProductId,
             quantity: item.quantity,
-            ...(laneMods.length > 0 ? { modifiers: laneMods } : {}),
+            // Note on the base item for QAMF/Conqueror staff visibility
             ...(laneNote ? { note: `${prefix}${laneNote}` } : {}),
           }));
         })
@@ -1066,16 +1116,33 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     const sqLineItems = [
       ...(isPizzaBowl
         ? pizzaModifierSelections.flatMap((sel, laneIdx) => {
-            const laneMods = buildLaneModifiers(sel);
+            const { pizzaMods, sodaMods } = splitPizzaBowlMods(sel, pizzaModifierGroups);
             const laneNote = buildLaneNote(sel, pizzaModifierGroups);
             const prefix = laneCount > 1 ? `Lane ${laneIdx + 1}: ` : "";
-            return baseItems.map((item) => ({
-              name: item.label,
-              quantity: String(item.quantity),
-              catalogObjectId: item.squareCatalogObjectId,
-              ...(laneMods.length > 0 ? { modifiers: laneMods } : {}),
-              ...(laneNote ? { note: `${prefix}${laneNote}` } : {}),
-            }));
+            const noteStr = laneNote ? `${prefix}${laneNote}` : undefined;
+            return [
+              // Base pizza-bowl item — note only, no modifiers (modifiers go on $0 items below)
+              ...baseItems.map((item) => ({
+                name: item.label,
+                quantity: String(item.quantity),
+                catalogObjectId: item.squareCatalogObjectId,
+                ...(noteStr ? { note: noteStr } : {}),
+              })),
+              // Pizza Bowl Pizza $0 item — carries the pizza-topping modifier selection
+              {
+                name: "Pizza Bowl Pizza",
+                quantity: "1",
+                catalogObjectId: PIZZA_BOWL_PIZZA_CATALOG_ID,
+                ...(pizzaMods.length > 0 ? { modifiers: pizzaMods } : {}),
+              },
+              // Pizza Bowl Soda Pitcher $0 item — carries the soda-choice modifier selection
+              {
+                name: "Pizza Bowl Soda Pitcher",
+                quantity: "1",
+                catalogObjectId: PIZZA_BOWL_SODA_CATALOG_ID,
+                ...(sodaMods.length > 0 ? { modifiers: sodaMods } : {}),
+              },
+            ];
           })
         : baseItems.map((item) => ({
             name: item.label,
@@ -1464,6 +1531,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             players,
             guest: { name: guestName, email: guestEmail, phone: guestPhone },
             lineItems,
+            // $0 pizza/soda items — must be separate Square order line items
+            ...(pizzaBowlRawItems.length > 0 ? { rawItems: pizzaBowlRawItems } : {}),
             squareToken,
             locationId: center.squareCenterCode,
             notes,

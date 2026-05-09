@@ -86,6 +86,19 @@ interface LineItemRequest {
   note?: string;
 }
 
+/**
+ * $0 pass-through items that don't exist in bowling_square_products but must
+ * appear as separate Square order line items (e.g. Pizza Bowl Pizza, Soda Pitcher).
+ * Not tracked in bowling_reservation_lines (they're $0 and visible in Square).
+ */
+interface RawLineItemRequest {
+  catalogObjectId: string;
+  name: string;
+  quantity: number;
+  modifiers?: Array<{ catalog_object_id: string }>;
+  note?: string;
+}
+
 interface ReserveBody {
   /** QAMF center ID. Exactly one of centerId / centerCode must be provided. */
   centerId?: number;
@@ -102,6 +115,12 @@ interface ReserveBody {
   guest: { name: string; email: string; phone: string };
   /** Items being purchased (may be empty for free KBF bookings) */
   lineItems?: LineItemRequest[];
+  /**
+   * $0 pass-through items added directly to the Square day-of order without
+   * Neon lookup (e.g. Pizza Bowl Pizza, Pizza Bowl Soda Pitcher per lane).
+   * Appended to sqLineItems in the fallback path when no dayofOrderId is provided.
+   */
+  rawItems?: RawLineItemRequest[];
   /** Square Web Payments SDK nonce. Required when any item has a charge. */
   squareToken?: string;
   squareCustomerId?: string;
@@ -450,25 +469,38 @@ export async function POST(req: NextRequest) {
 
     // Build Square line items, passing through catalog IDs, modifier selections, and notes.
     // lineItems (from the request body) carry modifier arrays keyed by squareProductId.
-    const sqLineItems = reservationLines.map((l) => {
-      const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
-      const reqItem  = lineItems.find((li) => li.squareProductId === l.squareProductId);
-      return {
-        name: l.label,
-        quantity: String(l.quantity),
-        basePriceMoney: { amount: l.unitPriceCents, currency: "USD" as const },
-        // Include catalog object ID so Square links to the catalog item for reporting
-        ...(product?.squareCatalogObjectId
-          ? { catalogObjectId: product.squareCatalogObjectId }
-          : {}),
-        // Forward modifier selections (e.g. pizza topping, soda flavor) to Square
-        ...(reqItem?.modifiers?.length
-          ? { modifiers: reqItem.modifiers }
-          : {}),
-        // Forward free-text note (fallback when catalog modifiers not yet configured)
-        ...(reqItem?.note ? { note: reqItem.note } : {}),
-      };
-    });
+    const sqLineItems = [
+      ...reservationLines.map((l) => {
+        const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
+        const reqItem  = lineItems.find((li) => li.squareProductId === l.squareProductId);
+        return {
+          name: l.label,
+          quantity: String(l.quantity),
+          basePriceMoney: { amount: l.unitPriceCents, currency: "USD" as const },
+          // Include catalog object ID so Square links to the catalog item for reporting
+          ...(product?.squareCatalogObjectId
+            ? { catalogObjectId: product.squareCatalogObjectId }
+            : {}),
+          // Forward modifier selections (e.g. pizza topping, soda flavor) to Square
+          ...(reqItem?.modifiers?.length
+            ? { modifiers: reqItem.modifiers }
+            : {}),
+          // Forward free-text note (fallback when catalog modifiers not yet configured)
+          ...(reqItem?.note ? { note: reqItem.note } : {}),
+        };
+      }),
+      // $0 pass-through items (Pizza Bowl Pizza, Soda Pitcher) — not in Neon but
+      // must appear as separate Square order line items with modifier selections.
+      // Only used in the fallback path; primary path uses the pre-created dayofOrderId.
+      ...(body.rawItems ?? []).map((ri) => ({
+        name: ri.name,
+        quantity: String(ri.quantity),
+        basePriceMoney: { amount: 0, currency: "USD" as const },
+        catalogObjectId: ri.catalogObjectId,
+        ...(ri.modifiers?.length ? { modifiers: ri.modifiers } : {}),
+        ...(ri.note ? { note: ri.note } : {}),
+      })),
+    ];
 
     const origin = req.nextUrl.origin;
     const sqRes = await fetch(`${origin}/api/square/bowling-orders`, {
