@@ -112,9 +112,7 @@ export default function BowlingPaymentStep({
 
   // ── Digital wallet state ─────────────────────────────────────────
   const [applePayReady, setApplePayReady] = useState(false);
-  const [googlePayReady, setGooglePayReady] = useState(false);
   const applePayRef = useRef<SquareDigitalWallet | null>(null);
-  const googlePayRef = useRef<SquareDigitalWallet | null>(null);
   const walletInitRef = useRef(false);
 
   const remaining = totalCents - depositCents;
@@ -169,23 +167,6 @@ export default function BowlingPaymentStep({
         } catch {
           // Apple Pay not available on this device/browser — silent
         }
-
-        // Google Pay
-        try {
-          const googlePayRequest = payments.paymentRequest({
-            countryCode: "US",
-            currencyCode: "USD",
-            total: { amount: amountStr, label: "HeadPinz Bowling" },
-          });
-          const googlePay = await payments.googlePay(googlePayRequest);
-          if (!cancelled) {
-            await googlePay.attach("#sq-bowling-google-pay");
-            googlePayRef.current = googlePay;
-            setGooglePayReady(true);
-          }
-        } catch {
-          // Google Pay not available — silent
-        }
       } catch {
         // Non-fatal — card form still works
       }
@@ -196,7 +177,6 @@ export default function BowlingPaymentStep({
     return () => {
       cancelled = true;
       try { applePayRef.current?.destroy(); } catch { /* ignore */ }
-      try { googlePayRef.current?.destroy(); } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, depositCents]);
@@ -216,24 +196,6 @@ export default function BowlingPaymentStep({
       onPay(result.token);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Apple Pay failed";
-      setTokenizeError(msg);
-      setTokenizing(false);
-    }
-  }
-
-  // ── Google Pay handler ──────────────────────────────────────────
-  async function handleGooglePay() {
-    if (isProcessing || !googlePayRef.current) return;
-    setTokenizing(true);
-    setTokenizeError(null);
-    try {
-      const result = await googlePayRef.current.tokenize();
-      if (result.status !== "OK" || !result.token) {
-        throw new Error("Google Pay cancelled or failed");
-      }
-      onPay(result.token);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Google Pay failed";
       setTokenizeError(msg);
       setTokenizing(false);
     }
@@ -278,32 +240,23 @@ export default function BowlingPaymentStep({
         )}
       </p>
 
-      {/* ── Digital wallets ─────────────────────────────────────── */}
-      {(applePayReady || googlePayReady) && (
-        <div className="space-y-3">
-          {applePayReady && (
-            <button
-              type="button"
-              onClick={() => void handleApplePay()}
-              disabled={isProcessing}
-              className="w-full h-12 rounded-xl bg-white text-black font-semibold text-sm flex items-center justify-center gap-2 hover:bg-white/90 active:bg-white/80 transition-colors disabled:opacity-50"
-            >
-              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-                <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-              </svg>
-              Pay with Apple Pay
-            </button>
-          )}
-          <div
-            id="sq-bowling-google-pay"
-            className={googlePayReady ? "w-full min-h-[48px] [&_iframe]:!w-full cursor-pointer" : "hidden"}
-            onClick={() => void handleGooglePay()}
-          />
-        </div>
+      {/* ── Apple Pay ──────────────────────────────────────────── */}
+      {applePayReady && (
+        <button
+          type="button"
+          onClick={() => void handleApplePay()}
+          disabled={isProcessing}
+          className="w-full h-12 rounded-xl bg-white text-black font-semibold text-sm flex items-center justify-center gap-2 hover:bg-white/90 active:bg-white/80 transition-colors disabled:opacity-50"
+        >
+          <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
+            <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+          </svg>
+          Pay with Apple Pay
+        </button>
       )}
 
-      {/* Divider between wallets and card */}
-      {(applePayReady || googlePayReady) && (
+      {/* Divider between Apple Pay and card */}
+      {applePayReady && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-white/30 text-xs uppercase tracking-wider font-body">or pay with card</span>
