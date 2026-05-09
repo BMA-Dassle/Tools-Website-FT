@@ -1,5 +1,40 @@
 # Lessons Learned
 
+## QAMF probe times MUST be multiples of 5 minutes (2026-05-09)
+
+QAMF's `searchAvailability` API rejects any `BookedAtRange` where minutes
+aren't divisible by 5. Error: `400 "The minutes must be multiples of 5."`
+
+**What happened:** We added a "don't probe the past" guard that computes
+`earliestMin = currentETTime + 15`. When the current time was e.g. 6:36 PM,
+`earliestMin = 1131` (18h 51m). Every 15-min probe from there — 18:51, 19:06,
+19:21 — had non-5-divisible minutes. QAMF rejected ALL of them, `.catch()`
+swallowed the 400s, and the API returned `{Availabilities: []}`. This looked
+like "sold out" to customers on a busy Saturday night.
+
+**Why it was intermittent:** Only fails when `currentMinute + 15` isn't already
+on a 5-min boundary. Test at 6:00 PM → fine. Test at 6:36 PM → total failure.
+Future dates never hit this because `openHour * 60` is always clean.
+
+**Why it was hard to find:** Three compounding issues:
+1. `.catch(() => ({ Availabilities: [] }))` silently swallowed every 400 error
+2. Vercel was serving stale serverless functions — console.log statements from
+   new deployments weren't appearing in runtime logs
+3. The experiences API worked fine (different code path), so DB filtering was
+   ruled out as the cause
+
+**Fix:** `earliestMin = Math.ceil(earliestMin / 15) * 15` snaps to the next
+clean quarter-hour.
+
+### Rules for future QAMF integration:
+- **ALWAYS snap probe times to 15-min boundaries** (or at minimum 5-min)
+- **NEVER silently swallow QAMF errors** — log the first few, include error
+  count in the summary line
+- **When Vercel logs don't show your console.log, suspect stale functions** —
+  force a new deployment or check the build logs for cache hits
+- **When debugging "no availability," check probe error count FIRST** — if
+  `errors === probes`, the issue is probe construction, not QAMF capacity
+
 ## pnpm + Vercel = quagmire — switched to npm workspaces (2026-05-06)
 
 The monorepo restructure (PR1) originally chose pnpm + Turborepo. After three
