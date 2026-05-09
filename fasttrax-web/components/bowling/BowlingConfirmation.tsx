@@ -181,13 +181,11 @@ function BowlerCard({
   player,
   shoePairsAllowed,
   shoeSizesAssigned,
-  kind,
   onUpdate,
 }: {
   player: BowlingReservationPlayer;
   shoePairsAllowed: number;
   shoeSizesAssigned: number;
-  kind: BowlingConfirmationKind;
   onUpdate: (patch: Partial<BowlingReservationPlayer>) => void;
 }) {
   // Derive active category from saved shoeSize; persists while user browses sizes
@@ -222,19 +220,13 @@ function BowlerCard({
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
       {/* Name */}
-      {kind === "kbf" ? (
-        <div className="font-body font-semibold text-white text-sm">
-          {player.name ?? `Bowler ${player.slot}`}
-        </div>
-      ) : (
-        <input
-          type="text"
-          value={player.name ?? ""}
-          onChange={(e) => onUpdate({ name: e.target.value || null })}
-          placeholder={`Bowler ${player.slot}`}
-          className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35"
-        />
-      )}
+      <input
+        type="text"
+        value={player.name ?? ""}
+        onChange={(e) => onUpdate({ name: e.target.value || null })}
+        placeholder={`Bowler ${player.slot}`}
+        className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35"
+      />
 
       {/* Bumpers */}
       <div className="flex items-center gap-3">
@@ -540,6 +532,83 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             <p className="text-white/70 text-sm leading-relaxed">
               {cfg.heroSubtitle(hasPaidDeposit)}
             </p>
+
+            {/* ── Quick-action row ── */}
+            {reservation?.status !== "cancelled" && cancelPhase === "idle" && hasNeonRecord && (
+              <div className="flex gap-2 mt-4 pt-4 border-t border-white/10">
+                {cfg.changeLink && (
+                  <a
+                    href={cfg.changeLink.href}
+                    className="flex-1 text-center rounded-full px-3 py-2 font-body font-bold text-xs uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                  >
+                    {cfg.changeLink.label}
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={handleRequestCancel}
+                  className="flex-1 rounded-full px-3 py-2 font-body font-bold text-xs uppercase tracking-wider border transition-colors"
+                  style={{
+                    borderColor: "rgba(253,91,86,0.35)",
+                    color: "rgba(253,91,86,0.75)",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = CORAL;
+                    (e.currentTarget as HTMLButtonElement).style.color = CORAL;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(253,91,86,0.35)";
+                    (e.currentTarget as HTMLButtonElement).style.color = "rgba(253,91,86,0.75)";
+                  }}
+                >
+                  Cancel booking
+                </button>
+              </div>
+            )}
+
+            {/* ── Inline cancel confirmation (shown inside hero card when triggered) ── */}
+            {cancelPhase === "confirming" && (
+              <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+                <p className="text-white/80 text-sm">
+                  {displayDepositPaid > 0
+                    ? `Cancel and get a full ${centsToDollars(displayDepositPaid)} refund to your card?`
+                    : "Cancel this booking?"}
+                </p>
+                {cancelError && <p className="text-xs" style={{ color: CORAL }}>{cancelError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setCancelPhase("idle"); setCancelError(null); }}
+                    className="flex-1 py-2.5 rounded-full border border-white/20 font-body font-bold text-sm text-white/60 hover:text-white transition-colors uppercase tracking-wider"
+                  >
+                    Never mind
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmCancel()}
+                    className="flex-1 py-2.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
+                    style={{ backgroundColor: CORAL }}
+                  >
+                    Yes, cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {cancelPhase === "cancelling" && (
+              <p className="mt-4 pt-4 border-t border-white/10 text-white/60 text-sm text-center animate-pulse">
+                Cancelling…
+              </p>
+            )}
+
+            {cancelPhase === "tooLate" && (
+              <p className="mt-4 pt-4 border-t border-white/10 text-white/70 text-xs leading-relaxed">
+                Cancellations must be made at least 1 hour before your start time. Call{" "}
+                <a className="underline hover:text-white transition-colors" href={`tel:${centerPhone.replace(/\D/g, "")}`}>
+                  {centerPhone}
+                </a>.
+              </p>
+            )}
           </div>
 
           {/* ── Fetch-failed warning ── */}
@@ -654,7 +723,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                                 player={player}
                                 shoePairsAllowed={shoePairsAllowed}
                                 shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                                kind={kind}
                                 onUpdate={(patch) => updatePlayer(player.slot, patch)}
                               />
                               {/* Move to other lanes */}
@@ -686,7 +754,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                       player={player}
                       shoePairsAllowed={shoePairsAllowed}
                       shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                      kind={kind}
                       onUpdate={(patch) => updatePlayer(player.slot, patch)}
                     />
                   ))}
@@ -750,97 +817,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             </ul>
           </div>
 
-          {/* ── Cancel / change card ── */}
-          {reservation?.status !== "cancelled" && (
-            <div
-              className="rounded-xl border px-4 py-4 space-y-3"
-              style={{
-                backgroundColor: "rgba(255,215,0,0.06)",
-                borderColor: "rgba(255,215,0,0.35)",
-              }}
-            >
-              <div
-                className="uppercase font-bold"
-                style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
-              >
-                Need to change or cancel?
-              </div>
-
-              {/* KBF reschedule link */}
-              {cfg.changeLink && cancelPhase === "idle" && (
-                <Link
-                  href={cfg.changeLink.href}
-                  className="flex items-center justify-center w-full rounded-full px-4 py-2.5 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
-                  style={{ backgroundColor: NAVY, border: `1.5px solid ${GOLD}50` }}
-                >
-                  {cfg.changeLink.label}
-                </Link>
-              )}
-
-              {/* Phase: idle */}
-              {cancelPhase === "idle" && hasNeonRecord && (
-                <button
-                  type="button"
-                  onClick={handleRequestCancel}
-                  className="w-full text-center text-xs text-white/45 hover:text-white/75 underline underline-offset-2 transition-colors py-1"
-                >
-                  Cancel this booking
-                </button>
-              )}
-
-              {/* Phase: confirming */}
-              {cancelPhase === "confirming" && (
-                <div className="space-y-3">
-                  <p className="text-white/80 text-sm">
-                    {displayDepositPaid > 0
-                      ? `Cancel and get a full ${centsToDollars(displayDepositPaid)} refund to your card?`
-                      : "Cancel this booking?"}
-                  </p>
-                  {cancelError && (
-                    <p className="text-xs" style={{ color: CORAL }}>{cancelError}</p>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setCancelPhase("idle"); setCancelError(null); }}
-                      className="flex-1 py-2.5 rounded-full border border-white/20 font-body font-bold text-sm text-white/60 hover:text-white transition-colors uppercase tracking-wider"
-                    >
-                      Never mind
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleConfirmCancel()}
-                      className="flex-1 py-2.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
-                      style={{ backgroundColor: CORAL }}
-                    >
-                      Yes, cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Phase: cancelling */}
-              {cancelPhase === "cancelling" && (
-                <p className="text-white/60 text-sm text-center py-1 animate-pulse">
-                  Cancelling…
-                </p>
-              )}
-
-              {/* Phase: tooLate */}
-              {cancelPhase === "tooLate" && (
-                <p className="text-white/70 text-xs leading-relaxed">
-                  Cancellations must be made at least 1 hour before your start time. Please call{" "}
-                  <a
-                    className="underline hover:text-white transition-colors"
-                    href={`tel:${centerPhone.replace(/\D/g, "")}`}
-                  >
-                    {centerPhone}
-                  </a>{" "}
-                  at {centerName} for assistance.
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Cancelled confirmation */}
           {(cancelPhase === "cancelled" || reservation?.status === "cancelled") && (
