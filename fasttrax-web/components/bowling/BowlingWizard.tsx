@@ -615,6 +615,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
+  // Track what we last fetched to skip redundant QAMF calls
+  const lastFetchKey = useRef("");
 
   // Calendar nav
   const initCal = new Date(`${initialDate}T12:00:00`);
@@ -1061,8 +1063,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // ── Fetch availability ────────────────────────────────────────────
 
   const fetchSlots = useCallback(
-    async (date: string, forPlayerCount?: number) => {
-      const count = forPlayerCount ?? activePlayerCount;
+    async (
+      date: string,
+      opts?: { forPlayerCount?: number; hour?: number; minute?: number; webOfferId?: number },
+    ) => {
+      const count = opts?.forPlayerCount ?? activePlayerCount;
       setSlotsLoading(true);
       setSlotsError(null);
       setAvailableSlots([]);
@@ -1084,61 +1089,51 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         };
       };
 
-      function parseRaw(raw: RawSlot[], offerId: number): AvailabilitySlot[] {
-        return raw
-          .filter((a) => a.WebOffer.Id === offerId)
-          .map((a) => {
-            const gameOpts = a.WebOffer.Options?.Game ?? [];
-            const twoGame = gameOpts.find((g) => g.GamesPerPlayer === 2) ?? gameOpts[0];
-            const timeOpts = a.WebOffer.Options?.Time ?? [];
-            const unlimOpts = a.WebOffer.Options?.Unlimited ?? [];
-            let optionId: number | undefined;
-            let optionType: "Game" | "Time" | "Unlimited" | undefined;
-            if (twoGame) { optionId = twoGame.Id; optionType = "Game"; }
-            else if (timeOpts[0]) { optionId = timeOpts[0].Id; optionType = "Time"; }
-            else if (unlimOpts[0]) { optionId = unlimOpts[0].Id; optionType = "Unlimited"; }
-            return {
-              bookedAt: a.BookedAt,
-              webOfferId: a.WebOffer.Id,
-              webOfferTitle: a.WebOffer.Title,
-              webOfferDescription: a.WebOffer.Description,
-              optionId,
-              optionType,
-            };
-          });
+      function parseRaw(raw: RawSlot[]): AvailabilitySlot[] {
+        // Server already filters to valid offers for this day-of-week.
+        // Client just maps to our internal slot type.
+        return raw.map((a) => {
+          const gameOpts = a.WebOffer.Options?.Game ?? [];
+          const twoGame = gameOpts.find((g) => g.GamesPerPlayer === 2) ?? gameOpts[0];
+          const timeOpts = a.WebOffer.Options?.Time ?? [];
+          const unlimOpts = a.WebOffer.Options?.Unlimited ?? [];
+          let optionId: number | undefined;
+          let optionType: "Game" | "Time" | "Unlimited" | undefined;
+          if (twoGame) { optionId = twoGame.Id; optionType = "Game"; }
+          else if (timeOpts[0]) { optionId = timeOpts[0].Id; optionType = "Time"; }
+          else if (unlimOpts[0]) { optionId = unlimOpts[0].Id; optionType = "Unlimited"; }
+          return {
+            bookedAt: a.BookedAt,
+            webOfferId: a.WebOffer.Id,
+            webOfferTitle: a.WebOffer.Title,
+            webOfferDescription: a.WebOffer.Description,
+            optionId,
+            optionType,
+          };
+        });
       }
 
       try {
-        // Filter to only experiences valid on the requested day of week.
-        // e.g. Mon-Thur hourly (daysOfWeek=[1,2,3,4]) won't probe QAMF on a Saturday.
-        const dow = new Date(`${date}T12:00:00`).getDay(); // 0=Sun … 6=Sat
-        const validExperiences = experiences.filter(
-          (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
-        );
-        const offerIds = validExperiences.map((e) => e.qamfWebOfferId);
-        if (offerIds.length === 0) {
-          setSlotsError("No experiences are available on this day.");
-          setSlotsLoading(false);
-          return;
+        // Build URL — server handles daysOfWeek filtering via DB lookup.
+        // When hour+minute are provided, server probes only that time slot
+        // (1 QAMF call instead of 60+). Full-day mode omits them.
+        let url = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
+        if (kind) url += `&kind=${kind}`;
+        if (opts?.webOfferId) url += `&webOfferId=${opts.webOfferId}`;
+        if (opts?.hour !== undefined && opts?.minute !== undefined) {
+          url += `&hour=${opts.hour}&minute=${opts.minute}`;
         }
 
-        // Single call — no webOfferId filter. QAMF returns all enabled offers
-        // in every probe response regardless, so one round-trip covers all
-        // experiences. Dedup on the server is keyed on (BookedAt + WebOffer.Id)
-        // so every offer × time combination arrives correctly.
-        const base = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
-        const data = await fetch(base).then(
+        const data = await fetch(url).then(
           (r) => r.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
         );
 
-        // Parse once, distribute to each experience by offer ID
-        const merged = offerIds.flatMap((id) =>
-          parseRaw(data.Availabilities ?? [], id),
-        );
+        const merged = parseRaw(data.Availabilities ?? []);
         setAvailableSlots(merged);
+        lastFetchKey.current = `${date}:${count}:${opts?.hour ?? ""}:${opts?.minute ?? ""}`;
 
         if (merged.length === 0) {
-          setSlotsError("No slots available for this date. Try another date.");
+          setSlotsError("No slots available for this date and time. Try another time.");
         }
       } catch (err) {
         setSlotsError(err instanceof Error ? err.message : "Failed to load slots");
@@ -1147,15 +1142,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [center.qamfId, activePlayerCount, kind, experiences],
+    [center.qamfId, activePlayerCount, kind],
   );
 
   // On entering the slots step: reset time selection and clear stale slot data.
   // Availability is NOT fetched here — it's deferred to the "See Packages" click
   // so the calendar renders instantly with no loading spinner.
-  // Reschedule (KBF only) still fetches immediately since it needs slots inline.
+  // Reschedule (any experience) still fetches immediately since it needs slots inline.
   useEffect(() => {
-    if (step !== "slots" && !(step === "reschedule" && kind === "kbf")) return;
+    if (step !== "slots" && step !== "reschedule") return;
     if (experiencesLoading) return;
 
     setSelectedHour(null);
@@ -1164,7 +1159,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     setSlotsError(null);
 
     if (step === "reschedule") {
-      void fetchSlots(selectedDate, existingReservation?.playerCount ?? 1);
+      void fetchSlots(selectedDate, { forPlayerCount: existingReservation?.playerCount ?? 1 });
     }
     // slots step: no fetch — deferred to "See Packages"
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2211,7 +2206,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           const v = e.target.value;
                           if (!isKbfBookableDate(v)) return;
                           setSelectedDate(v);
-                          void fetchSlots(v, ex.playerCount ?? 1);
+                          void fetchSlots(v, { forPlayerCount: ex.playerCount ?? 1 });
                         }}
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-body text-sm focus:outline-none focus:border-[#fd5b56]/50"
                       />
@@ -2629,12 +2624,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     onClick={() => {
                       setError(null);
                       setSelectedTier(null);
-                      // Advance to tier step immediately — show a spinner
-                      // there while availability loads in the background.
-                      // Previously we blocked on the slots step with the
-                      // entire UI dimmed, which felt like a freeze.
                       setStep("tier");
-                      void fetchSlots(selectedDate);
+                      // Only fetch if date or player count changed since last fetch.
+                      // QAMF returns all offers for the entire day in one call —
+                      // no need to re-fetch just because the user picked a different time.
+                      const key = `${selectedDate}:${activePlayerCount}:${selectedHour}:${selectedMinute}`;
+                      if (lastFetchKey.current !== key) {
+                        void fetchSlots(selectedDate, {
+                          hour: selectedHour ?? undefined,
+                          minute: selectedMinute ?? undefined,
+                        });
+                      }
                     }}
                     disabled={selectedHour === null || selectedMinute === null || slotsLoading}
                     className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50 text-center whitespace-nowrap"

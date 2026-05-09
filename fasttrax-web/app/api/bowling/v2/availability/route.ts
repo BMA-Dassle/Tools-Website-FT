@@ -1,42 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
-import redis from "@/lib/redis";
+import { getBowlingExperiences } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 
 /**
  * GET /api/bowling/v2/availability
  *
- * Returns all available slots for a given date by probing every 30 minutes
- * in parallel. QAMF's searchAvailability is a point-in-time check — it
- * returns exactly one slot if available at the probed time, nothing otherwise.
- * A range query is not supported (StartAt must equal EndAt).
+ * Returns available bowling slots for a given date, filtered to only
+ * experiences that are valid on that day of week (via daysOfWeek in DB).
  *
- * Both HeadPinz centers are in Eastern time (EDT -04:00 May–Nov, EST -05:00 otherwise).
- * Probes 9:00 am → 11:45 pm in 15-min increments (60 probes, all in parallel).
+ * Two modes:
  *
- * Results are cached in Redis for 5 minutes per (centerId, date, webOfferId, players)
- * to avoid hammering QAMF on every page view.
+ * 1. **Targeted** (hour + minute provided) — probes QAMF at the exact
+ *    selected time for each valid experience's offer ID. Fast: one probe
+ *    per offer (typically 2–4 calls). Used by the booking wizard after
+ *    the guest picks a time.
  *
- * Post-fetch filter: slots whose start time + duration would exceed the
- * center's closing time are removed. Duration comes from the slot's own
- * WebOffer.Options.Time[].Minutes or from the `durationMinutes` query param.
+ * 2. **Full-day** (no hour/minute) — probes every 15 minutes from open
+ *    to close. Used by KBF reschedule and any case needing all slots.
+ *    Still filtered to only valid-day experiences.
+ *
+ * QAMF's searchAvailability is a point-in-time check — StartAt must equal
+ * EndAt. It returns ALL enabled web offers regardless of any filter, so
+ * server-side post-filtering by known offer IDs is required.
+ *
+ * Both HeadPinz centers are in Eastern time.
  *
  * Query params:
  *   centerId        — QAMF center ID (required)
  *   players         — number of players (required)
  *   startDate       — ISO date string 'YYYY-MM-DD' (required)
- *   webOfferId      — filter to a specific QAMF web offer ID (optional but recommended)
+ *   hour            — selected hour 0–25 (optional; 24=midnight, 25=1am)
+ *   minute          — selected minute 0/15/30/45 (optional, requires hour)
+ *   kind            — experience kind filter: 'kbf' | 'open' | 'hourly' (optional)
  *   durationMinutes — booking duration in minutes; overrides WebOffer option (optional)
  */
 
-const CACHE_TTL_SECONDS = 300; // 5 minutes
-
-// Probe times: 9:00 am to 1:45 am (next calendar day) in 15-min increments.
-// Hours 0–1 on the NEXT day are represented as the following calendar date
-// because ISO timestamps cross midnight (e.g. booking on May 9 at 1:00 AM ET
-// is "2026-05-10T01:00:00-04:00").
-const PROBE_HOURS_START = 9;  // 9 am same day
-const PROBE_HOURS_END   = 25; // 1:45 am next calendar day (25 = 24+1)
+// QAMF center ID → Square center code
+const QAMF_TO_CENTER_CODE: Record<number, string> = {
+  9172: "TXBSQN0FEKQ11",
+  3148: "PPTR5G2N0QXF7",
+};
 
 // QAMF center ID → HP_LOCATIONS slug (for closing-time lookup)
 const QAMF_TO_HP_SLUG: Record<number, string> = {
@@ -60,53 +64,60 @@ function parseHourToken(token: string): number {
 }
 
 /**
- * Return closing hour (in 24+ notation) for the given QAMF center on a
- * specific date. Sun-Thu → hours, Fri-Sat → hoursWeekend.
- * Returns 26 (2 AM) as a safe fallback if the center isn't found.
+ * Return { open, close } hours (24+ notation) for the given QAMF center
+ * on a specific date. Sun-Thu → hours, Fri-Sat → hoursWeekend.
  */
-function closingHourForDate(centerId: number, dateStr: string): number {
+function centerHoursForDate(centerId: number, dateStr: string): { open: number; close: number } {
   const slug = QAMF_TO_HP_SLUG[centerId];
   const loc = slug ? HP_LOCATIONS[slug] : undefined;
-  if (!loc) return 26;
-  const dow = new Date(`${dateStr}T12:00:00`).getDay(); // 0=Sun, 6=Sat
+  if (!loc) return { open: 9, close: 26 };
+  const dow = new Date(`${dateStr}T12:00:00`).getDay();
   const isWeekend = dow === 5 || dow === 6;
   const hoursStr = isWeekend ? loc.hoursWeekend : loc.hours;
+  // Parse "Mon-Thu 11AM-11PM" → open=11, close=23
   const timePart = hoursStr.split(" ").pop() ?? "11AM-2AM";
   const dash = timePart.lastIndexOf("-");
+  const openToken = timePart.slice(0, dash);
   const closeToken = timePart.slice(dash + 1);
-  return parseHourToken(closeToken);
+  return { open: parseHourToken(openToken), close: parseHourToken(closeToken) };
 }
 
 /**
  * Check whether a slot's start time + duration would exceed the center's
  * closing time. `bookedAt` is an ISO string with ET offset.
- * `durationMin` is the booking duration in minutes.
- * `closeHour24` is the closing hour in 24+ notation (24=midnight, 26=2AM).
  */
 function slotExceedsClose(bookedAt: string, durationMin: number, closeHour24: number): boolean {
   const d = new Date(bookedAt);
   const endMs = d.getTime() + durationMin * 60_000;
   const end = new Date(endMs);
-  // Convert end time to 24+ hours in ET
   const endET = new Date(end.toLocaleString("en-US", { timeZone: "America/New_York" }));
   let endHour24 = endET.getHours() + endET.getMinutes() / 60;
-  // Post-midnight hours (0–2) should be 24+
   if (endHour24 < 6) endHour24 += 24;
   return endHour24 > closeHour24;
 }
 
-function buildProbeTimes(date: string, tzOffset: string): string[] {
-  const times: string[] = [];
+function buildProbeTime(date: string, hour: number, minute: number, tzOffset: string): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  const calHour = hour % 24;
+  let calDate = date;
+  if (hour >= 24) {
+    const next = new Date(y, mo - 1, d + 1);
+    calDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+  }
+  return `${calDate}T${String(calHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00${tzOffset}`;
+}
 
-  // Parse the booking date so we can roll it forward for post-midnight hours
+function buildFullDayProbeTimes(date: string, tzOffset: string, openHour: number, closeHour: number): string[] {
+  const times: string[] = [];
   const [y, mo, d] = date.split("-").map(Number);
   const nextDate = new Date(y, mo - 1, d + 1);
   const nextDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
 
-  for (let h = PROBE_HOURS_START; h <= PROBE_HOURS_END; h++) {
+  // Probe from open to close in 15-min increments
+  for (let h = openHour; h <= closeHour; h++) {
     for (const m of [0, 15, 30, 45]) {
-      if (h === PROBE_HOURS_END && m === 45) break; // stop at 1:45 am
-      const calHour = h % 24; // 24 → 0, 25 → 1
+      if (h === closeHour && m > 0) break;
+      const calHour = h % 24;
       const calDate = h >= 24 ? nextDateStr : date;
       times.push(
         `${calDate}T${String(calHour).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
@@ -119,11 +130,14 @@ function buildProbeTimes(date: string, tzOffset: string): string[] {
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
-  const centerIdStr      = searchParams.get("centerId");
-  const playersStr       = searchParams.get("players");
-  const startDate        = searchParams.get("startDate");
-  const webOfferIdStr    = searchParams.get("webOfferId");
-  const durationMinStr   = searchParams.get("durationMinutes");
+  const centerIdStr    = searchParams.get("centerId");
+  const playersStr     = searchParams.get("players");
+  const startDate      = searchParams.get("startDate");
+  const hourStr        = searchParams.get("hour");
+  const minuteStr      = searchParams.get("minute");
+  const kindStr        = searchParams.get("kind") as "kbf" | "open" | "hourly" | null;
+  const webOfferIdStr  = searchParams.get("webOfferId");
+  const durationMinStr = searchParams.get("durationMinutes");
 
   if (!centerIdStr || !playersStr || !startDate) {
     return NextResponse.json(
@@ -141,50 +155,76 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid centerId or players" }, { status: 400 });
   }
 
+  // ── Resolve center code → look up valid experiences from DB ──────
+  const centerCode = QAMF_TO_CENTER_CODE[centerId];
+  if (!centerCode) {
+    return NextResponse.json({ error: `unknown centerId: ${centerId}` }, { status: 400 });
+  }
+
+  const dow = new Date(`${startDate}T12:00:00`).getDay(); // 0=Sun … 6=Sat
+
+  // Get experiences valid for this day-of-week
+  const allExperiences = await getBowlingExperiences(centerCode, kindStr ?? undefined);
+  let validExperiences = allExperiences.filter(
+    (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
+  );
+
+  // When webOfferId is specified (e.g. reschedule), narrow to just that offer
+  if (webOfferId) {
+    validExperiences = validExperiences.filter(
+      (e) => e.qamfWebOfferId === webOfferId,
+    );
+  }
+
+  if (validExperiences.length === 0) {
+    return NextResponse.json({ Availabilities: [] });
+  }
+
+  // Collect the set of known offer IDs for server-side post-filtering
+  const validOfferIds = new Set(validExperiences.map((e) => e.qamfWebOfferId));
+
   // Both centers are in Southwest Florida (Eastern time).
   const month = parseInt(startDate.slice(5, 7), 10);
   const tzOffset = month >= 3 && month <= 11 ? "-04:00" : "-05:00";
 
-  const probeTimes = buildProbeTimes(startDate, tzOffset);
+  // ── Build probe times ────────────────────────────────────────────
+  const hasSelectedTime = hourStr !== null && minuteStr !== null;
+  let probeTimes: string[];
 
-  const webOfferFilter: { Id?: number; Services: "BookForLater"[] } = {
-    Services: ["BookForLater"],
-    ...(webOfferId ? { Id: webOfferId } : {}),
-  };
-
-  // Check Redis cache first
-  const cacheKey = `bowling:avail:${centerId}:${startDate}:${webOfferId ?? "all"}:${players}:${durationMinOver ?? "auto"}`;
-  try {
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      return NextResponse.json(JSON.parse(cached) as object, {
-        headers: { "X-Cache": "HIT" },
-      });
-    }
-  } catch {
-    // Redis unavailable — fall through to QAMF
+  if (hasSelectedTime) {
+    // Targeted mode: probe only at the selected time
+    const hour = parseInt(hourStr!, 10);
+    const minute = parseInt(minuteStr!, 10);
+    probeTimes = [buildProbeTime(startDate, hour, minute, tzOffset)];
+  } else {
+    // Full-day mode: probe every 15 min from open to close
+    const { open, close } = centerHoursForDate(centerId, startDate);
+    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, open, close);
   }
 
-  // Fire all probes in parallel
+  // ── Probe QAMF ──────────────────────────────────────────────────
+  // QAMF ignores the WebOffer.Id filter and returns ALL enabled offers
+  // in every response. So we only need one probe per time slot (not one
+  // per offer × time). We post-filter by validOfferIds afterward.
+
   try {
     const results = await Promise.all(
       probeTimes.map((bookedAt) =>
         searchAvailability(centerId, {
           BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
           TotalPlayers: players,
-          WebOffer: webOfferFilter,
-        }).catch(() => ({ Availabilities: [] })), // swallow individual failures
+          WebOffer: { Services: ["BookForLater"] },
+        }).catch(() => ({ Availabilities: [] })),
       ),
     );
 
-    // Flatten, deduplicate by (BookedAt + WebOffer.Id), sort chronologically.
-    // QAMF returns ALL enabled offers in every probe response regardless of the
-    // WebOffer.Id filter — so two offers at the same BookedAt arrive in the same
-    // results array. Keying on BookedAt alone would drop every offer after the first.
+    // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers
     const seen = new Set<string>();
     let availabilities = results
       .flatMap((r) => r.Availabilities)
       .filter((a) => {
+        // Only keep offers we know about in the DB for this day
+        if (!validOfferIds.has(Number(a.WebOffer.Id))) return false;
         const key = `${a.BookedAt}::${a.WebOffer.Id}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -192,9 +232,8 @@ export async function GET(req: NextRequest) {
       })
       .sort((a, b) => a.BookedAt.localeCompare(b.BookedAt));
 
-    // ── Filter slots that would run past closing time ──────────────
-    // Duration comes from the query param or the slot's own Time option.
-    const closeHour = closingHourForDate(centerId, startDate);
+    // Filter slots that would run past closing time
+    const { close: closeHour } = centerHoursForDate(centerId, startDate);
     availabilities = availabilities.filter((a) => {
       const mins = durationMinOver
         ?? a.WebOffer?.Options?.Time?.[0]?.Minutes
@@ -203,12 +242,7 @@ export async function GET(req: NextRequest) {
       return !slotExceedsClose(a.BookedAt, mins, closeHour);
     });
 
-    const payload = { Availabilities: availabilities };
-
-    // Cache in Redis (fire-and-forget — don't block response)
-    redis.set(cacheKey, JSON.stringify(payload), "EX", CACHE_TTL_SECONDS).catch(() => {});
-
-    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } });
+    return NextResponse.json({ Availabilities: availabilities });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     return NextResponse.json({ error: msg }, { status: 502 });
