@@ -1573,10 +1573,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     [center.qamfId, activePlayerCount, releaseHold],
   );
 
-  // Used by VIP upgrade modal — creates hold AND advances to next step.
+  // Used by VIP upgrade modal — fires hold (non-blocking, non-fatal)
+  // and advances to next step immediately. The hold continues in the
+  // background — by the time the user fills in shoes + details + payment,
+  // it'll be long confirmed.
   const createHoldAndAdvance = useCallback(
-    async (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
-      await createHold(slot);
+    (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
+      void createHold(slot);
       if (isPerLaneExp) {
         setStep(isPizzaBowl ? "food" : "review");
       } else {
@@ -2449,7 +2452,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   )}
                 </div>
 
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity${slotsLoading ? " opacity-40 pointer-events-none" : ""}`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Calendar */}
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                     <div className="text-white/35 text-xs uppercase tracking-[3px] mb-3 text-center">Date</div>
@@ -2594,22 +2597,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     onClick={() => {
                       setError(null);
                       setSelectedTier(null);
-                      void (async () => {
-                        await fetchSlots(selectedDate);
-                        setStep("tier");
-                      })();
+                      // Advance to tier step immediately — show a spinner
+                      // there while availability loads in the background.
+                      // Previously we blocked on the slots step with the
+                      // entire UI dimmed, which felt like a freeze.
+                      setStep("tier");
+                      void fetchSlots(selectedDate);
                     }}
                     disabled={selectedHour === null || selectedMinute === null || slotsLoading}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
-                    {slotsLoading
-                      ? "Finding packages…"
-                      : selectedHour !== null && selectedMinute !== null
-                        ? `See Packages — ${formatHourMinute(selectedHour, selectedMinute)}`
-                        : selectedHour !== null
-                          ? "Pick a time above"
-                          : "See Available Packages"}
+                    {selectedHour !== null && selectedMinute !== null
+                      ? `See Packages — ${formatHourMinute(selectedHour, selectedMinute)}`
+                      : selectedHour !== null
+                        ? "Pick a time above"
+                        : "See Available Packages"}
                   </button>
                 </div>
               </div>
@@ -2700,7 +2703,19 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   on {dateLabel}
                 </p>
 
-                {tiersToShow.length === 0 ? (
+                {/* Loading state — shown while availability fetch is in flight.
+                    We advance to this step immediately when "See Packages" is
+                    tapped so the user sees forward motion instead of a frozen
+                    calendar screen. */}
+                {slotsLoading ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
+                    <div
+                      className="w-10 h-10 border-2 border-white/15 rounded-full animate-spin mx-auto mb-4"
+                      style={{ borderTopColor: CORAL }}
+                    />
+                    <p className="font-body text-white/60 text-sm">Finding packages…</p>
+                  </div>
+                ) : tiersToShow.length === 0 ? (
                   <div className="text-center py-10">
                     <p className="font-body text-white/50 text-sm">No packages available at the selected time.</p>
                     <button type="button" onClick={() => setStep("slots")} className="mt-4 font-body text-white/60 text-sm underline underline-offset-2">← Choose a different time</button>
@@ -2811,13 +2826,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setStep("slots")}
-                  className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
-                >
-                  Back
-                </button>
+                {!slotsLoading && (
+                  <button
+                    type="button"
+                    onClick={() => setStep("slots")}
+                    className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                  >
+                    Back
+                  </button>
+                )}
 
                 {/* ── Time-switch confirmation modal ────────────────── */}
                 {tierTimeConfirm && (() => {
@@ -3101,11 +3118,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         setStep("shoes");
                       }
                     }}
-                    disabled={!selectedSlot || holdBusy}
+                    disabled={!selectedSlot}
                     className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50"
                     style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                   >
-                    {holdBusy ? "Holding lane…" : selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
+                    {selectedSlot ? `Continue — ${formatTime(selectedSlot.bookedAt)}` : "Select a time"}
                   </button>
                 </div>
               </div>
@@ -3180,19 +3197,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     <div className="flex gap-3">
                       <button
                         type="button"
-                        disabled={holdBusy}
                         onClick={() => {
                           setShowVipUpgrade(false);
                           // Create hold on the regular slot and advance
                           void createHoldAndAdvance(selectedSlot, selectedIncludesShoes, selectedIsPerLane);
                         }}
-                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors disabled:opacity-50"
+                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors"
                       >
-                        {holdBusy ? "Holding…" : "No Thanks"}
+                        No Thanks
                       </button>
                       <button
                         type="button"
-                        disabled={holdBusy}
                         onClick={() => {
                           // Switch to VIP slot and create hold on it
                           setSelectedTier("vip");
@@ -3201,10 +3216,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           const vipIncludesShoes = vipDisplay.includesShoes ?? false;
                           void createHoldAndAdvance(vipUpgradeSlot, vipIncludesShoes, vipIsPerLane);
                         }}
-                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02] disabled:opacity-50"
+                        className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02]"
                         style={{ backgroundColor: GOLD, boxShadow: `0 0 18px ${GOLD}40` }}
                       >
-                        {holdBusy ? "Holding…" : delta > 0 ? `Upgrade +${centsToDollars(delta)}` : "Upgrade to VIP"}
+                        {delta > 0 ? `Upgrade +${centsToDollars(delta)}` : "Upgrade to VIP"}
                       </button>
                     </div>
                   </div>
