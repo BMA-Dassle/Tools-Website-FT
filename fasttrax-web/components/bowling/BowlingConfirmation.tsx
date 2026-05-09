@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import type { BowlingReservation, BowlingReservationPlayer, ReservationLine } from "@/lib/bowling-db";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /**
  * Shared bowling confirmation page component.
@@ -260,7 +261,7 @@ function CheckInModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...modalBackdropProps(onClose)}
     >
       {/* Modal card */}
       <div
@@ -1046,6 +1047,27 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
         {/* ── RIGHT COLUMN ── */}
         <div className="lg:col-span-2 space-y-4">
 
+          {/* ── Lane not ready indicator ── */}
+          {!isCancelled && hasNeonRecord && laneReadyPhase === "not_ready" && (
+            <div
+              className="w-full rounded-2xl border px-5 py-3.5 flex items-center gap-3"
+              style={{
+                backgroundColor: "rgba(239,68,68,0.08)",
+                borderColor: "rgba(239,68,68,0.3)",
+              }}
+            >
+              <span style={{ fontSize: "18px" }}>🔴</span>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "#f87171" }}>
+                  Lane Not Ready Yet
+                </p>
+                <p className="text-xs text-white/45 mt-0.5">
+                  We&apos;ll let you know as soon as it&apos;s set up.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* ── Check In button — only when lane is Ready ── */}
           {!isCancelled && hasNeonRecord && laneReadyPhase === "ready" && (
             <button
@@ -1054,12 +1076,12 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
               style={{
                 background: `linear-gradient(135deg, ${CORAL} 0%, #e03d38 100%)`,
-                fontSize: "16px",
-                letterSpacing: "2px",
+                fontSize: "15px",
+                letterSpacing: "1.5px",
                 boxShadow: `0 4px 24px rgba(253,91,86,0.35)`,
               }}
             >
-              🎳 Check In
+              🎳 Your Lane is Ready! Check In Now!
             </button>
           )}
 
