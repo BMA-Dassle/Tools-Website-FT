@@ -49,6 +49,7 @@ interface ExperienceDisplay {
   description: string;
   features: string[];
   includesShoes?: boolean; // true → show "Bowling Shoes Included" banner + skip shoes step
+  perLane?: boolean;       // true → price is per lane, not per person (pizza bowl, hourly)
 }
 
 const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
@@ -147,6 +148,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "Up to 6 bowlers per lane",
     ],
     includesShoes: true,
+    perLane: true,
   },
   "pizza-bowl-vip": {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
@@ -160,6 +162,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
       "NeoVerse video walls",
     ],
     includesShoes: true,
+    perLane: true,
   },
 };
 
@@ -2627,6 +2630,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     const display = getExperienceDisplay(exp.slug, exp.isVip);
                     const accent = display.accent;
                     const isHourly = exp.kind === "hourly";
+                    const isPerLane = isHourly || !!display.perLane;
                     const offerSlots = availableSlots.filter(
                       (s) =>
                         s.webOfferId === exp.qamfWebOfferId &&
@@ -2664,7 +2668,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             {/* Per-person / per-lane badge */}
                             <div className="absolute top-3 left-3">
                               <span className="font-body font-bold text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ backgroundColor: accent, color: "#0a1628" }}>
-                                {isHourly ? "Per Lane" : "Per Person"}
+                                {isPerLane ? "Per Lane" : "Per Person"}
                               </span>
                             </div>
                           </div>
@@ -2739,17 +2743,21 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 </div>
                               ) : null
                             ) : (
-                              /* 'open' kind (Fun 4 All) — per-person with time chips */
+                              /* 'open' kind (Fun 4 All / Pizza Bowl) */
                               hasSlots && (
                                 <div>
                                   {/* Price row */}
                                   <div className="flex items-baseline gap-2 mb-3">
                                     <span className="font-heading text-2xl font-bold" style={{ color: accent }}>
-                                      {isFree ? "Free" : centsToDollars(baseTotalCents * activePlayerCount)}
+                                      {isFree
+                                        ? "Free"
+                                        : centsToDollars(isPerLane ? baseTotalCents : baseTotalCents * activePlayerCount)}
                                     </span>
                                     {!isFree && (
                                       <span className="font-body text-white/40 text-sm">
-                                        {centsToDollars(baseTotalCents)}/person
+                                        {isPerLane
+                                          ? "per lane"
+                                          : `${centsToDollars(baseTotalCents)}/person`}
                                       </span>
                                     )}
                                   </div>
@@ -2817,6 +2825,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             const vipTotal = vipUpgradeExperience.items.reduce((s, i) => s + i.priceCents * i.quantity, 0);
             const delta = vipTotal - regTotal;
             const isHourly = vipUpgradeExperience.kind === "hourly";
+            const vipIsPerLane = isHourly || !!getExperienceDisplay(vipUpgradeExperience.slug, true).perLane;
             return (
               <div
                 className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
@@ -2866,7 +2875,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       >
                         <span className="font-body text-white/55 text-sm">VIP upgrade</span>
                         <span className="font-heading font-bold text-lg" style={{ color: GOLD }}>
-                          +{centsToDollars(delta)}<span className="font-body text-sm font-normal text-white/40">/{isHourly ? "lane" : "person"}</span>
+                          +{centsToDollars(delta)}<span className="font-body text-sm font-normal text-white/40">/{vipIsPerLane ? "lane" : "person"}</span>
                         </span>
                       </div>
                     )}
