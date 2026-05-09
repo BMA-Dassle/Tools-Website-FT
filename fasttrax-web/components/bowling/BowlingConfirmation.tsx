@@ -613,7 +613,8 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   // ── Reschedule state ─────────────────────────────────────────────
   type RescheduleInfo = {
     webOfferId: number; optionId?: number; optionType?: string;
-    centerId: number; playerCount: number; daysOfWeek?: number[];
+    centerId: number; playerCount: number;
+    daysOfWeek?: number[]; durationMinutes?: number;
   };
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleInfo, setRescheduleInfo] = useState<RescheduleInfo | null>(null);
@@ -762,6 +763,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           players: String(rescheduleInfo.playerCount),
           startDate: rescheduleDate,
           webOfferId: String(rescheduleInfo.webOfferId),
+          ...(rescheduleInfo.durationMinutes
+            ? { durationMinutes: String(rescheduleInfo.durationMinutes) }
+            : {}),
         });
         const res = await fetch(`/api/bowling/v2/availability?${qs}`, { cache: "no-store" });
         const data = await res.json();

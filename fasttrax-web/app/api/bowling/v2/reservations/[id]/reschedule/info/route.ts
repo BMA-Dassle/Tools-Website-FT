@@ -76,9 +76,9 @@ export async function GET(
       optionId = opts.Game[0].Id;
     }
 
-    // Look up days_of_week from the experience linked to this web offer
-    // bowling_experience_offers → bowling_experiences.days_of_week
+    // Look up days_of_week + duration from the experience linked to this web offer
     let daysOfWeek: number[] = [0, 1, 2, 3, 4, 5, 6]; // default: all days
+    let durationMinutes: number | undefined;
     try {
       const q = sql();
       const rows = await q`
@@ -93,8 +93,22 @@ export async function GET(
         const raw = rows[0].days_of_week;
         if (Array.isArray(raw)) daysOfWeek = raw as number[];
       }
+
+      // Get duration from the duration option matching this reservation's QAMF option
+      if (optionId && optionType === "Time") {
+        const durRows = await q`
+          SELECT duration_minutes
+          FROM bowling_experience_duration_options
+          WHERE qamf_option_id = ${optionId}
+            AND center_code = ${reservation.centerCode}
+          LIMIT 1
+        `;
+        if (durRows.length > 0) {
+          durationMinutes = durRows[0].duration_minutes as number;
+        }
+      }
     } catch {
-      // Non-fatal — default to all days
+      // Non-fatal — default to all days, no duration filter
     }
 
     return NextResponse.json({
@@ -105,6 +119,7 @@ export async function GET(
       playerCount: reservation.playerCount ?? 1,
       bookedAt: reservation.bookedAt,
       daysOfWeek,
+      durationMinutes,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";
