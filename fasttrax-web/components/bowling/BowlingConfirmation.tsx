@@ -34,10 +34,6 @@ const CENTER_ADDRESS: Record<string, string> = {
   "9172": "14513 Global Pkwy, Fort Myers",
   "3148": "8525 Radio Ln, Naples",
 };
-const CENTER_PHONE: Record<string, string> = {
-  "9172": "(239) 302-2155",
-  "3148": "(239) 455-3755",
-};
 
 type ReservationWithLines = BowlingReservation & {
   lines: (ReservationLine & { id: number; reservationId: number })[];
@@ -348,13 +344,14 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [playersError, setPlayersError] = useState<string | null>(null);
 
   // ── Cancel state ─────────────────────────────────────────────────
-  type CancelPhase = "idle" | "confirming" | "cancelling" | "cancelled" | "tooLate";
-  const [cancelPhase, setCancelPhase] = useState<CancelPhase>("idle");
-  const [cancelError, setCancelError] = useState<string | null>(null);
-  const [cancelRefundCents, setCancelRefundCents] = useState(0);
+  // cancelPhase drives isCancelled below; stays "idle" — the page detects
+  // cancellation purely from reservation.status set by the QAMF webhook consumer.
+  const [cancelPhase] = useState<"idle" | "cancelled">("idle");
+  const cancelRefundCents = 0; // always read from reservation.refundCents (Neon)
+
+  const isCancelled = cancelPhase === "cancelled" || reservation?.status === "cancelled";
 
   const centerName = CENTER_NAME[centerId] ?? "HeadPinz";
-  const centerPhone = CENTER_PHONE[centerId] ?? "(239) 302-2155";
   const centerAddress = CENTER_ADDRESS[centerId] ?? "";
 
   useEffect(() => {
@@ -444,50 +441,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     }
   }
 
-  function handleRequestCancel() {
-    if (!reservation) return;
-    // Client-side 1-hour check so we can show the right UI immediately
-    const msUntilGame = new Date(reservation.bookedAt).getTime() - Date.now();
-    if (msUntilGame < 60 * 60 * 1000) {
-      setCancelPhase("tooLate");
-      return;
-    }
-    setCancelPhase("confirming");
-    setCancelError(null);
-  }
-
-  async function handleConfirmCancel() {
-    if (!hasNeonRecord) return;
-    setCancelPhase("cancelling");
-    setCancelError(null);
-    try {
-      const res = await fetch(`/api/bowling/v2/reservations/${neonId}`, {
-        method: "DELETE",
-      });
-      const data = (await res.json()) as {
-        message?: string;
-        refundCents?: number;
-        error?: string;
-      };
-      if (!res.ok) {
-        if (res.status === 409) {
-          setCancelPhase("tooLate");
-        } else {
-          setCancelError(data.error ?? "Cancellation failed. Please call the center.");
-          setCancelPhase("confirming");
-        }
-        return;
-      }
-      setCancelRefundCents(data.refundCents ?? 0);
-      setCancelPhase("cancelled");
-      // Reflect in local reservation state so deposit display updates
-      setReservation((prev) => prev ? { ...prev, status: "cancelled" } : prev);
-    } catch {
-      setCancelError("Network error — please try again or call the center.");
-      setCancelPhase("confirming");
-    }
-  }
-
   const displayDepositPaid = reservation ? reservation.depositCents : depositPaidCents;
   const displayTotal = reservation
     ? reservation.totalCents
@@ -513,7 +466,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           <div
             className="rounded-2xl border p-6 sm:p-8"
             style={{
-              backgroundColor: "rgba(253,91,86,0.08)",
+              backgroundColor: isCancelled ? "rgba(253,91,86,0.05)" : "rgba(253,91,86,0.08)",
               borderColor: `${CORAL}55`,
             }}
           >
@@ -521,93 +474,33 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               className="uppercase font-bold mb-2"
               style={{ color: CORAL, fontSize: "11px", letterSpacing: "3px" }}
             >
-              {cfg.heroLabel}
+              {isCancelled ? "Booking cancelled" : cfg.heroLabel}
             </div>
             <h1
-              className="font-heading font-black uppercase italic text-white mb-2"
-              style={{ fontSize: "clamp(28px, 5vw, 40px)", lineHeight: 1.05 }}
+              className="font-heading font-black uppercase italic mb-2"
+              style={{
+                fontSize: "clamp(28px, 5vw, 40px)",
+                lineHeight: 1.05,
+                color: isCancelled ? "rgba(255,255,255,0.35)" : "white",
+                textDecoration: isCancelled ? "line-through" : "none",
+              }}
             >
               You&apos;re booked!
             </h1>
             <p className="text-white/70 text-sm leading-relaxed">
-              {cfg.heroSubtitle(hasPaidDeposit)}
+              {isCancelled
+                ? "This booking has been cancelled."
+                : cfg.heroSubtitle(hasPaidDeposit)}
             </p>
 
-            {/* ── Quick-action row ── */}
-            {reservation?.status !== "cancelled" && cancelPhase === "idle" && hasNeonRecord && (
-              <div className="flex gap-2 mt-4 pt-4 border-t border-white/10">
-                {cfg.changeLink && (
-                  <a
-                    href={cfg.changeLink.href}
-                    className="flex-1 text-center rounded-full px-3 py-2 font-body font-bold text-xs uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
-                  >
-                    {cfg.changeLink.label}
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={handleRequestCancel}
-                  className="flex-1 rounded-full px-3 py-2 font-body font-bold text-xs uppercase tracking-wider border transition-colors"
-                  style={{
-                    borderColor: "rgba(253,91,86,0.35)",
-                    color: "rgba(253,91,86,0.75)",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = CORAL;
-                    (e.currentTarget as HTMLButtonElement).style.color = CORAL;
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(253,91,86,0.35)";
-                    (e.currentTarget as HTMLButtonElement).style.color = "rgba(253,91,86,0.75)";
-                  }}
-                >
-                  Cancel booking
-                </button>
-              </div>
-            )}
-
-            {/* ── Inline cancel confirmation (shown inside hero card when triggered) ── */}
-            {cancelPhase === "confirming" && (
-              <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
-                <p className="text-white/80 text-sm">
-                  {displayDepositPaid > 0
-                    ? `Cancel and get a full ${centsToDollars(displayDepositPaid)} refund to your card?`
-                    : "Cancel this booking?"}
-                </p>
-                {cancelError && <p className="text-xs" style={{ color: CORAL }}>{cancelError}</p>}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setCancelPhase("idle"); setCancelError(null); }}
-                    className="flex-1 py-2.5 rounded-full border border-white/20 font-body font-bold text-sm text-white/60 hover:text-white transition-colors uppercase tracking-wider"
-                  >
-                    Never mind
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleConfirmCancel()}
-                    className="flex-1 py-2.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] active:scale-[0.99]"
-                    style={{ backgroundColor: CORAL }}
-                  >
-                    Yes, cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {cancelPhase === "cancelling" && (
-              <p className="mt-4 pt-4 border-t border-white/10 text-white/60 text-sm text-center animate-pulse">
-                Cancelling…
+            {/* Refund line — shown directly in hero when cancelled */}
+            {isCancelled && (cancelRefundCents > 0 || (reservation?.refundCents ?? 0) > 0) && (
+              <p className="text-white/55 text-sm mt-2">
+                {centsToDollars(cancelRefundCents || (reservation?.refundCents ?? 0))} refund will appear on your card in 3–5 business days.
               </p>
             )}
-
-            {cancelPhase === "tooLate" && (
-              <p className="mt-4 pt-4 border-t border-white/10 text-white/70 text-xs leading-relaxed">
-                Cancellations must be made at least 1 hour before your start time. Call{" "}
-                <a className="underline hover:text-white transition-colors" href={`tel:${centerPhone.replace(/\D/g, "")}`}>
-                  {centerPhone}
-                </a>.
-              </p>
+            {isCancelled && cancelRefundCents === 0 && (reservation?.refundCents ?? 0) === 0 && (
+              <p className="text-white/55 text-sm mt-2">No charges were made.</p>
             )}
           </div>
 
@@ -622,7 +515,30 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           )}
 
           {/* ── Booking details card ── */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-3">
+          <div
+            className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-3 relative overflow-hidden"
+            style={isCancelled ? { opacity: 0.45 } : undefined}
+          >
+            {/* CANCELED stamp overlay */}
+            {isCancelled && (
+              <div
+                className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                style={{ zIndex: 1 }}
+              >
+                <div
+                  className="font-heading font-black uppercase italic rotate-[-18deg] select-none"
+                  style={{
+                    fontSize: "clamp(52px, 10vw, 72px)",
+                    color: CORAL,
+                    opacity: 0.18,
+                    letterSpacing: "4px",
+                    lineHeight: 1,
+                  }}
+                >
+                  Canceled
+                </div>
+              </div>
+            )}
             {qamfId && <Row label="Booking ref" value={qamfId} mono />}
             <Row label="Center" value={centerName} />
             {centerAddress && <Row label="Address" value={centerAddress} />}
@@ -691,8 +607,8 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             )}
           </div>
 
-          {/* ── Bowler details ── */}
-          {players.length > 0 && (
+          {/* ── Bowler details ── (hidden when cancelled) */}
+          {players.length > 0 && !isCancelled && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
               <div
                 className="uppercase font-bold mb-1"
@@ -798,49 +714,24 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             </div>
           )}
 
-          {/* ── Arrival instructions ── */}
-          <div
-            className="rounded-xl border px-5 py-4 space-y-2"
-            style={{
-              backgroundColor: "rgba(18,48,117,0.35)",
-              borderColor: `${NAVY}99`,
-            }}
-          >
+          {/* ── Arrival instructions (hidden when cancelled) ── */}
+          {!isCancelled && (
             <div
-              className="uppercase font-bold"
-              style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
-            >
-              When you arrive
-            </div>
-            <ul className="text-white/75 text-sm space-y-1 list-disc list-inside">
-              {cfg.arrivalBullets(displayRemaining)}
-            </ul>
-          </div>
-
-
-          {/* Cancelled confirmation */}
-          {(cancelPhase === "cancelled" || reservation?.status === "cancelled") && (
-            <div
-              className="rounded-xl border px-4 py-4 space-y-1"
+              className="rounded-xl border px-5 py-4 space-y-2"
               style={{
-                backgroundColor: "rgba(74,222,128,0.06)",
-                borderColor: "rgba(74,222,128,0.30)",
+                backgroundColor: "rgba(18,48,117,0.35)",
+                borderColor: `${NAVY}99`,
               }}
             >
               <div
                 className="uppercase font-bold"
-                style={{ color: "#4ade80", fontSize: "10px", letterSpacing: "2.5px" }}
+                style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
               >
-                Booking cancelled
+                When you arrive
               </div>
-              {(cancelRefundCents > 0 || (reservation?.refundCents ?? 0) > 0) && (
-                <p className="text-white/70 text-sm">
-                  {centsToDollars(cancelRefundCents || (reservation?.refundCents ?? 0))} refund will appear on your card in 3–5 business days.
-                </p>
-              )}
-              {(cancelRefundCents === 0 && (reservation?.refundCents ?? 0) === 0) && (
-                <p className="text-white/70 text-sm">No charges were made.</p>
-              )}
+              <ul className="text-white/75 text-sm space-y-1 list-disc list-inside">
+                {cfg.arrivalBullets(displayRemaining)}
+              </ul>
             </div>
           )}
 
