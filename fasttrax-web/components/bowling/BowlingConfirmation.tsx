@@ -206,9 +206,11 @@ function resolveCheckInPhase(raw: string | undefined): CheckInPhase {
 function CheckInModal({
   neonId,
   onClose,
+  onLaneOpened,
 }: {
   neonId: number;
   onClose: () => void;
+  onLaneOpened?: (laneLabel: string) => void;
 }) {
   const [state, setState] = useState<CheckInState>({ phase: "checking", laneLabel: "" });
 
@@ -251,6 +253,7 @@ function CheckInModal({
         return;
       }
       setState((s) => ({ ...s, phase: "open" }));
+      onLaneOpened?.(state.laneLabel);
     } catch {
       setState((s) => ({ ...s, phase: "error", error: "Connection error — try again" }));
     }
@@ -1137,7 +1140,15 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
           {/* Check-in modal (portal renders over everything) */}
           {checkInOpen && hasNeonRecord && (
-            <CheckInModal neonId={neonId} onClose={() => setCheckInOpen(false)} />
+            <CheckInModal
+              neonId={neonId}
+              onClose={() => setCheckInOpen(false)}
+              onLaneOpened={(label) => {
+                setLaneReadyPhase("running");
+                if (label) setLaneReadyLabel(label);
+                setCheckInOpen(false);
+              }}
+            />
           )}
 
           {/* ── Arrival instructions (hidden when cancelled) ── */}
