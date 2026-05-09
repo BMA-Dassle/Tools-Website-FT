@@ -5,6 +5,8 @@ import {
   setReservationStatus,
   setReservationCustomer,
   patchReservation,
+  getReservation,
+  setLanePlayers,
 } from "@/lib/qamf-bowling";
 import {
   getBowlingSquareProduct,
@@ -282,6 +284,41 @@ export async function POST(req: NextRequest) {
 
   const qamfNotes = buildQamfNotes();
 
+  /**
+   * Push player names, shoe sizes, and bumper prefs to each assigned QAMF lane.
+   * Called after the reservation is created/confirmed so lane IDs are known.
+   * Non-fatal — Conqueror display only.
+   */
+  async function pushPlayersToQamf(reservationId: string): Promise<void> {
+    const hasPlayerData = players.some(
+      (p) => p.name || p.shoeSize || p.bumpers != null,
+    );
+    if (!hasPlayerData) return;
+
+    const reservation = await getReservation(centerId, reservationId);
+    const lanes = reservation.Lanes ?? [];
+    if (lanes.length === 0) return;
+
+    // Distribute players across lanes evenly (e.g. 4 players, 2 lanes → 2 each)
+    const perLane = Math.ceil(players.length / lanes.length);
+    await Promise.all(
+      lanes.map((lane, idx) => {
+        const slice = players.slice(idx * perLane, idx * perLane + perLane);
+        if (slice.length === 0) return Promise.resolve();
+        return setLanePlayers(
+          centerId,
+          reservationId,
+          lane.Id,
+          slice.map((p, i) => ({
+            Name: p.name || `Bowler ${idx * perLane + i + 1}`,
+            ShoeSize: p.shoeSize ?? undefined,
+            ActivateBumpers: p.bumpers ?? false,
+          })),
+        );
+      }),
+    );
+  }
+
   /** Attach customer then confirm — used by fresh reservation paths. */
   async function attachAndConfirm(reservationId: string): Promise<boolean> {
     // QAMF requires an explicit PUT /customer BEFORE /status will confirm.
@@ -408,6 +445,16 @@ export async function POST(req: NextRequest) {
       return false;
     });
   }
+
+  // ── Push player data to QAMF lanes ─────────────────────────────
+  // Non-fatal — gives Conqueror per-player shoe sizes + bumper flags.
+  // Runs after QAMF reservation exists so lane IDs are populated.
+  pushPlayersToQamf(qamfReservationId).catch((err) =>
+    console.warn(
+      `[bowling/v2/reserve] pushPlayersToQamf(${qamfReservationId}) failed (non-fatal):`,
+      err instanceof Error ? err.message : err,
+    ),
+  );
 
   // ── Square payment (gift card deposit + day-of order) ──────────
   let squareDepositOrderId: string | undefined;
