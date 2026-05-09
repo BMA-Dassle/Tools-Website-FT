@@ -156,11 +156,12 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "pizza-bowl": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "Sunday special — bowling + pizza + shoes all included!",
+    description: "The ultimate Sunday deal — 2 hours of bowling with a large one-topping pizza, pitcher of soda, and shoes for up to 6 people all included in one price!",
     features: [
-      "Bowling shoes included",
-      "Pizza included",
-      "Up to 20 bowlers per lane",
+      "2 hours of bowling",
+      "Large one-topping pizza",
+      "Pitcher of soda",
+      "Shoes for up to 6 people",
     ],
     includesShoes: true,
     perLane: true,
@@ -169,12 +170,14 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Sunday VIP special — premium lanes, pizza, shoes & NeoVerse technology included.",
+      "The ultimate VIP Sunday deal — 2 hours of premium bowling with a large one-topping pizza, pitcher of soda, shoes for up to 6, and complimentary chips & salsa!",
     features: [
-      "Bowling shoes included",
-      "Pizza included",
-      "VIP lounge & dedicated lanes",
-      "NeoVerse video walls",
+      "2 hours of premium bowling",
+      "Large one-topping pizza",
+      "Pitcher of soda",
+      "Shoes for up to 6 people",
+      "Complimentary chips & salsa",
+      "VIP NeoVerse lanes",
     ],
     includesShoes: true,
     perLane: true,
@@ -1156,11 +1159,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         const data = await res.json() as BowlingSquareProduct[];
         if (!res.ok) return;
         setShoeProducts(Array.isArray(data) ? data : []);
-        if (kind === "kbf" && Array.isArray(data) && data.length > 0) {
-          // KBF default: one pair per selected bowler
+        if (Array.isArray(data) && data.length > 0) {
+          // Default one pair per bowler — user can adjust down
           setShoeQty({ [data[0].id]: activePlayerCount });
         }
-        // Open bowling: leave at 0 — user opts in
       } catch {
         // Non-fatal
       }
@@ -2932,6 +2934,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               return true; // hourly: always show, may show SOLD OUT
             });
 
+            // Pizza Bowl always on top — it's the best deal
+            offerExperiences.sort((a, b) => {
+              const aP = a.slug.includes("pizza-bowl") ? 0 : 1;
+              const bP = b.slug.includes("pizza-bowl") ? 0 : 1;
+              return aP - bP;
+            });
+
             return (
               <div className="space-y-6">
                 <p className="text-center text-white/45 text-xs">
@@ -2967,15 +2976,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
                     // For KBF with no items it's free
                     const isFree = exp.items.length === 0 && kind === "kbf";
+                    const isPizzaBowlCard = exp.slug.includes("pizza-bowl");
 
                     return (
-                      <div key={exp.qamfWebOfferId} className="w-full rounded-xl overflow-hidden" style={{ border: `1.78px solid ${isExpSelected ? `${accent}88` : `${accent}28`}`, boxShadow: isExpSelected ? `0 0 28px ${accent}20` : undefined }}>
-                        {/* Shoes included banner */}
-                        {includesShoes && hasSlots && (
+                      <div key={exp.qamfWebOfferId} className="w-full rounded-xl overflow-hidden" style={{ border: `1.78px solid ${isExpSelected ? `${accent}88` : isPizzaBowlCard ? `${accent}50` : `${accent}28`}`, boxShadow: isExpSelected ? `0 0 28px ${accent}20` : isPizzaBowlCard ? `0 0 20px ${accent}15` : undefined }}>
+                        {/* Top banner — deal badge for pizza bowl, shoes-included for others */}
+                        {isPizzaBowlCard && hasSlots ? (
+                          <div className="w-full py-2.5 px-4 text-center font-body font-bold text-xs uppercase tracking-widest" style={{ background: `linear-gradient(135deg, ${accent}30, ${accent}18)`, color: accent, borderBottom: `1px solid ${accent}30` }}>
+                            ★ Best Deal — Everything Included ★
+                          </div>
+                        ) : includesShoes && hasSlots ? (
                           <div className="w-full py-2 px-4 text-center font-body font-bold text-xs uppercase tracking-widest" style={{ backgroundColor: `${accent}22`, color: accent, borderBottom: `1px solid ${accent}30` }}>
                             ★ Bowling Shoes Included ★
                           </div>
-                        )}
+                        ) : null}
 
                         <div className="flex flex-col sm:flex-row" style={{ backgroundColor: "rgba(7,16,39,0.55)" }}>
                           {/* Video */}
@@ -3004,7 +3018,24 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 </span>
                               )}
                             </div>
-                            <p className="font-body text-white/55 text-sm mb-4">{display.description}</p>
+                            <p className="font-body text-white/55 text-sm mb-3">{display.description}</p>
+
+                            {/* "What's included" checklist — pizza bowl deal style */}
+                            {isPizzaBowlCard && (
+                              <ul className="space-y-1.5 mb-4">
+                                {display.features.map((feat) => (
+                                  <li key={feat} className="flex items-baseline justify-between gap-2 text-xs">
+                                    <span className="font-body text-white/75">
+                                      <span className="text-emerald-400 mr-1.5">✓</span>
+                                      {feat}
+                                    </span>
+                                    <span className="font-body font-semibold text-[10px] uppercase tracking-wider text-emerald-300/80">
+                                      Included
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
 
                             {isHourly && exp.durationOptions.length > 0 ? (
                               /* Duration tiles (Open Bowling Mon-Thur style) */
