@@ -47,8 +47,11 @@ type ReservationWithLines = BowlingReservation & {
 
 // ── Shoe size catalog ─────────────────────────────────────────────────────
 
-const KIDS_SIZES  = ["5","6","7","8","9","10","11","12","13"];
-const ADULT_SIZES = ["6","7","8","9","10","11","12","13","14","15"];
+const KIDS_SIZES   = ["5","6","7","8","9","10","11","12","13"];
+const MENS_SIZES   = ["6","7","8","9","10","11","12","13","14","15"];
+const WOMENS_SIZES = ["5","6","7","8","9","10","11","12"];
+
+type ShoeCategory = "Kids" | "Men" | "Women";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -440,19 +443,28 @@ function BowlerCard({
   onUpdate: (patch: Partial<BowlingReservationPlayer>) => void;
 }) {
   // Derive active category from saved shoeSize; persists while user browses sizes
-  const savedCat = player.shoeSize?.startsWith("Kids")
-    ? ("Kids" as const)
+  // Support legacy "Adult X" format — treat as "Men X" for backwards compat
+  const savedCat: ShoeCategory | null = player.shoeSize?.startsWith("Kids")
+    ? "Kids"
+    : player.shoeSize?.startsWith("Men")
+    ? "Men"
+    : player.shoeSize?.startsWith("Women")
+    ? "Women"
     : player.shoeSize?.startsWith("Adult")
-    ? ("Adult" as const)
+    ? "Men"
     : null;
-  const [activeCat, setActiveCat] = useState<"Kids" | "Adult" | null>(savedCat);
+  const [activeCat, setActiveCat] = useState<ShoeCategory | null>(savedCat);
 
-  const nums = activeCat === "Kids" ? KIDS_SIZES : activeCat === "Adult" ? ADULT_SIZES : [];
+  const nums =
+    activeCat === "Kids" ? KIDS_SIZES
+    : activeCat === "Men" ? MENS_SIZES
+    : activeCat === "Women" ? WOMENS_SIZES
+    : [];
   const currentNum = player.shoeSize?.split(" ")[1] ?? null;
   // This bowler already has a size, or there's room for another pair
   const canPickShoes = !!player.shoeSize || shoeSizesAssigned < shoePairsAllowed;
 
-  function selectCat(cat: "Kids" | "Adult" | null) {
+  function selectCat(cat: ShoeCategory | null) {
     if (cat === null) {
       setActiveCat(null);
       onUpdate({ shoeSize: null });
@@ -512,8 +524,8 @@ function BowlerCard({
           <div className="flex items-center gap-2">
             <span className="text-white/50 text-xs font-body w-16 shrink-0">Shoes</span>
             <div className="flex gap-1.5">
-              {(["None", "Kids", "Adult"] as const).map((label) => {
-                const cat = label === "None" ? null : label;
+              {(["None", "Kids", "Men", "Women"] as const).map((label) => {
+                const cat: ShoeCategory | null = label === "None" ? null : label;
                 const active = cat === null ? activeCat === null : activeCat === cat;
                 const disabled = !active && !canPickShoes && cat !== null;
                 return (

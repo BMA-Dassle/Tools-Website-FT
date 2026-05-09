@@ -372,6 +372,188 @@ function ResendModal({
   );
 }
 
+// ── Cancel Modal ─────────────────────────────────────────────────────────
+
+function CancelModal({
+  reservation,
+  token,
+  onClose,
+  onCancelled,
+}: {
+  reservation: Reservation;
+  token: string;
+  onClose: () => void;
+  onCancelled: () => void;
+}) {
+  const [cancelling, setCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCancel() {
+    setCancelling(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/bowling/reservations/cancel?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ neonId: reservation.id }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `HTTP ${res.status}`);
+      } else {
+        onCancelled();
+        onClose();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  const hasDeposit = reservation.depositCents > 0;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+        backgroundColor: "rgba(0,0,0,0.75)",
+        backdropFilter: "blur(4px)",
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 400,
+          backgroundColor: "#0e1d3a",
+          border: "1px solid rgba(239,68,68,0.3)",
+          borderRadius: 16,
+          padding: "1.5rem",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#ef4444", margin: 0 }}>
+            Cancel Reservation
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: "1.2rem" }}
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Reservation info */}
+        <div
+          style={{
+            padding: "0.75rem",
+            borderRadius: 10,
+            backgroundColor: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            marginBottom: "1rem",
+            fontSize: "0.8rem",
+            lineHeight: 1.7,
+          }}
+        >
+          <div><strong style={{ color: "#fff" }}>{reservation.guestName || "Guest"}</strong></div>
+          <div style={{ color: "rgba(255,255,255,0.5)" }}>
+            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.5)" }}>
+            {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""} &middot;{" "}
+            {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
+          </div>
+          {hasDeposit && (
+            <div style={{ color: "#22c55e", fontWeight: 600, marginTop: 2 }}>
+              Deposit: {dollars(reservation.depositCents)}
+            </div>
+          )}
+        </div>
+
+        {/* Warning */}
+        <div
+          style={{
+            padding: "0.6rem 0.75rem",
+            borderRadius: 8,
+            backgroundColor: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.2)",
+            fontSize: "0.75rem",
+            color: "rgba(255,255,255,0.6)",
+            marginBottom: "1rem",
+            lineHeight: 1.5,
+          }}
+        >
+          {hasDeposit
+            ? "This will cancel the QAMF reservation and issue a full refund of the deposit to the customer’s card."
+            : "This will cancel the QAMF reservation. No refund is needed (no deposit was charged)."}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div
+            style={{
+              padding: "0.5rem 0.75rem",
+              borderRadius: 8,
+              fontSize: "0.8rem",
+              fontWeight: 600,
+              marginBottom: "1rem",
+              backgroundColor: "rgba(239,68,68,0.15)",
+              color: "#ef4444",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              ...NAV_BTN,
+              fontSize: "0.8rem",
+            }}
+          >
+            Keep It
+          </button>
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={cancelling}
+            style={{
+              padding: "0.5rem 1.25rem",
+              borderRadius: 8,
+              fontSize: "0.8rem",
+              fontWeight: 700,
+              cursor: cancelling ? "not-allowed" : "pointer",
+              border: "none",
+              backgroundColor: cancelling ? "rgba(239,68,68,0.3)" : "#ef4444",
+              color: "#fff",
+              opacity: cancelling ? 0.6 : 1,
+            }}
+          >
+            {cancelling ? "Cancelling..." : "Cancel & Refund"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function ReservationsClient({ token }: { token: string }) {
@@ -384,6 +566,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -500,6 +683,19 @@ export default function ReservationsClient({ token }: { token: string }) {
           token={token}
           onClose={() => setResendTarget(null)}
           onSent={() => showToast(`Confirmation resent to ${resendTarget.guestName || "guest"}`)}
+        />
+      )}
+
+      {/* Cancel modal */}
+      {cancelTarget && (
+        <CancelModal
+          reservation={cancelTarget}
+          token={token}
+          onClose={() => setCancelTarget(null)}
+          onCancelled={() => {
+            showToast(`Reservation cancelled for ${cancelTarget.guestName || "guest"}`);
+            void load();
+          }}
         />
       )}
 
@@ -659,7 +855,7 @@ export default function ReservationsClient({ token }: { token: string }) {
               style={{
                 width: "100%",
                 borderCollapse: "collapse",
-                fontSize: "0.8rem",
+                fontSize: "0.78rem",
               }}
             >
               <thead>
@@ -669,15 +865,15 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Center", "Type", "Players", "Status", "Lane", "Deposit", "Total", "QAMF ID", "Link", "Notes", ""].map(
+                  {["Time", "Guest", "Type", "Status", "Lane", "Payment", "Ref", "Actions"].map(
                     (h) => (
                       <th
-                        key={h || "actions"}
+                        key={h}
                         style={{
-                          padding: "0.6rem 0.5rem",
+                          padding: "0.5rem 0.4rem",
                           color: "rgba(255,255,255,0.4)",
                           fontWeight: 600,
-                          fontSize: "0.7rem",
+                          fontSize: "0.65rem",
                           textTransform: "uppercase",
                           letterSpacing: "0.05em",
                           whiteSpace: "nowrap",
@@ -693,6 +889,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                 {filtered.map((r) => {
                   const isCancelled = r.status === "cancelled";
                   const rowOpacity = isCancelled ? 0.45 : 1;
+                  const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
                   return (
                     <tr
                       key={r.id}
@@ -702,47 +899,33 @@ export default function ReservationsClient({ token }: { token: string }) {
                       }}
                     >
                       {/* Time */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         {fmtTime(r.bookedAt)}
                       </td>
 
-                      {/* Guest */}
-                      <td style={{ padding: "0.6rem 0.5rem" }}>
-                        <div style={{ fontWeight: 600 }}>{r.guestName || "—"}</div>
+                      {/* Guest — name, phone, center tag */}
+                      <td style={{ padding: "0.5rem 0.4rem" }}>
+                        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          {r.guestName || "—"}
+                          <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", fontWeight: 500 }}>
+                            {centerShort}
+                          </span>
+                        </div>
                         {r.guestPhone && (
-                          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.7rem" }}>
+                          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.68rem" }}>
                             {r.guestPhone}
                           </div>
                         )}
-                        {r.guestEmail && (
-                          <div
-                            style={{
-                              color: "rgba(255,255,255,0.25)",
-                              fontSize: "0.65rem",
-                              maxWidth: 180,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {r.guestEmail}
-                          </div>
-                        )}
                       </td>
 
-                      {/* Center */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
-                        {CENTERS[r.centerCode] ?? r.centerCode}
-                      </td>
-
-                      {/* Type */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
+                      {/* Type — badge + player count */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <span
                           style={{
                             display: "inline-block",
-                            padding: "0.15rem 0.5rem",
-                            borderRadius: 6,
-                            fontSize: "0.7rem",
+                            padding: "0.1rem 0.4rem",
+                            borderRadius: 5,
+                            fontSize: "0.65rem",
                             fontWeight: 600,
                             textTransform: "uppercase",
                             letterSpacing: "0.03em",
@@ -760,21 +943,19 @@ export default function ReservationsClient({ token }: { token: string }) {
                         >
                           {r.productKind === "kbf" ? "KBF" : "Open"}
                         </span>
-                      </td>
-
-                      {/* Players */}
-                      <td style={{ padding: "0.6rem 0.5rem", textAlign: "center" }}>
-                        {r.playerCount ?? "—"}
+                        <span style={{ marginLeft: 5, color: "rgba(255,255,255,0.4)", fontSize: "0.68rem" }}>
+                          {r.playerCount ?? "—"}p
+                        </span>
                       </td>
 
                       {/* Status */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <span
                           style={{
                             display: "inline-block",
-                            padding: "0.15rem 0.5rem",
-                            borderRadius: 6,
-                            fontSize: "0.7rem",
+                            padding: "0.1rem 0.4rem",
+                            borderRadius: 5,
+                            fontSize: "0.65rem",
                             fontWeight: 600,
                             backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
                             color: STATUS_COLORS[r.status] ?? "#6b7280",
@@ -784,7 +965,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {STATUS_LABELS[r.status] ?? r.status}
                         </span>
                         {r.dayofOrderError && (
-                          <div style={{ color: "#ef4444", fontSize: "0.65rem", marginTop: 2 }}>
+                          <div style={{ color: "#ef4444", fontSize: "0.6rem", marginTop: 2 }}>
                             {r.dayofOrderError}
                           </div>
                         )}
@@ -793,57 +974,48 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* Lane */}
                       <td
                         style={{
-                          padding: "0.6rem 0.5rem",
+                          padding: "0.5rem 0.4rem",
                           textAlign: "center",
                           fontWeight: r.dayofOrderLane ? 700 : 400,
-                          color: r.dayofOrderLane ? "#22c55e" : "rgba(255,255,255,0.2)",
+                          color: r.dayofOrderLane ? "#22c55e" : "rgba(255,255,255,0.15)",
+                          fontSize: "0.75rem",
                         }}
                       >
                         {r.dayofOrderLane ?? "—"}
                       </td>
 
-                      {/* Deposit */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
-                        {r.depositCents > 0 ? dollars(r.depositCents) : "Free"}
+                      {/* Payment — deposit / total merged */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        {r.depositCents > 0 ? (
+                          <>
+                            <span style={{ color: "#22c55e", fontWeight: 600 }}>{dollars(r.depositCents)}</span>
+                            <span style={{ color: "rgba(255,255,255,0.25)", margin: "0 2px" }}>/</span>
+                            <span style={{ color: "rgba(255,255,255,0.5)" }}>{dollars(r.totalCents)}</span>
+                          </>
+                        ) : (
+                          <span style={{ color: "rgba(255,255,255,0.3)" }}>Free</span>
+                        )}
                         {r.refundCents > 0 && (
-                          <div style={{ color: "#ef4444", fontSize: "0.65rem" }}>
-                            Refund {dollars(r.refundCents)}
+                          <div style={{ color: "#ef4444", fontSize: "0.6rem" }}>
+                            -{dollars(r.refundCents)}
                           </div>
                         )}
                       </td>
 
-                      {/* Total */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
-                        {r.totalCents > 0 ? dollars(r.totalCents) : "Free"}
-                      </td>
-
-                      {/* QAMF ID */}
-                      <td
-                        style={{
-                          padding: "0.6rem 0.5rem",
-                          fontFamily: "monospace",
-                          fontSize: "0.7rem",
-                          color: "rgba(255,255,255,0.4)",
-                        }}
-                      >
-                        {r.qamfReservationId ?? "—"}
-                      </td>
-
-                      {/* Confirmation link */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
-                        {confirmPath(r) ? (
-                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      {/* Ref — QAMF ID + confirmation link */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "rgba(255,255,255,0.35)" }}>
+                          {r.qamfReservationId ?? `#${r.id}`}
+                        </span>
+                        {confirmPath(r) && (
+                          <span style={{ marginLeft: 4 }}>
                             <a
                               href={confirmPath(r)!}
                               target="_blank"
                               rel="noopener noreferrer"
-                              style={{
-                                color: "#60a5fa",
-                                fontSize: "0.7rem",
-                                textDecoration: "none",
-                              }}
+                              style={{ color: "#60a5fa", fontSize: "0.6rem", textDecoration: "none" }}
                             >
-                              Open
+                              link
                             </a>
                             <button
                               type="button"
@@ -851,58 +1023,62 @@ export default function ReservationsClient({ token }: { token: string }) {
                               style={{
                                 background: "none",
                                 border: "none",
-                                color: copiedId === r.id ? "#22c55e" : "rgba(255,255,255,0.3)",
+                                color: copiedId === r.id ? "#22c55e" : "rgba(255,255,255,0.25)",
                                 cursor: "pointer",
-                                fontSize: "0.65rem",
-                                padding: "2px 4px",
+                                fontSize: "0.6rem",
+                                padding: "0 3px",
                               }}
                             >
-                              {copiedId === r.id ? "Copied!" : "Copy"}
+                              {copiedId === r.id ? "ok" : "cp"}
                             </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.7rem" }}>{"—"}</span>
+                          </span>
                         )}
                       </td>
 
-                      {/* Notes */}
-                      <td
-                        style={{
-                          padding: "0.6rem 0.5rem",
-                          maxWidth: 200,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          color: "rgba(255,255,255,0.35)",
-                          fontSize: "0.7rem",
-                        }}
-                        title={r.notes ?? ""}
-                      >
-                        {r.notes ?? ""}
-                      </td>
-
-                      {/* Resend action */}
-                      <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
-                        {!isCancelled && (r.guestEmail || r.guestPhone) && (
-                          <button
-                            type="button"
-                            onClick={() => setResendTarget(r)}
-                            style={{
-                              background: "none",
-                              border: "1px solid rgba(96,165,250,0.3)",
-                              borderRadius: 6,
-                              color: "#60a5fa",
-                              cursor: "pointer",
-                              fontSize: "0.65rem",
-                              fontWeight: 600,
-                              padding: "3px 8px",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.03em",
-                            }}
-                          >
-                            Resend
-                          </button>
-                        )}
+                      {/* Actions — resend + cancel */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {!isCancelled && (r.guestEmail || r.guestPhone) && (
+                            <button
+                              type="button"
+                              onClick={() => setResendTarget(r)}
+                              style={{
+                                background: "none",
+                                border: "1px solid rgba(96,165,250,0.3)",
+                                borderRadius: 5,
+                                color: "#60a5fa",
+                                cursor: "pointer",
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                padding: "2px 6px",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.03em",
+                              }}
+                            >
+                              Resend
+                            </button>
+                          )}
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => setCancelTarget(r)}
+                              style={{
+                                background: "none",
+                                border: "1px solid rgba(239,68,68,0.3)",
+                                borderRadius: 5,
+                                color: "#ef4444",
+                                cursor: "pointer",
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                padding: "2px 6px",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.03em",
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
