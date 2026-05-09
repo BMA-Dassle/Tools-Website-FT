@@ -994,8 +994,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             )}
           </div>
 
-          {/* ── Bowler details ── (hidden when cancelled) */}
-          {players.length > 0 && !isCancelled && (
+          {/* ── Bowler details ── hidden when cancelled or lane is open
+              (once running, QAMF has already consumed the bowler data) */}
+          {players.length > 0 && !isCancelled && laneReadyPhase !== "running" && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
               {/* Eye-catching header — drives pre-arrival data entry so
                   staff have names, shoes, and bumpers before the party walks in. */}
