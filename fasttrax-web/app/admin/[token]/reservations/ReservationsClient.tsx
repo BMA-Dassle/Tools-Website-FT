@@ -116,6 +116,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayET);
   const [center, setCenter] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [hideCancelled, setHideCancelled] = useState(true);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -151,27 +152,34 @@ export default function ReservationsClient({ token }: { token: string }) {
     void load();
   }, [load]);
 
-  // Client-side search filter
+  // Client-side search + cancelled filter
   const filtered = useMemo(() => {
-    if (!search.trim()) return reservations;
-    const q = search.toLowerCase().trim();
-    return reservations.filter((r) => {
-      const fields = [
-        r.guestName,
-        r.guestEmail,
-        r.guestPhone,
-        r.qamfReservationId,
-        r.notes,
-        r.dayofOrderLane,
-        String(r.id),
-      ];
-      return fields.some((f) => f?.toLowerCase().includes(q));
-    });
-  }, [reservations, search]);
+    let list = reservations;
+    if (hideCancelled) {
+      list = list.filter((r) => r.status !== "cancelled");
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      list = list.filter((r) => {
+        const fields = [
+          r.guestName,
+          r.guestEmail,
+          r.guestPhone,
+          r.qamfReservationId,
+          r.notes,
+          r.dayofOrderLane,
+          String(r.id),
+        ];
+        return fields.some((f) => f?.toLowerCase().includes(q));
+      });
+    }
+    return list;
+  }, [reservations, search, hideCancelled]);
 
-  // Stats (on filtered set)
+  // Stats
   const active = filtered.filter((r) => r.status !== "cancelled");
   const cancelled = filtered.filter((r) => r.status === "cancelled");
+  const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
   const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
   const totalPlayers = active.reduce((s, r) => s + (r.playerCount ?? 0), 0);
@@ -225,6 +233,20 @@ export default function ReservationsClient({ token }: { token: string }) {
             <option value="TXBSQN0FEKQ11">Fort Myers</option>
             <option value="PPTR5G2N0QXF7">Naples</option>
           </select>
+          <button
+            type="button"
+            onClick={() => setHideCancelled((v) => !v)}
+            style={{
+              ...NAV_BTN,
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              backgroundColor: hideCancelled ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.08)",
+              borderColor: hideCancelled ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.15)",
+              color: hideCancelled ? "#22c55e" : "rgba(255,255,255,0.6)",
+            }}
+          >
+            {hideCancelled ? "Active Only" : "All Statuses"}
+          </button>
           <button
             type="button"
             onClick={() => setDate(todayET())}
@@ -288,8 +310,10 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             <span>
               <strong style={{ color: "#fff" }}>{active.length}</strong> active
-              {cancelled.length > 0 && (
-                <span style={{ color: "rgba(239,68,68,0.7)" }}> + {cancelled.length} cancelled</span>
+              {totalCancelledAll > 0 && (
+                <span style={{ color: "rgba(239,68,68,0.7)" }}>
+                  {" "}+ {totalCancelledAll} cancelled{hideCancelled ? " (hidden)" : ""}
+                </span>
               )}
             </span>
             <span>
