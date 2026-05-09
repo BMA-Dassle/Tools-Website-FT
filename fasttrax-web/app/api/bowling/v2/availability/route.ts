@@ -216,8 +216,8 @@ export async function GET(req: NextRequest) {
       earliestMin = Math.max(earliestMin, nowTotalMin + 15);
     }
 
-    const windowStart = Math.max(hour * 60 + minute - 120, earliestMin); // -2h, clamped
-    const windowEnd = Math.min(hour * 60 + minute + 120, closeHour * 60);  // +2h, clamped
+    const windowStart = Math.max(hour * 60 + minute - 240, earliestMin); // -4h, clamped
+    const windowEnd = Math.min(hour * 60 + minute + 240, closeHour * 60);  // +4h, clamped
 
     probeTimes = [];
     for (let t = windowStart; t <= windowEnd; t += 15) {
