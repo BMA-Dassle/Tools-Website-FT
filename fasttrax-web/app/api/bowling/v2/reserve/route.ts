@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import {
   createReservation,
+  getReservation,
   setReservationStatus,
   setReservationCustomer,
   patchReservation,
@@ -248,6 +249,7 @@ export async function POST(req: NextRequest) {
   // 'confirm_pending' and queued for automatic retry by the cron.
   let qamfReservationId: string;
   let qamfConfirmed = false;
+  let qamfLanes: Array<{ LaneNumber: number }> = [];
 
   // ── Build Conqueror notes with payment summary ──────────────────
   // Staff see these in the Conqueror reservation panel.
@@ -362,6 +364,7 @@ export async function POST(req: NextRequest) {
           TotalPlayers: players.length,
         });
         qamfReservationId = reservation.Id;
+        qamfLanes = reservation.Lanes ?? [];
         console.log(
           `[bowling/v2/reserve] fallback fresh reservation created: ${qamfReservationId}`,
         );
@@ -397,6 +400,7 @@ export async function POST(req: NextRequest) {
         TotalPlayers: players.length,
       });
       qamfReservationId = reservation.Id;
+      qamfLanes = reservation.Lanes ?? [];
     } catch (err) {
       const msg = err instanceof Error ? err.message : "QAMF reservation failed";
       console.error("[bowling/v2/reserve] QAMF error:", msg);
@@ -407,6 +411,17 @@ export async function POST(req: NextRequest) {
       console.error("[bowling/v2/reserve] attachAndConfirm (fresh) failed:", err);
       return false;
     });
+  }
+
+  // ── Fetch lane assignments from QAMF if not already captured ────
+  // The hold-first confirmed path doesn't get lanes from createReservation.
+  if (qamfLanes.length === 0) {
+    try {
+      const laneRes = await getReservation(centerId, qamfReservationId);
+      qamfLanes = laneRes.Lanes ?? [];
+    } catch {
+      // Non-fatal
+    }
   }
 
   // ── Square payment (gift card deposit + day-of order) ──────────
@@ -547,6 +562,17 @@ export async function POST(req: NextRequest) {
     // Insert one player row per slot. For KBF: names + prefs pre-filled.
     // For open bowling: "Bowler N" placeholders — updated on confirmation page.
     try {
+      // Assign players to lanes based on QAMF response
+      function buildLaneAssignments(): (number | null)[] {
+        if (qamfLanes.length === 0) return players.map(() => null);
+        const perLane = Math.ceil(players.length / qamfLanes.length);
+        return players.map((_, i) => {
+          const idx = Math.min(Math.floor(i / perLane), qamfLanes.length - 1);
+          return qamfLanes[idx].LaneNumber;
+        });
+      }
+      const laneAssignments = buildLaneAssignments();
+
       await insertReservationPlayers(
         neonId,
         players.map((p, i) => ({
@@ -557,6 +583,7 @@ export async function POST(req: NextRequest) {
           kbfPassId: p.kbfPassId ?? null,
           kbfMemberSlot: p.kbfMemberSlot ?? null,
           kbfRelation: p.kbfRelation ?? null,
+          laneNumber: laneAssignments[i] ?? null,
         })),
       );
     } catch (err) {

@@ -350,6 +350,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   // ── Bowler details state ─────────────────────────────────────────
   const [players, setPlayers] = useState<BowlingReservationPlayer[]>([]);
   const [shoePairsAllowed, setShoePairsAllowed] = useState(0);
+  const [laneNumbers, setLaneNumbers] = useState<number[]>([]);
   const [playersSaving, setPlayersSaving] = useState(false);
   const [playersSaved, setPlayersSaved] = useState(false);
   const [playersError, setPlayersError] = useState<string | null>(null);
@@ -396,10 +397,12 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
         const data = await res.json() as {
           players: BowlingReservationPlayer[];
           shoePairsAllowed: number;
+          laneNumbers: number[];
         };
         if (!cancelled) {
           setPlayers(data.players);
           setShoePairsAllowed(data.shoePairsAllowed);
+          setLaneNumbers(data.laneNumbers ?? []);
         }
       } catch {
         // Non-fatal — form just won't render
@@ -435,6 +438,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             name: p.name,
             shoeSize: p.shoeSize,
             bumpers: p.bumpers,
+            laneNumber: p.laneNumber,
           })),
         }),
       });
@@ -633,18 +637,61 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   : "Let us know who needs bumpers so your lane is set up when you arrive."}
               </p>
 
-              <div className="space-y-4">
-                {players.map((player) => (
-                  <BowlerCard
-                    key={player.slot}
-                    player={player}
-                    shoePairsAllowed={shoePairsAllowed}
-                    shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                    kind={kind}
-                    onUpdate={(patch) => updatePlayer(player.slot, patch)}
-                  />
-                ))}
-              </div>
+              {laneNumbers.length > 1 ? (
+                // Multi-lane: group by lane with lane headers + move buttons
+                <div className="space-y-5">
+                  {laneNumbers.map((laneNum) => (
+                    <div key={laneNum}>
+                      <div className="text-xs font-bold uppercase tracking-widest mb-2 mt-1" style={{ color: GOLD }}>
+                        Lane {laneNum}
+                      </div>
+                      <div className="space-y-3">
+                        {players
+                          .filter((p) => (p.laneNumber ?? laneNumbers[0]) === laneNum)
+                          .map((player) => (
+                            <div key={player.slot}>
+                              <BowlerCard
+                                player={player}
+                                shoePairsAllowed={shoePairsAllowed}
+                                shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                                kind={kind}
+                                onUpdate={(patch) => updatePlayer(player.slot, patch)}
+                              />
+                              {/* Move to other lanes */}
+                              <div className="flex gap-1.5 mt-1.5 pl-1">
+                                <span className="text-white/30 text-xs self-center">Move to:</span>
+                                {laneNumbers.filter((ln) => ln !== laneNum).map((ln) => (
+                                  <button
+                                    key={ln}
+                                    type="button"
+                                    onClick={() => updatePlayer(player.slot, { laneNumber: ln })}
+                                    className="px-2.5 py-1 rounded-lg text-xs font-body font-semibold border border-white/15 text-white/50 hover:text-white hover:border-white/35 transition-colors"
+                                  >
+                                    Lane {ln}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // Single lane or no lane data: flat list (current behavior)
+                <div className="space-y-4">
+                  {players.map((player) => (
+                    <BowlerCard
+                      key={player.slot}
+                      player={player}
+                      shoePairsAllowed={shoePairsAllowed}
+                      shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                      kind={kind}
+                      onUpdate={(patch) => updatePlayer(player.slot, patch)}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Shoe pair counter */}
               {shoePairsAllowed > 0 && (

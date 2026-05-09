@@ -60,7 +60,8 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ players, shoePairsAllowed });
+    const laneNumbers = [...new Set(players.map((p) => p.laneNumber).filter((n): n is number => n != null))].sort((a, b) => a - b);
+    return NextResponse.json({ players, shoePairsAllowed, laneNumbers });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -74,6 +75,7 @@ interface PlayerPatch {
   name?: string | null;
   shoeSize?: string | null;
   bumpers?: boolean | null;
+  laneNumber?: number | null;
 }
 
 export async function PATCH(
@@ -133,46 +135,49 @@ export async function PATCH(
       name: patch.name,
       shoeSize: patch.shoeSize,
       bumpers: patch.bumpers,
+      laneNumber: patch.laneNumber,
     });
     if (row) saved.push(row);
   }
 
   // ── Best-effort: call QAMF setLanePlayers ────────────────────────────────
   // Re-fetch updated players so QAMF gets the full merged list.
+  // Group by stored laneNumber so the customer's lane assignment is honoured.
   if (reservation.qamfReservationId) {
     const qamfCenterId = CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
     if (qamfCenterId) {
       const { players: updatedPlayers } = await getReservationPlayersWithShoeAllowance(id);
-      const qamfPlayers = updatedPlayers
-        .filter((p) => p.name)
-        .map((p) => ({
-          Name: p.name!,
-          ShoeSize: p.shoeSize ?? undefined,
-          ActivateBumpers: p.bumpers ?? false,
-        }));
 
-      if (qamfPlayers.length > 0) {
-        // GET the reservation to find the actual assigned lane IDs, then
-        // distribute players across lanes and push per-lane player data.
-        // Non-fatal — player data is saved in Neon; staff can enter at desk.
+      // Group players by lane number
+      const byLane = new Map<number, typeof updatedPlayers>();
+      for (const p of updatedPlayers) {
+        if (!p.name) continue;
+        const ln = p.laneNumber ?? 0;
+        const arr = byLane.get(ln) ?? [];
+        arr.push(p);
+        byLane.set(ln, arr);
+      }
+
+      if (byLane.size > 0) {
         try {
           const qamfRes = await getReservation(qamfCenterId, reservation.qamfReservationId);
           const lanes = qamfRes.Lanes ?? [];
-          if (lanes.length > 0) {
-            const perLane = Math.ceil(qamfPlayers.length / lanes.length);
-            await Promise.all(
-              lanes.map((lane, idx) => {
-                const slice = qamfPlayers.slice(idx * perLane, idx * perLane + perLane);
-                if (slice.length === 0) return Promise.resolve();
-                return setLanePlayers(
-                  qamfCenterId,
-                  reservation.qamfReservationId!,
-                  lane.Id,
-                  slice,
-                );
-              }),
-            );
-          }
+          await Promise.all(
+            [...byLane.entries()].map(([laneNum, lanePlayerList]) => {
+              const lane = lanes.find((l) => l.LaneNumber === laneNum) ?? lanes[0];
+              if (!lane) return Promise.resolve();
+              return setLanePlayers(
+                qamfCenterId,
+                reservation.qamfReservationId!,
+                lane.Id,
+                lanePlayerList.map((p) => ({
+                  Name: p.name!,
+                  ShoeSize: p.shoeSize ?? undefined,
+                  ActivateBumpers: p.bumpers ?? false,
+                })),
+              );
+            }),
+          );
         } catch {
           // Non-fatal — player data is saved in Neon; staff can enter at desk
         }
@@ -205,5 +210,5 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json({ players: saved, shoePairsAllowed });
+  return NextResponse.json({ players: saved, shoePairsAllowed, laneNumbers: [...new Set(saved.map((p) => p.laneNumber).filter((n): n is number => n != null))].sort((a, b) => a - b) });
 }

@@ -235,6 +235,8 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS qamf_confirm_attempts INTEGER NOT NULL DEFAULT 0`;
   await q`CREATE INDEX IF NOT EXISTS br_confirm_pending ON bowling_reservations(id) WHERE status = 'confirm_pending'`;
 
+  await q`ALTER TABLE bowling_reservation_players ADD COLUMN IF NOT EXISTS lane_number INTEGER`;
+
   schemaReady = true;
 }
 
@@ -363,6 +365,8 @@ export interface BowlingReservationPlayer {
   /** kbf_pass_members.slot for this member. */
   kbfMemberSlot: number | null;
   kbfRelation: "kid" | "family" | null;
+  /** QAMF lane number this player is assigned to (e.g. 12, 13). null = unassigned. */
+  laneNumber: number | null;
   insertedAt: string;
   updatedAt: string;
 }
@@ -375,6 +379,7 @@ export type PlayerInput = {
   kbfPassId?: number | null;
   kbfMemberSlot?: number | null;
   kbfRelation?: "kid" | "family" | null;
+  laneNumber?: number | null;
 };
 
 export interface BowlingReservation {
@@ -863,6 +868,7 @@ function rowToPlayer(row: Record<string, unknown>): BowlingReservationPlayer {
     kbfPassId: row.kbf_pass_id != null ? (row.kbf_pass_id as number) : null,
     kbfMemberSlot: row.kbf_member_slot != null ? (row.kbf_member_slot as number) : null,
     kbfRelation: (row.kbf_relation as "kid" | "family") ?? null,
+    laneNumber: row.lane_number != null ? (row.lane_number as number) : null,
     insertedAt: (row.inserted_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
   };
@@ -885,11 +891,11 @@ export async function insertReservationPlayers(
     await q`
       INSERT INTO bowling_reservation_players
         (reservation_id, slot, name, shoe_size, bumpers,
-         kbf_pass_id, kbf_member_slot, kbf_relation)
+         kbf_pass_id, kbf_member_slot, kbf_relation, lane_number)
       VALUES
         (${reservationId}, ${p.slot}, ${p.name ?? null}, ${p.shoeSize ?? null},
          ${p.bumpers ?? null}, ${p.kbfPassId ?? null},
-         ${p.kbfMemberSlot ?? null}, ${p.kbfRelation ?? null})
+         ${p.kbfMemberSlot ?? null}, ${p.kbfRelation ?? null}, ${p.laneNumber ?? null})
       ON CONFLICT (reservation_id, slot) DO NOTHING
     `;
   }
@@ -937,7 +943,7 @@ export async function getReservationPlayersWithShoeAllowance(
 export async function upsertReservationPlayer(
   reservationId: number,
   slot: number,
-  update: { name?: string | null; shoeSize?: string | null; bumpers?: boolean | null },
+  update: { name?: string | null; shoeSize?: string | null; bumpers?: boolean | null; laneNumber?: number | null },
 ): Promise<BowlingReservationPlayer | null> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
@@ -945,10 +951,11 @@ export async function upsertReservationPlayer(
   const rows = await q`
     UPDATE bowling_reservation_players
     SET
-      name       = CASE WHEN ${update.name !== undefined} THEN ${update.name ?? null} ELSE name END,
-      shoe_size  = CASE WHEN ${update.shoeSize !== undefined} THEN ${update.shoeSize ?? null} ELSE shoe_size END,
-      bumpers    = CASE WHEN ${update.bumpers !== undefined} THEN ${update.bumpers ?? null} ELSE bumpers END,
-      updated_at = NOW()
+      name        = CASE WHEN ${update.name !== undefined} THEN ${update.name ?? null} ELSE name END,
+      shoe_size   = CASE WHEN ${update.shoeSize !== undefined} THEN ${update.shoeSize ?? null} ELSE shoe_size END,
+      bumpers     = CASE WHEN ${update.bumpers !== undefined} THEN ${update.bumpers ?? null} ELSE bumpers END,
+      lane_number = CASE WHEN ${update.laneNumber !== undefined} THEN ${update.laneNumber ?? null} ELSE lane_number END,
+      updated_at  = NOW()
     WHERE reservation_id = ${reservationId} AND slot = ${slot}
     RETURNING *
   `;
