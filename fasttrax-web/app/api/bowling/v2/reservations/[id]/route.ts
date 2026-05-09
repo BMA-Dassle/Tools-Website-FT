@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getBowlingReservation, updateBowlingReservationCancelled } from "@/lib/bowling-db";
 import { deleteReservation } from "@/lib/qamf-bowling";
+import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 
 /**
  * GET /api/bowling/v2/reservations/[id]
@@ -53,7 +54,7 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
 const CANCEL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 export async function DELETE(
-  req: NextRequest,
+  _req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id: idStr } = await ctx.params;
@@ -102,38 +103,16 @@ export async function DELETE(
   let refundCents = 0;
 
   if (reservation.squareDepositPaymentId && reservation.squareGiftCardId) {
-    const origin = req.nextUrl.origin;
     try {
-      const refundRes = await fetch(`${origin}/api/square/bowling-refund`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          depositPaymentId: reservation.squareDepositPaymentId,
-          giftCardId:       reservation.squareGiftCardId,
-          dayofOrderId:     reservation.squareDayofOrderId,
-          locationId:       reservation.centerCode,
-          idempotencyKey:   randomUUID(),
-        }),
+      const result = await processSquareBowlingRefund({
+        depositPaymentId: reservation.squareDepositPaymentId,
+        giftCardId:       reservation.squareGiftCardId,
+        dayofOrderId:     reservation.squareDayofOrderId,
+        locationId:       reservation.centerCode,
+        idempotencyKey:   randomUUID(),
       });
-
-      const refundData = (await refundRes.json()) as {
-        refundId?: string;
-        refundedCents?: number;
-        dayofOrderCancelled?: boolean;
-        giftCardDeactivated?: boolean;
-        error?: string;
-      };
-
-      if (!refundRes.ok) {
-        // Refund failed — surface the error; don't mark as cancelled
-        return NextResponse.json(
-          { error: refundData.error ?? "Refund failed — please try again or contact the center." },
-          { status: refundRes.status },
-        );
-      }
-
-      squareRefundId = refundData.refundId;
-      refundCents    = refundData.refundedCents ?? reservation.depositCents;
+      squareRefundId = result.refundId;
+      refundCents    = result.refundedCents;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Refund request failed";
       return NextResponse.json({ error: msg }, { status: 502 });

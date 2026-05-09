@@ -672,6 +672,32 @@ export async function getBowlingReservation(
   };
 }
 
+/**
+ * Look up a reservation by QAMF reservation ID.
+ * Used by the webhook consumer to find the Neon row for an incoming event.
+ */
+export async function getBowlingReservationByQamfId(
+  qamfReservationId: string,
+): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE qamf_reservation_id = ${qamfReservationId}
+    LIMIT 1
+  `;
+  if (!rows.length) return null;
+  const reservation = rowToReservation(rows[0] as Record<string, unknown>);
+  const lineRows = await q`
+    SELECT * FROM bowling_reservation_lines WHERE reservation_id = ${reservation.id} ORDER BY id
+  `;
+  return {
+    ...reservation,
+    lines: lineRows.map((r) => rowToLine(r as Record<string, unknown>)),
+  };
+}
+
 export async function updateBowlingReservationStatus(
   id: number,
   status: BowlingReservation["status"],
