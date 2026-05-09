@@ -600,6 +600,54 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
   const isCancelled = cancelPhase === "cancelled" || reservation?.status === "cancelled";
 
+  // ── Lane-ready background poll ────────────────────────────────────
+  // Polls GET /checkin every 30 s. "ready" → show Check In button.
+  // "running" → replace button with open-lane banner. Stops once
+  // a terminal state is reached or the reservation is cancelled.
+  const [laneReadyPhase, setLaneReadyPhase] = useState<
+    "idle" | "not_ready" | "ready" | "running"
+  >("idle");
+  const [laneReadyLabel, setLaneReadyLabel] = useState("");
+
+  useEffect(() => {
+    // Only poll for active reservations once Neon record is loaded.
+    // Stop once we've reached a terminal UI state (running).
+    if (!hasNeonRecord || isCancelled || laneReadyPhase === "running") return;
+
+    let alive = true;
+
+    async function pollLane() {
+      try {
+        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, {
+          cache: "no-store",
+        });
+        if (!res.ok || !alive) return;
+        const data = await res.json() as { phase?: string; laneLabel?: string };
+        if (!alive) return;
+        const raw = data.phase ?? "";
+        if (raw === "ready") {
+          setLaneReadyPhase("ready");
+          setLaneReadyLabel(data.laneLabel ?? "");
+        } else if (raw === "running" || raw === "completed") {
+          setLaneReadyPhase("running");
+          setLaneReadyLabel(data.laneLabel ?? "");
+        } else {
+          setLaneReadyPhase("not_ready");
+        }
+      } catch {
+        // Non-fatal — silently skip this tick
+      }
+    }
+
+    void pollLane();
+    const timer = setInterval(() => void pollLane(), 30_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [neonId, hasNeonRecord, isCancelled, laneReadyPhase]);
+
   // Block self-serve cancellation within 1 hour of the reservation start.
   const isWithin1Hour = reservation
     ? new Date(reservation.bookedAt).getTime() - Date.now() < 60 * 60 * 1000
@@ -998,8 +1046,8 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
         {/* ── RIGHT COLUMN ── */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* ── Check In button (hidden when cancelled) ── */}
-          {!isCancelled && hasNeonRecord && (
+          {/* ── Check In button — only when lane is Ready ── */}
+          {!isCancelled && hasNeonRecord && laneReadyPhase === "ready" && (
             <button
               type="button"
               onClick={() => setCheckInOpen(true)}
@@ -1013,6 +1061,27 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             >
               🎳 Check In
             </button>
+          )}
+
+          {/* ── Lane already open banner ── */}
+          {!isCancelled && laneReadyPhase === "running" && (
+            <div
+              className="rounded-2xl border p-5 text-center space-y-1"
+              style={{
+                backgroundColor: "rgba(74,222,128,0.07)",
+                borderColor: "rgba(74,222,128,0.3)",
+              }}
+            >
+              <p
+                className="font-heading font-black uppercase italic"
+                style={{ color: "#4ade80", fontSize: "clamp(18px,4vw,22px)" }}
+              >
+                {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
+              </p>
+              <p className="text-white/60 text-sm">
+                🥿 Shoes will be delivered directly to you.
+              </p>
+            </div>
           )}
 
           {/* Check-in modal */}
