@@ -162,14 +162,20 @@ async function call<T>(opts: {
 /*  Public API methods                                                */
 /* ------------------------------------------------------------------ */
 
-/** GET /centers/{centerId}/lanes — current lane status snapshot */
+/** GET /centers/{centerId}/lanes — current lane status snapshot.
+ *  QAMF returns { Lanes: Lane[] } — we unwrap to a plain array. */
 export async function listLanes(centerId: number): Promise<Lane[]> {
-  return call({
+  const res = await call<{ Lanes?: Lane[] } | Lane[]>({
     method: "GET",
     path: `/centers/${centerId}/lanes`,
     errLabel: `listLanes(${centerId})`,
     centerId,
   });
+  // API returns { Lanes: [...] } wrapper; fall back to bare array for safety
+  if (res && !Array.isArray(res) && Array.isArray((res as { Lanes?: Lane[] }).Lanes)) {
+    return (res as { Lanes: Lane[] }).Lanes;
+  }
+  return Array.isArray(res) ? res : [];
 }
 
 /** GET /centers/{centerId}/weboffers — every configured web offer */
