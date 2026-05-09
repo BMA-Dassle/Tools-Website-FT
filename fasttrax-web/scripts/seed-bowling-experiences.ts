@@ -14,7 +14,7 @@
  *
  *  slug                  kind    vip   days          QAMF offers
  *  ──────────────────────────────────────────────────────────────────────────
- *  kbf-regular           kbf     no    Mon-Fri       FM:152 / Naples:122
+ *  kbf-regular           kbf     no    Mon-Fri       FM:152 / Naples:135
  *  kbf-vip               kbf     yes   Mon-Fri       FM:153 / Naples:134
  *  regular-mon-thur      hourly  no    Mon-Thu       FM:154 / Naples:118  (1.5hr + 2hr)
  *  vip-mon-thur          hourly  yes   Mon-Thu       FM:155 / Naples:119  (1.5hr + 2hr)
@@ -252,7 +252,7 @@ async function main() {
     daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri (Fri cutoff at 5pm enforced by v1 rules)
   });
   await upsertOffer({ experienceId: kbfRegId, centerCode: FM,     qamfWebOfferId: 152, qamfOptionType: "Game", qamfOptionId: 908 });
-  await upsertOffer({ experienceId: kbfRegId, centerCode: NAPLES, qamfWebOfferId: 122, qamfOptionType: "Game", qamfOptionId: 728 });
+  await upsertOffer({ experienceId: kbfRegId, centerCode: NAPLES, qamfWebOfferId: 135, qamfOptionType: "Game", qamfOptionId: 806 });
   await setItems(kbfRegId, []); // KBF is free — no items
 
   // ── 2. KBF VIP ──────────────────────────────────────────────────────────────
