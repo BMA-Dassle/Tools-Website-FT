@@ -1314,123 +1314,183 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           )}
 
           {/* ── Change Date & Time (hidden when cancelled / lane running / within 1hr) ── */}
-          {!isCancelled && hasNeonRecord && cfg.changeLink && laneReadyPhase !== "running" && !isWithin1Hour && (
-            <div className="rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/[0.04] overflow-hidden">
-              {/* Toggle button */}
-              <button
-                type="button"
-                onClick={() => rescheduleOpen ? setRescheduleOpen(false) : openReschedule()}
-                className="w-full text-center px-5 py-4 font-body font-semibold text-sm text-[#00E2E5] hover:bg-[#00E2E5]/[0.08] transition-colors"
-              >
-                {rescheduleSuccess ? "Time Updated!" : cfg.changeLink.label}
-              </button>
+          {!isCancelled && hasNeonRecord && cfg.changeLink && laneReadyPhase !== "running" && !isWithin1Hour && (() => {
+            // Derive experience label from first non-shoe line item
+            const expLabel = reservation?.lines
+              ?.find((l) => !/shoe/i.test(l.label))
+              ?.label;
 
-              {/* Reschedule panel */}
-              {rescheduleOpen && !rescheduleSuccess && (
-                <div className="px-4 pb-4 space-y-3 border-t border-[#00E2E5]/15">
-                  <p className="text-xs text-white/40 pt-3">
-                    Pick a new date and time. Your current experience and price stay the same.
-                  </p>
+            // Build date pills: next 14 days from today in ET
+            const datePills: { dateStr: string; dayLabel: string; dateLabel: string }[] = [];
+            for (let i = 0; i < 14; i++) {
+              const d = new Date();
+              d.setDate(d.getDate() + i);
+              const dateStr = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const dayLabel = i === 0 ? "Today" : i === 1 ? "Tomorrow"
+                : d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
+              const dateLabel = d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+              datePills.push({ dateStr, dayLabel, dateLabel });
+            }
 
-                  {/* Loading info */}
-                  {rescheduleInfoLoading && (
-                    <p className="text-center text-sm text-white/40 py-4 animate-pulse">
-                      Loading available options...
-                    </p>
-                  )}
+            return (
+              <div className="rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/[0.04] overflow-hidden">
+                {/* Toggle button */}
+                <button
+                  type="button"
+                  onClick={() => rescheduleOpen ? setRescheduleOpen(false) : openReschedule()}
+                  className="w-full text-center px-5 py-4 font-body font-semibold text-sm text-[#00E2E5] hover:bg-[#00E2E5]/[0.08] transition-colors"
+                >
+                  {rescheduleSuccess ? "Time Updated!" : cfg.changeLink!.label}
+                </button>
 
-                  {/* Info error */}
-                  {rescheduleInfoError && (
-                    <p className="text-sm text-center py-2" style={{ color: CORAL }}>
-                      {rescheduleInfoError}
-                    </p>
-                  )}
+                {/* Reschedule panel */}
+                {rescheduleOpen && !rescheduleSuccess && (
+                  <div className="px-3 sm:px-4 pb-4 space-y-3 border-t border-[#00E2E5]/15">
+                    {/* Experience tag — makes the constraint visible */}
+                    {expLabel && (
+                      <div className="flex items-center gap-2 pt-3">
+                        <span className="inline-flex items-center text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-[#00E2E5]/15 text-[#00E2E5] border border-[#00E2E5]/20">
+                          {expLabel}
+                        </span>
+                        <span className="text-[11px] text-white/35">same package &amp; price</span>
+                      </div>
+                    )}
+                    {!expLabel && (
+                      <p className="text-xs text-white/40 pt-3">
+                        Pick a new date and time. Same experience &amp; price.
+                      </p>
+                    )}
 
-                  {/* Date + slots picker */}
-                  {rescheduleInfo && (
-                    <>
-                      <input
-                        type="date"
-                        value={rescheduleDate}
-                        onChange={(e) => setRescheduleDate(e.target.value)}
-                        className="w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white"
-                      />
+                    {/* Loading info */}
+                    {rescheduleInfoLoading && (
+                      <p className="text-center text-sm text-white/40 py-4 animate-pulse">
+                        Loading...
+                      </p>
+                    )}
 
-                      {rescheduleSlotsLoading ? (
-                        <p className="text-center text-sm text-white/30 py-3 animate-pulse">
-                          Checking availability...
-                        </p>
-                      ) : rescheduleSlots.length === 0 ? (
-                        <p className="text-center text-sm text-white/30 py-3">
-                          No available times. Try another date.
-                        </p>
-                      ) : (
+                    {/* Info error */}
+                    {rescheduleInfoError && (
+                      <p className="text-sm text-center py-2" style={{ color: CORAL }}>
+                        {rescheduleInfoError}
+                      </p>
+                    )}
+
+                    {/* Date pills + time slots */}
+                    {rescheduleInfo && (
+                      <>
+                        {/* Scrollable date pills */}
                         <div
-                          className="grid gap-1.5"
-                          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(85px, 1fr))" }}
+                          className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1"
+                          style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
                         >
-                          {rescheduleSlots.map((slot) => {
-                            const isCurrent = reservation && slot.bookedAt === reservation.bookedAt;
-                            const isSelected = rescheduleSelected === slot.bookedAt;
+                          {datePills.map((dp) => {
+                            const isActive = rescheduleDate === dp.dateStr;
                             return (
                               <button
-                                key={slot.bookedAt}
+                                key={dp.dateStr}
                                 type="button"
-                                onClick={() => setRescheduleSelected(slot.bookedAt)}
-                                disabled={!!isCurrent}
-                                className="rounded-lg text-xs font-semibold py-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                onClick={() => setRescheduleDate(dp.dateStr)}
+                                className="flex-shrink-0 rounded-lg px-2.5 py-2 text-center transition-colors"
                                 style={{
-                                  backgroundColor: isSelected ? "rgba(0,226,229,0.2)" : "rgba(255,255,255,0.06)",
-                                  border: isSelected ? "1.5px solid #00E2E5" : "1px solid rgba(255,255,255,0.1)",
-                                  color: isSelected ? "#00E2E5" : isCurrent ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.8)",
+                                  minWidth: 56,
+                                  backgroundColor: isActive ? "rgba(0,226,229,0.18)" : "rgba(255,255,255,0.05)",
+                                  border: isActive ? "1.5px solid #00E2E5" : "1px solid rgba(255,255,255,0.08)",
                                 }}
                               >
-                                {fmtTimeET(slot.bookedAt)}
-                                {isCurrent && (
-                                  <span className="block text-[10px] text-white/25 mt-0.5">current</span>
-                                )}
+                                <div
+                                  className="text-[10px] font-bold uppercase tracking-wide"
+                                  style={{ color: isActive ? "#00E2E5" : "rgba(255,255,255,0.5)" }}
+                                >
+                                  {dp.dayLabel}
+                                </div>
+                                <div
+                                  className="text-xs mt-0.5"
+                                  style={{ color: isActive ? "#00E2E5" : "rgba(255,255,255,0.7)" }}
+                                >
+                                  {dp.dateLabel}
+                                </div>
                               </button>
                             );
                           })}
                         </div>
-                      )}
 
-                      {/* Error */}
-                      {rescheduleError && (
-                        <p className="text-sm text-center" style={{ color: CORAL }}>
-                          {rescheduleError}
-                        </p>
-                      )}
+                        {/* Time slots */}
+                        {rescheduleSlotsLoading ? (
+                          <p className="text-center text-sm text-white/30 py-3 animate-pulse">
+                            Checking availability...
+                          </p>
+                        ) : rescheduleSlots.length === 0 && rescheduleDate ? (
+                          <p className="text-center text-xs text-white/30 py-3">
+                            No times available for this date.
+                          </p>
+                        ) : (
+                          <div
+                            className="grid gap-1.5"
+                            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))" }}
+                          >
+                            {rescheduleSlots.map((slot) => {
+                              const isCurrent = reservation && slot.bookedAt === reservation.bookedAt;
+                              const isSelected = rescheduleSelected === slot.bookedAt;
+                              return (
+                                <button
+                                  key={slot.bookedAt}
+                                  type="button"
+                                  onClick={() => setRescheduleSelected(slot.bookedAt)}
+                                  disabled={!!isCurrent}
+                                  className="rounded-lg text-xs font-semibold py-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                  style={{
+                                    backgroundColor: isSelected ? "rgba(0,226,229,0.2)" : "rgba(255,255,255,0.06)",
+                                    border: isSelected ? "1.5px solid #00E2E5" : "1px solid rgba(255,255,255,0.1)",
+                                    color: isSelected ? "#00E2E5" : isCurrent ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.8)",
+                                  }}
+                                >
+                                  {fmtTimeET(slot.bookedAt)}
+                                  {isCurrent && (
+                                    <span className="block text-[10px] text-white/25 mt-0.5">current</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
 
-                      {/* Submit */}
-                      <button
-                        type="button"
-                        onClick={() => void handleReschedule()}
-                        disabled={!rescheduleSelected || rescheduleSubmitting}
-                        className="w-full rounded-full py-3 text-sm font-body font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{
-                          backgroundColor: rescheduleSelected && !rescheduleSubmitting ? "#00E2E5" : "rgba(0,226,229,0.15)",
-                          color: rescheduleSelected && !rescheduleSubmitting ? "#000418" : "rgba(0,226,229,0.4)",
-                        }}
-                      >
-                        {rescheduleSubmitting ? "Updating..." : "Confirm New Time"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
+                        {/* Error */}
+                        {rescheduleError && (
+                          <p className="text-sm text-center" style={{ color: CORAL }}>
+                            {rescheduleError}
+                          </p>
+                        )}
 
-              {/* Success message */}
-              {rescheduleSuccess && (
-                <div className="px-4 pb-4 text-center">
-                  <p className="text-sm text-emerald-400 font-semibold">
-                    Your reservation has been moved. Updated confirmation sent!
-                  </p>
-                  <p className="text-xs text-white/30 mt-1">Refreshing...</p>
-                </div>
-              )}
-            </div>
-          )}
+                        {/* Submit */}
+                        <button
+                          type="button"
+                          onClick={() => void handleReschedule()}
+                          disabled={!rescheduleSelected || rescheduleSubmitting}
+                          className="w-full rounded-full py-3 text-sm font-body font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{
+                            backgroundColor: rescheduleSelected && !rescheduleSubmitting ? "#00E2E5" : "rgba(0,226,229,0.15)",
+                            color: rescheduleSelected && !rescheduleSubmitting ? "#000418" : "rgba(0,226,229,0.4)",
+                          }}
+                        >
+                          {rescheduleSubmitting ? "Updating..." : "Confirm New Time"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Success message */}
+                {rescheduleSuccess && (
+                  <div className="px-4 pb-4 text-center">
+                    <p className="text-sm text-emerald-400 font-semibold">
+                      Your reservation has been moved. Updated confirmation sent!
+                    </p>
+                    <p className="text-xs text-white/30 mt-1">Refreshing...</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── Cancel section (hidden when already cancelled) ── */}
           {!isCancelled && hasNeonRecord && (
