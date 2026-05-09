@@ -38,9 +38,9 @@
  *  Pizza Bowl VIP:   stub items TBD — seeded inactive
  *
  * ── Duration options (hourly only) ────────────────────────────────────────
- *  1.5 Hours → QAMF 90-min option, square_multiplier=1
- *  2 Hours   → QAMF 120-min option, square_multiplier=2
- *             (2 hours is charged as 2 × the 1.5hr lane rate)
+ *  1.5 Hours → QAMF 90-min option, square_multiplier=1, uses 1.5hr catalog item
+ *  2 Hours   → QAMF 120-min option, square_multiplier=2, override_square_product_id
+ *              points to the 1hr catalog item (2hr = 2 × 1hr price)
  *
  * ── days_of_week legend ────────────────────────────────────────────────────
  *  0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat

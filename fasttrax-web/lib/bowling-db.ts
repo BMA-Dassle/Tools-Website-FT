@@ -127,8 +127,12 @@ export async function ensureBowlingSchema(): Promise<void> {
   // ── bowling_experience_duration_options ──────────────────────────
   // For Time-based QAMF offers with multiple durations (e.g. 1.5hr / 2hr).
   // square_multiplier: quantity multiplier applied to base experience items.
-  //   1.5hr → multiplier 1  (charge base items × 1)
-  //   2hr   → multiplier 2  (charge base items × 2, i.e. two 1.5hr units)
+  //   1.5hr → multiplier 1  (charge base items × 1, using the 1.5hr catalog item)
+  //   2hr   → multiplier 2  (charge override item × 2, i.e. two 1hr units)
+  // override_square_product_id: when set, use this product instead of the
+  //   base experience item for pricing and Square catalog linkage.
+  //   Null = use base experience item (default for 1.5hr).
+  //   Set to the 1hr Square product for 2hr options.
   await q`
     CREATE TABLE IF NOT EXISTS bowling_experience_duration_options (
       id                SERIAL  PRIMARY KEY,
@@ -143,6 +147,10 @@ export async function ensureBowlingSchema(): Promise<void> {
     )
   `;
   await q`CREATE INDEX IF NOT EXISTS bedo_exp ON bowling_experience_duration_options(experience_id, center_code)`;
+
+  // override_square_product_id: use this product instead of base experience item
+  // for pricing and Square catalog linkage (e.g. 2hr uses the 1hr catalog item × 2).
+  await q`ALTER TABLE bowling_experience_duration_options ADD COLUMN IF NOT EXISTS override_square_product_id INTEGER REFERENCES bowling_square_products(id)`;
 
   // ── bowling_reservations ─────────────────────────────────────────
   await q`
@@ -332,6 +340,14 @@ export interface BowlingExperienceDurationOption {
   label: string;            // "1.5 Hours", "2 Hours"
   squareMultiplier: number; // quantity multiplier on base experience items
   sortOrder: number;
+  /** When set, use this product instead of the base experience item for pricing + catalog linkage. */
+  overrideSquareProductId: number | null;
+  /** Price (cents) of the override product — null when no override. */
+  overridePriceCents: number | null;
+  /** Deposit % of the override product — null when no override. */
+  overrideDepositPct: number | null;
+  /** Square catalog object ID of the override product — null when no override. */
+  overrideCatalogObjectId: string | null;
 }
 
 /** Experience with center-specific QAMF offer resolved + bundled items pre-joined. */
@@ -1115,10 +1131,15 @@ async function fetchDurationOptions(
 ): Promise<Map<number, BowlingExperienceDurationOption[]>> {
   if (!experienceIds.length) return new Map();
   const rows = await q`
-    SELECT * FROM bowling_experience_duration_options
-    WHERE experience_id = ANY(${experienceIds})
-      AND center_code = ${centerCode}
-    ORDER BY experience_id, sort_order
+    SELECT d.*,
+           op.price_cents   AS override_price_cents,
+           op.deposit_pct   AS override_deposit_pct,
+           op.square_catalog_object_id AS override_catalog_object_id
+    FROM bowling_experience_duration_options d
+    LEFT JOIN bowling_square_products op ON op.id = d.override_square_product_id
+    WHERE d.experience_id = ANY(${experienceIds})
+      AND d.center_code = ${centerCode}
+    ORDER BY d.experience_id, d.sort_order
   `;
   const map = new Map<number, BowlingExperienceDurationOption[]>();
   for (const row of rows) {
@@ -1133,6 +1154,10 @@ async function fetchDurationOptions(
       label: r.label as string,
       squareMultiplier: r.square_multiplier as number,
       sortOrder: r.sort_order as number,
+      overrideSquareProductId: (r.override_square_product_id as number) ?? null,
+      overridePriceCents: (r.override_price_cents as number) ?? null,
+      overrideDepositPct: (r.override_deposit_pct as number) ?? null,
+      overrideCatalogObjectId: (r.override_catalog_object_id as string) ?? null,
     };
     if (!map.has(eid)) map.set(eid, []);
     map.get(eid)!.push(opt);

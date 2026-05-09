@@ -792,6 +792,32 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Bundled items auto-included in the selected experience (the combo)
   const baseItems = selectedExperience?.items ?? [];
 
+  // Selected duration option (for hourly experiences with multiple durations)
+  const selectedDurationOpt = selectedExperience?.durationOptions.find(
+    (o) => o.qamfOptionId === selectedSlot?.optionId,
+  ) ?? null;
+
+  // Effective per-unit price for the primary bowling item, accounting for
+  // duration option overrides.  For 2hr options the override product is
+  // the 1hr Square catalog item; multiplied by squareMultiplier=2 it gives
+  // the correct 2hr total (2 × 1hr price).
+  function effectiveItemPrice(item: typeof baseItems[0]): { priceCents: number; depositPct: number } {
+    if (
+      selectedDurationOpt?.overridePriceCents != null &&
+      item.sortOrder === 0 // only override the primary bowling item, not add-ons like VIP Chips
+    ) {
+      return {
+        priceCents: selectedDurationOpt.overridePriceCents,
+        depositPct: selectedDurationOpt.overrideDepositPct ?? item.depositPct,
+      };
+    }
+    return { priceCents: item.priceCents, depositPct: item.depositPct };
+  }
+
+  // Effective quantity multiplier from the selected duration option.
+  // For non-hourly or the default 1.5hr option, this is 1.
+  const durationMultiplier = selectedDurationOpt?.squareMultiplier ?? 1;
+
   // Shoe totals (pre-tax, for display before quote lands)
   const shoePreTaxTotal = Object.entries(shoeQty).reduce((sum, [pidStr, qty]) => {
     const p = shoeProducts.find((sp) => sp.id === Number(pidStr));
@@ -805,12 +831,21 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   // Base (experience) totals pre-tax
   // For per-lane experiences, multiply by laneMultiplier (number of lanes booked).
+  // For hourly experiences, also factor in the duration multiplier and any price override.
   const basePreTaxTotal = baseItems.reduce(
-    (s, item) => s + item.priceCents * item.quantity * laneMultiplier,
+    (s, item) => {
+      const { priceCents } = effectiveItemPrice(item);
+      const qty = item.sortOrder === 0 ? item.quantity * laneMultiplier * durationMultiplier : item.quantity * laneMultiplier;
+      return s + priceCents * qty;
+    },
     0,
   );
   const basePreTaxDeposit = baseItems.reduce(
-    (s, item) => s + Math.round(item.priceCents * item.quantity * laneMultiplier * (item.depositPct / 100)),
+    (s, item) => {
+      const { priceCents, depositPct } = effectiveItemPrice(item);
+      const qty = item.sortOrder === 0 ? item.quantity * laneMultiplier * durationMultiplier : item.quantity * laneMultiplier;
+      return s + Math.round(priceCents * qty * (depositPct / 100));
+    },
     0,
   );
 
@@ -875,6 +910,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Line items sent to /api/bowling/v2/reserve.
   // Pizza bowl: one base item per lane (note only — modifiers go on rawItems above).
   // All other per-lane experiences: multiply quantity by laneMultiplier.
+  // Hourly experiences: use override product if the selected duration specifies one,
+  // and apply the duration multiplier to the primary bowling item.
   const lineItems = [
     ...(isPizzaBowl
       ? pizzaModifierSelections.flatMap((_sel, _laneIdx) => {
@@ -885,10 +922,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             quantity: item.quantity,
           }));
         })
-      : baseItems.map((item) => ({
-          squareProductId: item.squareProductId,
-          quantity: item.quantity * laneMultiplier,
-        }))),
+      : baseItems.map((item) => {
+          // For the primary bowling item (sortOrder 0), use the duration
+          // option's override product (e.g. 1hr item for 2hr bookings)
+          // and apply the duration multiplier.
+          const useOverride =
+            item.sortOrder === 0 &&
+            selectedDurationOpt?.overrideSquareProductId != null;
+          return {
+            squareProductId: useOverride
+              ? selectedDurationOpt!.overrideSquareProductId!
+              : item.squareProductId,
+            quantity: item.quantity * laneMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+          };
+        })),
     ...shoeProducts
       .filter((p) => (shoeQty[p.id] ?? 0) > 0)
       .map((p) => ({ squareProductId: p.id, quantity: shoeQty[p.id] })),
@@ -1215,12 +1262,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               },
             ];
           })
-        : baseItems.map((item) => ({
-            name: item.label,
-            quantity: String(item.quantity * laneMultiplier),
-            catalogObjectId: item.squareCatalogObjectId,
-            ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
-          }))),
+        : baseItems.map((item) => {
+            // For the primary bowling item (sortOrder 0), use duration override
+            // product and apply duration multiplier (e.g. 2× 1hr item for 2hr).
+            const useOverride =
+              item.sortOrder === 0 &&
+              selectedDurationOpt?.overrideCatalogObjectId != null;
+            return {
+              name: useOverride
+                ? (selectedDurationOpt!.overrideCatalogObjectId ? item.label.replace(/1\.5\s*Hr/i, "1 Hr") : item.label)
+                : item.label,
+              quantity: String(
+                item.quantity * laneMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+              ),
+              catalogObjectId: useOverride
+                ? selectedDurationOpt!.overrideCatalogObjectId!
+                : item.squareCatalogObjectId,
+              ...(selectedModifiers.length > 0 ? { modifiers: selectedModifiers } : {}),
+            };
+          })),
       ...shoeProducts
         .filter((p) => (shoeQty[p.id] ?? 0) > 0)
         .map((p) => ({
@@ -2917,7 +2977,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                               /* Duration tiles (Open Bowling Mon-Thur style) */
                               <div className="flex gap-3 flex-wrap">
                                 {exp.durationOptions.map((opt) => {
-                                  const optCents = Math.round(baseItemCents * opt.squareMultiplier);
+                                  // Use the override product price if set (e.g. 1hr item for 2hr),
+                                  // otherwise fall back to the base experience item price.
+                                  const unitCents = opt.overridePriceCents ?? baseItemCents;
+                                  const optCents = Math.round(unitCents * opt.squareMultiplier);
                                   const isOn =
                                     isExpSelected &&
                                     selectedSlot?.optionId === opt.qamfOptionId;
@@ -3422,23 +3485,30 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     </span>
                   </div>
                 ) : (
-                  baseItems.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-sm">
-                      <span className="font-body text-white/55">
-                        {item.label}
-                        {selectedIsPerLane && laneCount > 1 && (
-                          <span className="text-white/35"> × {laneCount} lanes</span>
-                        )}
-                      </span>
-                      {quoteLoading ? (
-                        <span className="font-body text-white/35 text-xs italic">calculating…</span>
-                      ) : (
-                        <span className="font-body font-bold" style={{ color: CORAL }}>
-                          {centsToDollars(item.priceCents * item.quantity * laneMultiplier)}
+                  baseItems.map((item, idx) => {
+                    const { priceCents: itemPrice } = effectiveItemPrice(item);
+                    const qty = item.quantity * laneMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1);
+                    return (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span className="font-body text-white/55">
+                          {item.label}
+                          {selectedIsPerLane && laneCount > 1 && (
+                            <span className="text-white/35"> × {laneCount} lanes</span>
+                          )}
+                          {item.sortOrder === 0 && durationMultiplier > 1 && (
+                            <span className="text-white/35"> × {durationMultiplier}</span>
+                          )}
                         </span>
-                      )}
-                    </div>
-                  ))
+                        {quoteLoading ? (
+                          <span className="font-body text-white/35 text-xs italic">calculating…</span>
+                        ) : (
+                          <span className="font-body font-bold" style={{ color: CORAL }}>
+                            {centsToDollars(itemPrice * qty)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
 
                 {/* Shoes line */}
