@@ -236,15 +236,28 @@ export async function GET(req: NextRequest) {
   // per offer × time). We post-filter by validOfferIds afterward.
 
   try {
-    const results = await Promise.all(
-      probeTimes.map((bookedAt) =>
-        searchAvailability(centerId, {
-          BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
-          TotalPlayers: players,
-          WebOffer: { Services: ["BookForLater"] },
-        }).catch(() => ({ Availabilities: [] })),
-      ),
-    );
+    // Probe in batches of 8 to avoid QAMF rate limiting, with error tracking
+    let probeErrors = 0;
+    const results: Array<{ Availabilities: Array<{ TotalPlayers: number; BookedAt: string; WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] } }> }> = [];
+    for (let i = 0; i < probeTimes.length; i += 8) {
+      const batch = probeTimes.slice(i, i + 8);
+      const batchResults = await Promise.all(
+        batch.map((bookedAt) =>
+          searchAvailability(centerId, {
+            BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
+            TotalPlayers: players,
+            WebOffer: { Services: ["BookForLater"] },
+          }).catch((err) => {
+            probeErrors++;
+            if (probeErrors <= 3) {
+              console.warn(`[avail] probe error at ${bookedAt}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            return { Availabilities: [] as Array<{ TotalPlayers: number; BookedAt: string; WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] } }> };
+          }),
+        ),
+      );
+      results.push(...batchResults);
+    }
 
     // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers
     const seen = new Set<string>();
@@ -263,13 +276,13 @@ export async function GET(req: NextRequest) {
     // Filter slots that would run past closing time
     availabilities = availabilities.filter((a) => {
       const mins = durationMinOver
-        ?? a.WebOffer?.Options?.Time?.[0]?.Minutes
+        ?? (a.WebOffer?.Options as { Time?: Array<{ Minutes?: number }> })?.Time?.[0]?.Minutes
         ?? undefined;
       if (!mins || mins <= 0) return true; // no duration info → keep (game/unlimited)
       return !slotExceedsClose(a.BookedAt, mins, closeHour);
     });
 
-    console.log(`[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`);
+    console.log(`[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} errors=${probeErrors} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`);
     if (availabilities.length > 0) {
       console.log(`[avail] first=${availabilities[0].BookedAt} last=${availabilities[availabilities.length - 1].BookedAt}`);
     }
@@ -277,6 +290,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ Availabilities: availabilities });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
+    console.error(`[avail] fatal error: ${msg}`);
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }
