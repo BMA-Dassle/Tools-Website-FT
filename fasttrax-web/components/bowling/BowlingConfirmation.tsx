@@ -628,11 +628,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             )}
           </div>
 
-        </div>{/* ── END LEFT COLUMN ── */}
-
-        {/* ── RIGHT COLUMN ── */}
-        <div className="lg:col-span-2 space-y-4">
-
           {/* ── Bowler details ── (hidden when cancelled) */}
           {players.length > 0 && !isCancelled && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
@@ -739,6 +734,11 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               </button>
             </div>
           )}
+
+        </div>{/* ── END LEFT COLUMN ── */}
+
+        {/* ── RIGHT COLUMN ── */}
+        <div className="lg:col-span-2 space-y-4">
 
           {/* ── Arrival instructions (hidden when cancelled) ── */}
           {!isCancelled && (
