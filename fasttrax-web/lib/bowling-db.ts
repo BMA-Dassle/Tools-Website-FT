@@ -763,15 +763,19 @@ export async function getBowlingReservationByQamfId(
   };
 }
 
+export type BowlingReservationWithLines = BowlingReservation & {
+  lines: (ReservationLine & { id: number; reservationId: number })[];
+};
+
 /**
  * List bowling reservations filtered by booked_at date range.
- * Used by the admin reservations board.
+ * Used by the admin reservations board. Includes order lines.
  */
 export async function listBowlingReservations(opts: {
   startDate: string; // 'YYYY-MM-DD' inclusive
   endDate: string;   // 'YYYY-MM-DD' inclusive
   centerCode?: string;
-}): Promise<BowlingReservation[]> {
+}): Promise<BowlingReservationWithLines[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
@@ -789,7 +793,28 @@ export async function listBowlingReservations(opts: {
         WHERE booked_at >= ${startAt} AND booked_at <= ${endAt}
         ORDER BY booked_at ASC
       `;
-  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  if (!reservations.length) return [];
+
+  // Batch-fetch lines for all reservations in one query
+  const ids = reservations.map((r) => r.id);
+  const lineRows = await q`
+    SELECT * FROM bowling_reservation_lines
+    WHERE reservation_id = ANY(${ids})
+    ORDER BY id
+  `;
+  const linesByRes = new Map<number, (ReservationLine & { id: number; reservationId: number })[]>();
+  for (const lr of lineRows) {
+    const line = rowToLine(lr as Record<string, unknown>);
+    const arr = linesByRes.get(line.reservationId) ?? [];
+    arr.push(line);
+    linesByRes.set(line.reservationId, arr);
+  }
+
+  return reservations.map((r) => ({
+    ...r,
+    lines: linesByRes.get(r.id) ?? [],
+  }));
 }
 
 export async function updateBowlingReservationStatus(

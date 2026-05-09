@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 
+interface ReservationLine {
+  label: string;
+  quantity: number;
+  unitPriceCents: number;
+}
+
 interface Reservation {
   id: number;
   centerCode: string;
@@ -28,6 +34,7 @@ interface Reservation {
   dayofPaymentId?: string;
   dayofOrderError?: string;
   insertedAt: string;
+  lines: ReservationLine[];
 }
 
 const CENTERS: Record<string, string> = {
@@ -52,6 +59,9 @@ const STATUS_LABELS: Record<string, string> = {
   completed: "Completed",
   cancelled: "Cancelled",
 };
+
+/** Food items that should be displayed on the admin board */
+const FOOD_RE = /pizza\s+bowl\s+pizza|pizza\s+bowl\s+soda|chips.+salsa/i;
 
 function todayET(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -1092,7 +1102,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Type", "Status", "Lane", "Payment", "Ref", "Actions"].map(
+                  {["Time", "Guest", "Type", "Status", "Lane", "Order", "Square", "Payment", "Ref", "Actions"].map(
                     (h) => (
                       <th
                         key={h}
@@ -1191,11 +1201,6 @@ export default function ReservationsClient({ token }: { token: string }) {
                         >
                           {STATUS_LABELS[r.status] ?? r.status}
                         </span>
-                        {r.dayofOrderError && (
-                          <div style={{ color: "#ef4444", fontSize: "0.6rem", marginTop: 2 }}>
-                            {r.dayofOrderError}
-                          </div>
-                        )}
                       </td>
 
                       {/* Lane */}
@@ -1209,6 +1214,66 @@ export default function ReservationsClient({ token }: { token: string }) {
                         }}
                       >
                         {r.dayofOrderLane ?? "—"}
+                      </td>
+
+                      {/* Order — food items from lines */}
+                      <td style={{ padding: "0.5rem 0.4rem" }}>
+                        {(() => {
+                          const food = r.lines.filter((l) => FOOD_RE.test(l.label));
+                          if (!food.length) return <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>;
+                          return food.map((f, i) => {
+                            const short = f.label
+                              .replace(/^VIP\s+/i, "")
+                              .replace(/Pizza Bowl /i, "PB ")
+                              .replace(/Soda Pitcher/i, "Soda")
+                              .replace(/Chips & Salsa/i, "C&S");
+                            return (
+                              <div key={i} style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.55)", whiteSpace: "nowrap" }}>
+                                {short}{f.quantity > 1 ? ` ×${f.quantity}` : ""}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </td>
+
+                      {/* Square — order sent status */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        {r.dayofOrderSentAt ? (
+                          <div>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                backgroundColor: r.dayofOrderError
+                                  ? "rgba(239,68,68,0.15)"
+                                  : "rgba(34,197,94,0.15)",
+                                color: r.dayofOrderError ? "#ef4444" : "#22c55e",
+                                border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                              }}
+                            >
+                              {r.dayofOrderError ? "ERR" : "Sent"}
+                            </span>
+                            {r.dayofPaymentId && (
+                              <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", marginTop: 1 }}>
+                                {r.dayofPaymentId.slice(-8)}
+                              </div>
+                            )}
+                            {r.dayofOrderError && (
+                              <div style={{ fontSize: "0.55rem", color: "#ef4444", marginTop: 1, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}
+                                title={r.dayofOrderError}
+                              >
+                                {r.dayofOrderError}
+                              </div>
+                            )}
+                          </div>
+                        ) : r.squareDayofOrderId ? (
+                          <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "0.6rem" }}>Pending</span>
+                        ) : (
+                          <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>
+                        )}
                       </td>
 
                       {/* Payment — deposit / total merged */}
