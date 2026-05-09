@@ -91,11 +91,11 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "fun-4-all": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "1.5 hours of bowling Monday through Thursday — shoes included!",
+    description: "The weekday special — 1.5 hours of unlimited bowling with shoes included, one flat price per person!",
     features: [
+      "1.5 hours of unlimited bowling",
       "Bowling shoes included",
-      "Up to 20 bowlers per lane",
-      "Standard HeadPinz lanes",
+      "One flat per-person price",
       "Glow bowling in the evenings",
     ],
     includesShoes: true,
@@ -104,12 +104,12 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "The premium Mon-Thur experience — VIP suite with NeoVerse, HyperBowling, shoes & chips included.",
+      "The premium weekday deal — 1.5 hours of VIP bowling with shoes, complimentary chips & salsa, and NeoVerse technology all included!",
     features: [
+      "1.5 hours of premium VIP bowling",
       "Bowling shoes included",
-      "VIP lounge & dedicated lanes",
-      "NeoVerse video walls",
       "Complimentary chips & salsa",
+      "VIP NeoVerse lanes",
     ],
     includesShoes: true,
   },
@@ -181,6 +181,29 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     ],
     includesShoes: true,
     perLane: true,
+  },
+  "midnight-madness": {
+    videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
+    accent: CORAL,
+    description: "The Friday & Saturday night special — unlimited bowling all night long at one flat price per person!",
+    features: [
+      "Unlimited bowling",
+      "Bowl all night",
+      "One flat per-person price",
+      "Glow bowling atmosphere",
+    ],
+  },
+  "midnight-madness-vip": {
+    videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+    accent: GOLD,
+    description:
+      "The ultimate weekend night out — unlimited VIP bowling all night with complimentary chips & salsa and NeoVerse technology!",
+    features: [
+      "Unlimited premium VIP bowling",
+      "Bowl all night",
+      "Complimentary chips & salsa",
+      "VIP NeoVerse lanes",
+    ],
   },
 };
 
@@ -2934,10 +2957,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               return true; // hourly: always show, may show SOLD OUT
             });
 
-            // Pizza Bowl always on top — it's the best deal
+            // Specials (open kind) always on top, hourly lane rentals below.
+            // This puts Fun 4 All, Pizza Bowl, and Midnight Madness above
+            // the per-hour lane rental options.
             offerExperiences.sort((a, b) => {
-              const aP = a.slug.includes("pizza-bowl") ? 0 : 1;
-              const bP = b.slug.includes("pizza-bowl") ? 0 : 1;
+              const aP = a.kind === "open" ? 0 : 1;
+              const bP = b.kind === "open" ? 0 : 1;
               return aP - bP;
             });
 
@@ -2976,14 +3001,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
                     // For KBF with no items it's free
                     const isFree = exp.items.length === 0 && kind === "kbf";
-                    const isPizzaBowlCard = exp.slug.includes("pizza-bowl");
+                    // Specials (open kind) = Fun 4 All, Pizza Bowl, Midnight Madness
+                    const isSpecial = exp.kind === "open";
 
                     return (
-                      <div key={exp.qamfWebOfferId} className="w-full rounded-xl overflow-hidden" style={{ border: `1.78px solid ${isExpSelected ? `${accent}88` : isPizzaBowlCard ? `${accent}50` : `${accent}28`}`, boxShadow: isExpSelected ? `0 0 28px ${accent}20` : isPizzaBowlCard ? `0 0 20px ${accent}15` : undefined }}>
-                        {/* Top banner — deal badge for pizza bowl, shoes-included for others */}
-                        {isPizzaBowlCard && hasSlots ? (
+                      <div key={exp.qamfWebOfferId} className="w-full rounded-xl overflow-hidden" style={{ border: `1.78px solid ${isExpSelected ? `${accent}88` : isSpecial ? `${accent}50` : `${accent}28`}`, boxShadow: isExpSelected ? `0 0 28px ${accent}20` : isSpecial ? `0 0 20px ${accent}15` : undefined }}>
+                        {/* Top banner — deal badge for specials, shoes-included for non-specials */}
+                        {isSpecial && hasSlots ? (
                           <div className="w-full py-2.5 px-4 text-center font-body font-bold text-xs uppercase tracking-widest" style={{ background: `linear-gradient(135deg, ${accent}30, ${accent}18)`, color: accent, borderBottom: `1px solid ${accent}30` }}>
-                            ★ Best Deal — Everything Included ★
+                            ★ Special — Everything Included ★
                           </div>
                         ) : includesShoes && hasSlots ? (
                           <div className="w-full py-2 px-4 text-center font-body font-bold text-xs uppercase tracking-widest" style={{ backgroundColor: `${accent}22`, color: accent, borderBottom: `1px solid ${accent}30` }}>
@@ -3020,8 +3046,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             </div>
                             <p className="font-body text-white/55 text-sm mb-3">{display.description}</p>
 
-                            {/* "What's included" checklist — pizza bowl deal style */}
-                            {isPizzaBowlCard && (
+                            {/* "What's included" checklist — special deal style */}
+                            {isSpecial && (
                               <ul className="space-y-1.5 mb-4">
                                 {display.features.map((feat) => (
                                   <li key={feat} className="flex items-baseline justify-between gap-2 text-xs">
