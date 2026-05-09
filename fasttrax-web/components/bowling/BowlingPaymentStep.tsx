@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import CardCaptureForm, {
   type CardCaptureHandle,
 } from "@/components/square/CardCaptureForm";
@@ -12,6 +12,8 @@ import CardCaptureForm, {
  * karting flow: tokenization is handled INTERNALLY so the card widget is
  * always alive when tokenize() runs. The parent never touches cardRef.
  *
+ * Supports Apple Pay and Google Pay via the Square Web Payments SDK.
+ *
  * When the user clicks Pay, this component:
  *   1. Calls card.tokenize() (card is still mounted — no risk of INVALID_CARD_DATA)
  *   2. On success, calls onPay(token) — the parent then changes step / calls the API
@@ -22,6 +24,24 @@ import CardCaptureForm, {
  */
 
 const CORAL = "#fd5b56";
+
+const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
+const SDK_URL = "https://web.squarecdn.com/v1/square.js";
+
+const SQUARE_LOCATIONS: Record<string, string> = {
+  fasttrax: "LAB52GY480CJF",
+  headpinz: "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
+
+function resolveLocationId(override?: string): string {
+  if (override && SQUARE_LOCATIONS[override]) return SQUARE_LOCATIONS[override];
+  if (override && /^[A-Z0-9]{10,}$/.test(override)) return override;
+  if (typeof window === "undefined") return SQUARE_LOCATIONS.fasttrax;
+  return window.location.hostname.includes("headpinz")
+    ? SQUARE_LOCATIONS.headpinz
+    : SQUARE_LOCATIONS.fasttrax;
+}
 
 function centsToDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -65,6 +85,13 @@ interface BowlingPaymentStepProps {
   children?: ReactNode;
 }
 
+// ── Square wallet types (same shape as PaymentForm.tsx) ────────────────
+interface SquareDigitalWallet {
+  attach: (selector: string) => Promise<void>;
+  tokenize: () => Promise<{ status: string; token?: string }>;
+  destroy: () => void;
+}
+
 export default function BowlingPaymentStep({
   depositCents,
   totalCents,
@@ -83,10 +110,136 @@ export default function BowlingPaymentStep({
   const [tokenizing, setTokenizing] = useState(false);
   const [tokenizeError, setTokenizeError] = useState<string | null>(null);
 
+  // ── Digital wallet state ─────────────────────────────────────────
+  const [applePayReady, setApplePayReady] = useState(false);
+  const [googlePayReady, setGooglePayReady] = useState(false);
+  const applePayRef = useRef<SquareDigitalWallet | null>(null);
+  const googlePayRef = useRef<SquareDigitalWallet | null>(null);
+  const walletInitRef = useRef(false);
+
   const remaining = totalCents - depositCents;
   const effectivePayLabel = payLabel ?? `Pay ${centsToDollars(depositCents)}`;
   const isProcessing = tokenizing || busy;
 
+  // ── Initialize Apple Pay + Google Pay ───────────────────────────
+  useEffect(() => {
+    if (walletInitRef.current || depositCents <= 0) return;
+    walletInitRef.current = true;
+
+    let cancelled = false;
+
+    async function initWallets() {
+      try {
+        // Ensure SDK is loaded
+        if (!window.Square) {
+          if (!document.querySelector(`script[src="${SDK_URL}"]`)) {
+            await new Promise<void>((resolve, reject) => {
+              const s = document.createElement("script");
+              s.src = SDK_URL;
+              s.onload = () => resolve();
+              s.onerror = () => reject(new Error("Square SDK failed to load"));
+              document.head.appendChild(s);
+            });
+          }
+          // Wait for Square global
+          let attempts = 0;
+          while (!window.Square && !cancelled && attempts < 40) {
+            await new Promise((r) => setTimeout(r, 50));
+            attempts++;
+          }
+        }
+        if (cancelled || !window.Square) return;
+
+        const locId = resolveLocationId(locationId);
+        const payments = await window.Square.payments(SQUARE_APP_ID, locId);
+        const amountStr = (depositCents / 100).toFixed(2);
+
+        // Apple Pay
+        try {
+          const applePayRequest = payments.paymentRequest({
+            countryCode: "US",
+            currencyCode: "USD",
+            total: { amount: amountStr, label: "HeadPinz Bowling" },
+          });
+          const applePay = await payments.applePay(applePayRequest);
+          if (!cancelled) {
+            applePayRef.current = applePay as unknown as SquareDigitalWallet;
+            setApplePayReady(true);
+          }
+        } catch {
+          // Apple Pay not available on this device/browser — silent
+        }
+
+        // Google Pay
+        try {
+          const googlePayRequest = payments.paymentRequest({
+            countryCode: "US",
+            currencyCode: "USD",
+            total: { amount: amountStr, label: "HeadPinz Bowling" },
+          });
+          const googlePay = await payments.googlePay(googlePayRequest);
+          if (!cancelled) {
+            await googlePay.attach("#sq-bowling-google-pay");
+            googlePayRef.current = googlePay;
+            setGooglePayReady(true);
+          }
+        } catch {
+          // Google Pay not available — silent
+        }
+      } catch {
+        // Non-fatal — card form still works
+      }
+    }
+
+    initWallets();
+
+    return () => {
+      cancelled = true;
+      try { applePayRef.current?.destroy(); } catch { /* ignore */ }
+      try { googlePayRef.current?.destroy(); } catch { /* ignore */ }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId, depositCents]);
+
+  // ── Apple Pay handler ───────────────────────────────────────────
+  async function handleApplePay() {
+    if (isProcessing || !applePayRef.current) return;
+    setTokenizing(true);
+    setTokenizeError(null);
+    try {
+      const result = await (applePayRef.current as unknown as {
+        tokenize: () => Promise<{ status: string; token?: string }>;
+      }).tokenize();
+      if (result.status !== "OK" || !result.token) {
+        throw new Error("Apple Pay cancelled or failed");
+      }
+      onPay(result.token);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Apple Pay failed";
+      setTokenizeError(msg);
+      setTokenizing(false);
+    }
+  }
+
+  // ── Google Pay handler ──────────────────────────────────────────
+  async function handleGooglePay() {
+    if (isProcessing || !googlePayRef.current) return;
+    setTokenizing(true);
+    setTokenizeError(null);
+    try {
+      const result = await googlePayRef.current.tokenize();
+      if (result.status !== "OK" || !result.token) {
+        throw new Error("Google Pay cancelled or failed");
+      }
+      onPay(result.token);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Google Pay failed";
+      setTokenizeError(msg);
+      setTokenizing(false);
+    }
+  }
+
+  // ── Card Pay handler ────────────────────────────────────────────
   async function handlePay() {
     if (isProcessing || payDisabled) return;
     if (!cardRef.current) {
@@ -97,8 +250,6 @@ export default function BowlingPaymentStep({
     setTokenizing(true);
     setTokenizeError(null);
 
-    // Tokenize while card widget is still mounted — safe here because we
-    // haven't changed any parent step state yet.
     const result = await cardRef.current.tokenize();
 
     if ("error" in result) {
@@ -107,11 +258,7 @@ export default function BowlingPaymentStep({
       return;
     }
 
-    // Token obtained. Card is still mounted at this point.
-    // Hand off to parent — parent changes step / calls API from here.
     onPay(result.token);
-    // Note: don't reset tokenizing here — the component will unmount when
-    // the parent transitions away from the payment step.
   }
 
   return (
@@ -130,6 +277,39 @@ export default function BowlingPaymentStep({
           <> · Balance at center: {centsToDollars(remaining)}</>
         )}
       </p>
+
+      {/* ── Digital wallets ─────────────────────────────────────── */}
+      {(applePayReady || googlePayReady) && (
+        <div className="space-y-3">
+          {applePayReady && (
+            <button
+              type="button"
+              onClick={() => void handleApplePay()}
+              disabled={isProcessing}
+              className="w-full h-12 rounded-xl bg-white text-black font-semibold text-sm flex items-center justify-center gap-2 hover:bg-white/90 active:bg-white/80 transition-colors disabled:opacity-50"
+            >
+              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
+                <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+              </svg>
+              Pay with Apple Pay
+            </button>
+          )}
+          <div
+            id="sq-bowling-google-pay"
+            className={googlePayReady ? "w-full min-h-[48px] [&_iframe]:!w-full cursor-pointer" : "hidden"}
+            onClick={() => void handleGooglePay()}
+          />
+        </div>
+      )}
+
+      {/* Divider between wallets and card */}
+      {(applePayReady || googlePayReady) && (
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-white/30 text-xs uppercase tracking-wider font-body">or pay with card</span>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
+      )}
 
       {/* Card form — owned by this component, never exposed via ref */}
       <CardCaptureForm ref={cardRef} locationId={locationId} />
