@@ -242,6 +242,15 @@ export async function ensureBowlingSchema(): Promise<void> {
 
   await q`ALTER TABLE bowling_reservation_players ADD COLUMN IF NOT EXISTS lane_number INTEGER`;
 
+  // ── Lane-open tracking (idempotent) ──────────────────────────────
+  // Set when the bowling-lane-poll / bowling-events-consumer cron processes
+  // the day-of Square order (kitchen notes + gift card payment) on lane open.
+  // dayof_order_sent_at IS NULL = not yet processed; used as idempotency guard.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_sent_at TIMESTAMPTZ`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_lane     TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_payment_id     TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_error    TEXT`;
+
   schemaReady = true;
 }
 
@@ -433,6 +442,14 @@ export interface BowlingReservation {
   squareRefundId?: string;
   /** Actual amount refunded to the customer (cents). 0 if free booking. */
   refundCents: number;
+  /** ISO timestamp set when the lane-open processor runs (kitchen notes + gift card payment). */
+  dayofOrderSentAt?: string;
+  /** Comma-separated lane numbers assigned when lanes opened, e.g. "12" or "12,13". */
+  dayofOrderLane?: string;
+  /** Square payment ID for the gift card charge applied at lane-open. */
+  dayofPaymentId?: string;
+  /** Error message from last lane-open attempt (if any); cleared on success. */
+  dayofOrderError?: string;
   insertedAt: string;
 }
 
@@ -592,6 +609,12 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
       : undefined,
     squareRefundId: (row.square_refund_id as string) ?? undefined,
     refundCents: (row.refund_cents as number) ?? 0,
+    dayofOrderSentAt: row.dayof_order_sent_at
+      ? (row.dayof_order_sent_at as Date).toISOString()
+      : undefined,
+    dayofOrderLane: (row.dayof_order_lane as string) ?? undefined,
+    dayofPaymentId: (row.dayof_payment_id as string) ?? undefined,
+    dayofOrderError: (row.dayof_order_error as string) ?? undefined,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -1396,6 +1419,46 @@ export async function getAllBowlingExperiences(): Promise<
 
     return { ...rowToExperience(r), offers, items: itemMap.get(eid) ?? [] };
   });
+}
+
+/**
+ * Mark a reservation's day-of order as processed after lane-open.
+ *
+ * Sets dayof_order_sent_at = NOW(), records lane numbers, payment ID, and
+ * any error. Advances status to 'arrived' if it was 'confirmed' (or pending).
+ *
+ * Uses `WHERE dayof_order_sent_at IS NULL AND status != 'cancelled'` as the
+ * idempotency guard — returns false if the row was already processed or
+ * the reservation is cancelled.
+ *
+ * Called by both the bowling-events-consumer (webhook path) and the
+ * bowling-lane-poll cron (polling fallback). Both use the same
+ * idempotency keys so concurrent triggers are safe.
+ */
+export async function updateBowlingReservationLaneOpen(
+  id: number,
+  opts: { laneNumbers: number[]; paymentId?: string; error?: string },
+): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureBowlingSchema();
+  const q = sql();
+  const laneLabel = opts.laneNumbers.join(",");
+  const rows = await q`
+    UPDATE bowling_reservations SET
+      dayof_order_sent_at = NOW(),
+      dayof_order_lane    = ${laneLabel || null},
+      dayof_payment_id    = ${opts.paymentId ?? null},
+      dayof_order_error   = ${opts.error ?? null},
+      status = CASE
+        WHEN status IN ('confirmed', 'confirm_pending', 'confirm_failed') THEN 'arrived'
+        ELSE status
+      END
+    WHERE id = ${id}
+      AND dayof_order_sent_at IS NULL
+      AND status != 'cancelled'
+    RETURNING id
+  `;
+  return rows.length > 0;
 }
 
 // ─────────────────────────────────────────────────────────────────

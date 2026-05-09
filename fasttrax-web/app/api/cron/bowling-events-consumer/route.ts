@@ -8,6 +8,8 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
+import { getReservation } from "@/lib/qamf-bowling";
+import { processLaneOpen } from "@/lib/bowling-lane-open";
 
 /**
  * GET /api/cron/bowling-events-consumer
@@ -218,6 +220,52 @@ export async function GET(req: NextRequest) {
 
       // ── reservation.updated → map status ─────────────────────────────
       if (eventType === "reservation.updated") {
+        // ── Running → lane-open processor ────────────────────────────
+        // When QAMF marks a reservation as Running, lanes have opened.
+        // Call processLaneOpen to update kitchen display notes and apply
+        // the gift card deposit to the day-of Square order.
+        if (qamfStatus === "Running" && !reservation.dayofOrderSentAt) {
+          const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
+            TXBSQN0FEKQ11: 9172,
+            PPTR5G2N0QXF7: 3148,
+          };
+          const centerId = entry.centerId ?? CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
+          let laneNumbers: number[] = [];
+          if (centerId) {
+            try {
+              const qamfRes = await getReservation(centerId, qamfId);
+              laneNumbers = (qamfRes.Lanes ?? [])
+                .map((l) => l.LaneNumber)
+                .filter((n): n is number => typeof n === "number");
+            } catch (err) {
+              console.warn(
+                `[bowling-events] getReservation failed for lane-open neonId=${reservation.id}:`,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          try {
+            const laneResult = await processLaneOpen({
+              reservation,
+              laneNumbers,
+              idempotencyBase: `lane-open-${reservation.id}`,
+            });
+            console.log(
+              `[bowling-events] lane-open neonId=${reservation.id}` +
+              ` lane="${laneResult.laneLabel}" kitchen=${laneResult.kitchenItemsUpdated}` +
+              ` paymentId=${laneResult.paymentId ?? "none"}` +
+              (laneResult.error ? ` error=${laneResult.error}` : ""),
+            );
+          } catch (err) {
+            console.error(
+              `[bowling-events] processLaneOpen threw neonId=${reservation.id}:`,
+              err instanceof Error ? err.message : err,
+            );
+            results.errors++;
+          }
+          // Fall through — let the status map advance Neon status to 'arrived'
+        }
+
         const neonAction = QAMF_STATUS_MAP[qamfStatus];
 
         if (!neonAction) {
