@@ -417,7 +417,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const filtered = useMemo(() => {
     let list = reservations;
     if (hideCancelled) {
-      list = list.filter((r) => r.status !== "cancelled");
+      list = list.filter((r) => r.status !== "cancelled" && r.status !== "completed");
     }
     if (search.trim()) {
       const q = search.toLowerCase().trim();
@@ -438,8 +438,10 @@ export default function ReservationsClient({ token }: { token: string }) {
   }, [reservations, search, hideCancelled]);
 
   // Stats
-  const active = filtered.filter((r) => r.status !== "cancelled");
+  const active = filtered.filter((r) => r.status !== "cancelled" && r.status !== "completed");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
+  const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
+  const totalHidden = totalCancelledAll + totalCompletedAll;
   const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
   const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
   const totalPlayers = active.reduce((s, r) => s + (r.playerCount ?? 0), 0);
@@ -621,9 +623,17 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             <span>
               <strong style={{ color: "#fff" }}>{active.length}</strong> active
-              {totalCancelledAll > 0 && (
+              {hideCancelled && totalHidden > 0 && (
+                <span style={{ color: "rgba(255,255,255,0.3)" }}>
+                  {" "}+ {totalHidden} hidden
+                  {totalCancelledAll > 0 && totalCompletedAll > 0
+                    ? ` (${totalCancelledAll} cancelled, ${totalCompletedAll} completed)`
+                    : totalCancelledAll > 0 ? " (cancelled)" : " (completed)"}
+                </span>
+              )}
+              {!hideCancelled && totalCancelledAll > 0 && (
                 <span style={{ color: "rgba(239,68,68,0.7)" }}>
-                  {" "}+ {totalCancelledAll} cancelled{hideCancelled ? " (hidden)" : ""}
+                  {" "}· {totalCancelledAll} cancelled
                 </span>
               )}
             </span>
