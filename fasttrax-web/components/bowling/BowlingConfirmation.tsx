@@ -173,6 +173,7 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
         )}
       </>
     ),
+    changeLink: { href: "/hp/book/bowling", label: "Change Date & Time" },
     navLinks: [
       { href: "/hp/book/bowling", label: "Book another lane" },
       { href: "/hp/book", label: "Book something else" },
@@ -1189,6 +1190,16 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             </div>
           )}
 
+          {/* ── Change Date & Time (hidden when cancelled / lane running) ── */}
+          {!isCancelled && hasNeonRecord && cfg.changeLink && laneReadyPhase !== "running" && !isWithin1Hour && (
+            <Link
+              href={cfg.changeLink.href}
+              className="block w-full text-center rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/[0.06] px-5 py-4 font-body font-semibold text-sm text-[#00E2E5] hover:bg-[#00E2E5]/[0.12] transition-colors"
+            >
+              {cfg.changeLink.label}
+            </Link>
+          )}
+
           {/* ── Cancel section (hidden when already cancelled) ── */}
           {!isCancelled && hasNeonRecord && (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
@@ -1198,7 +1209,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                 return (
                   <div className="text-center space-y-1">
                     <p className="text-sm text-white/50">
-                      Need to cancel? Your reservation starts in less than an hour.
+                      Need to change or cancel? Your reservation starts in less than an hour.
                     </p>
                     <p className="text-sm text-white/70">
                       Please call us
