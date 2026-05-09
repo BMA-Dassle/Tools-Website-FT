@@ -473,8 +473,13 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     <div style={{ backgroundColor: BG }} className="min-h-screen">
       <HeadPinzNav />
 
-      <main className="pt-28 sm:pt-36 pb-24 px-4">
-        <div className="max-w-2xl mx-auto space-y-4">
+      <main className="pt-28 sm:pt-36 pb-24 px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto">
+        {/* ── Two-column on large screens: left = booking info, right = interactive ── */}
+        <div className="lg:grid lg:grid-cols-5 lg:gap-6 space-y-4 lg:space-y-0">
+
+        {/* ── LEFT COLUMN ── */}
+        <div className="lg:col-span-3 space-y-4">
 
           {/* ── Hero card ── */}
           <div
@@ -622,6 +627,11 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               </>
             )}
           </div>
+
+        </div>{/* ── END LEFT COLUMN ── */}
+
+        {/* ── RIGHT COLUMN ── */}
+        <div className="lg:col-span-2 space-y-4">
 
           {/* ── Bowler details ── (hidden when cancelled) */}
           {players.length > 0 && !isCancelled && (
@@ -802,7 +812,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           )}
 
           {/* ── Navigation links ── */}
-          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+          <div className="flex flex-col sm:flex-row lg:flex-col gap-2 pt-1">
             {cfg.navLinks.map((link) => (
               <Link
                 key={link.href}
@@ -814,7 +824,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             ))}
           </div>
 
-        </div>
+        </div>{/* ── END RIGHT COLUMN ── */}
+        </div>{/* ── END GRID ── */}
+        </div>{/* ── END max-w-5xl ── */}
       </main>
     </div>
   );
@@ -826,11 +838,17 @@ function ConfirmationSkeleton() {
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
       <HeadPinzNav />
-      <main className="pt-28 pb-20 px-4">
-        <div className="max-w-2xl mx-auto">
-          <div className="animate-pulse space-y-4">
-            <div className="h-32 rounded-2xl bg-white/5" />
-            <div className="h-48 rounded-2xl bg-white/5" />
+      <main className="pt-28 pb-20 px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="lg:grid lg:grid-cols-5 lg:gap-6">
+            <div className="lg:col-span-3 animate-pulse space-y-4">
+              <div className="h-44 rounded-2xl bg-white/5" />
+              <div className="h-64 rounded-2xl bg-white/5" />
+            </div>
+            <div className="lg:col-span-2 animate-pulse space-y-4 mt-4 lg:mt-0">
+              <div className="h-80 rounded-2xl bg-white/5" />
+              <div className="h-24 rounded-2xl bg-white/5" />
+            </div>
           </div>
         </div>
       </main>
