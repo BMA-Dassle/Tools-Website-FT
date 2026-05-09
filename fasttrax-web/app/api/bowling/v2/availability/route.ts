@@ -269,6 +269,11 @@ export async function GET(req: NextRequest) {
       return !slotExceedsClose(a.BookedAt, mins, closeHour);
     });
 
+    console.log(`[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`);
+    if (availabilities.length > 0) {
+      console.log(`[avail] first=${availabilities[0].BookedAt} last=${availabilities[availabilities.length - 1].BookedAt}`);
+    }
+
     return NextResponse.json({ Availabilities: availabilities });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
