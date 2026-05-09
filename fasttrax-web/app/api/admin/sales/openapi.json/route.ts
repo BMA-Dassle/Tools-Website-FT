@@ -24,10 +24,11 @@ const spec = {
     description: [
       "Admin API surface for the FastTrax employee portal and HeadPinz portal.",
       "",
-      "Three logical groupings, all gated by the same `x-api-key` header:",
+      "Four logical groupings, all gated by the same `x-api-key` header:",
       "  • **Sales** — read-only sales reporting (totals + raw entries).",
       "  • **Videos** — race-video pipeline: list, refresh, manual / bulk resend, block / unblock.",
       "  • **E-Tickets** — pre-race + check-in SMS log + per-message resend.",
+      "  • **Bowling** — bowling reservation admin: list, cancel, reschedule, resend, force-confirm.",
       "",
       "**Auth**: every request requires the `x-api-key` header (or `?apiKey=` query param).",
       "Keys are issued by FastTrax ops and rotated centrally — request one from the operator team.",
@@ -41,7 +42,7 @@ const spec = {
       "**Idempotency**: video / e-ticket mutating endpoints (resend, bulk-resend, block) are NOT",
       "idempotent — each call sends a fresh SMS / hits the VT3 disable endpoint. Confirm before retrying.",
     ].join("\n"),
-    version: "1.1.0",
+    version: "1.2.0",
     contact: {
       name: "FastTrax Operations",
       email: "ops@fasttraxent.com",
@@ -56,6 +57,7 @@ const spec = {
     { name: "Videos", description: "Race-video pipeline: list, refresh, resend, bulk resend, block / unblock." },
     { name: "E-Tickets", description: "Pre-race + check-in SMS log + per-message resend." },
     { name: "POV Codes", description: "ViewPoint / POV unlock-code issuance, redemption, and breakage." },
+    { name: "Bowling", description: "Bowling reservation admin: list, cancel, reschedule, resend confirmation, force-confirm stuck reservations." },
   ],
   security: [{ ApiKeyAuth: [] }],
   components: {
@@ -541,6 +543,140 @@ const spec = {
           status: { type: "integer", nullable: true, description: "Provider HTTP status at send time" },
           sentTo: { type: "string", description: "E.164 number actually sent to (after canonicalization)" },
           error: { type: "string", nullable: true },
+        },
+      },
+
+      // ── Bowling ──────────────────────────────────────────────────────
+      BowlingReservationLine: {
+        type: "object",
+        description: "One line item on a bowling reservation (bowling, shoes, food, etc.).",
+        properties: {
+          label: { type: "string", example: "Pizza Bowl Pizza" },
+          quantity: { type: "integer", example: 1 },
+          unitPriceCents: { type: "integer", example: 6495, description: "Per-unit price in cents" },
+        },
+      },
+      BowlingReservation: {
+        type: "object",
+        description: [
+          "One bowling reservation row from Neon, enriched with order lines.",
+          "Includes QAMF + Square IDs, guest info, status, deposit/total amounts,",
+          "and lane-open processing state (dayof_* fields).",
+        ].join("\n"),
+        properties: {
+          id: { type: "integer", description: "Neon row ID", example: 42 },
+          centerCode: { type: "string", enum: ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"], description: "Square location ID (FM or Naples)" },
+          productKind: { type: "string", enum: ["kbf", "open"], description: "kbf = Kids Bowl Free, open = paid bowling" },
+          qamfReservationId: { type: "string", nullable: true, example: "X1234567", description: "QAMF reservation ID (starts with X for web bookings)" },
+          squareDepositOrderId: { type: "string", nullable: true, description: "Square order ID for the deposit charge" },
+          squareDayofOrderId: { type: "string", nullable: true, description: "Square day-of order ID (left open for staff to redeem at center)" },
+          squareGiftCardGan: { type: "string", nullable: true, description: "Square eGift card number (holds deposit balance)" },
+          shortCode: { type: "string", nullable: true, example: "aB3xY7", description: "6-char code for /s/{code} confirmation link" },
+          depositCents: { type: "integer", example: 1500, description: "Deposit amount charged (cents)" },
+          totalCents: { type: "integer", example: 6495, description: "Full reservation total (cents)" },
+          status: { type: "string", enum: ["confirmed", "confirm_pending", "confirm_failed", "arrived", "completed", "cancelled"] },
+          bookedAt: { type: "string", format: "date-time", description: "Reservation date/time (ISO 8601)" },
+          playerCount: { type: "integer", nullable: true, example: 4 },
+          guestName: { type: "string", nullable: true, example: "Jane Smith" },
+          guestEmail: { type: "string", format: "email", nullable: true },
+          guestPhone: { type: "string", nullable: true, example: "+12395551234" },
+          notes: { type: "string", nullable: true },
+          cancelledAt: { type: "string", format: "date-time", nullable: true },
+          refundCents: { type: "integer", example: 0, description: "Amount refunded (cents), 0 if not refunded" },
+          dayofOrderSentAt: { type: "string", format: "date-time", nullable: true, description: "Set when the lane-open processor sends the order to Square" },
+          dayofOrderLane: { type: "string", nullable: true, example: "12", description: "Lane number(s) assigned, e.g. '12' or '12,13'" },
+          dayofPaymentId: { type: "string", nullable: true, description: "Square payment ID for the gift card charge at lane-open" },
+          dayofOrderError: { type: "string", nullable: true, description: "Error from last lane-open attempt (null on success)" },
+          insertedAt: { type: "string", format: "date-time" },
+          lines: { type: "array", items: { $ref: "#/components/schemas/BowlingReservationLine" }, description: "Order line items (bowling, shoes, food)" },
+        },
+      },
+      BowlingReservationListResponse: {
+        type: "object",
+        properties: {
+          reservations: { type: "array", items: { $ref: "#/components/schemas/BowlingReservation" } },
+        },
+      },
+      BowlingCancelBody: {
+        type: "object",
+        required: ["neonId"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID to cancel" },
+        },
+      },
+      BowlingCancelResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          refundCents: { type: "integer", description: "Amount refunded in cents (0 for free bookings)" },
+        },
+      },
+      BowlingResendBody: {
+        type: "object",
+        required: ["neonId", "channel"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID" },
+          channel: { type: "string", enum: ["email", "sms", "both"], description: "Which notification channel(s) to use" },
+          overridePhone: { type: "string", description: "Optional. Send SMS to this number instead of the stored phone." },
+          overrideEmail: { type: "string", format: "email", description: "Optional. Send email to this address instead of the stored email." },
+        },
+      },
+      BowlingResendResponse: {
+        type: "object",
+        properties: {
+          email: { type: "boolean", nullable: true, description: "True if email was sent" },
+          sms: { type: "boolean", nullable: true, description: "True if SMS was sent, false if it failed" },
+        },
+      },
+      BowlingRescheduleBody: {
+        type: "object",
+        required: ["neonId", "bookedAt", "webOfferId"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID to reschedule" },
+          bookedAt: { type: "string", format: "date-time", description: "New booking date/time (ISO 8601)" },
+          webOfferId: { type: "integer", description: "QAMF web offer ID (must match the original experience)" },
+          optionId: { type: "integer", description: "Optional. QAMF option ID (for Time/Unlimited experiences)." },
+          optionType: { type: "string", enum: ["Game", "Time", "Unlimited"], description: "Option type. Defaults to 'Game'." },
+        },
+      },
+      BowlingRescheduleResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          bookedAt: { type: "string", format: "date-time", description: "The new booking time" },
+          qamfReservationId: { type: "string", description: "New QAMF reservation ID" },
+        },
+      },
+      BowlingRescheduleInfoResponse: {
+        type: "object",
+        description: "QAMF web offer details for the reservation, used to fetch constrained availability.",
+        properties: {
+          webOfferId: { type: "integer", description: "QAMF web offer ID" },
+          optionId: { type: "integer", nullable: true },
+          optionType: { type: "string", enum: ["Game", "Time", "Unlimited"] },
+          centerId: { type: "integer", description: "QAMF center ID (9172=FM, 3148=Naples)", example: 9172 },
+          centerCode: { type: "string", enum: ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"] },
+          playerCount: { type: "integer" },
+          bookedAt: { type: "string", format: "date-time" },
+          guestName: { type: "string", nullable: true },
+          productKind: { type: "string", enum: ["kbf", "open"] },
+        },
+      },
+      BowlingForceConfirmBody: {
+        type: "object",
+        required: ["neonId"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID to force-confirm" },
+        },
+      },
+      BowlingForceConfirmResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          neonId: { type: "integer" },
+          qamfReservationId: { type: "string" },
+          action: { type: "string", enum: ["confirmed", "already_confirmed", "recreated_and_confirmed"], description: "What happened: confirmed an existing Temporary reservation, recognized it was already confirmed, or recreated a new one because the original was gone." },
+          message: { type: "string", nullable: true, description: "Human-readable explanation" },
         },
       },
 
@@ -1284,6 +1420,209 @@ const spec = {
           "400": { description: "Invalid body or invalid phone", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
           "401": { description: "Unauthorized" },
           "404": { description: "Ticket not found / shortCode expired AND no overridePhone supplied", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
+    // ── Bowling ──────────────────────────────────────────────────────
+    "/api/admin/bowling/reservations": {
+      get: {
+        tags: ["Bowling"],
+        summary: "List bowling reservations for a date",
+        description: [
+          "Returns all bowling reservations booked on the given date, including order line items",
+          "(bowling, shoes, food) and lane-open processing state.",
+          "",
+          "Each reservation includes a `shortCode` for the `/s/{code}` confirmation link.",
+          "Legacy rows that pre-date the shortCode column get a code generated and backfilled on first access.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          { name: "token", in: "query" as const, required: true, schema: { type: "string" }, description: "Admin camera token (ADMIN_CAMERA_TOKEN)" },
+          { name: "date", in: "query" as const, required: true, schema: { type: "string", format: "date" }, description: "YYYY-MM-DD — filter reservations booked on this date" },
+          { name: "center", in: "query" as const, schema: { type: "string", enum: ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"] }, description: "Optional. Filter to a single center (Square location ID)." },
+        ],
+        responses: {
+          "200": {
+            description: "Reservation list",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingReservationListResponse" } } },
+          },
+          "400": { description: "Missing or invalid date param", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized — invalid token" },
+          "500": { description: "Server error", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/cancel": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Cancel a bowling reservation (admin — no time cutoff)",
+        description: [
+          "Admin cancellation — same logic as the customer cancel route but WITHOUT the 1-hour cutoff.",
+          "Admins can cancel at any time.",
+          "",
+          "Flow:",
+          "  1. Cancel in QAMF (best-effort — continues even if QAMF fails)",
+          "  2. Issue Square refund via gift card unload (if deposit was charged)",
+          "  3. Mark cancelled in Neon with refund amount",
+          "",
+          "If Square refund fails, the request returns 502 and the reservation is NOT cancelled.",
+          "Staff can retry or issue a manual refund in Square Dashboard.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          { name: "token", in: "query" as const, required: true, schema: { type: "string" }, description: "Admin camera token" },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingCancelBody" } } },
+        },
+        responses: {
+          "200": {
+            description: "Successfully cancelled",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingCancelResponse" } } },
+          },
+          "400": { description: "Missing neonId", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Reservation not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "409": { description: "Already cancelled", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "502": { description: "Square refund failed — reservation NOT cancelled", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/resend": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Resend bowling confirmation email and/or SMS",
+        description: [
+          "Delegates to the bowling-confirmation notification route with `forceResend=true`",
+          "to bypass dedup. Can override the phone number or email to send to a different contact.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          { name: "token", in: "query" as const, required: true, schema: { type: "string" }, description: "Admin camera token" },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingResendBody" } } },
+        },
+        responses: {
+          "200": {
+            description: "Send result",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingResendResponse" } } },
+          },
+          "400": { description: "Missing neonId or channel", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/reschedule": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Reschedule a bowling reservation to a new time",
+        description: [
+          "Reschedules within the same web offer (experience). Price and deposit stay the same.",
+          "",
+          "Flow:",
+          "  1. Delete old QAMF reservation (best-effort)",
+          "  2. Create new QAMF reservation at the new time",
+          "  3. Confirm the new reservation — MUST succeed or the whole operation fails",
+          "  4. Update Neon (booked_at, qamf_reservation_id, reset status to confirmed)",
+          "  5. Clear any dayof_* lane-open state (status reset)",
+          "  6. Resend confirmation email + SMS (fire-and-forget)",
+          "",
+          "Payment (Square deposit / day-of order) is NOT touched.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          { name: "token", in: "query" as const, required: true, schema: { type: "string" }, description: "Admin camera token" },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingRescheduleBody" } } },
+        },
+        responses: {
+          "200": {
+            description: "Rescheduled successfully — confirmation resent",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingRescheduleResponse" } } },
+          },
+          "400": { description: "Missing required fields, cancelled, or completed", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Reservation not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "502": { description: "QAMF failed to create or confirm new reservation", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/reschedule/info": {
+      get: {
+        tags: ["Bowling"],
+        summary: "Get QAMF web offer details for a reservation (reschedule prep)",
+        description: [
+          "Returns the QAMF web offer ID, option details, center ID, and player count for an existing",
+          "reservation. Used by the admin reschedule modal to fetch availability constrained to the same",
+          "web offer / experience.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          { name: "token", in: "query" as const, required: true, schema: { type: "string" }, description: "Admin camera token" },
+          { name: "neonId", in: "query" as const, required: true, schema: { type: "integer" }, description: "Neon reservation ID" },
+        ],
+        responses: {
+          "200": {
+            description: "Web offer details for constrained availability fetch",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingRescheduleInfoResponse" } } },
+          },
+          "400": { description: "Missing/invalid neonId, no QAMF reservation linked, or unknown center", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Reservation not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "502": { description: "QAMF fetch failed", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+        },
+      },
+    },
+
+    "/api/admin/bowling/force-confirm": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Force-confirm a stuck reservation (confirm_pending / confirm_failed)",
+        description: [
+          "Manually rescues a bowling reservation stuck in `confirm_pending` or `confirm_failed` status.",
+          "Useful when the automatic retry cron has exhausted its attempts or the QAMF reservation",
+          "expired before confirmation.",
+          "",
+          "Three possible outcomes (reported in `action` field):",
+          "  • **confirmed** — existing QAMF reservation was Temporary; attached customer and confirmed",
+          "  • **already_confirmed** — reservation was already confirmed on QAMF side; Neon updated",
+          "  • **recreated_and_confirmed** — QAMF reservation was gone (expired/deleted); created a",
+          "    fresh one from the stored booking details, confirmed it, updated Neon with new QAMF ID",
+          "",
+          "If the QAMF reservation is gone AND we cannot determine the original webOfferId from the",
+          "reservation lines, the request fails with 422 and the operator must create a new QAMF",
+          "reservation manually.",
+          "",
+          "**Auth**: `ADMIN_CAMERA_TOKEN` via middleware.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingForceConfirmBody" } } },
+        },
+        responses: {
+          "200": {
+            description: "Force-confirm result",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BowlingForceConfirmResponse" } } },
+          },
+          "400": { description: "Missing neonId or unknown center", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "404": { description: "Reservation not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "422": { description: "Cannot recreate — webOfferId not resolvable from reservation lines", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+          "502": { description: "QAMF operation failed (customer attach, confirm, or create)", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
         },
       },
     },
