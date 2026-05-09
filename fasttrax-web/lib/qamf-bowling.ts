@@ -373,6 +373,36 @@ export async function extendReservation(
   });
 }
 
+/** PATCH /centers/{centerId}/reservations/{reservationId}/lanes/{laneId}/status
+ *  — transitions a lane to a new status (Confirmed ↔ Ready ↔ Running).
+ *  See docs/qamf-lane-lifecycle.md for the full state machine. */
+export async function setLaneStatus(
+  centerId: number,
+  reservationId: string,
+  laneId: string,
+  status: BookedLaneStatus,
+): Promise<boolean> {
+  try {
+    await call({
+      method: "PATCH",
+      path: `/centers/${centerId}/reservations/${reservationId}/lanes/${laneId}/status`,
+      body: { Status: status },
+      errLabel: `setLaneStatus(${reservationId},${laneId},${status})`,
+      centerId,
+    });
+    console.log(
+      `[qamf-bowling] setLaneStatus(${reservationId}, lane=${laneId}): PATCH → "${status}"`,
+    );
+    return true;
+  } catch (err) {
+    console.error(
+      `[qamf-bowling] setLaneStatus(${reservationId},${laneId},${status}) PATCH failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
 /** PUT /centers/{centerId}/reservations/{reservationId}/lanes/{laneId}/players */
 export async function setLanePlayers(
   centerId: number,

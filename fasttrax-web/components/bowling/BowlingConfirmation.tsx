@@ -319,7 +319,7 @@ function CheckInModal({
                 {state.laneLabel || "Your lane"} is ready!
               </p>
               <p className="text-white/60 text-sm leading-relaxed">
-                Everything is set. Open your lane and head on over.
+                Your lane is assigned. Tap below to turn it on and start bowling!
               </p>
             </div>
             <button
@@ -328,10 +328,10 @@ function CheckInModal({
               className="w-full py-3.5 rounded-full font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
               style={{ backgroundColor: CORAL, fontSize: "15px", letterSpacing: "1.5px" }}
             >
-              Set Arrived
+              Let&apos;s Get Started
             </button>
             <p className="text-white/40 text-xs">
-              Notifies staff that you&apos;re here and ready to bowl.
+              Turns on your lane so you can start bowling.
             </p>
           </>
         )}
@@ -340,7 +340,7 @@ function CheckInModal({
         {state.phase === "opening" && (
           <>
             <div className="text-3xl animate-spin">⚙️</div>
-            <p className="text-white/70 text-sm animate-pulse">Opening your lane…</p>
+            <p className="text-white/70 text-sm animate-pulse">Turning on your lane…</p>
           </>
         )}
 
@@ -836,13 +836,13 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           <div
             className="rounded-2xl border p-6 sm:p-8"
             style={{
-              backgroundColor: isCancelled ? "rgba(253,91,86,0.05)" : "rgba(253,91,86,0.08)",
-              borderColor: `${CORAL}55`,
+              backgroundColor: isCancelled ? "rgba(253,91,86,0.05)" : "rgba(34,197,94,0.08)",
+              borderColor: isCancelled ? `${CORAL}55` : "rgba(34,197,94,0.35)",
             }}
           >
             <div
               className="uppercase font-bold mb-2"
-              style={{ color: CORAL, fontSize: "11px", letterSpacing: "3px" }}
+              style={{ color: isCancelled ? CORAL : "#22c55e", fontSize: "11px", letterSpacing: "3px" }}
             >
               {isCancelled ? "Booking cancelled" : cfg.heroLabel}
             </div>
