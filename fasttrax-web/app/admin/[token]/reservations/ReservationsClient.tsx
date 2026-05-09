@@ -10,6 +10,7 @@ interface Reservation {
   squareDepositOrderId?: string;
   squareDayofOrderId?: string;
   squareGiftCardGan?: string;
+  shortCode?: string;
   depositCents: number;
   totalCents: number;
   status: string;
@@ -85,12 +86,8 @@ function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function confirmUrl(r: Reservation): string {
-  const base =
-    r.productKind === "kbf"
-      ? "/hp/book/kids-bowl-free/confirmation"
-      : "/hp/book/bowling/confirmation";
-  return `${base}?neonId=${r.id}`;
+function confirmPath(r: Reservation): string | null {
+  return r.shortCode ? `/s/${r.shortCode}` : null;
 }
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -185,7 +182,9 @@ export default function ReservationsClient({ token }: { token: string }) {
   const totalPlayers = active.reduce((s, r) => s + (r.playerCount ?? 0), 0);
 
   function copyLink(r: Reservation) {
-    const url = `${window.location.origin}${confirmUrl(r)}`;
+    const path = confirmPath(r);
+    if (!path) return;
+    const url = `${window.location.origin}${path}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopiedId(r.id);
       setTimeout(() => setCopiedId((prev) => (prev === r.id ? null : prev)), 1500);
@@ -530,34 +529,38 @@ export default function ReservationsClient({ token }: { token: string }) {
 
                       {/* Confirmation link */}
                       <td style={{ padding: "0.6rem 0.5rem", whiteSpace: "nowrap" }}>
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <a
-                            href={confirmUrl(r)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              color: "#60a5fa",
-                              fontSize: "0.7rem",
-                              textDecoration: "none",
-                            }}
-                          >
-                            Open
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => copyLink(r)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: copiedId === r.id ? "#22c55e" : "rgba(255,255,255,0.3)",
-                              cursor: "pointer",
-                              fontSize: "0.65rem",
-                              padding: "2px 4px",
-                            }}
-                          >
-                            {copiedId === r.id ? "Copied!" : "Copy"}
-                          </button>
-                        </div>
+                        {confirmPath(r) ? (
+                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                            <a
+                              href={confirmPath(r)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: "#60a5fa",
+                                fontSize: "0.7rem",
+                                textDecoration: "none",
+                              }}
+                            >
+                              Open
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => copyLink(r)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: copiedId === r.id ? "#22c55e" : "rgba(255,255,255,0.3)",
+                                cursor: "pointer",
+                                fontSize: "0.65rem",
+                                padding: "2px 4px",
+                              }}
+                            >
+                              {copiedId === r.id ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ color: "rgba(255,255,255,0.15)", fontSize: "0.7rem" }}>—</span>
+                        )}
                       </td>
 
                       {/* Notes */}
