@@ -22,8 +22,10 @@
  *  fun-4-all-vip         open    yes   Mon-Thu       FM:157 / Naples:121
  *  pizza-bowl            open    no    Sun           stub — QAMF IDs TBD  (is_active=false)
  *  pizza-bowl-vip        open    yes   Sun           stub — QAMF IDs TBD  (is_active=false)
- *  regular-fri-sun       hourly  no    Fri-Sun       stub — no offers yet (is_active=false)
- *  vip-fri-sun           hourly  yes   Fri-Sun       stub — no offers yet (is_active=false)
+ *  regular-fri-sun       hourly  no    Fri-Sun       FM:158 / Naples:124
+ *  vip-fri-sun           hourly  yes   Fri-Sun       FM:159 / Naples:125
+ *  midnight-madness      open    no    Fri-Sat       FM:167 / Naples:131
+ *  midnight-madness-vip  open    yes   Fri-Sat       FM:166 / Naples:130
  *
  * ── Items (bundled Square products) ───────────────────────────────────────
  *  KBF:              no base charge (free)
@@ -74,15 +76,17 @@ const NAPLES = "PPTR5G2N0QXF7";
 
 // ── Square catalog object IDs ─────────────────────────────────────────────────
 const CAT = {
-  FUN_4_ALL:          "TOKSMRAUZSSCXSTJHSZ22TTU",  // $15.99/person
-  FUN_4_ALL_VIP:      "RA3DBEYZVIEKIHON7KVMNRMQ",  // $17.99/person
-  HOURLY_1_5_MON:     "43HJHFSYZNB42NWB2CM7UKOV",  // $45.00/lane (1.5hr Mon-Thu)
-  HOURLY_1_5_MON_VIP: "BESYYLCKLOVD7YE4GYJU24HR",  // $67.50/lane (1.5hr Mon-Thu VIP)
-  HOURLY_1_5_FRI:     "BA7XH63Z3KZOYEU5GGTEPASR",  // $60.00/lane (1.5hr Fri-Sun)
-  HOURLY_1_5_FRI_VIP: "UFD6XVXU6GKCIRCLRUFLSKMJ",  // $82.50/lane (1.5hr Fri-Sun VIP)
-  PIZZA_BOWL:         "GWQQDLD5J3XAZAOU5STJL3VF",  // $64.95/lane (Pizza Bowl Regular)
-  PIZZA_BOWL_VIP:     "3BET7DOSFNF64GNPMOZTI5SJ",  // $79.95/lane (Pizza Bowl VIP)
-  CHIPS_SALSA:        "LHZXWYO72N5QFX4CGYKRVPZX",  // $0.00 comp
+  FUN_4_ALL:              "TOKSMRAUZSSCXSTJHSZ22TTU",  // $15.99/person
+  FUN_4_ALL_VIP:          "RA3DBEYZVIEKIHON7KVMNRMQ",  // $17.99/person
+  HOURLY_1_5_MON:         "43HJHFSYZNB42NWB2CM7UKOV",  // $45.00/lane (1.5hr Mon-Thu)
+  HOURLY_1_5_MON_VIP:     "BESYYLCKLOVD7YE4GYJU24HR",  // $67.50/lane (1.5hr Mon-Thu VIP)
+  HOURLY_1_5_FRI:         "BA7XH63Z3KZOYEU5GGTEPASR",  // $60.00/lane (1.5hr Fri-Sun)
+  HOURLY_1_5_FRI_VIP:     "UFD6XVXU6GKCIRCLRUFLSKMJ",  // $82.50/lane (1.5hr Fri-Sun VIP)
+  PIZZA_BOWL:             "GWQQDLD5J3XAZAOU5STJL3VF",  // $64.95/lane (Pizza Bowl Regular)
+  PIZZA_BOWL_VIP:         "3BET7DOSFNF64GNPMOZTI5SJ",  // $79.95/lane (Pizza Bowl VIP)
+  CHIPS_SALSA:            "LHZXWYO72N5QFX4CGYKRVPZX",  // $0.00 comp
+  MIDNIGHT_MADNESS:       "ND5N3PMV4AZ5I47U3BJZMLKW",  // $11.99/person (Fri-Sat closing)
+  MIDNIGHT_MADNESS_VIP:   "G6G2AZV3HHKAWLIZUJVVMOVD",  // $13.99/person (Fri-Sat closing VIP)
 } as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -387,10 +391,43 @@ async function main() {
   await setDurationOptions(vipFriId, FM,     [ { qamfOptionId: 1267, durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 1268, durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
   await setDurationOptions(vipFriId, NAPLES, [ { qamfOptionId: 995,  durationMinutes: 90,  label: "1.5 Hours", squareMultiplier: 1 }, { qamfOptionId: 996,  durationMinutes: 120, label: "2 Hours",   squareMultiplier: 2 } ]);
 
+  // ── 11. Midnight Madness Regular ────────────────────────────────────────────
+  console.log("\n── Midnight Madness Regular");
+  const mmRegId = await upsertExperience({
+    slug: "midnight-madness", label: "Midnight Madness", kind: "open",
+    isVip: false, sortOrder: 50, isActive: true,
+    description: "Unlimited bowling during Friday & Saturday closing hours",
+    daysOfWeek: [5, 6], // Fri-Sat
+  });
+  await upsertOffer({ experienceId: mmRegId, centerCode: FM,     qamfWebOfferId: 167, qamfOptionType: "Unlimited", qamfOptionId: 167 });
+  await upsertOffer({ experienceId: mmRegId, centerCode: NAPLES, qamfWebOfferId: 131, qamfOptionType: "Unlimited", qamfOptionId: 131 });
+  await setItems(mmRegId, [
+    { catalogObjectId: CAT.MIDNIGHT_MADNESS, quantity: 1 },
+  ]);
+
+  // ── 12. Midnight Madness VIP ─────────────────────────────────────────────────
+  console.log("\n── Midnight Madness VIP");
+  const mmVipId = await upsertExperience({
+    slug: "midnight-madness-vip", label: "Midnight Madness VIP", kind: "open",
+    isVip: true, sortOrder: 51, isActive: true,
+    description: "Unlimited VIP bowling during Friday & Saturday closing hours, plus VIP Chips & Salsa",
+    daysOfWeek: [5, 6], // Fri-Sat
+  });
+  await upsertOffer({ experienceId: mmVipId, centerCode: FM,     qamfWebOfferId: 166, qamfOptionType: "Unlimited", qamfOptionId: 166 });
+  await upsertOffer({ experienceId: mmVipId, centerCode: NAPLES, qamfWebOfferId: 130, qamfOptionType: "Unlimited", qamfOptionId: 130 });
+  await setItems(mmVipId, [
+    { catalogObjectId: CAT.MIDNIGHT_MADNESS_VIP, quantity: 1 },
+    { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
+  ]);
+
   // ── Activate Square products used by newly-activated experiences ────────────
-  console.log("\n── Activating Square products for Fri-Sun + Pizza Bowl");
+  console.log("\n── Activating Square products for Fri-Sun + Pizza Bowl + Midnight Madness");
   for (const center of [FM, NAPLES]) {
-    for (const catalogId of [CAT.HOURLY_1_5_FRI, CAT.HOURLY_1_5_FRI_VIP, CAT.PIZZA_BOWL, CAT.PIZZA_BOWL_VIP]) {
+    for (const catalogId of [
+      CAT.HOURLY_1_5_FRI, CAT.HOURLY_1_5_FRI_VIP,
+      CAT.PIZZA_BOWL, CAT.PIZZA_BOWL_VIP,
+      CAT.MIDNIGHT_MADNESS, CAT.MIDNIGHT_MADNESS_VIP,
+    ]) {
       const result = await sql`
         UPDATE bowling_square_products
         SET is_active = TRUE
@@ -406,9 +443,7 @@ async function main() {
     }
   }
 
-  console.log("\n✓ Done. 10 experiences seeded (all active).");
-  console.log("\nNote: Pizza Bowl pizza/soda modifier items TBD — seed via admin endpoint once Square catalog IDs confirmed.");
-  console.log("      Activate shoe rental via /api/admin/bowling/v2/square-products");
+  console.log("\n✓ Done. 12 experiences seeded (all active).");
 }
 
 main().catch((err) => { console.error("Seed failed:", err); process.exit(1); });

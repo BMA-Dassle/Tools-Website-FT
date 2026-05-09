@@ -176,6 +176,252 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
   },
 };
 
+// ── Check-in modal ─────────────────────────────────────────────────────────
+
+type CheckInPhase =
+  | "idle"       // modal closed
+  | "checking"   // waiting for GET /checkin
+  | "not_ready"  // lane not yet set up
+  | "ready"      // lane ready — show Open Lane
+  | "opening"    // waiting for POST /checkin
+  | "open"       // POST succeeded — show success
+  | "running"    // already running (opened externally)
+  | "error";     // network / QAMF error
+
+interface CheckInState {
+  phase: CheckInPhase;
+  laneLabel: string;
+  error?: string;
+}
+
+/** Maps raw API phase string → the UI CheckInPhase we care about. */
+function resolveCheckInPhase(raw: string | undefined): CheckInPhase {
+  if (raw === "running" || raw === "completed") return "running";
+  if (raw === "ready")     return "ready";
+  if (raw === "not_ready") return "not_ready";
+  return "not_ready";
+}
+
+function CheckInModal({
+  neonId,
+  onClose,
+}: {
+  neonId: number;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<CheckInState>({ phase: "checking", laneLabel: "" });
+
+  async function fetchLaneStatus(): Promise<void> {
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, {
+        cache: "no-store",
+      });
+      const data = await res.json() as { phase?: string; laneLabel?: string; error?: string };
+      if (!res.ok) {
+        setState({ phase: "error", laneLabel: "", error: data.error ?? "Unable to reach the system" });
+        return;
+      }
+      setState({ phase: resolveCheckInPhase(data.phase), laneLabel: data.laneLabel ?? "" });
+    } catch {
+      setState({ phase: "error", laneLabel: "", error: "Connection error — try again" });
+    }
+  }
+
+  // Poll QAMF for lane status on mount
+  useEffect(() => {
+    let alive = true;
+    void fetchLaneStatus().then(() => { if (!alive) { /* discard */ } });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [neonId]);
+
+  async function handleRecheck() {
+    setState({ phase: "checking", laneLabel: state.laneLabel });
+    await fetchLaneStatus();
+  }
+
+  async function handleOpenLane() {
+    setState((s) => ({ ...s, phase: "opening" }));
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { method: "POST" });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setState((s) => ({ ...s, phase: "error", error: data.error ?? "Could not open lane" }));
+        return;
+      }
+      setState((s) => ({ ...s, phase: "open" }));
+    } catch {
+      setState((s) => ({ ...s, phase: "error", error: "Connection error — try again" }));
+    }
+  }
+
+  return (
+    /* Backdrop */
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/* Modal card */}
+      <div
+        className="relative w-full max-w-sm rounded-2xl border border-white/15 p-7 flex flex-col items-center text-center space-y-5"
+        style={{ backgroundColor: "#0e1d3a" }}
+      >
+        {/* Close */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 text-white/30 hover:text-white/70 transition-colors text-xl leading-none"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+
+        {/* ── Checking ── */}
+        {state.phase === "checking" && (
+          <>
+            <div className="text-3xl animate-pulse">🎳</div>
+            <p className="text-white/70 text-sm">Checking your lane…</p>
+          </>
+        )}
+
+        {/* ── Not ready ── */}
+        {state.phase === "not_ready" && (
+          <>
+            <div className="text-3xl">⏳</div>
+            <div>
+              <p className="text-white font-semibold text-base mb-1">Not quite ready</p>
+              <p className="text-white/60 text-sm leading-relaxed">
+                Your lane is still being prepared. Check back in a few minutes!
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRecheck()}
+              className="w-full py-3 rounded-full text-sm font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02]"
+              style={{ backgroundColor: CORAL }}
+            >
+              Check Again
+            </button>
+          </>
+        )}
+
+        {/* ── Ready ── */}
+        {state.phase === "ready" && (
+          <>
+            <div className="text-3xl">🟢</div>
+            <div>
+              <p
+                className="font-heading font-black uppercase italic mb-1"
+                style={{ fontSize: "clamp(22px, 5vw, 28px)", color: "white" }}
+              >
+                {state.laneLabel || "Your lane"} is ready!
+              </p>
+              <p className="text-white/60 text-sm leading-relaxed">
+                Everything is set. Open your lane and head on over.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleOpenLane()}
+              className="w-full py-3.5 rounded-full font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
+              style={{ backgroundColor: CORAL, fontSize: "15px", letterSpacing: "1.5px" }}
+            >
+              Open Lane
+            </button>
+            <p className="text-white/40 text-xs">
+              This signals the system that you&apos;re here.
+            </p>
+          </>
+        )}
+
+        {/* ── Opening ── */}
+        {state.phase === "opening" && (
+          <>
+            <div className="text-3xl animate-spin">⚙️</div>
+            <p className="text-white/70 text-sm animate-pulse">Opening your lane…</p>
+          </>
+        )}
+
+        {/* ── Open (success) ── */}
+        {state.phase === "open" && (
+          <>
+            <div className="text-4xl">🎳</div>
+            <div>
+              <p
+                className="font-heading font-black uppercase italic mb-1"
+                style={{ fontSize: "clamp(22px, 5vw, 28px)", color: GOLD }}
+              >
+                Let&apos;s bowl!
+              </p>
+              {state.laneLabel && (
+                <p className="text-white font-semibold text-base mb-2">{state.laneLabel}</p>
+              )}
+              <p className="text-white/70 text-sm leading-relaxed">
+                🥿 <span className="text-white font-semibold">Shoes will be delivered directly to you</span> — no need to stop at the desk!
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-3 rounded-full text-sm font-body font-bold uppercase tracking-wider border border-white/20 text-white/70 hover:text-white transition-colors"
+            >
+              Got it!
+            </button>
+          </>
+        )}
+
+        {/* ── Already running ── */}
+        {state.phase === "running" && (
+          <>
+            <div className="text-4xl">🎳</div>
+            <div>
+              <p
+                className="font-heading font-black uppercase italic mb-1"
+                style={{ fontSize: "clamp(22px, 5vw, 28px)", color: GOLD }}
+              >
+                You&apos;re in!
+              </p>
+              {state.laneLabel && (
+                <p className="text-white font-semibold text-base mb-2">{state.laneLabel}</p>
+              )}
+              <p className="text-white/70 text-sm leading-relaxed">
+                🥿 <span className="text-white font-semibold">Shoes will be delivered directly to you</span> — enjoy your game!
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-3 rounded-full text-sm font-body font-bold uppercase tracking-wider border border-white/20 text-white/70 hover:text-white transition-colors"
+            >
+              Got it!
+            </button>
+          </>
+        )}
+
+        {/* ── Error ── */}
+        {state.phase === "error" && (
+          <>
+            <div className="text-3xl">⚠️</div>
+            <div>
+              <p className="text-white font-semibold text-base mb-1">Something went wrong</p>
+              <p className="text-white/60 text-sm">{state.error ?? "Please try again."}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRecheck()}
+              className="w-full py-3 rounded-full text-sm font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02]"
+              style={{ backgroundColor: CORAL }}
+            >
+              Try Again
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Bowler card sub-component ─────────────────────────────────────────────
 
 function BowlerCard({
@@ -343,6 +589,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const [playersSaving, setPlayersSaving] = useState(false);
   const [playersSaved, setPlayersSaved] = useState(false);
   const [playersError, setPlayersError] = useState<string | null>(null);
+
+  // ── Check-in modal state ─────────────────────────────────────────
+  const [checkInOpen, setCheckInOpen] = useState(false);
 
   // ── Cancel state ─────────────────────────────────────────────────
   const [cancelPhase, setCancelPhase] = useState<"idle" | "confirming" | "busy" | "cancelled">("idle");
@@ -748,6 +997,28 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
         {/* ── RIGHT COLUMN ── */}
         <div className="lg:col-span-2 space-y-4">
+
+          {/* ── Check In button (hidden when cancelled) ── */}
+          {!isCancelled && hasNeonRecord && (
+            <button
+              type="button"
+              onClick={() => setCheckInOpen(true)}
+              className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
+              style={{
+                background: `linear-gradient(135deg, ${CORAL} 0%, #e03d38 100%)`,
+                fontSize: "16px",
+                letterSpacing: "2px",
+                boxShadow: `0 4px 24px rgba(253,91,86,0.35)`,
+              }}
+            >
+              🎳 Check In
+            </button>
+          )}
+
+          {/* Check-in modal */}
+          {checkInOpen && hasNeonRecord && (
+            <CheckInModal neonId={neonId} onClose={() => setCheckInOpen(false)} />
+          )}
 
           {/* ── Arrival instructions (hidden when cancelled) ── */}
           {!isCancelled && (
