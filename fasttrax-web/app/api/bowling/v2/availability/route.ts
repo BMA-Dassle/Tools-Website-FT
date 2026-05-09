@@ -193,7 +193,7 @@ export async function GET(req: NextRequest) {
   let probeTimes: string[];
 
   if (hasSelectedTime) {
-    // Targeted mode: probe ±2 hours around the selected time so the tier
+    // Targeted mode: probe ±5 hours around the selected time so the tier
     // step can show "Next available at …" when the exact time is sold out.
     // Never probe before the current time if startDate is today.
     const hour = parseInt(hourStr!, 10);
@@ -216,8 +216,8 @@ export async function GET(req: NextRequest) {
       earliestMin = Math.max(earliestMin, nowTotalMin + 15);
     }
 
-    const windowStart = Math.max(hour * 60 + minute - 240, earliestMin); // -4h, clamped
-    const windowEnd = Math.min(hour * 60 + minute + 240, closeHour * 60);  // +4h, clamped
+    const windowStart = Math.max(hour * 60 + minute - 300, earliestMin); // -5h, clamped
+    const windowEnd = Math.min(hour * 60 + minute + 300, closeHour * 60);  // +5h, clamped
 
     probeTimes = [];
     for (let t = windowStart; t <= windowEnd; t += 15) {
