@@ -1118,7 +1118,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         // When hour+minute are provided, server probes only that time slot
         // (1 QAMF call instead of 60+). Full-day mode omits them.
         let url = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
-        if (kind) url += `&kind=${kind}`;
+        // KBF wizard: scope to kbf offers only.
+        // Open bowling wizard: do NOT pass kind — it needs both 'open' (specials)
+        // AND 'hourly' (lane rentals) since the tier+offer steps show both.
+        if (kind === "kbf") url += `&kind=kbf`;
         if (opts?.webOfferId) url += `&webOfferId=${opts.webOfferId}`;
         if (opts?.hour !== undefined && opts?.minute !== undefined) {
           url += `&hour=${opts.hour}&minute=${opts.minute}`;
