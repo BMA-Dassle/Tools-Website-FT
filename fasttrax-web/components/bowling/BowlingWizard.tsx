@@ -2411,7 +2411,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           ═══════════════════════════════════════════════════════ */}
           {step === "players" && kind === "open" && (
             <div className="space-y-6">
-              <p className="font-body text-white/55 text-sm text-center">Up to 6 bowlers</p>
+              <p className="font-body text-white/55 text-sm text-center">Up to 20 bowlers</p>
               <div className="flex items-center justify-center gap-6">
                 <button
                   type="button"
