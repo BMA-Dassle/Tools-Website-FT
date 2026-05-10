@@ -1,5 +1,33 @@
 # Lessons Learned
 
+## Neon sql template tag consumes `::type` as parameter type hints (2026-05-09)
+
+The `@neondatabase/serverless` `sql` tagged template treats `${value}::type`
+specially — it consumes `::type` as a parameter type hint (setting the OID)
+and strips it from the SQL text sent to Postgres. This means:
+
+```typescript
+q`WHERE col >= ${date}::date AT TIME ZONE 'America/New_York'`
+```
+
+Does NOT produce `$1::date AT TIME ZONE 'America/New_York'`. Instead the
+driver strips `::date`, and Postgres sees `$1 AT TIME ZONE 'America/New_York'`
+where `$1` is a text parameter. The result is silently wrong — no error,
+just incorrect boundaries.
+
+**Fix:** Apply `AT TIME ZONE` on the column side instead:
+```typescript
+q`WHERE (col AT TIME ZONE 'America/New_York')::date >= ${date}::date`
+```
+
+This is unambiguous: Postgres casts the column to ET, extracts the date,
+and compares against the parameter's date value. The `::date` on the
+parameter still works fine as a type hint (date vs text doesn't matter
+for a simple `>=` comparison).
+
+**Rule:** Never put `AT TIME ZONE` after a template-tag parameter cast.
+Always apply timezone conversion on the column or a literal expression.
+
 ## QAMF probe times MUST be multiples of 5 minutes (2026-05-09)
 
 QAMF's `searchAvailability` API rejects any `BookedAtRange` where minutes
