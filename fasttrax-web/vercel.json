@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/bowling-lane-poll",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/bowling-pre-arrival",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

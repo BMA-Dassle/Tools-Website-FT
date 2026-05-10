@@ -265,6 +265,9 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_payment_id     TEXT`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_error    TEXT`;
 
+  // Pre-arrival SMS/email notification sent 30 min before booked_at.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS pre_arrival_sent_at TIMESTAMPTZ`;
+
   schemaReady = true;
 }
 
@@ -474,6 +477,8 @@ export interface BowlingReservation {
   dayofPaymentId?: string;
   /** Error message from last lane-open attempt (if any); cleared on success. */
   dayofOrderError?: string;
+  /** ISO timestamp when the pre-arrival SMS/email was sent (~30 min before booked_at). */
+  preArrivalSentAt?: string;
   insertedAt: string;
 }
 
@@ -640,6 +645,9 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     dayofOrderLane: (row.dayof_order_lane as string) ?? undefined,
     dayofPaymentId: (row.dayof_payment_id as string) ?? undefined,
     dayofOrderError: (row.dayof_order_error as string) ?? undefined,
+    preArrivalSentAt: row.pre_arrival_sent_at
+      ? (row.pre_arrival_sent_at as Date).toISOString()
+      : undefined,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -827,6 +835,41 @@ export async function updateBowlingReservationStatus(
   await ensureBowlingSchema();
   const q = sql();
   await q`UPDATE bowling_reservations SET status = ${status} WHERE id = ${id}`;
+}
+
+/**
+ * Find confirmed reservations whose booked_at is between `windowStart` and
+ * `windowEnd` (ET-aware) and pre_arrival_sent_at IS NULL.
+ * Used by the pre-arrival cron to send 30-min-out notifications.
+ */
+export async function getReservationsNeedingPreArrival(
+  windowStart: Date,
+  windowEnd: Date,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE booked_at >= ${windowStart.toISOString()}
+      AND booked_at <= ${windowEnd.toISOString()}
+      AND pre_arrival_sent_at IS NULL
+      AND status IN ('confirmed', 'confirm_pending')
+    ORDER BY booked_at ASC
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/** Mark pre-arrival notification as sent (idempotent — only writes once). */
+export async function markPreArrivalSent(id: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET pre_arrival_sent_at = NOW()
+    WHERE id = ${id} AND pre_arrival_sent_at IS NULL
+  `;
 }
 
 /** Max QAMF confirmation attempts before the row flips to 'confirm_failed'. */

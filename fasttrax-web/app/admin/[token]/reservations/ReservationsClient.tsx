@@ -33,8 +33,19 @@ interface Reservation {
   dayofOrderLane?: string;
   dayofPaymentId?: string;
   dayofOrderError?: string;
+  preArrivalSentAt?: string;
   insertedAt: string;
   lines: ReservationLine[];
+}
+
+interface SquareLineItem {
+  uid: string;
+  name: string;
+  quantity: number;
+  note: string | null;
+  priceCents: number;
+  totalCents: number;
+  catalogId: string | null;
 }
 
 const CENTERS: Record<string, string> = {
@@ -781,6 +792,10 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
+  const [orderTarget, setOrderTarget] = useState<Reservation | null>(null);
+  const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [orderMeta, setOrderMeta] = useState<{ state: string; totalCents: number; remainingCents: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -812,6 +827,24 @@ export default function ReservationsClient({ token }: { token: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Fetch Square order details when target is set
+  useEffect(() => {
+    if (!orderTarget?.squareDayofOrderId) return;
+    setOrderLoading(true);
+    setOrderItems(null);
+    setOrderMeta(null);
+    const params = new URLSearchParams({ token, orderId: orderTarget.squareDayofOrderId });
+    fetch(`/api/admin/bowling/square-order?${params}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) { setOrderItems([]); return; }
+        setOrderItems(data.lineItems ?? []);
+        setOrderMeta({ state: data.state, totalCents: data.totalCents, remainingCents: data.remainingCents });
+      })
+      .catch(() => setOrderItems([]))
+      .finally(() => setOrderLoading(false));
+  }, [orderTarget, token]);
 
   // Client-side search + cancelled filter
   const filtered = useMemo(() => {
@@ -926,6 +959,107 @@ export default function ReservationsClient({ token }: { token: string }) {
             void load();
           }}
         />
+      )}
+
+      {/* Square order details modal */}
+      {orderTarget && (
+        <div
+          {...modalBackdropProps(() => { setOrderTarget(null); setOrderItems(null); setOrderMeta(null); })}
+          style={{
+            position: "fixed", inset: 0, zIndex: 50,
+            background: "rgba(0,0,0,0.7)", display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#1a1a1a", borderRadius: 12, padding: 24,
+              border: "1px solid rgba(255,255,255,0.08)", maxWidth: 500, width: "100%",
+              maxHeight: "80vh", overflow: "auto",
+            }}
+          >
+            <h3 style={{ margin: "0 0 4px", fontSize: "0.95rem", fontWeight: 700 }}>
+              Square Order — {orderTarget.guestName}
+            </h3>
+            <p style={{ margin: "0 0 16px", color: "rgba(255,255,255,0.35)", fontSize: "0.68rem", fontFamily: "monospace" }}>
+              {orderTarget.squareDayofOrderId}
+            </p>
+
+            {orderLoading && <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>Loading…</p>}
+
+            {orderMeta && (
+              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                <span style={{
+                  padding: "2px 8px", borderRadius: 5, fontSize: "0.65rem", fontWeight: 600,
+                  background: orderMeta.state === "OPEN" ? "rgba(59,130,246,0.15)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                  color: orderMeta.state === "OPEN" ? "#3b82f6" : orderMeta.state === "COMPLETED" ? "#22c55e" : "#ef4444",
+                  border: `1px solid ${orderMeta.state === "OPEN" ? "rgba(59,130,246,0.3)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                }}>
+                  {orderMeta.state}
+                </span>
+                <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>
+                  Total: <strong style={{ color: "#fff" }}>${(orderMeta.totalCents / 100).toFixed(2)}</strong>
+                </span>
+                {orderMeta.remainingCents > 0 && (
+                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>
+                    Due: <strong style={{ color: "#f59e0b" }}>${(orderMeta.remainingCents / 100).toFixed(2)}</strong>
+                  </span>
+                )}
+              </div>
+            )}
+
+            {orderItems && orderItems.length > 0 && (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                    {["Item", "Qty", "Price"].map((h) => (
+                      <th key={h} style={{
+                        padding: "6px 8px", textAlign: h === "Item" ? "left" : "right",
+                        color: "rgba(255,255,255,0.35)", fontSize: "0.65rem",
+                        textTransform: "uppercase", fontWeight: 600,
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {orderItems.map((li) => (
+                    <tr key={li.uid} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <td style={{ padding: "6px 8px" }}>
+                        <div style={{ fontWeight: 600 }}>{li.name}</div>
+                        {li.note && (
+                          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem", fontStyle: "italic" }}>{li.note}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: "rgba(255,255,255,0.5)" }}>{li.quantity}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: li.totalCents === 0 ? "rgba(255,255,255,0.25)" : "#fff" }}>
+                        {li.totalCents === 0 ? "$0" : `$${(li.totalCents / 100).toFixed(2)}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {orderItems && orderItems.length === 0 && (
+              <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.8rem" }}>No line items</p>
+            )}
+
+            <div style={{ marginTop: 16, textAlign: "right" }}>
+              <button
+                type="button"
+                onClick={() => { setOrderTarget(null); setOrderItems(null); setOrderMeta(null); }}
+                style={{
+                  padding: "6px 16px", borderRadius: 6, fontSize: "0.75rem",
+                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)",
+                  color: "#fff", cursor: "pointer", fontWeight: 600,
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Header */}
@@ -1102,7 +1236,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Type", "Status", "Lane", "Order", "Square", "Payment", "Ref", "Actions"].map(
+                  {["Time", "Guest", "Type", "Status", "Lane", "Order", "Square", "Alert", "Payment", "Ref", "Actions"].map(
                     (h) => (
                       <th
                         key={h}
@@ -1236,43 +1370,77 @@ export default function ReservationsClient({ token }: { token: string }) {
                         })()}
                       </td>
 
-                      {/* Square — order sent status */}
+                      {/* Square — order sent status (clickable to view line items) */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {r.dayofOrderSentAt ? (
-                          <div>
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "0.1rem 0.35rem",
-                                borderRadius: 5,
-                                fontSize: "0.6rem",
-                                fontWeight: 600,
-                                backgroundColor: r.dayofOrderError
-                                  ? "rgba(239,68,68,0.15)"
-                                  : "rgba(34,197,94,0.15)",
-                                color: r.dayofOrderError ? "#ef4444" : "#22c55e",
-                                border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
-                              }}
-                            >
-                              {r.dayofOrderError ? "ERR" : "Sent"}
-                            </span>
-                            {r.dayofPaymentId && (
-                              <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", marginTop: 1 }}>
-                                {r.dayofPaymentId.slice(-8)}
+                        {r.squareDayofOrderId ? (
+                          <button
+                            type="button"
+                            onClick={() => setOrderTarget(r)}
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}
+                            title="View Square order items"
+                          >
+                            {r.dayofOrderSentAt ? (
+                              <div>
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    padding: "0.1rem 0.35rem",
+                                    borderRadius: 5,
+                                    fontSize: "0.6rem",
+                                    fontWeight: 600,
+                                    backgroundColor: r.dayofOrderError
+                                      ? "rgba(239,68,68,0.15)"
+                                      : "rgba(34,197,94,0.15)",
+                                    color: r.dayofOrderError ? "#ef4444" : "#22c55e",
+                                    border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                                  }}
+                                >
+                                  {r.dayofOrderError ? "ERR" : "Sent"}
+                                </span>
+                                {r.dayofPaymentId && (
+                                  <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", marginTop: 1 }}>
+                                    {r.dayofPaymentId.slice(-8)}
+                                  </div>
+                                )}
+                                {r.dayofOrderError && (
+                                  <div style={{ fontSize: "0.55rem", color: "#ef4444", marginTop: 1, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}
+                                    title={r.dayofOrderError}
+                                  >
+                                    {r.dayofOrderError}
+                                  </div>
+                                )}
                               </div>
+                            ) : (
+                              <span style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.6rem", textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)" }}>
+                                Pending
+                              </span>
                             )}
-                            {r.dayofOrderError && (
-                              <div style={{ fontSize: "0.55rem", color: "#ef4444", marginTop: 1, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}
-                                title={r.dayofOrderError}
-                              >
-                                {r.dayofOrderError}
-                              </div>
-                            )}
-                          </div>
-                        ) : r.squareDayofOrderId ? (
-                          <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "0.6rem" }}>Pending</span>
+                          </button>
                         ) : (
                           <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Alert — pre-arrival notification status */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        {r.preArrivalSentAt ? (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "0.1rem 0.35rem",
+                              borderRadius: 5,
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(34,197,94,0.15)",
+                              color: "#22c55e",
+                              border: "1px solid rgba(34,197,94,0.3)",
+                            }}
+                            title={`Sent ${new Date(r.preArrivalSentAt).toLocaleTimeString()}`}
+                          >
+                            Sent
+                          </span>
+                        ) : (
+                          <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
                         )}
                       </td>
 

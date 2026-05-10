@@ -60,6 +60,7 @@ export interface QueuedSend {
     | "video-resend"
     | "pov-resend"
     | "bowling-confirm"
+    | "bowling-pre-arrival"
     | "other";
   /** ISO timestamp of original (failed) attempt */
   queuedAt: string;

@@ -31,6 +31,7 @@ export interface SmsLogEntry {
     | "pov-resend"
     | "video-match"
     | "bowling-confirm"
+    | "bowling-pre-arrival"
     | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;
