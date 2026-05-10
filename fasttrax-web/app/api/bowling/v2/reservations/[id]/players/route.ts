@@ -8,6 +8,32 @@ import {
 import { upsertMemberPref } from "@/lib/kbf-prefs";
 import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
 
+// ── Square helpers (shoe-size KDS sync) ─────────────────────────────
+const SQUARE_BASE    = "https://connect.squareup.com/v2";
+const SQUARE_VERSION = "2024-12-18";
+/** $0 catalog item used as a KDS ticket for shoe sizes. */
+const SHOE_KDS_CATALOG_ID = "M4UJZDGXBWMGBSAFZPW3ZP6G";
+
+function sqHeaders(): Record<string, string> {
+  return {
+    Authorization:    `Bearer ${process.env.SQUARE_ACCESS_TOKEN ?? ""}`,
+    "Content-Type":   "application/json",
+    "Square-Version": SQUARE_VERSION,
+  };
+}
+
+/** "Women 8" → "Women's Size 8", "Men 11" → "Men's Size 11", etc. */
+function formatShoeSize(raw: string): string {
+  const spaceIdx = raw.indexOf(" ");
+  if (spaceIdx === -1) return raw;
+  const category = raw.slice(0, spaceIdx).toLowerCase();
+  const size = raw.slice(spaceIdx + 1);
+  if (category === "women") return `Women's Size ${size}`;
+  if (category === "men")   return `Men's Size ${size}`;
+  if (category === "kids")  return `Kids' Size ${size}`;
+  return `${raw.slice(0, spaceIdx)} Size ${size}`;
+}
+
 /**
  * GET  /api/bowling/v2/reservations/[id]/players
  * PATCH /api/bowling/v2/reservations/[id]/players
@@ -19,7 +45,9 @@ import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
  * PATCH — saves updated shoe sizes, bumpers, and names (open bowling only).
  * After saving to Neon it:
  *   1. Calls QAMF setLanePlayers (best-effort — non-fatal on failure)
- *   2. Writes KBF member prefs back for any player with a kbf_pass_id
+ *   2. Syncs $0 shoe-size line items to the Square day-of order so the KDS
+ *      shows each bowler's shoe size + name when the order is paid out
+ *   3. Writes KBF member prefs back for any player with a kbf_pass_id
  *      so shoe size + bumpers are pre-filled on their next visit
  */
 
@@ -182,6 +210,77 @@ export async function PATCH(
           // Non-fatal — player data is saved in Neon; staff can enter at desk
         }
       }
+    }
+  }
+
+  // ── Best-effort: sync shoe-size KDS items to Square day-of order ──
+  // Each player with a shoe size gets a $0 line item on the day-of order
+  // so the KDS shows shoe sizes + bowler names when the order is paid out.
+  if (reservation.squareDayofOrderId) {
+    try {
+      const { players: latestPlayers } = await getReservationPlayersWithShoeAllowance(id);
+      const shoePlayers = latestPlayers.filter((p) => p.shoeSize);
+
+      const sqOrderRes = await fetch(
+        `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+        { headers: sqHeaders(), cache: "no-store" },
+      );
+      if (sqOrderRes.ok) {
+        const sqOrderJson = await sqOrderRes.json() as {
+          order?: {
+            id: string; version: number; location_id: string; state: string;
+            line_items?: Array<{ uid: string; catalog_object_id?: string }>;
+          };
+        };
+        const sqOrder = sqOrderJson.order;
+        if (sqOrder && sqOrder.state !== "CANCELED" && sqOrder.state !== "COMPLETED") {
+          // Remove existing shoe-size KDS items, then add current set
+          const existingShoeUids = (sqOrder.line_items ?? [])
+            .filter((li) => li.catalog_object_id === SHOE_KDS_CATALOG_ID)
+            .map((li) => li.uid);
+          const fieldsToClear = existingShoeUids.map(
+            (uid) => `order.line_items[${uid}]`,
+          );
+          const newShoeItems = shoePlayers.map((p) => ({
+            catalog_object_id: SHOE_KDS_CATALOG_ID,
+            quantity: "1",
+            name: formatShoeSize(p.shoeSize!),
+            note: p.name || undefined,
+            base_price_money: { amount: 0, currency: "USD" },
+          }));
+
+          if (fieldsToClear.length > 0 || newShoeItems.length > 0) {
+            const updateRes = await fetch(
+              `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+              {
+                method: "PUT",
+                headers: sqHeaders(),
+                body: JSON.stringify({
+                  order: {
+                    version: sqOrder.version,
+                    location_id: reservation.centerCode,
+                    ...(newShoeItems.length > 0 ? { line_items: newShoeItems } : {}),
+                  },
+                  ...(fieldsToClear.length > 0 ? { fields_to_clear: fieldsToClear } : {}),
+                  idempotency_key: `shoe-kds-${id}-${Date.now()}`,
+                }),
+              },
+            );
+            if (!updateRes.ok) {
+              const errBody = await updateRes.json().catch(() => ({})) as {
+                errors?: Array<{ detail?: string }>;
+              };
+              console.warn(
+                `[players] shoe KDS sync failed for neonId=${id}:`,
+                errBody.errors?.[0]?.detail ?? updateRes.status,
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal — shoe KDS items are a convenience for kitchen staff
+      console.warn(`[players] shoe KDS sync error for neonId=${id}:`, err instanceof Error ? err.message : err);
     }
   }
 
