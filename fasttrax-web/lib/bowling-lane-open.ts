@@ -8,8 +8,8 @@ import {
  *
  * Called when QAMF signals a reservation has gone Running (lanes started).
  * Two triggers:
- *   1. bowling-events-consumer cron — processes `reservation.updated` with
- *      Status="Running" from the QAMF webhook queue
+ *   1. QAMF webhook handler (inline) — processes `reservation.updated` with
+ *      Data.Status="Arrived" or Lanes[].Status="Running" instantly
  *   2. bowling-lane-poll cron — polls listLanes() every minute as fallback
  *
  * Steps per reservation:

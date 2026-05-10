@@ -14,12 +14,18 @@ import { processLaneOpen } from "@/lib/bowling-lane-open";
 /**
  * GET /api/cron/bowling-events-consumer
  *
- * Drains the QAMF bowling webhook queue (qamf:bowling:events:queue) and
- * processes each event against Neon + Square.
+ * Dead-letter processor for QAMF bowling webhook events.
  *
- * Runs every 2 minutes (see vercel.json).
+ * The primary processing path is now INLINE in the webhook POST handler
+ * (app/api/webhooks/qamf-bowling/route.ts). This cron only runs as a
+ * safety net: if the webhook handler's inline processEvent() throws an
+ * unhandled error, the event is pushed to qamf:bowling:events:queue as
+ * a dead letter. This cron drains that queue every 2 minutes.
  *
- * Event types handled:
+ * In normal operation, the queue is empty. If you see events landing
+ * here, check the webhook handler logs for the root cause.
+ *
+ * Event types handled (same logic as the webhook handler):
  *
  *   reservation.updated  — maps QAMF reservation-level status → Neon status:
  *     Confirmed  → confirmed
@@ -29,20 +35,10 @@ import { processLaneOpen } from "@/lib/bowling-lane-open";
  *
  *   Lane-open trigger (processLaneOpen):
  *     Fires when Data.Status="Arrived" OR Data.Lanes[].Status="Running".
- *     QAMF sends both simultaneously when lanes open. Data.Status is the
- *     reservation-level status (never "Running") — "Running" only appears
- *     at the lane level in Data.Lanes[].Status.
  *
  *   reservation.deleted  — treat as cancellation + Square refund
- *
- *   reservation.created  — logged, no Neon action (we create the row ourselves)
- *   lanes.updated        — ignored (physical lane status changes)
- *
- * Only reservations whose QAMF ID starts with "X" are processed.
- * Others are logged and skipped (QAMF may send events for non-web reservations).
- *
- * Idempotency: the webhook receiver deduplicates on webhook-id (Redis, 3d TTL)
- * so this consumer won't see the same event twice in normal operation.
+ *   reservation.created  — logged, no Neon action
+ *   lanes.updated        — ignored
  */
 
 const QUEUE_KEY = "qamf:bowling:events:queue";
