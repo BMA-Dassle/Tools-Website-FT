@@ -736,7 +736,8 @@ export async function POST(req: NextRequest) {
     }
 
     const finalNotes = finalParts.join("\n");
-    patchReservation(centerId, qamfReservationId, { Notes: finalNotes }).catch((err) =>
+    const finalTitle = `${guest.name} (${players.length}p)`;
+    patchReservation(centerId, qamfReservationId, { Title: finalTitle, Notes: finalNotes }).catch((err) =>
       console.warn("[bowling/v2/reserve] final notes patch failed (non-fatal):", err),
     );
   } catch (err) {

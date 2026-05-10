@@ -35,6 +35,7 @@ interface ReservationRow {
   total_cents: number;
   status: string;
   booked_at: string;
+  player_count: number | null;
   guest_name: string | null;
   notes: string | null;
   short_code: string | null;
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   // Fetch all upcoming non-cancelled reservations with a QAMF ID
   const reservations = (await q`
     SELECT id, center_code, qamf_reservation_id, deposit_cents, total_cents,
-           status, booked_at, guest_name, notes, short_code
+           status, booked_at, player_count, guest_name, notes, short_code
     FROM bowling_reservations
     WHERE status != 'cancelled'
       AND booked_at >= NOW() - INTERVAL '1 day'
@@ -164,7 +165,8 @@ export async function POST(req: NextRequest) {
       const centerId = CENTER_CODE_TO_ID[res.center_code];
       if (centerId && res.qamf_reservation_id) {
         try {
-          await patchReservation(centerId, res.qamf_reservation_id, { Notes: memo });
+          const title = `${res.guest_name || "Guest"} (${res.player_count ?? 0}p)`;
+          await patchReservation(centerId, res.qamf_reservation_id, { Title: title, Notes: memo });
           patched = true;
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);
