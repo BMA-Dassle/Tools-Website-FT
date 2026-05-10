@@ -264,6 +264,7 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_lane     TEXT`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_payment_id     TEXT`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_error    TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_source   TEXT`;
 
   // Pre-arrival SMS/email notification sent 30 min before booked_at.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS pre_arrival_sent_at TIMESTAMPTZ`;
@@ -477,6 +478,8 @@ export interface BowlingReservation {
   dayofPaymentId?: string;
   /** Error message from last lane-open attempt (if any); cleared on success. */
   dayofOrderError?: string;
+  /** How the lane-open was triggered: "webhook" (events-consumer) or "cron" (lane-poll). */
+  dayofOrderSource?: string;
   /** ISO timestamp when the pre-arrival SMS/email was sent (~30 min before booked_at). */
   preArrivalSentAt?: string;
   insertedAt: string;
@@ -645,6 +648,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     dayofOrderLane: (row.dayof_order_lane as string) ?? undefined,
     dayofPaymentId: (row.dayof_payment_id as string) ?? undefined,
     dayofOrderError: (row.dayof_order_error as string) ?? undefined,
+    dayofOrderSource: (row.dayof_order_source as string) ?? undefined,
     preArrivalSentAt: row.pre_arrival_sent_at
       ? (row.pre_arrival_sent_at as Date).toISOString()
       : undefined,
@@ -1608,7 +1612,7 @@ export async function getAllBowlingExperiences(): Promise<
  */
 export async function updateBowlingReservationLaneOpen(
   id: number,
-  opts: { laneNumbers: number[]; paymentId?: string; error?: string },
+  opts: { laneNumbers: number[]; paymentId?: string; error?: string; source?: string },
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   await ensureBowlingSchema();
@@ -1620,6 +1624,7 @@ export async function updateBowlingReservationLaneOpen(
       dayof_order_lane    = ${laneLabel || null},
       dayof_payment_id    = ${opts.paymentId ?? null},
       dayof_order_error   = ${opts.error ?? null},
+      dayof_order_source  = ${opts.source ?? null},
       status = CASE
         WHEN status IN ('confirmed', 'confirm_pending', 'confirm_failed') THEN 'arrived'
         ELSE status

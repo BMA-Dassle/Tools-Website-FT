@@ -74,6 +74,17 @@ h1, h2, h3, h4, h5, h6 {
   animation: scan-success-flash 900ms ease-out forwards;
 }
 
+/* Pulsing glow for the bowler-details CTA on the confirmation page.
+   Draws attention without being obnoxious — one gentle ring of coral light. */
+@keyframes cta-pulse-glow {
+  0%   { box-shadow: 0 0 0 0 rgba(253,91,86,0.55); }
+  70%  { box-shadow: 0 0 0 12px rgba(253,91,86,0); }
+  100% { box-shadow: 0 0 0 0 rgba(253,91,86,0); }
+}
+.cta-pulse-glow {
+  animation: cta-pulse-glow 2s ease-out infinite;
+}
+
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--color-bg-deep); }
 ::-webkit-scrollbar-thumb { background: var(--color-cyan); border-radius: 2px; }

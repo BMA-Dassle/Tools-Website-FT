@@ -169,6 +169,20 @@ export async function GET(req: NextRequest) {
       const qamfId      = data?.Id ?? "";
       const qamfStatus  = data?.Status ?? "";
 
+      // Diagnostic: log the full Data shape for reservation.updated events
+      // so we can see whether Running comes through as Data.Status or Data.Lanes[].Status
+      if (eventType === "reservation.updated" && qamfId.startsWith("X")) {
+        const lanes = Array.isArray((data as Record<string, unknown>)?.Lanes)
+          ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string }>)
+              .map((l) => `${l.LaneNumber ?? "?"}:${l.Status ?? "?"}`)
+              .join(",")
+          : "none";
+        console.log(
+          `[bowling-events] reservation.updated qamfId=${qamfId}` +
+          ` Data.Status="${qamfStatus}" Lanes=[${lanes}]`,
+        );
+      }
+
       // Only process our web reservations (QAMF IDs start with "X")
       if (qamfId && !qamfId.startsWith("X")) {
         console.log(`[bowling-events] skipping non-web qamfId=${qamfId} type=${eventType}`);
@@ -225,6 +239,8 @@ export async function GET(req: NextRequest) {
         // Call processLaneOpen to update kitchen display notes and apply
         // the gift card deposit to the day-of Square order.
         if (qamfStatus === "Running" && !reservation.dayofOrderSentAt) {
+          const tLaneOpen = Date.now();
+          console.log(`[bowling-events] Running webhook received neonId=${reservation.id} qamfId=${qamfId} webhookId=${entry.webhookId}`);
           const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
             TXBSQN0FEKQ11: 9172,
             PPTR5G2N0QXF7: 3148,
@@ -233,7 +249,9 @@ export async function GET(req: NextRequest) {
           let laneNumbers: number[] = [];
           if (centerId) {
             try {
+              const tQamf = Date.now();
               const qamfRes = await getReservation(centerId, qamfId);
+              console.log(`[bowling-events] getReservation neonId=${reservation.id} ${Date.now() - tQamf}ms`);
               laneNumbers = (qamfRes.Lanes ?? [])
                 .map((l) => l.LaneNumber)
                 .filter((n): n is number => typeof n === "number");
@@ -249,16 +267,17 @@ export async function GET(req: NextRequest) {
               reservation,
               laneNumbers,
               idempotencyBase: `lane-open-${reservation.id}`,
+              source: "webhook",
             });
             console.log(
-              `[bowling-events] lane-open neonId=${reservation.id}` +
+              `[bowling-events] lane-open neonId=${reservation.id} totalMs=${Date.now() - tLaneOpen}` +
               ` lane="${laneResult.laneLabel}" kitchen=${laneResult.kitchenItemsUpdated}` +
               ` paymentId=${laneResult.paymentId ?? "none"}` +
               (laneResult.error ? ` error=${laneResult.error}` : ""),
             );
           } catch (err) {
             console.error(
-              `[bowling-events] processLaneOpen threw neonId=${reservation.id}:`,
+              `[bowling-events] processLaneOpen threw neonId=${reservation.id} totalMs=${Date.now() - tLaneOpen}:`,
               err instanceof Error ? err.message : err,
             );
             results.errors++;

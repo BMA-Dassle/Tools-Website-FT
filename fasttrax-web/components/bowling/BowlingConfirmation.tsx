@@ -430,6 +430,158 @@ function CheckInModal({
   );
 }
 
+// ── Bowler modal ─────────────────────────────────────────────────────────
+
+function BowlerModal({
+  players,
+  shoePairsAllowed,
+  laneNumbers,
+  playersSaving,
+  playersSaved,
+  playersError,
+  onUpdate,
+  onSave,
+  onClose,
+}: {
+  players: BowlingReservationPlayer[];
+  shoePairsAllowed: number;
+  laneNumbers: number[];
+  playersSaving: boolean;
+  playersSaved: boolean;
+  playersError: string | null;
+  onUpdate: (slot: number, patch: Partial<BowlingReservationPlayer>) => void;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
+      {...modalBackdropProps(onClose)}
+    >
+      <div
+        className="relative w-full max-w-lg rounded-2xl border border-white/15 p-5 sm:p-7 flex flex-col"
+        style={{ backgroundColor: "#0e1d3a", maxHeight: "90vh" }}
+      >
+        {/* Close */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 text-white/30 hover:text-white/70 transition-colors text-xl leading-none"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+
+        {/* Header */}
+        <div className="text-center mb-5 pr-6">
+          <p
+            className="font-heading font-black uppercase italic"
+            style={{ fontSize: "clamp(20px, 5vw, 26px)", color: "white" }}
+          >
+            {shoePairsAllowed > 0 ? "Names & Shoe Sizes" : "Bowler Names"}
+          </p>
+          <p className="text-white/50 text-xs font-body mt-1 leading-relaxed">
+            {shoePairsAllowed > 0
+              ? "Add names, shoe sizes, and bumper preferences so your lane is ready to go."
+              : "Add bowler names and bumper preferences so your lane is ready when you arrive."}
+          </p>
+        </div>
+
+        {/* Scrollable bowler list */}
+        <div className="overflow-y-auto flex-1 -mx-1 px-1" style={{ maxHeight: "65vh" }}>
+          {laneNumbers.length > 1 ? (
+            <div className="space-y-5">
+              {laneNumbers.map((laneNum) => (
+                <div key={laneNum}>
+                  <div className="text-xs font-bold uppercase tracking-widest mb-2 mt-1" style={{ color: GOLD }}>
+                    Lane {laneNum}
+                  </div>
+                  <div className="space-y-3">
+                    {players
+                      .filter((p) => (p.laneNumber ?? laneNumbers[0]) === laneNum)
+                      .map((player) => (
+                        <div key={player.slot}>
+                          <BowlerCard
+                            player={player}
+                            shoePairsAllowed={shoePairsAllowed}
+                            shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                            onUpdate={(patch) => onUpdate(player.slot, patch)}
+                          />
+                          <div className="flex gap-1.5 mt-1.5 pl-1">
+                            <span className="text-white/30 text-xs self-center">Move to:</span>
+                            {laneNumbers.filter((ln) => ln !== laneNum).map((ln) => (
+                              <button
+                                key={ln}
+                                type="button"
+                                onClick={() => onUpdate(player.slot, { laneNumber: ln })}
+                                className="px-2.5 py-1 rounded-lg text-xs font-body font-semibold border border-white/15 text-white/50 hover:text-white hover:border-white/35 transition-colors"
+                              >
+                                Lane {ln}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {players.map((player) => (
+                <BowlerCard
+                  key={player.slot}
+                  player={player}
+                  shoePairsAllowed={shoePairsAllowed}
+                  shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                  onUpdate={(patch) => onUpdate(player.slot, patch)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Shoe pair counter */}
+        {shoePairsAllowed > 0 && (
+          <p className="text-white/35 text-xs mt-3 text-right font-body">
+            {players.filter((p) => p.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
+          </p>
+        )}
+
+        {/* Error */}
+        {playersError && (
+          <div
+            className="rounded-xl p-3 text-sm font-body mt-3"
+            style={{
+              backgroundColor: "rgba(253,91,86,0.12)",
+              border: "1.5px solid rgba(253,91,86,0.35)",
+              color: CORAL,
+            }}
+          >
+            {playersError}
+          </div>
+        )}
+
+        {/* Save button */}
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={playersSaving || playersSaved}
+          className="mt-4 w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+          style={{ backgroundColor: playersSaved ? "rgba(74,222,128,0.25)" : CORAL }}
+        >
+          {playersSaving
+            ? "Saving…"
+            : playersSaved
+              ? "✓ Saved"
+              : "Save Preferences"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Bowler card sub-component ─────────────────────────────────────────────
 
 function BowlerCard({
@@ -598,6 +750,7 @@ function BowlerCard({
 function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const sp = useSearchParams();
   const neonIdStr = sp.get("neonId") ?? "0";
+  const autoOpenNames = sp.get("names") === "1";
 
   const neonId = parseInt(neonIdStr, 10);
   const hasNeonRecord = !isNaN(neonId) && neonId > 0;
@@ -615,6 +768,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
   // ── Check-in modal state ─────────────────────────────────────────
   const [checkInOpen, setCheckInOpen] = useState(false);
+
+  // ── Bowler modal state ──────────────────────────────────────────
+  const [bowlerModalOpen, setBowlerModalOpen] = useState(false);
 
   // ── Reschedule state ─────────────────────────────────────────────
   type RescheduleInfo = {
@@ -688,6 +844,14 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [neonId, hasNeonRecord, isCancelled, laneReadyPhase]);
+
+  // ── Auto-open bowler modal when ?names=1 is in the URL ────────────
+  useEffect(() => {
+    if (autoOpenNames && players.length > 0 && !isCancelled && laneReadyPhase !== "running") {
+      setBowlerModalOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenNames, players.length]);
 
   // Block self-serve cancellation within 1 hour of the reservation start.
   const isWithin1Hour = reservation
@@ -853,7 +1017,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/players`);
+        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/players`, {
+          cache: "no-store",
+        });
         if (!res.ok || cancelled) return;
         const data = await res.json() as {
           players: BowlingReservationPlayer[];
@@ -906,6 +1072,8 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
       const data = await res.json() as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to save");
       setPlayersSaved(true);
+      // Auto-close bowler modal after successful save
+      setTimeout(() => setBowlerModalOpen(false), 1200);
     } catch (err) {
       setPlayersError(err instanceof Error ? err.message : "Failed to save preferences");
     } finally {
@@ -1128,115 +1296,50 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             )}
           </div>
 
-          {/* ── Bowler details ── hidden when cancelled or lane is open
-              (once running, QAMF has already consumed the bowler data) */}
+          {/* ── Bowler CTA + summary ── hidden when cancelled or lane is open */}
           {players.length > 0 && !isCancelled && laneReadyPhase !== "running" && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-              {/* Eye-catching header — drives pre-arrival data entry so
-                  staff have names, shoes, and bumpers before the party walks in. */}
-              <div
-                className="rounded-xl px-4 py-3 mb-5 text-center"
-                style={{ backgroundColor: `${CORAL}15`, border: `1.5px solid ${CORAL}35` }}
-              >
-                <p className="font-heading uppercase text-white text-sm sm:text-base tracking-wider mb-1" style={{ textShadow: `0 0 12px ${CORAL}30` }}>
-                  Save time when you arrive
-                </p>
-                <p className="text-white/55 text-xs font-body leading-relaxed">
-                  {shoePairsAllowed > 0
-                    ? "Add your bowler names, shoe sizes, and bumper preferences now so your lane is ready to go."
-                    : "Add your bowler names and bumper preferences now so your lane is ready when you get here."}
-                </p>
-              </div>
-
-              {laneNumbers.length > 1 ? (
-                // Multi-lane: group by lane with lane headers + move buttons
-                <div className="space-y-5">
-                  {laneNumbers.map((laneNum) => (
-                    <div key={laneNum}>
-                      <div className="text-xs font-bold uppercase tracking-widest mb-2 mt-1" style={{ color: GOLD }}>
-                        Lane {laneNum}
-                      </div>
-                      <div className="space-y-3">
-                        {players
-                          .filter((p) => (p.laneNumber ?? laneNumbers[0]) === laneNum)
-                          .map((player) => (
-                            <div key={player.slot}>
-                              <BowlerCard
-                                player={player}
-                                shoePairsAllowed={shoePairsAllowed}
-                                shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                                onUpdate={(patch) => updatePlayer(player.slot, patch)}
-                              />
-                              {/* Move to other lanes */}
-                              <div className="flex gap-1.5 mt-1.5 pl-1">
-                                <span className="text-white/30 text-xs self-center">Move to:</span>
-                                {laneNumbers.filter((ln) => ln !== laneNum).map((ln) => (
-                                  <button
-                                    key={ln}
-                                    type="button"
-                                    onClick={() => updatePlayer(player.slot, { laneNumber: ln })}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-body font-semibold border border-white/15 text-white/50 hover:text-white hover:border-white/35 transition-colors"
-                                  >
-                                    Lane {ln}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                // Single lane or no lane data: flat list (current behavior)
-                <div className="space-y-4">
-                  {players.map((player) => (
-                    <BowlerCard
-                      key={player.slot}
-                      player={player}
-                      shoePairsAllowed={shoePairsAllowed}
-                      shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                      onUpdate={(patch) => updatePlayer(player.slot, patch)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Shoe pair counter */}
-              {shoePairsAllowed > 0 && (
-                <p className="text-white/35 text-xs mt-3 text-right font-body">
-                  {players.filter((p) => p.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
-                </p>
-              )}
-
-              {/* Error */}
-              {playersError && (
-                <div
-                  className="rounded-xl p-3 text-sm font-body mt-3"
-                  style={{
-                    backgroundColor: "rgba(253,91,86,0.12)",
-                    border: "1.5px solid rgba(253,91,86,0.35)",
-                    color: CORAL,
-                  }}
-                >
-                  {playersError}
-                </div>
-              )}
-
-              {/* Save button */}
+              {/* CTA button — pulses until at least one shoe size or name is entered */}
               <button
                 type="button"
-                onClick={() => void handleSavePlayers()}
-                disabled={playersSaving || playersSaved}
-                className="mt-4 w-full py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                style={{ backgroundColor: playersSaved ? "rgba(74,222,128,0.25)" : CORAL }}
+                onClick={() => setBowlerModalOpen(true)}
+                className={`w-full py-4 rounded-xl font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100 ${
+                  !players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler ")))
+                    ? "cta-pulse-glow"
+                    : ""
+                }`}
+                style={{
+                  backgroundColor: CORAL,
+                  fontSize: "15px",
+                  letterSpacing: "1.5px",
+                }}
               >
-                {playersSaving
-                  ? "Saving…"
-                  : playersSaved
-                    ? "✓ Saved"
-                    : "Save Preferences"}
+                {shoePairsAllowed > 0
+                  ? "Enter Names & Shoe Sizes"
+                  : "Enter Bowler Names"}
               </button>
+              <p className="text-center text-white/40 text-xs mt-2">
+                Save time at check-in — fill in details before you arrive
+              </p>
+
+              {/* Summary strip — show progress once at least one player has data */}
+              {players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler "))) && (
+                <div className="mt-4 space-y-1.5">
+                  {players.map((p) => (
+                    <div key={p.slot} className="flex items-center justify-between text-sm px-1">
+                      <span className="text-white/70 truncate">{p.name || `Bowler ${p.slot}`}</span>
+                      <span className="text-white/40 text-xs flex-shrink-0 ml-2">
+                        {p.shoeSize ?? "No shoes"}{p.bumpers ? " · Bumpers" : ""}
+                      </span>
+                    </div>
+                  ))}
+                  {shoePairsAllowed > 0 && (
+                    <p className="text-white/30 text-xs text-right pt-1">
+                      {players.filter((pp) => pp.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1299,6 +1402,21 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                 if (label) setLaneReadyLabel(label);
                 setCheckInOpen(false);
               }}
+            />
+          )}
+
+          {/* Bowler details modal */}
+          {bowlerModalOpen && players.length > 0 && (
+            <BowlerModal
+              players={players}
+              shoePairsAllowed={shoePairsAllowed}
+              laneNumbers={laneNumbers}
+              playersSaving={playersSaving}
+              playersSaved={playersSaved}
+              playersError={playersError}
+              onUpdate={updatePlayer}
+              onSave={() => void handleSavePlayers()}
+              onClose={() => setBowlerModalOpen(false)}
             />
           )}
 
@@ -1592,7 +1710,11 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               <Link
                 key={link.href}
                 href={link.href}
-                className="flex-1 text-center rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                className="flex-1 text-center rounded-xl px-4 py-3.5 font-body font-semibold text-sm text-white/80 hover:text-white transition-all hover:scale-[1.01]"
+                style={{
+                  backgroundColor: "rgba(18,48,117,0.4)",
+                  border: "1px solid rgba(18,48,117,0.7)",
+                }}
               >
                 {link.label}
               </Link>

@@ -159,9 +159,9 @@ export async function GET(req: NextRequest) {
     const center = CENTER_META[r.centerCode] ?? CENTER_META.TXBSQN0FEKQ11;
     const time = formatTime(r.bookedAt);
     const siteUrl = "https://headpinz.com";
-    const confirmLink = r.shortCode
-      ? `${siteUrl}/s/${r.shortCode}`
-      : `${siteUrl}/hp/book/bowling/confirmation?neonId=${r.id}`;
+    // Always use the full URL for pre-arrival so the &names=1 param
+    // survives (short URL server-side redirect would strip query params).
+    const confirmLink = `${siteUrl}/hp/book/bowling/confirmation?neonId=${r.id}&names=1`;
     const guestFirst = (r.guestName ?? "").split(" ")[0] || "there";
 
     let emailOk = false;

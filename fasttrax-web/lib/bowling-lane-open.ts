@@ -109,8 +109,11 @@ export async function processLaneOpen(opts: {
    * the webhook consumer and polling cron produce identical keys.
    */
   idempotencyBase: string;
+  /** How this was triggered: "webhook" (events-consumer) or "cron" (lane-poll). */
+  source?: "webhook" | "cron";
 }): Promise<LaneOpenResult> {
-  const { reservation, laneNumbers, idempotencyBase } = opts;
+  const { reservation, laneNumbers, idempotencyBase, source } = opts;
+  const t0 = Date.now();
   const laneLabel = buildLaneLabel(laneNumbers);
 
   // ── Guard ─────────────────────────────────────────────────────────
@@ -124,17 +127,21 @@ export async function processLaneOpen(opts: {
   let paymentCents: number | undefined;
   let processingError: string | undefined;
 
+  const srcTag = source ?? "unknown";
+
   if (reservation.squareDayofOrderId) {
     // ── 1. Fetch day-of order ─────────────────────────────────────
+    const tOrder = Date.now();
     const orderRes = await fetch(
       `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
       { headers: sqHeaders(), cache: "no-store" },
     );
+    console.log(`[lane-open] neonId=${neonId} src=${srcTag} GET order ${Date.now() - tOrder}ms`);
     if (!orderRes.ok) {
       const body = await orderRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
       const msg = body.errors?.[0]?.detail ?? `Order fetch failed (${orderRes.status})`;
       console.error(`[lane-open] neonId=${neonId} order fetch failed: ${msg}`);
-      await updateBowlingReservationLaneOpen(neonId, { laneNumbers, error: msg });
+      await updateBowlingReservationLaneOpen(neonId, { laneNumbers, error: msg, source });
       return { ok: false, laneLabel, kitchenItemsUpdated: 0, error: msg };
     }
     const orderJson = await orderRes.json() as { order?: SquareOrder };
@@ -160,6 +167,7 @@ export async function processLaneOpen(opts: {
         note: li.note ? `${laneLabel} | ${li.note}` : laneLabel,
       }));
       try {
+        const tNotes = Date.now();
         const noteRes = await fetch(
           `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
           {
@@ -185,6 +193,7 @@ export async function processLaneOpen(opts: {
             }),
           },
         );
+        console.log(`[lane-open] neonId=${neonId} src=${srcTag} PUT notes ${Date.now() - tNotes}ms`);
         if (noteRes.ok) {
           kitchenItemsUpdated = kitchenItems.length;
         } else {
@@ -206,10 +215,12 @@ export async function processLaneOpen(opts: {
       if (reservation.squareGiftCardId) {
         try {
           // Get authoritative gift card balance
+          const tGc = Date.now();
           const gcRes = await fetch(
             `${SQUARE_BASE}/gift-cards/${reservation.squareGiftCardId}`,
             { headers: sqHeaders(), cache: "no-store" },
           );
+          console.log(`[lane-open] neonId=${neonId} src=${srcTag} GET gift-card ${Date.now() - tGc}ms`);
           if (!gcRes.ok) throw new Error(`Gift card fetch failed (${gcRes.status})`);
           const gcJson = await gcRes.json() as {
             gift_card?: { balance_money?: { amount?: number } };
@@ -221,6 +232,7 @@ export async function processLaneOpen(opts: {
             const remaining = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
             const amountToPay = remaining > 0 ? Math.min(gcBalance, remaining) : gcBalance;
 
+            const tPay = Date.now();
             const payRes = await fetch(`${SQUARE_BASE}/payments`, {
               method:  "POST",
               headers: sqHeaders(),
@@ -234,6 +246,7 @@ export async function processLaneOpen(opts: {
                 note:            `Deposit applied${laneLabel ? ` — ${laneLabel}` : ""}`,
               }),
             });
+            console.log(`[lane-open] neonId=${neonId} src=${srcTag} POST payment ${Date.now() - tPay}ms`);
             if (payRes.ok) {
               const payJson = await payRes.json() as {
                 payment?: { id: string; amount_money?: { amount?: number } };
@@ -270,11 +283,14 @@ export async function processLaneOpen(opts: {
   }
 
   // ── 4. Write to Neon ──────────────────────────────────────────────
+  const tNeon = Date.now();
   const written = await updateBowlingReservationLaneOpen(neonId, {
     laneNumbers,
     paymentId,
     error: processingError,
+    source,
   });
+  console.log(`[lane-open] neonId=${neonId} src=${srcTag} Neon write ${Date.now() - tNeon}ms`);
 
   if (!written) {
     // Race: another trigger wrote first — that's fine, no action needed
@@ -283,7 +299,7 @@ export async function processLaneOpen(opts: {
   }
 
   console.log(
-    `[lane-open] neonId=${neonId} done` +
+    `[lane-open] neonId=${neonId} src=${srcTag} done totalMs=${Date.now() - t0}` +
     ` lane="${laneLabel}" kitchen=${kitchenItemsUpdated}` +
     ` paymentId=${paymentId ?? "none"} error=${processingError ?? "none"}`,
   );

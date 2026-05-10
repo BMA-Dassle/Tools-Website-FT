@@ -33,6 +33,7 @@ interface Reservation {
   dayofOrderLane?: string;
   dayofPaymentId?: string;
   dayofOrderError?: string;
+  dayofOrderSource?: string;
   preArrivalSentAt?: string;
   insertedAt: string;
   lines: ReservationLine[];
@@ -1396,6 +1397,25 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 >
                                   {r.dayofOrderError ? "ERR" : "Sent"}
                                 </span>
+                                {r.dayofOrderSource && (
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      marginLeft: 3,
+                                      padding: "0.05rem 0.25rem",
+                                      borderRadius: 3,
+                                      fontSize: "0.5rem",
+                                      fontWeight: 500,
+                                      backgroundColor: r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.08)",
+                                      color: r.dayofOrderSource === "webhook" ? "#818cf8" : "rgba(255,255,255,0.4)",
+                                      border: `1px solid ${r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.12)"}`,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.5px",
+                                    }}
+                                  >
+                                    {r.dayofOrderSource}
+                                  </span>
+                                )}
                                 {r.dayofPaymentId && (
                                   <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", marginTop: 1 }}>
                                     {r.dayofPaymentId.slice(-8)}

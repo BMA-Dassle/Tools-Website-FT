@@ -41,6 +41,9 @@ const QUEUE_MAX_LEN = 5000;
 const QUEUE_TTL = 60 * 60 * 24; // 24h — within QAMF's 48h retry budget
 const HEARTBEAT_KEY = "qamf:bowling:last-event";
 const HEARTBEAT_TTL = 60 * 60; // 1h
+const DEBUG_LOG_KEY = "qamf:bowling:debug-log";
+const DEBUG_LOG_MAX = 500; // keep last 500 webhooks for inspection
+const DEBUG_LOG_TTL = 60 * 60 * 24 * 7; // 7 days
 const DEDUP_KEY_PREFIX = "qamf:bowling:dedup:";
 const DEDUP_TTL = 60 * 60 * 24 * 3; // 3d — comfortably past QAMF's 48h retry budget
 const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60; // 5 min — Standard Webhooks recommendation
@@ -198,7 +201,23 @@ export async function POST(req: NextRequest) {
   const eventType = typeof body.Type === "string" ? body.Type : "unknown";
   const centerId = typeof body.CenterId === "number" ? body.CenterId : null;
 
-  // ── 7. Drop events the consumer always skips ───────────────────────
+  // ── 7. Debug log — archive ALL webhook payloads (including lanes.updated)
+  // Temporary debug log so we can inspect exactly what QAMF sends.
+  // Kept in a separate Redis list, capped at 500, 7-day TTL.
+  const debugEntry = JSON.stringify({
+    webhookId,
+    eventType,
+    centerId,
+    receivedAt: new Date().toISOString(),
+    raw: body,
+  });
+  redis
+    .lpush(DEBUG_LOG_KEY, debugEntry)
+    .then(() => redis.ltrim(DEBUG_LOG_KEY, 0, DEBUG_LOG_MAX - 1))
+    .then(() => redis.expire(DEBUG_LOG_KEY, DEBUG_LOG_TTL))
+    .catch(() => void 0);
+
+  // ── 8. Drop events the consumer always skips ───────────────────────
   // lanes.updated fires constantly during active sessions and is never
   // actioned by the consumer — filtering it here keeps the queue lean.
   if (eventType === "lanes.updated") {
@@ -208,7 +227,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, kind: "skipped", eventType });
   }
 
-  // ── 8. Push to FIFO + heartbeat ────────────────────────────────────
+  // ── 9. Push to FIFO + heartbeat ────────────────────────────────────
   const entry = JSON.stringify({
     webhookId,
     webhookTimestamp,

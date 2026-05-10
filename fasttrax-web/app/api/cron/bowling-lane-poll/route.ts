@@ -102,6 +102,7 @@ export async function GET(req: NextRequest) {
             reservation,
             laneNumbers,
             idempotencyBase: `lane-open-${reservation.id}`,
+            source: "cron",
           });
 
           if (laneResult.skipped) {
