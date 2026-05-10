@@ -972,7 +972,6 @@ export default function ReservationsClient({ token }: { token: string }) {
           }}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
             style={{
               background: "#1a1a1a", borderRadius: 12, padding: 24,
               border: "1px solid rgba(255,255,255,0.08)", maxWidth: 500, width: "100%",
