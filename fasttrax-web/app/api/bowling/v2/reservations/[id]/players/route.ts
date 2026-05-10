@@ -239,7 +239,7 @@ export async function PATCH(
             .filter((li) => li.catalog_object_id === SHOE_KDS_CATALOG_ID)
             .map((li) => li.uid);
           const fieldsToClear = existingShoeUids.map(
-            (uid) => `order.line_items[${uid}]`,
+            (uid) => `line_items[${uid}]`,
           );
           const newShoeItems = shoePlayers.map((p) => ({
             catalog_object_id: SHOE_KDS_CATALOG_ID,
