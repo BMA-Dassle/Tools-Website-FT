@@ -1080,9 +1080,10 @@ export async function insertReservationPlayers(
 
 /**
  * Fetch players for a reservation plus the number of shoe pairs purchased.
- * shoePairsAllowed = sum of addon_shoe line quantities.
- * The confirmation page uses this to validate that shoe sizes aren't
- * assigned to more bowlers than shoe pairs bought.
+ * shoePairsAllowed = sum of addon_shoe line quantities, OR the full
+ * player count when the experience itself includes shoes (Fun 4 All,
+ * Pizza Bowl). The confirmation page uses this to validate that shoe
+ * sizes aren't assigned to more bowlers than shoes available.
  */
 export async function getReservationPlayersWithShoeAllowance(
   reservationId: number,
@@ -1105,7 +1106,23 @@ export async function getReservationPlayersWithShoeAllowance(
     WHERE brl.reservation_id = ${reservationId}
       AND bsp.product_kind = 'addon_shoe'
   `;
-  const shoePairsAllowed = Number((shoeRows[0] as Record<string, unknown>).shoe_qty ?? 0);
+  let shoePairsAllowed = Number((shoeRows[0] as Record<string, unknown>).shoe_qty ?? 0);
+
+  // If no explicit shoe add-on was purchased, check whether the experience
+  // itself includes shoes (Fun 4 All, Pizza Bowl). When it does, every
+  // bowler gets shoes — allowance = player count.
+  if (shoePairsAllowed === 0) {
+    const labelRows = await q`
+      SELECT label FROM bowling_reservation_lines
+      WHERE reservation_id = ${reservationId}
+    `;
+    const includesShoes = labelRows.some((r) =>
+      /fun\s*4\s*all|pizza\s*bowl/i.test(String((r as Record<string, unknown>).label ?? "")),
+    );
+    if (includesShoes) {
+      shoePairsAllowed = playerRows.length;
+    }
+  }
 
   return {
     players: playerRows.map((r) => rowToPlayer(r as Record<string, unknown>)),

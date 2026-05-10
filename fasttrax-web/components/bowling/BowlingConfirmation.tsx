@@ -877,7 +877,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     const shoeSizeCount = players.filter((p) => p.shoeSize).length;
     if (shoeSizeCount > shoePairsAllowed) {
       setPlayersError(
-        `You've assigned shoe sizes for ${shoeSizeCount} bowlers but only purchased ${shoePairsAllowed} pair${shoePairsAllowed !== 1 ? "s" : ""}. Please remove a size first.`,
+        `You've assigned shoe sizes for ${shoeSizeCount} bowlers but only ${shoePairsAllowed} pair${shoePairsAllowed !== 1 ? "s are" : " is"} included with this booking. Please remove a size first.`,
       );
       return;
     }

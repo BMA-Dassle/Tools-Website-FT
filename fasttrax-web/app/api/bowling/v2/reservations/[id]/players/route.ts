@@ -150,7 +150,7 @@ export async function PATCH(
       {
         error: `You can only assign shoe sizes for ${shoePairsAllowed} bowler${
           shoePairsAllowed !== 1 ? "s" : ""
-        } — that's how many pairs were purchased.`,
+        } — that's how many are included with this booking.`,
       },
       { status: 422 },
     );
