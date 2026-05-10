@@ -787,20 +787,23 @@ export async function listBowlingReservations(opts: {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
-  // Use ET boundaries so evening reservations (8 PM+) don't shift to the next
-  // calendar day.  Postgres `AT TIME ZONE` handles DST automatically.
+  // Convert booked_at to ET date and compare directly.  Previous approach
+  // (`$1::date AT TIME ZONE 'America/New_York'`) broke because the Neon sql
+  // template tag consumed `::date` as a parameter type hint, stripping it from
+  // the SQL — so the AT TIME ZONE was applied to a bare text parameter, which
+  // Postgres silently mis-interpreted.  Casting the column side is unambiguous.
   const rows = opts.centerCode
     ? await q`
         SELECT * FROM bowling_reservations
-        WHERE booked_at >= ${opts.startDate}::date AT TIME ZONE 'America/New_York'
-          AND booked_at <  (${opts.endDate}::date + INTERVAL '1 day') AT TIME ZONE 'America/New_York'
+        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
+          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
           AND center_code = ${opts.centerCode}
         ORDER BY booked_at ASC
       `
     : await q`
         SELECT * FROM bowling_reservations
-        WHERE booked_at >= ${opts.startDate}::date AT TIME ZONE 'America/New_York'
-          AND booked_at <  (${opts.endDate}::date + INTERVAL '1 day') AT TIME ZONE 'America/New_York'
+        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
+          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
         ORDER BY booked_at ASC
       `;
   const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
