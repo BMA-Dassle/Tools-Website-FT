@@ -12,7 +12,7 @@ import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
 const SQUARE_BASE    = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-12-18";
 /** $0 catalog item used as a KDS ticket for shoe sizes. */
-const SHOE_KDS_CATALOG_ID = "M4UJZDGXBWMGBSAFZPW3ZP6G";
+const SHOE_KDS_CATALOG_ID = "3SCMJXWRY5KJZONU7HDKKUQ3";
 
 function sqHeaders(): Record<string, string> {
   return {
