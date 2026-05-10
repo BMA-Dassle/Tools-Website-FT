@@ -1,0 +1,803 @@
+openapi: 3.0.3
+info:
+  title: Bowling Reservation Admin API
+  description: |
+    Internal admin API for managing bowling reservations at HeadPinz centers
+    (Fort Myers & Naples). All endpoints require admin authentication via
+    the `ADMIN_CAMERA_TOKEN`.
+
+    **Centers:**
+    | Code | QAMF ID | Location |
+    |------|---------|----------|
+    | TXBSQN0FEKQ11 | 9172 | Fort Myers |
+    | PPTR5G2N0QXF7 | 3148 | Naples |
+  version: "1.0.0"
+
+servers:
+  - url: https://headpinz.com
+    description: Production
+
+components:
+  securitySchemes:
+    AdminToken:
+      type: apiKey
+      in: query
+      name: token
+      description: ADMIN_CAMERA_TOKEN env var value
+    AdminHeader:
+      type: apiKey
+      in: header
+      name: x-admin-token
+      description: ADMIN_SECRET_TOKEN env var value (used by experience/product endpoints)
+
+  schemas:
+    ReservationLine:
+      type: object
+      properties:
+        id:
+          type: integer
+        reservationId:
+          type: integer
+        squareProductId:
+          type: integer
+        label:
+          type: string
+          example: "1.5 Hr Fri-Sun"
+        quantity:
+          type: integer
+        unitPriceCents:
+          type: integer
+          description: Price per unit in cents
+
+    Reservation:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Neon DB row ID
+        centerCode:
+          type: string
+          enum: [TXBSQN0FEKQ11, PPTR5G2N0QXF7]
+        productKind:
+          type: string
+          enum: [open, kbf, hourly]
+          description: "'open' = standard/specials, 'kbf' = Kids Bowl Free, 'hourly' = lane rental"
+        qamfReservationId:
+          type: string
+          nullable: true
+          example: "X147867"
+          description: QAMF Conqueror reservation ID (prefixed with X for web bookings)
+        squareDepositOrderId:
+          type: string
+          nullable: true
+          description: Square order ID for the deposit charge
+        squareDepositPaymentId:
+          type: string
+          nullable: true
+        squareDayofOrderId:
+          type: string
+          nullable: true
+          description: Square day-of order ID (open order with full line items)
+        squareGiftCardId:
+          type: string
+          nullable: true
+          description: Square eGift card holding the deposit balance
+        squareGiftCardGan:
+          type: string
+          nullable: true
+          description: Gift card GAN (account number) for payment
+        depositCents:
+          type: integer
+          description: Tax-inclusive deposit amount charged to customer
+        totalCents:
+          type: integer
+          description: Full booking total (tax-inclusive)
+        status:
+          type: string
+          enum: [confirmed, confirm_pending, confirm_failed, arrived, completed, cancelled]
+        bookedAt:
+          type: string
+          format: date-time
+          description: Bowling session start time (stored as UTC TIMESTAMPTZ)
+        playerCount:
+          type: integer
+          nullable: true
+        guestName:
+          type: string
+          nullable: true
+        guestEmail:
+          type: string
+          nullable: true
+        guestPhone:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+          description: Customer-supplied notes (e.g. bumpers, birthday)
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
+        squareRefundId:
+          type: string
+          nullable: true
+        refundCents:
+          type: integer
+          default: 0
+        shortCode:
+          type: string
+          nullable: true
+          description: Short URL code for confirmation page (headpinz.com/s/{code})
+        preArrivalSentAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the pre-arrival SMS/email was sent (~30 min before bookedAt)
+        dayofOrderSentAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the lane-open processor fired (gift card applied, KDS notes set)
+        dayofOrderLane:
+          type: string
+          nullable: true
+          description: "Lane number(s) assigned by QAMF, e.g. '12' or '12,13'"
+        dayofPaymentId:
+          type: string
+          nullable: true
+          description: Square payment ID from gift card charge at lane-open
+        dayofOrderError:
+          type: string
+          nullable: true
+          description: Error message if lane-open processing failed
+        insertedAt:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReservationLine"
+
+    SquareLineItem:
+      type: object
+      properties:
+        uid:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+        note:
+          type: string
+          nullable: true
+        priceCents:
+          type: integer
+        totalCents:
+          type: integer
+        catalogId:
+          type: string
+          nullable: true
+
+    SquareProduct:
+      type: object
+      properties:
+        id:
+          type: integer
+        centerCode:
+          type: string
+        productKind:
+          type: string
+          description: "e.g. 'base', 'addon_shoe', 'addon_bumper', 'experience_item'"
+        label:
+          type: string
+        squareCatalogObjectId:
+          type: string
+        priceCents:
+          type: integer
+        depositPct:
+          type: number
+          description: Percentage of price collected as deposit (0-100)
+        sortOrder:
+          type: integer
+        isActive:
+          type: boolean
+        qamfWebOfferId:
+          type: integer
+          nullable: true
+        insertedAt:
+          type: string
+          format: date-time
+
+    Experience:
+      type: object
+      properties:
+        id:
+          type: integer
+        slug:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [kbf, open, hourly]
+        isVip:
+          type: boolean
+        description:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+        isActive:
+          type: boolean
+        daysOfWeek:
+          type: array
+          items:
+            type: integer
+          description: "0=Sun through 6=Sat"
+        squareModifierListIds:
+          type: array
+          items:
+            type: string
+        offers:
+          type: array
+          items:
+            type: object
+            properties:
+              centerCode:
+                type: string
+              qamfWebOfferId:
+                type: integer
+              qamfOptionType:
+                type: string
+                enum: [Game, Time, Unlimited]
+              qamfOptionId:
+                type: integer
+                nullable: true
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              squareProductId:
+                type: integer
+              quantity:
+                type: integer
+              labelOverride:
+                type: string
+                nullable: true
+              sortOrder:
+                type: integer
+
+paths:
+  /api/admin/bowling/reservations:
+    get:
+      summary: List reservations for a date
+      description: |
+        Returns all bowling reservations for the given date, filtered by ET
+        (Eastern Time) boundaries. Each reservation includes order line items
+        and a short confirmation URL code.
+
+        Date filtering uses `(booked_at AT TIME ZONE 'America/New_York')::date`
+        so evening reservations (8 PM+ ET) stay on the correct calendar day.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-05-10"
+        - name: center
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [TXBSQN0FEKQ11, PPTR5G2N0QXF7]
+      responses:
+        "200":
+          description: Reservations for the date
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reservations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Reservation"
+        "400":
+          description: Missing or invalid date param
+        "401":
+          description: Invalid admin token
+
+  /api/admin/bowling/reservations/resend:
+    post:
+      summary: Resend confirmation email/SMS
+      description: |
+        Re-sends the booking confirmation email and/or SMS to the guest.
+        Supports overriding the contact info (e.g. if guest gave wrong phone).
+        No cooldown — admin can resend as many times as needed.
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [neonId, channel]
+              properties:
+                neonId:
+                  type: integer
+                channel:
+                  type: string
+                  enum: [email, sms, both]
+                overridePhone:
+                  type: string
+                  description: Override guest phone for this send only
+                overrideEmail:
+                  type: string
+                  description: Override guest email for this send only
+      responses:
+        "200":
+          description: Send results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email:
+                    type: boolean
+                  sms:
+                    type: boolean
+
+  /api/admin/bowling/reservations/cancel:
+    post:
+      summary: Cancel reservation and refund
+      description: |
+        Cancels a bowling reservation with no time restrictions (unlike
+        customer-facing cancel which has a 1-hour cutoff). Steps:
+        1. Cancel in QAMF Conqueror (best-effort)
+        2. Process full Square refund if deposit was charged
+        3. Mark cancelled in Neon DB with timestamp
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [neonId]
+              properties:
+                neonId:
+                  type: integer
+      responses:
+        "200":
+          description: Cancellation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  refundCents:
+                    type: integer
+
+  /api/admin/bowling/reservations/reschedule/info:
+    get:
+      summary: Get reschedule info for a reservation
+      description: |
+        Fetches QAMF web offer details needed to populate the reschedule
+        modal (available time slots). Constrains reschedule to the same
+        web offer / experience type.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: neonId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reschedule context
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webOfferId:
+                    type: integer
+                  optionId:
+                    type: integer
+                    nullable: true
+                  optionType:
+                    type: string
+                    enum: [Game, Time, Unlimited]
+                  centerId:
+                    type: integer
+                  centerCode:
+                    type: string
+                  playerCount:
+                    type: integer
+                  bookedAt:
+                    type: string
+                    format: date-time
+                  guestName:
+                    type: string
+                  productKind:
+                    type: string
+
+  /api/admin/bowling/reservations/reschedule:
+    post:
+      summary: Reschedule a reservation
+      description: |
+        Moves a reservation to a new time within the same web offer.
+        Price and deposit stay the same. Steps:
+        1. Delete old QAMF reservation (best-effort)
+        2. Create new QAMF reservation at new time
+        3. Confirm new QAMF reservation
+        4. Update Neon DB with new bookedAt and QAMF ID
+        5. Re-send confirmation email/SMS (fire-and-forget)
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [neonId, bookedAt, webOfferId]
+              properties:
+                neonId:
+                  type: integer
+                bookedAt:
+                  type: string
+                  format: date-time
+                  description: "New booking time as ISO 8601 with offset"
+                webOfferId:
+                  type: integer
+                optionId:
+                  type: integer
+                optionType:
+                  type: string
+                  enum: [Game, Time, Unlimited]
+                  default: Game
+      responses:
+        "200":
+          description: Reschedule result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  bookedAt:
+                    type: string
+                    format: date-time
+                  qamfReservationId:
+                    type: string
+
+  /api/admin/bowling/force-confirm:
+    post:
+      summary: Force-confirm a stuck reservation
+      description: |
+        Rescues reservations stuck in `confirm_pending` or `confirm_failed`
+        status. Handles three scenarios:
+        1. QAMF reservation still exists as Temporary -> set customer + confirm
+        2. QAMF reservation already Confirmed -> just update Neon
+        3. QAMF reservation gone (expired) -> create fresh + confirm
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [neonId]
+              properties:
+                neonId:
+                  type: integer
+      responses:
+        "200":
+          description: Force-confirm result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  neonId:
+                    type: integer
+                  qamfReservationId:
+                    type: string
+                  action:
+                    type: string
+                    enum: [confirmed, already_confirmed, recreated_and_confirmed]
+                  message:
+                    type: string
+                  error:
+                    type: string
+
+  /api/admin/bowling/square-order:
+    get:
+      summary: Get Square day-of order details
+      description: |
+        Fetches line items, state, and totals for a Square day-of order.
+        Used by the admin page to inspect what's on the kitchen display
+        (food items, shoe sizes) and the payment status.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: orderId
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Square order ID
+      responses:
+        "200":
+          description: Order details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+                  state:
+                    type: string
+                    description: "Square order state (OPEN, COMPLETED, etc.)"
+                  totalCents:
+                    type: integer
+                  remainingCents:
+                    type: integer
+                    description: Amount still due on the order
+                  lineItems:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SquareLineItem"
+
+  /api/admin/bowling/backfill-memo:
+    post:
+      summary: Backfill QAMF reservation memos
+      description: |
+        Patches QAMF Notes for all upcoming non-cancelled reservations with
+        the standardized memo format:
+        - Line 1: Shoe status + short URL (`SHOES NOT INCLUDED | headpinz.com/s/abc`)
+        - Line 2: Line items summary with prices
+        - Line 3: Tax-inclusive deposit amount
+        - Line 4: Customer notes (if any)
+
+        Also sets QAMF Title to `{guestName} ({playerCount}p)`.
+        Supports dry-run mode to preview without patching.
+      security:
+        - AdminToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dryRun:
+                  type: boolean
+                  default: false
+                  description: Preview changes without patching QAMF
+      responses:
+        "200":
+          description: Backfill results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  dryRun:
+                    type: boolean
+                  updated:
+                    type: integer
+                    description: Count of successfully patched reservations
+                  total:
+                    type: integer
+                    description: Total reservations processed
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        neonId:
+                          type: integer
+                        guestName:
+                          type: string
+                          nullable: true
+                        memo:
+                          type: string
+                          description: The formatted memo text
+                        patched:
+                          type: boolean
+                        error:
+                          type: string
+
+  /api/admin/bowling/v2/experiences:
+    get:
+      summary: List all bowling experiences
+      description: |
+        Returns all bowling experiences across both centers with their
+        QAMF web offer mappings and bundled Square product items.
+      security:
+        - AdminHeader: []
+      responses:
+        "200":
+          description: Experience list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Experience"
+
+    post:
+      summary: Upsert a bowling experience
+      description: |
+        Creates or updates a bowling experience with per-center QAMF
+        offer mappings and bundled Square items. Upserts by slug.
+      security:
+        - AdminHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, label, kind, offers]
+              properties:
+                slug:
+                  type: string
+                label:
+                  type: string
+                kind:
+                  type: string
+                  enum: [kbf, open, hourly]
+                isVip:
+                  type: boolean
+                  default: false
+                description:
+                  type: string
+                sortOrder:
+                  type: integer
+                  default: 0
+                isActive:
+                  type: boolean
+                  default: true
+                daysOfWeek:
+                  type: array
+                  items:
+                    type: integer
+                  description: "0=Sun through 6=Sat. Default: all days"
+                squareModifierListIds:
+                  type: array
+                  items:
+                    type: string
+                offers:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [centerCode, qamfWebOfferId]
+                    properties:
+                      centerCode:
+                        type: string
+                      qamfWebOfferId:
+                        type: integer
+                      qamfOptionType:
+                        type: string
+                        enum: [Game, Time, Unlimited]
+                      qamfOptionId:
+                        type: integer
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [squareProductId]
+                    properties:
+                      squareProductId:
+                        type: integer
+                      quantity:
+                        type: integer
+                        default: 1
+                      labelOverride:
+                        type: string
+                      sortOrder:
+                        type: integer
+      responses:
+        "200":
+          description: Created/updated experience
+
+  /api/admin/bowling/v2/square-products:
+    get:
+      summary: List Square products for a center
+      description: Returns bowling products (base items, add-ons) filtered by center.
+      security:
+        - AdminHeader: []
+      parameters:
+        - name: centerCode
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [TXBSQN0FEKQ11, PPTR5G2N0QXF7]
+        - name: kind
+          in: query
+          schema:
+            type: string
+            description: "Filter by product kind (e.g. addon_shoe)"
+        - name: all
+          in: query
+          schema:
+            type: string
+            enum: ["true"]
+            description: Include inactive products
+      responses:
+        "200":
+          description: Product list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SquareProduct"
+                  count:
+                    type: integer
+
+    post:
+      summary: Upsert a Square product
+      description: |
+        Creates or updates a bowling product. Matches on
+        (center_code, product_kind, square_catalog_object_id).
+      security:
+        - AdminHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [centerCode, productKind, label, squareCatalogObjectId]
+              properties:
+                centerCode:
+                  type: string
+                productKind:
+                  type: string
+                label:
+                  type: string
+                squareCatalogObjectId:
+                  type: string
+                priceCents:
+                  type: integer
+                  default: 0
+                depositPct:
+                  type: number
+                  default: 100
+                sortOrder:
+                  type: integer
+                  default: 0
+                isActive:
+                  type: boolean
+                  default: true
+                qamfWebOfferId:
+                  type: integer
+      responses:
+        "200":
+          description: Upserted product
