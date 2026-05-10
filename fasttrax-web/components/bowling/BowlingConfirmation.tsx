@@ -453,6 +453,30 @@ function BowlerModal({
   onSave: () => void;
   onClose: () => void;
 }) {
+  // Accordion: track which bowler slot is expanded (null = all collapsed)
+  const [expandedSlot, setExpandedSlot] = useState<number | null>(() => {
+    // Auto-expand first bowler that still needs data
+    const incomplete = players.find(
+      (p) => !p.name || p.name.startsWith("Bowler ") || (shoePairsAllowed > 0 && !p.shoeSize),
+    );
+    return incomplete?.slot ?? players[0]?.slot ?? null;
+  });
+
+  /** Summary line for a collapsed bowler row */
+  function bowlerSummary(p: BowlingReservationPlayer): string {
+    const parts: string[] = [];
+    if (p.shoeSize) parts.push(p.shoeSize);
+    if (p.bumpers) parts.push("Bumpers");
+    return parts.length > 0 ? parts.join(" · ") : "Tap to edit";
+  }
+
+  /** Whether this bowler has the minimum required info */
+  function bowlerComplete(p: BowlingReservationPlayer): boolean {
+    const hasName = !!p.name && !p.name.startsWith("Bowler ");
+    if (shoePairsAllowed > 0) return hasName && !!p.shoeSize;
+    return hasName;
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -482,45 +506,80 @@ function BowlerModal({
             {shoePairsAllowed > 0 ? "Names & Shoe Sizes" : "Bowler Names"}
           </p>
           <p className="text-white/50 text-xs font-body mt-1 leading-relaxed">
-            {shoePairsAllowed > 0
-              ? "Add names, shoe sizes, and bumper preferences so your lane is ready to go."
-              : "Add bowler names and bumper preferences so your lane is ready when you arrive."}
+            Tap each bowler to fill in their details
           </p>
         </div>
 
-        {/* Scrollable bowler list */}
+        {/* Scrollable accordion list */}
         <div className="overflow-y-auto flex-1 -mx-1 px-1" style={{ maxHeight: "65vh" }}>
           {laneNumbers.length > 1 ? (
-            <div className="space-y-5">
+            <div className="space-y-4">
               {laneNumbers.map((laneNum) => (
                 <div key={laneNum}>
                   <div className="text-xs font-bold uppercase tracking-widest mb-2 mt-1" style={{ color: GOLD }}>
                     Lane {laneNum}
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {players
                       .filter((p) => (p.laneNumber ?? laneNumbers[0]) === laneNum)
                       .map((player) => (
                         <div key={player.slot}>
-                          <BowlerCard
-                            player={player}
-                            shoePairsAllowed={shoePairsAllowed}
-                            shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                            onUpdate={(patch) => onUpdate(player.slot, patch)}
-                          />
-                          <div className="flex gap-1.5 mt-1.5 pl-1">
-                            <span className="text-white/30 text-xs self-center">Move to:</span>
-                            {laneNumbers.filter((ln) => ln !== laneNum).map((ln) => (
+                          {expandedSlot === player.slot ? (
+                            <div className="rounded-xl border border-white/15 bg-white/[0.03] overflow-hidden">
                               <button
-                                key={ln}
                                 type="button"
-                                onClick={() => onUpdate(player.slot, { laneNumber: ln })}
-                                className="px-2.5 py-1 rounded-lg text-xs font-body font-semibold border border-white/15 text-white/50 hover:text-white hover:border-white/35 transition-colors"
+                                onClick={() => setExpandedSlot(null)}
+                                className="w-full flex items-center justify-between px-4 py-3 text-left"
                               >
-                                Lane {ln}
+                                <span className="text-white font-body font-semibold text-sm">
+                                  {player.name && !player.name.startsWith("Bowler ") ? player.name : `Bowler ${player.slot}`}
+                                </span>
+                                <span className="text-white/30 text-xs">▲</span>
                               </button>
-                            ))}
-                          </div>
+                              <div className="px-4 pb-4">
+                                <BowlerCard
+                                  player={player}
+                                  shoePairsAllowed={shoePairsAllowed}
+                                  shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                                  onUpdate={(patch) => onUpdate(player.slot, patch)}
+                                />
+                              </div>
+                              <div className="flex gap-1.5 px-4 pb-3">
+                                <span className="text-white/30 text-xs self-center">Move to:</span>
+                                {laneNumbers.filter((ln) => ln !== laneNum).map((ln) => (
+                                  <button
+                                    key={ln}
+                                    type="button"
+                                    onClick={() => onUpdate(player.slot, { laneNumber: ln })}
+                                    className="px-2.5 py-1 rounded-lg text-xs font-body font-semibold border border-white/15 text-white/50 hover:text-white hover:border-white/35 transition-colors"
+                                  >
+                                    Lane {ln}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedSlot(player.slot)}
+                              aria-label={`Edit ${player.name && !player.name.startsWith("Bowler ") ? player.name : `Bowler ${player.slot}`}`}
+                              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] transition-colors text-left"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: bowlerComplete(player) ? "#4ade80" : "rgba(255,255,255,0.2)" }}
+                                />
+                                <span className="text-white font-body font-semibold text-sm truncate">
+                                  {player.name && !player.name.startsWith("Bowler ") ? player.name : `Bowler ${player.slot}`}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className="text-white/40 text-xs">{bowlerSummary(player)}</span>
+                                <span className="text-white/30 text-xs">▼</span>
+                              </div>
+                            </button>
+                          )}
                         </div>
                       ))}
                   </div>
@@ -528,16 +587,53 @@ function BowlerModal({
               ))}
             </div>
           ) : (
-            <div className="space-y-4">
-              {players.map((player) => (
-                <BowlerCard
-                  key={player.slot}
-                  player={player}
-                  shoePairsAllowed={shoePairsAllowed}
-                  shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
-                  onUpdate={(patch) => onUpdate(player.slot, patch)}
-                />
-              ))}
+            <div className="space-y-2">
+              {players.map((player) =>
+                expandedSlot === player.slot ? (
+                  <div key={player.slot} className="rounded-xl border border-white/15 bg-white/[0.03] overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedSlot(null)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-left"
+                    >
+                      <span className="text-white font-body font-semibold text-sm">
+                        {player.name && !player.name.startsWith("Bowler ") ? player.name : `Bowler ${player.slot}`}
+                      </span>
+                      <span className="text-white/30 text-xs">▲</span>
+                    </button>
+                    <div className="px-4 pb-4">
+                      <BowlerCard
+                        player={player}
+                        shoePairsAllowed={shoePairsAllowed}
+                        shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                        onUpdate={(patch) => onUpdate(player.slot, patch)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    key={player.slot}
+                    type="button"
+                    onClick={() => setExpandedSlot(player.slot)}
+                    aria-label={`Edit ${player.name && !player.name.startsWith("Bowler ") ? player.name : `Bowler ${player.slot}`}`}
+                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: bowlerComplete(player) ? "#4ade80" : "rgba(255,255,255,0.2)" }}
+                      />
+                      <span className="text-white font-body font-semibold text-sm truncate">
+                        {player.name && !player.name.startsWith("Bowler ") ? player.name : `Bowler ${player.slot}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-white/40 text-xs">{bowlerSummary(player)}</span>
+                      <span className="text-white/30 text-xs">▼</span>
+                    </div>
+                  </button>
+                ),
+              )}
             </div>
           )}
         </div>
@@ -575,7 +671,7 @@ function BowlerModal({
             ? "Saving…"
             : playersSaved
               ? "✓ Saved"
-              : "Save Preferences"}
+              : "Save"}
         </button>
       </div>
     </div>
@@ -1046,6 +1142,16 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   }
 
   async function handleSavePlayers() {
+    // Require a name for every bowler that has a shoe size selected
+    const missingName = players.find(
+      (p) => p.shoeSize && (!p.name || p.name.startsWith("Bowler ")),
+    );
+    if (missingName) {
+      setPlayersError(
+        `Please enter a name for Bowler ${missingName.slot} — a name is required when a shoe size is selected.`,
+      );
+      return;
+    }
     const shoeSizeCount = players.filter((p) => p.shoeSize).length;
     if (shoeSizeCount > shoePairsAllowed) {
       setPlayersError(
@@ -1140,6 +1246,30 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                 <p className="text-white/60 text-sm">🥿 Shoes will be delivered directly to you.</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Bowler CTA — mobile only (above grid) ── */}
+        {players.length > 0 && !isCancelled && laneReadyPhase !== "running" && (
+          <div className="lg:hidden mb-4">
+            <button
+              type="button"
+              onClick={() => { setPlayersSaved(false); setBowlerModalOpen(true); }}
+              className={`w-full py-3.5 rounded-xl font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100 ${
+                !players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler ")))
+                  ? "cta-pulse-glow"
+                  : ""
+              }`}
+              style={{
+                backgroundColor: CORAL,
+                fontSize: "14px",
+                letterSpacing: "1.5px",
+              }}
+            >
+              {shoePairsAllowed > 0
+                ? "Enter Names & Shoe Sizes"
+                : "Enter Bowler Names"}
+            </button>
           </div>
         )}
 
@@ -1296,50 +1426,38 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             )}
           </div>
 
-          {/* ── Bowler CTA + summary ── hidden when cancelled or lane is open */}
-          {players.length > 0 && !isCancelled && laneReadyPhase !== "running" && (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7">
-              {/* CTA button — pulses until at least one shoe size or name is entered */}
+          {/* ── Bowler summary strip (left column) — shows saved data below booking details ── */}
+          {players.length > 0 && !isCancelled && laneReadyPhase !== "running" &&
+            players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler "))) && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <div
+                className="uppercase font-bold mb-3"
+                style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
+              >
+                Bowler Details
+              </div>
+              <div className="space-y-1.5">
+                {players.map((p) => (
+                  <div key={p.slot} className="flex items-center justify-between text-sm px-1">
+                    <span className="text-white/70 truncate">{p.name && !p.name.startsWith("Bowler ") ? p.name : `Bowler ${p.slot}`}</span>
+                    <span className="text-white/40 text-xs flex-shrink-0 ml-2">
+                      {p.shoeSize ?? "No shoes"}{p.bumpers ? " · Bumpers" : ""}
+                    </span>
+                  </div>
+                ))}
+                {shoePairsAllowed > 0 && (
+                  <p className="text-white/30 text-xs text-right pt-1">
+                    {players.filter((pp) => pp.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={() => setBowlerModalOpen(true)}
-                className={`w-full py-4 rounded-xl font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100 ${
-                  !players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler ")))
-                    ? "cta-pulse-glow"
-                    : ""
-                }`}
-                style={{
-                  backgroundColor: CORAL,
-                  fontSize: "15px",
-                  letterSpacing: "1.5px",
-                }}
+                onClick={() => { setPlayersSaved(false); setBowlerModalOpen(true); }}
+                className="mt-3 w-full text-center text-xs font-body text-white/40 hover:text-white/70 transition-colors underline underline-offset-2"
               >
-                {shoePairsAllowed > 0
-                  ? "Enter Names & Shoe Sizes"
-                  : "Enter Bowler Names"}
+                Edit bowler details
               </button>
-              <p className="text-center text-white/40 text-xs mt-2">
-                Save time at check-in — fill in details before you arrive
-              </p>
-
-              {/* Summary strip — show progress once at least one player has data */}
-              {players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler "))) && (
-                <div className="mt-4 space-y-1.5">
-                  {players.map((p) => (
-                    <div key={p.slot} className="flex items-center justify-between text-sm px-1">
-                      <span className="text-white/70 truncate">{p.name || `Bowler ${p.slot}`}</span>
-                      <span className="text-white/40 text-xs flex-shrink-0 ml-2">
-                        {p.shoeSize ?? "No shoes"}{p.bumpers ? " · Bumpers" : ""}
-                      </span>
-                    </div>
-                  ))}
-                  {shoePairsAllowed > 0 && (
-                    <p className="text-white/30 text-xs text-right pt-1">
-                      {players.filter((pp) => pp.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
@@ -1389,6 +1507,30 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   <p className="text-white/60 text-sm">🥿 Shoes will be delivered directly to you.</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Bowler CTA — desktop only (right column) ── */}
+          {players.length > 0 && !isCancelled && laneReadyPhase !== "running" && (
+            <div className="hidden lg:block">
+              <button
+                type="button"
+                onClick={() => { setPlayersSaved(false); setBowlerModalOpen(true); }}
+                className={`w-full py-3.5 rounded-xl font-body font-bold uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100 ${
+                  !players.some((p) => p.shoeSize || (p.name && !p.name.startsWith("Bowler ")))
+                    ? "cta-pulse-glow"
+                    : ""
+                }`}
+                style={{
+                  backgroundColor: CORAL,
+                  fontSize: "14px",
+                  letterSpacing: "1.5px",
+                }}
+              >
+                {shoePairsAllowed > 0
+                  ? "Enter Names & Shoe Sizes"
+                  : "Enter Bowler Names"}
+              </button>
             </div>
           )}
 

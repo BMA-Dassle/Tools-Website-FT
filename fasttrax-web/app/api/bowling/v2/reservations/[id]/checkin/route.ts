@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBowlingReservation } from "@/lib/bowling-db";
-import { getReservation, setReservationStatus, setLaneStatus } from "@/lib/qamf-bowling";
+import { getReservation, listLanes, setReservationStatus, setLaneStatus } from "@/lib/qamf-bowling";
 
 /**
  * Check-in API for bowling reservations.
@@ -60,9 +60,7 @@ export async function GET(
       .sort((a, b) => a - b);
     const laneLabel = buildLaneLabel(laneNumbers);
 
-    // Determine phase from lane statuses.
-    // Only "Ready" means staff has prepared the lane for self-service open.
-    // "Confirmed" just means the reservation is confirmed — lane not yet assigned.
+    // Determine phase from booked-lane statuses.
     // See docs/qamf-lane-lifecycle.md for the full state machine.
     const statuses = lanes.map((l) => l.Status);
     let phase: "not_ready" | "ready" | "running" | "completed";
@@ -74,6 +72,43 @@ export async function GET(
       phase = "ready";
     } else {
       phase = "not_ready";
+    }
+
+    // Self-service gate: if the reservation is within 30 minutes and
+    // the physical lane is "Closed" (hardware off, ready to be started),
+    // let the guest open it themselves instead of waiting for staff to
+    // set the booked-lane to "Ready" in Conqueror.
+    if (phase === "not_ready" && laneNumbers.length > 0) {
+      const bookedAt = qamfRes.BookedAt ? new Date(qamfRes.BookedAt).getTime() : 0;
+      const now = Date.now();
+      const minsUntilBooked = (bookedAt - now) / 60_000;
+
+      if (bookedAt && minsUntilBooked <= 30) {
+        try {
+          const physicalLanes = await listLanes(centerId);
+          const assignedPhysical = physicalLanes.filter((pl) =>
+            laneNumbers.includes(pl.LaneNumber),
+          );
+          // All assigned lanes must be "Closed" (not Error, not Open for
+          // someone else). If any lane is Error or already Open, don't
+          // allow self-service — let staff handle it.
+          const allClosed = assignedPhysical.length > 0 &&
+            assignedPhysical.every((pl) => pl.Status === "Closed");
+          if (allClosed) {
+            phase = "ready";
+            console.log(
+              `[checkin] neonId=${neonId} self-service gate: within ${Math.round(minsUntilBooked)}min,` +
+              ` lanes ${laneNumbers.join(",")} all Closed → phase=ready`,
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[checkin] neonId=${neonId} listLanes failed for self-service check:`,
+            err instanceof Error ? err.message : err,
+          );
+          // Fall through — keep phase as not_ready
+        }
+      }
     }
 
     // Include lane GUIDs so POST can target them for status transitions
