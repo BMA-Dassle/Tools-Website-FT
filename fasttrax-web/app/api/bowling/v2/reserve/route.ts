@@ -687,6 +687,62 @@ export async function POST(req: NextRequest) {
     console.error("[bowling/v2/reserve] shortenUrl failed (non-fatal):", err);
   }
 
+  // ── Final QAMF notes — tax-inclusive deposit + shoe status + short URL ──
+  // The initial buildQamfNotes() ran before Square payment, so the deposit
+  // amount was pre-tax and there was no short URL yet. Now that both are
+  // available, patch the notes one more time with the authoritative version.
+  try {
+    const finalParts: string[] = [];
+
+    // Line items summary (same format as initial)
+    if (reservationLines.length > 0) {
+      const itemParts = reservationLines.map((l) => {
+        const total = l.quantity * l.unitPriceCents;
+        const totalStr = `$${(total / 100).toFixed(2)}`;
+        return l.quantity > 1
+          ? `${l.quantity}x ${l.label} ${totalStr}`
+          : `${l.label} ${totalStr}`;
+      });
+      finalParts.push(itemParts.join(" + "));
+    }
+
+    // Tax-inclusive deposit
+    if (depositCents > 0) {
+      finalParts.push(`Deposit $${(depositCents / 100).toFixed(2)} paid (incl. tax)`);
+    }
+
+    // Shoe status — staff need to know at a glance
+    const hasShoeAddOn = productItems.some(({ product }) => product.productKind === "addon_shoe");
+    const shoesIncludedInExperience = reservationLines.some((l) =>
+      /fun\s*4\s*all|pizza\s*bowl/i.test(l.label),
+    );
+    if (hasShoeAddOn) {
+      const shoeQty = productItems
+        .filter(({ product }) => product.productKind === "addon_shoe")
+        .reduce((s, { quantity }) => s + quantity, 0);
+      finalParts.push(`${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`);
+    } else if (shoesIncludedInExperience) {
+      finalParts.push("Shoes included");
+    } else {
+      finalParts.push("⚠ SHOES NOT INCLUDED — collect at lane");
+    }
+
+    // User-supplied notes
+    if (notes) finalParts.push(notes);
+
+    // Short URL at the end
+    if (shortCode) {
+      finalParts.push(`headpinz.com/s/${shortCode}`);
+    }
+
+    const finalNotes = finalParts.join("\n");
+    patchReservation(centerId, qamfReservationId, { Notes: finalNotes }).catch((err) =>
+      console.warn("[bowling/v2/reserve] final notes patch failed (non-fatal):", err),
+    );
+  } catch (err) {
+    console.warn("[bowling/v2/reserve] final notes build failed (non-fatal):", err);
+  }
+
   // ── Fire confirmation email + SMS (server-side, non-blocking) ────
   // Triggered here instead of the client to avoid the browser aborting
   // the request during the post-booking redirect.
