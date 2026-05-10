@@ -3,15 +3,20 @@ info:
   title: Bowling Reservation Admin API
   description: |
     Internal admin API for managing bowling reservations at HeadPinz centers
-    (Fort Myers & Naples). All endpoints require admin authentication via
-    the `ADMIN_CAMERA_TOKEN`.
+    (Fort Myers & Naples). Most endpoints require admin authentication via
+    the `ADMIN_CAMERA_TOKEN` query parameter. Catalog endpoints (experiences,
+    square-products) use the `x-admin-token` header instead.
+
+    The availability endpoint (`/api/bowling/v2/availability`) is a public
+    customer-facing endpoint included here because the admin reschedule
+    modal depends on it to fetch available time slots.
 
     **Centers:**
     | Code | QAMF ID | Location |
     |------|---------|----------|
     | TXBSQN0FEKQ11 | 9172 | Fort Myers |
     | PPTR5G2N0QXF7 | 3148 | Naples |
-  version: "1.0.0"
+  version: "1.1.0"
 
 servers:
   - url: https://headpinz.com
@@ -312,6 +317,8 @@ paths:
           description: Missing or invalid date param
         "401":
           description: Invalid admin token
+        "500":
+          description: Database fetch failure
 
   /api/admin/bowling/reservations/resend:
     post:
@@ -360,9 +367,12 @@ paths:
       description: |
         Cancels a bowling reservation with no time restrictions (unlike
         customer-facing cancel which has a 1-hour cutoff). Steps:
-        1. Cancel in QAMF Conqueror (best-effort)
+        1. Cancel in QAMF Conqueror (best-effort — failure does not block)
         2. Process full Square refund if deposit was charged
         3. Mark cancelled in Neon DB with timestamp
+
+        Square refund only fires when both `squareDepositPaymentId` AND
+        `squareGiftCardId` exist. Uses a unique idempotency key per call.
       security:
         - AdminToken: []
       requestBody:
@@ -387,6 +397,12 @@ paths:
                     type: boolean
                   refundCents:
                     type: integer
+        "404":
+          description: Reservation not found
+        "409":
+          description: Already cancelled
+        "502":
+          description: Square refund failed (requires manual reconciliation)
 
   /api/admin/bowling/reservations/reschedule/info:
     get:
@@ -395,6 +411,9 @@ paths:
         Fetches QAMF web offer details needed to populate the reschedule
         modal (available time slots). Constrains reschedule to the same
         web offer / experience type.
+
+        Reads the live QAMF reservation to extract `WebOffer.Id` and
+        option priority (Time > Unlimited > Game).
       security:
         - AdminToken: []
       parameters:
@@ -432,6 +451,12 @@ paths:
                     type: string
                   productKind:
                     type: string
+        "400":
+          description: Invalid/missing neonId or unknown center code
+        "404":
+          description: Reservation not found or no QAMF ID linked
+        "502":
+          description: QAMF GET failed
 
   /api/admin/bowling/reservations/reschedule:
     post:
@@ -441,9 +466,13 @@ paths:
         Price and deposit stay the same. Steps:
         1. Delete old QAMF reservation (best-effort)
         2. Create new QAMF reservation at new time
-        3. Confirm new QAMF reservation
+        3. Confirm new QAMF reservation (MUST succeed)
         4. Update Neon DB with new bookedAt and QAMF ID
         5. Re-send confirmation email/SMS (fire-and-forget)
+
+        Resets `dayof_order_*` columns when status moves back to `confirmed`.
+        Cannot reschedule cancelled or completed reservations.
+        If QAMF confirmation fails, the orphaned temporary reservation is cleaned up.
       security:
         - AdminToken: []
       requestBody:
@@ -483,6 +512,12 @@ paths:
                     format: date-time
                   qamfReservationId:
                     type: string
+        "400":
+          description: Invalid JSON, missing required fields, or invalid state (cancelled/completed)
+        "404":
+          description: Reservation not found
+        "502":
+          description: QAMF reservation creation or confirmation failed
 
   /api/admin/bowling/force-confirm:
     post:
@@ -526,6 +561,14 @@ paths:
                     type: string
                   error:
                     type: string
+        "400":
+          description: Invalid/missing neonId, unknown center code, or invalid status
+        "404":
+          description: Reservation not found
+        "422":
+          description: Cannot reconstruct — missing webOfferId for expired QAMF reservation
+        "502":
+          description: QAMF operation failed
 
   /api/admin/bowling/square-order:
     get:
@@ -565,6 +608,12 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/SquareLineItem"
+        "400":
+          description: Missing orderId
+        "404":
+          description: Order not found in Square
+        "502":
+          description: Square API returned 5xx
 
   /api/admin/bowling/backfill-memo:
     post:
@@ -801,3 +850,128 @@ paths:
       responses:
         "200":
           description: Upserted product
+
+  # ── Customer-facing endpoint used by admin reschedule modal ──────────
+
+  /api/bowling/v2/availability:
+    get:
+      summary: Search available bowling time slots
+      description: |
+        Public endpoint (no auth) that queries QAMF for available bowling
+        slots. Used by the customer booking wizard AND the admin reschedule
+        modal.
+
+        **Two query modes:**
+        - **Targeted** (hour + minute provided): probes ±5 hours around the
+          selected time. Fast — typically 2–4 QAMF calls. Used after the
+          guest picks a rough time.
+        - **Full-day** (no hour/minute): probes every 15 minutes from center
+          open to close. Used by reschedule modal and KBF flow.
+
+        Only returns experiences valid for the requested day-of-week
+        (filtered via `daysOfWeek` from DB). Results are deduplicated by
+        `(BookedAt, WebOffer.Id)` and sorted chronologically.
+
+        **Admin reschedule usage:** The reschedule modal calls this with
+        `webOfferId` set to lock results to the current experience, plus
+        `centerId`, `players`, and `startDate` from the reschedule/info
+        response.
+
+        **Important behaviors:**
+        - For today's date, slots earlier than now + 15 min are excluded
+        - QAMF probe errors are swallowed (logged, not returned) — partial
+          results are returned rather than failing entirely
+        - Probes are batched 8 at a time to avoid QAMF rate limits
+        - Post-midnight hours (12 AM–2 AM) stored as 24+ for correct sort
+      parameters:
+        - name: centerId
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [9172, 3148]
+          description: "QAMF center ID (9172 = Fort Myers, 3148 = Naples)"
+        - name: players
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-05-10"
+        - name: hour
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+            description: "Hour 0–25 (24=midnight, 25=1am). Triggers targeted mode when paired with minute."
+        - name: minute
+          in: query
+          schema:
+            type: integer
+            enum: [0, 15, 30, 45]
+            description: "Must be 0/15/30/45. Required if hour is set."
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [kbf, open, hourly]
+            description: Filter by experience kind
+        - name: webOfferId
+          in: query
+          schema:
+            type: integer
+            description: Narrow to a specific QAMF web offer (used by reschedule)
+        - name: durationMinutes
+          in: query
+          schema:
+            type: integer
+            description: Override booking duration in minutes
+      responses:
+        "200":
+          description: Available time slots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  Availabilities:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        TotalPlayers:
+                          type: integer
+                        BookedAt:
+                          type: string
+                          format: date-time
+                          description: "ISO 8601 with ET offset (e.g. 2026-05-10T18:00:00-04:00)"
+                        WebOffer:
+                          type: object
+                          properties:
+                            Id:
+                              type: integer
+                            Options:
+                              type: object
+                              properties:
+                                Time:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      Minutes:
+                                        type: integer
+                            Services:
+                              type: array
+                              items:
+                                type: string
+        "400":
+          description: "Missing required params or invalid centerId/players"
+        "502":
+          description: Fatal error during QAMF probing

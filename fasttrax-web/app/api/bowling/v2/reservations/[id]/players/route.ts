@@ -22,15 +22,16 @@ function sqHeaders(): Record<string, string> {
   };
 }
 
-/** "Women 8" → "Women's Size 8", "Men 11" → "Men's Size 11", etc. */
+/** "Female 8" → "Female Size 8", "Male 11" → "Male Size 11", etc.
+ *  Also handles legacy labels: "Women 8", "Men 11", "Kids 9" */
 function formatShoeSize(raw: string): string {
   const spaceIdx = raw.indexOf(" ");
   if (spaceIdx === -1) return raw;
   const category = raw.slice(0, spaceIdx).toLowerCase();
   const size = raw.slice(spaceIdx + 1);
-  if (category === "women") return `Women's Size ${size}`;
-  if (category === "men")   return `Men's Size ${size}`;
-  if (category === "kids")  return `Kids' Size ${size}`;
+  if (category === "female" || category === "women") return `Female Size ${size}`;
+  if (category === "male"   || category === "men")   return `Male Size ${size}`;
+  if (category === "toddler" || category === "kids")  return `Toddler Size ${size}`;
   return `${raw.slice(0, spaceIdx)} Size ${size}`;
 }
 

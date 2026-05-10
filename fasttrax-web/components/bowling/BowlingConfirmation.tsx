@@ -47,11 +47,11 @@ type ReservationWithLines = BowlingReservation & {
 
 // ── Shoe size catalog ─────────────────────────────────────────────────────
 
-const KIDS_SIZES   = ["5","6","7","8","9","10","11","12","13"];
-const MENS_SIZES   = ["6","7","8","9","10","11","12","13","14","15"];
-const WOMENS_SIZES = ["5","6","7","8","9","10","11","12"];
+const TODDLER_SIZES = ["6","7","8","9","10","11","12","13"];
+const MALE_SIZES    = ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12","12.5","13","13.5","14","14.5","15"];
+const FEMALE_SIZES  = ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12"];
 
-type ShoeCategory = "Kids" | "Men" | "Women";
+type ShoeCategory = "Toddler" | "Male" | "Female";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -444,22 +444,28 @@ function BowlerCard({
   onUpdate: (patch: Partial<BowlingReservationPlayer>) => void;
 }) {
   // Derive active category from saved shoeSize; persists while user browses sizes
-  // Support legacy "Adult X" format — treat as "Men X" for backwards compat
-  const savedCat: ShoeCategory | null = player.shoeSize?.startsWith("Kids")
-    ? "Kids"
+  // Support legacy formats: "Adult X" / "Men X" → Male, "Women X" → Female, "Kids X" → Toddler
+  const savedCat: ShoeCategory | null = player.shoeSize?.startsWith("Toddler")
+    ? "Toddler"
+    : player.shoeSize?.startsWith("Kids")
+    ? "Toddler"
+    : player.shoeSize?.startsWith("Male")
+    ? "Male"
     : player.shoeSize?.startsWith("Men")
-    ? "Men"
-    : player.shoeSize?.startsWith("Women")
-    ? "Women"
+    ? "Male"
     : player.shoeSize?.startsWith("Adult")
-    ? "Men"
+    ? "Male"
+    : player.shoeSize?.startsWith("Female")
+    ? "Female"
+    : player.shoeSize?.startsWith("Women")
+    ? "Female"
     : null;
   const [activeCat, setActiveCat] = useState<ShoeCategory | null>(savedCat);
 
   const nums =
-    activeCat === "Kids" ? KIDS_SIZES
-    : activeCat === "Men" ? MENS_SIZES
-    : activeCat === "Women" ? WOMENS_SIZES
+    activeCat === "Toddler" ? TODDLER_SIZES
+    : activeCat === "Male" ? MALE_SIZES
+    : activeCat === "Female" ? FEMALE_SIZES
     : [];
   const currentNum = player.shoeSize?.split(" ")[1] ?? null;
   // This bowler already has a size, or there's room for another pair
@@ -525,7 +531,7 @@ function BowlerCard({
           <div className="flex items-center gap-2">
             <span className="text-white/50 text-xs font-body w-16 shrink-0">Shoes</span>
             <div className="flex gap-1.5">
-              {(["None", "Kids", "Men", "Women"] as const).map((label) => {
+              {(["None", "Toddler", "Male", "Female"] as const).map((label) => {
                 const cat: ShoeCategory | null = label === "None" ? null : label;
                 const active = cat === null ? activeCat === null : activeCat === cat;
                 const disabled = !active && !canPickShoes && cat !== null;
