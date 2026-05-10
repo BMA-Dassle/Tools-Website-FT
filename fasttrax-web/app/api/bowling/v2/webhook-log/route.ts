@@ -19,9 +19,9 @@ const DEBUG_LOG_KEY = "qamf:bowling:debug-log";
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
 
-  // Simple auth — require admin token
+  // Simple auth — same admin token as middleware gate
   const token = url.searchParams.get("token") || "";
-  if (token !== process.env.ADMIN_TOKEN) {
+  if (!token || token !== process.env.ADMIN_CAMERA_TOKEN) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
