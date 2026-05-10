@@ -10,6 +10,7 @@ import {
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { getReservation } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
+import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
 
 /**
  * QubicaAMF bowling reservation + lane webhook receiver.
@@ -295,6 +296,23 @@ async function processEvent(
         laneOpenAction = "lane-open-failed";
       }
       // Fall through — let the status map advance Neon status
+
+      // Send lane-ready SMS/email if not already sent
+      if (!reservation.laneReadySentAt) {
+        try {
+          const ll = laneNumbers.length === 1
+            ? `Lane ${laneNumbers[0]}`
+            : laneNumbers.length > 1
+            ? `Lanes ${laneNumbers.join(", ")}`
+            : "";
+          await sendLaneReadyNotification(reservation, ll);
+        } catch (err) {
+          console.warn(
+            `[qamf-bowling] lane-ready SMS failed neonId=${reservation.id}:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
     }
 
     // Map QAMF status → Neon status

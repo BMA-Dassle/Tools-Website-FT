@@ -1,131 +1,94 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getReservationsNeedingPreArrival,
-  markPreArrivalSent,
-} from "@/lib/bowling-db";
+import { getTodayReservationsNeedingLaneReady } from "@/lib/bowling-db";
+import { getReservation, listLanes } from "@/lib/qamf-bowling";
+import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
 
 /**
  * GET /api/cron/bowling-pre-arrival
  *
- * Runs every 2 minutes. Finds confirmed bowling reservations whose
- * booked_at is 28–32 minutes from now (ET) and sends a pre-arrival
- * SMS + email prompting guests to enter names, shoe sizes, and bumpers.
+ * Runs every 2 minutes. **Fallback** lane-ready notifier — catches the case
+ * where QAMF marks a lane Ready/Running but the webhook was missed (or
+ * arrived before the reservation existed in our DB).
  *
- * Idempotent: pre_arrival_sent_at column prevents double-sends.
+ * Primary path: the QAMF webhook handler sends lane-ready SMS instantly
+ * on Arrived/Running events (see app/api/webhooks/qamf-bowling/route.ts).
+ *
+ * This cron provides belt-and-suspenders coverage:
+ *   1. Fetches today's reservations where lane_ready_sent_at IS NULL
+ *   2. For each, polls QAMF to resolve the lane phase
+ *   3. If phase = ready or running → sendLaneReadyNotification()
+ *
+ * Idempotent: lane_ready_sent_at column prevents double-sends.
  */
 
-// ── Config ──────────────────────────────────────────────────────────
-
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
-const VOX_API_KEY = process.env.VOX_API_KEY || "";
-
-const CENTER_META: Record<
-  string,
-  { name: string; smsFrom: string }
-> = {
-  TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: "+12393022155" },
-  PPTR5G2N0QXF7: { name: "HeadPinz Naples", smsFrom: "+12394553755" },
+const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
+  TXBSQN0FEKQ11: 9172,
+  PPTR5G2N0QXF7: 3148,
 };
 
-// ── Helpers ─────────────────────────────────────────────────────────
+type LanePhase = "not_ready" | "ready" | "running" | "completed";
 
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, "").replace(/^1/, "");
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York",
-  });
-}
-
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  if (!SENDGRID_API_KEY) return false;
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${SENDGRID_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: FROM_EMAIL, name: "HeadPinz Entertainment" },
-      subject,
-      content: [{ type: "text/html", value: html }],
-    }),
-  });
-  return res.ok;
-}
-
-async function sendSms(to: string, body: string, fromNumber: string): Promise<boolean> {
-  if (!VOX_API_KEY) return false;
-  const toFormatted = to.length === 10 ? `+1${to}` : `+${to}`;
-  const { voxSend } = await import("@/lib/sms-retry");
-  const { logSms } = await import("@/lib/sms-log");
-  const result = await voxSend(toFormatted, body, { fromOverride: fromNumber });
-
-  await logSms({
-    ts: new Date().toISOString(),
-    phone: toFormatted,
-    source: "bowling-pre-arrival",
-    status: result.status,
-    ok: result.ok,
-    body,
-    provider: result.provider,
-    failedOver: result.failedOver,
-    providerMessageId: result.voxId || result.twilioSid,
-  }).catch(() => void 0);
-
-  if (result.ok) return true;
-
-  // Queue for retry on quota hit
-  if (result.skipped || result.quotaHit) {
-    const { quotaEnqueue } = await import("@/lib/sms-quota");
-    await quotaEnqueue({
-      phone: toFormatted,
-      body,
-      from: fromNumber,
-      source: "bowling-pre-arrival",
-      queuedAt: new Date().toISOString(),
-    });
-    return true; // will be delivered eventually
+async function resolveLanePhase(
+  centerCode: string,
+  qamfReservationId: string,
+): Promise<{ phase: LanePhase; laneLabel: string }> {
+  const centerId = CENTER_CODE_TO_QAMF_ID[centerCode];
+  if (!centerId || !qamfReservationId) {
+    return { phase: "not_ready", laneLabel: "" };
   }
-  return false;
-}
 
-function buildEmailHtml(
-  guestName: string,
-  time: string,
-  centerName: string,
-  confirmLink: string,
-): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;padding:24px;">
-<tr><td style="text-align:center;padding-bottom:20px;">
-  <img src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/headpinz-logo-white-CgWYpNqb4lmSJrfHdvXQPMa1WNUjqU.png" alt="HeadPinz" width="160" style="display:inline-block;">
-</td></tr>
-<tr><td style="background:#141414;border-radius:12px;padding:28px 24px;border:1px solid rgba(255,255,255,0.06);">
-  <h1 style="margin:0 0 8px;font-size:20px;color:#ffffff;text-align:center;">Your HeadPinz Experience<br>Is Almost Here! 🎳</h1>
-  <p style="margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:14px;text-align:center;line-height:1.5;">
-    Hey ${guestName}! Your bowling at <strong style="color:#ffffff;">${centerName}</strong> is coming up at <strong style="color:#00E2E5;">${time}</strong>.
-  </p>
-  <p style="margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:14px;text-align:center;line-height:1.5;">
-    Let's get a few things done before you arrive — enter your names, shoe sizes, and let us know if you need bumpers.
-  </p>
-  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-    <a href="${confirmLink}" style="display:inline-block;padding:14px 32px;background:#004AAD;color:#ffffff;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:0.5px;">Get Ready for Your Visit</a>
-  </td></tr></table>
-</td></tr>
-<tr><td style="text-align:center;padding-top:16px;">
-  <p style="margin:0;color:rgba(255,255,255,0.2);font-size:11px;">HeadPinz Entertainment — Part of FastTrax Entertainment</p>
-</td></tr>
-</table>
-</body></html>`;
+  const qamfRes = await getReservation(centerId, qamfReservationId);
+  const lanes = qamfRes.Lanes ?? [];
+  const laneNumbers = lanes
+    .map((l: { LaneNumber: number }) => l.LaneNumber)
+    .filter(Boolean)
+    .sort((a: number, b: number) => a - b);
+
+  // Determine phase from booked-lane statuses
+  const statuses = lanes.map((l: { Status: string }) => l.Status);
+  let phase: LanePhase;
+  if (statuses.some((s: string) => s === "Completed")) {
+    phase = "completed";
+  } else if (statuses.some((s: string) => s === "Running")) {
+    phase = "running";
+  } else if (statuses.some((s: string) => s === "Ready")) {
+    phase = "ready";
+  } else {
+    phase = "not_ready";
+  }
+
+  // Self-service gate: within 30 min + physical lanes Closed → ready
+  if (phase === "not_ready" && laneNumbers.length > 0) {
+    const bookedAt = qamfRes.BookedAt ? new Date(qamfRes.BookedAt).getTime() : 0;
+    const now = Date.now();
+    const minsUntilBooked = (bookedAt - now) / 60_000;
+
+    if (bookedAt && minsUntilBooked <= 30) {
+      try {
+        const physicalLanes = await listLanes(centerId);
+        const assignedPhysical = physicalLanes.filter((pl: { LaneNumber: number }) =>
+          laneNumbers.includes(pl.LaneNumber),
+        );
+        const allClosed =
+          assignedPhysical.length > 0 &&
+          assignedPhysical.every((pl: { Status: string }) => pl.Status === "Closed");
+        if (allClosed) {
+          phase = "ready";
+        }
+      } catch {
+        // Fall through — keep phase as not_ready
+      }
+    }
+  }
+
+  const laneLabel =
+    laneNumbers.length === 1
+      ? `Lane ${laneNumbers[0]}`
+      : laneNumbers.length > 1
+        ? `Lanes ${laneNumbers.join(", ")}`
+        : "";
+
+  return { phase, laneLabel };
 }
 
 // ── Handler ─────────────────────────────────────────────────────────
@@ -134,79 +97,72 @@ export async function GET(req: NextRequest) {
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const invoker = req.headers.get("x-vercel-cron") ? "vercel-cron" : "manual";
 
-  // Window: reservations 28–32 minutes from now
-  const now = Date.now();
-  const windowStart = new Date(now + 28 * 60_000);
-  const windowEnd = new Date(now + 32 * 60_000);
-
-  const reservations = await getReservationsNeedingPreArrival(windowStart, windowEnd);
+  const reservations = await getTodayReservationsNeedingLaneReady();
   console.log(
-    `[pre-arrival] invoker=${invoker} window=${windowStart.toISOString()}..${windowEnd.toISOString()} found=${reservations.length}`,
+    `[lane-ready-cron] invoker=${invoker} candidates=${reservations.length}`,
   );
 
   if (reservations.length === 0) {
-    return NextResponse.json({ ok: true, invoker, sent: 0 });
+    return NextResponse.json({ ok: true, invoker, sent: 0, checked: 0 });
   }
 
-  const results: Array<{ id: number; guest: string; email: boolean; sms: boolean }> = [];
+  const results: Array<{
+    id: number;
+    guest: string;
+    phase: string;
+    email: boolean;
+    sms: boolean;
+  }> = [];
 
   for (const r of reservations) {
-    if (dryRun) {
-      results.push({ id: r.id, guest: r.guestName ?? "?", email: false, sms: false });
+    if (!r.qamfReservationId) {
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase: "no_qamf_id", email: false, sms: false });
       continue;
     }
 
-    const center = CENTER_META[r.centerCode] ?? CENTER_META.TXBSQN0FEKQ11;
-    const time = formatTime(r.bookedAt);
-    const siteUrl = "https://headpinz.com";
-    // Always use the full URL for pre-arrival so the &names=1 param
-    // survives (short URL server-side redirect would strip query params).
-    const confirmLink = `${siteUrl}/hp/book/bowling/confirmation?neonId=${r.id}&names=1`;
-    const guestFirst = (r.guestName ?? "").split(" ")[0] || "there";
+    let phase: LanePhase = "not_ready";
+    let laneLabel = "";
 
-    let emailOk = false;
-    let smsOk = false;
-
-    // Send email
-    if (r.guestEmail) {
-      try {
-        const html = buildEmailHtml(guestFirst, time, center.name, confirmLink);
-        emailOk = await sendEmail(
-          r.guestEmail,
-          `Your HeadPinz Experience Is Almost Here! 🎳`,
-          html,
-        );
-      } catch (err) {
-        console.warn(`[pre-arrival] email failed for neonId=${r.id}:`, err);
-      }
+    try {
+      const resolved = await resolveLanePhase(r.centerCode, r.qamfReservationId);
+      phase = resolved.phase;
+      laneLabel = resolved.laneLabel;
+    } catch (err) {
+      console.warn(
+        `[lane-ready-cron] QAMF poll failed neonId=${r.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase: "error", email: false, sms: false });
+      continue;
     }
 
-    // Send SMS
-    if (r.guestPhone) {
-      try {
-        const normalized = normalizePhone(r.guestPhone);
-        if (normalized.length >= 10) {
-          const smsBody = `HeadPinz: Your bowling at ${time} is almost here! Get ready — enter names & shoe sizes before you arrive: ${confirmLink}`;
-          smsOk = await sendSms(normalized, smsBody, center.smsFrom);
-        }
-      } catch (err) {
-        console.warn(`[pre-arrival] sms failed for neonId=${r.id}:`, err);
-      }
+    if (phase !== "ready" && phase !== "running") {
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase, email: false, sms: false });
+      continue;
     }
 
-    // Mark sent (even if one channel failed — don't re-send both)
-    if (emailOk || smsOk) {
-      await markPreArrivalSent(r.id);
+    if (dryRun) {
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase, email: false, sms: false });
+      continue;
     }
 
-    results.push({ id: r.id, guest: r.guestName ?? "?", email: emailOk, sms: smsOk });
-    console.log(`[pre-arrival] neonId=${r.id} ${r.guestName} email=${emailOk} sms=${smsOk}`);
+    try {
+      const { smsOk, emailOk } = await sendLaneReadyNotification(r, laneLabel);
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase, email: emailOk, sms: smsOk });
+    } catch (err) {
+      console.warn(
+        `[lane-ready-cron] notification failed neonId=${r.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase, email: false, sms: false });
+    }
   }
 
   return NextResponse.json({
     ok: true,
     invoker,
     dryRun,
+    checked: reservations.length,
     sent: results.filter((r) => r.email || r.sms).length,
     results,
   });

@@ -61,6 +61,7 @@ export interface QueuedSend {
     | "pov-resend"
     | "bowling-confirm"
     | "bowling-pre-arrival"
+    | "bowling-lane-ready"
     | "other";
   /** ISO timestamp of original (failed) attempt */
   queuedAt: string;

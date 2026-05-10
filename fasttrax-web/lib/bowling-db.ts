@@ -269,6 +269,9 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Pre-arrival SMS/email notification sent 30 min before booked_at.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS pre_arrival_sent_at TIMESTAMPTZ`;
 
+  // Lane-ready SMS/email notification sent when lanes are physically ready.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS lane_ready_sent_at TIMESTAMPTZ`;
+
   schemaReady = true;
 }
 
@@ -482,6 +485,8 @@ export interface BowlingReservation {
   dayofOrderSource?: string;
   /** ISO timestamp when the pre-arrival SMS/email was sent (~30 min before booked_at). */
   preArrivalSentAt?: string;
+  /** ISO timestamp when the lane-ready SMS/email was sent (lanes physically ready). */
+  laneReadySentAt?: string;
   insertedAt: string;
 }
 
@@ -651,6 +656,9 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     dayofOrderSource: (row.dayof_order_source as string) ?? undefined,
     preArrivalSentAt: row.pre_arrival_sent_at
       ? (row.pre_arrival_sent_at as Date).toISOString()
+      : undefined,
+    laneReadySentAt: row.lane_ready_sent_at
+      ? (row.lane_ready_sent_at as Date).toISOString()
       : undefined,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
@@ -876,6 +884,42 @@ export async function markPreArrivalSent(id: number): Promise<void> {
     UPDATE bowling_reservations
     SET pre_arrival_sent_at = NOW()
     WHERE id = ${id} AND pre_arrival_sent_at IS NULL
+  `;
+}
+
+/**
+ * Find today's reservations (ET) that need a lane-ready notification.
+ * Used by the pre-arrival cron (now repurposed as lane-ready fallback)
+ * and the webhook handler.
+ */
+export async function getTodayReservationsNeedingLaneReady(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  // Compute today's start/end in Eastern Time
+  const nowET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const todayStart = `${nowET}T00:00:00-04:00`;
+  const todayEnd = `${nowET}T23:59:59-04:00`;
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE booked_at >= ${todayStart}
+      AND booked_at <= ${todayEnd}
+      AND lane_ready_sent_at IS NULL
+      AND status IN ('confirmed', 'confirm_pending', 'arrived')
+    ORDER BY booked_at ASC
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/** Mark lane-ready notification as sent (idempotent — only writes once). */
+export async function markLaneReadySent(id: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET lane_ready_sent_at = NOW()
+    WHERE id = ${id} AND lane_ready_sent_at IS NULL
   `;
 }
 
