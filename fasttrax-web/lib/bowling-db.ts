@@ -779,18 +779,20 @@ export async function listBowlingReservations(opts: {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
-  const startAt = `${opts.startDate}T00:00:00Z`;
-  const endAt   = `${opts.endDate}T23:59:59Z`;
+  // Use ET boundaries so evening reservations (8 PM+) don't shift to the next
+  // calendar day.  Postgres `AT TIME ZONE` handles DST automatically.
   const rows = opts.centerCode
     ? await q`
         SELECT * FROM bowling_reservations
-        WHERE booked_at >= ${startAt} AND booked_at <= ${endAt}
+        WHERE booked_at >= ${opts.startDate}::date AT TIME ZONE 'America/New_York'
+          AND booked_at <  (${opts.endDate}::date + INTERVAL '1 day') AT TIME ZONE 'America/New_York'
           AND center_code = ${opts.centerCode}
         ORDER BY booked_at ASC
       `
     : await q`
         SELECT * FROM bowling_reservations
-        WHERE booked_at >= ${startAt} AND booked_at <= ${endAt}
+        WHERE booked_at >= ${opts.startDate}::date AT TIME ZONE 'America/New_York'
+          AND booked_at <  (${opts.endDate}::date + INTERVAL '1 day') AT TIME ZONE 'America/New_York'
         ORDER BY booked_at ASC
       `;
   const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
