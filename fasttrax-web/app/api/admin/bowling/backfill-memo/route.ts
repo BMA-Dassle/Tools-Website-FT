@@ -117,6 +117,25 @@ export async function POST(req: NextRequest) {
     const resLines = linesByRes.get(res.id) ?? [];
     const parts: string[] = [];
 
+    // Shoe status + short URL — first line so staff see it at a glance
+    const hasShoeAddOn = resLines.some((l) => l.product_kind === "addon_shoe");
+    const shoesIncludedInExperience = resLines.some((l) => SHOES_INCLUDED_RE.test(l.label));
+    let shoeLine: string;
+    if (hasShoeAddOn) {
+      const shoeQty = resLines
+        .filter((l) => l.product_kind === "addon_shoe")
+        .reduce((s, l) => s + l.quantity, 0);
+      shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+    } else if (shoesIncludedInExperience) {
+      shoeLine = "Shoes included";
+    } else {
+      shoeLine = "SHOES NOT INCLUDED";
+    }
+    if (res.short_code) {
+      shoeLine += ` | headpinz.com/s/${res.short_code}`;
+    }
+    parts.push(shoeLine);
+
     // Line items summary
     if (resLines.length > 0) {
       const itemParts = resLines.map((l) => {
@@ -134,27 +153,8 @@ export async function POST(req: NextRequest) {
       parts.push(`Deposit $${(res.deposit_cents / 100).toFixed(2)} paid (incl. tax)`);
     }
 
-    // Shoe status
-    const hasShoeAddOn = resLines.some((l) => l.product_kind === "addon_shoe");
-    const shoesIncludedInExperience = resLines.some((l) => SHOES_INCLUDED_RE.test(l.label));
-    if (hasShoeAddOn) {
-      const shoeQty = resLines
-        .filter((l) => l.product_kind === "addon_shoe")
-        .reduce((s, l) => s + l.quantity, 0);
-      parts.push(`${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`);
-    } else if (shoesIncludedInExperience) {
-      parts.push("Shoes included");
-    } else {
-      parts.push("⚠ SHOES NOT INCLUDED — collect at lane");
-    }
-
     // User-supplied notes
     if (res.notes) parts.push(res.notes);
-
-    // Short URL
-    if (res.short_code) {
-      parts.push(`headpinz.com/s/${res.short_code}`);
-    }
 
     const memo = parts.join("\n");
 

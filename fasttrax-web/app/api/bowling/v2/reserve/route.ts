@@ -694,7 +694,28 @@ export async function POST(req: NextRequest) {
   try {
     const finalParts: string[] = [];
 
-    // Line items summary (same format as initial)
+    // Shoe status + short URL — first line so staff see it at a glance
+    const hasShoeAddOn = productItems.some(({ product }) => product.productKind === "addon_shoe");
+    const shoesIncludedInExperience = reservationLines.some((l) =>
+      /fun\s*4\s*all|pizza\s*bowl/i.test(l.label),
+    );
+    let shoeLine: string;
+    if (hasShoeAddOn) {
+      const shoeQty = productItems
+        .filter(({ product }) => product.productKind === "addon_shoe")
+        .reduce((s, { quantity }) => s + quantity, 0);
+      shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+    } else if (shoesIncludedInExperience) {
+      shoeLine = "Shoes included";
+    } else {
+      shoeLine = "SHOES NOT INCLUDED";
+    }
+    if (shortCode) {
+      shoeLine += ` | headpinz.com/s/${shortCode}`;
+    }
+    finalParts.push(shoeLine);
+
+    // Line items summary
     if (reservationLines.length > 0) {
       const itemParts = reservationLines.map((l) => {
         const total = l.quantity * l.unitPriceCents;
@@ -711,29 +732,8 @@ export async function POST(req: NextRequest) {
       finalParts.push(`Deposit $${(depositCents / 100).toFixed(2)} paid (incl. tax)`);
     }
 
-    // Shoe status — staff need to know at a glance
-    const hasShoeAddOn = productItems.some(({ product }) => product.productKind === "addon_shoe");
-    const shoesIncludedInExperience = reservationLines.some((l) =>
-      /fun\s*4\s*all|pizza\s*bowl/i.test(l.label),
-    );
-    if (hasShoeAddOn) {
-      const shoeQty = productItems
-        .filter(({ product }) => product.productKind === "addon_shoe")
-        .reduce((s, { quantity }) => s + quantity, 0);
-      finalParts.push(`${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`);
-    } else if (shoesIncludedInExperience) {
-      finalParts.push("Shoes included");
-    } else {
-      finalParts.push("⚠ SHOES NOT INCLUDED — collect at lane");
-    }
-
     // User-supplied notes
     if (notes) finalParts.push(notes);
-
-    // Short URL at the end
-    if (shortCode) {
-      finalParts.push(`headpinz.com/s/${shortCode}`);
-    }
 
     const finalNotes = finalParts.join("\n");
     const finalTitle = `${guest.name} (${players.length}p)`;
