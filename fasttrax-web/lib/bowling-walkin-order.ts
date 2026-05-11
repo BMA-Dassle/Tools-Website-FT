@@ -16,6 +16,9 @@ const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";
 
+/** $0 catalog item used as a KDS ticket for shoe sizes. */
+const SHOE_KDS_CATALOG_ID = "3SCMJXWRY5KJZONU7HDKKUQ3";
+
 /** Location → county sales-tax catalog object ID */
 const LOCATION_TAX: Record<string, string> = {
   TXBSQN0FEKQ11: "UBPQTR3W6ZKVRYFC7DXN2SJN", // Lee County   — 6.5%
@@ -53,32 +56,32 @@ export async function createWalkinDayofOrder(opts: {
     ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
     : [];
 
-  // Build line items: one shoe line per player when data is available,
-  // otherwise a single generic "Walk-in Bowling" line.
-  const lineItems: Array<{ name: string; quantity: string; base_price_money: { amount: number; currency: string } }> = [];
+  // Build line items: one shoe line per player (using the KDS catalog item
+  // so Square KDS recognises them), plus a summary line for the dashboard.
+  const lineItems: Array<{
+    name: string; quantity: string;
+    base_price_money: { amount: number; currency: string };
+    catalog_object_id?: string; note?: string;
+  }> = [];
 
   const playersWithShoes = (players ?? []).filter((p) => p.shoeSize);
   if (playersWithShoes.length > 0) {
     for (const p of playersWithShoes) {
       lineItems.push({
-        name: `Shoes: ${p.name} - ${p.shoeSize}`,
+        catalog_object_id: SHOE_KDS_CATALOG_ID,
+        name: p.shoeSize!,
+        note: p.name,
         quantity: "1",
         base_price_money: { amount: 0, currency: "USD" },
       });
     }
-    // Add a summary line so the order is identifiable in Square dashboard
-    lineItems.push({
-      name: `Walk-in Bowling - ${guestName} (${playerCount}p)`,
-      quantity: "1",
-      base_price_money: { amount: 0, currency: "USD" },
-    });
-  } else {
-    lineItems.push({
-      name: `Walk-in Bowling - ${guestName} (${playerCount}p)`,
-      quantity: "1",
-      base_price_money: { amount: 0, currency: "USD" },
-    });
   }
+  // Always add a summary line so the order is identifiable in Square dashboard
+  lineItems.push({
+    name: `Walk-in Bowling - ${guestName} (${playerCount}p)`,
+    quantity: "1",
+    base_price_money: { amount: 0, currency: "USD" },
+  });
 
   const res = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",

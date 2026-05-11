@@ -279,41 +279,72 @@ export async function processLaneOpen(opts: {
         }
       }
 
-      // ── 3b. Close $0 orders for KDS visibility ──────────────
-      // Walkin orders have $0 totals and no gift card, so no payment
-      // is made above. KDS only displays completed orders, so we
-      // explicitly close them via PayOrder with empty payment_ids.
-      if (!paymentId) {
+      // ── 3b. Close $0 walkin orders for KDS visibility ─────────
+      // Square won't auto-transition $0 orders to COMPLETED via PayOrder.
+      // Instead: create a $0 EXTERNAL payment (adds a tender), then
+      // UpdateOrder to set fulfillment + order state to COMPLETED.
+      if (!paymentId && !reservation.squareGiftCardId) {
         const due = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
         if (due <= 0) {
           try {
             const tClose = Date.now();
-            const closeRes = await fetch(
-              `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}/pay`,
-              {
-                method: "POST",
-                headers: sqHeaders(),
-                body: JSON.stringify({
-                  idempotency_key: `${idempotencyBase}-close`,
-                  order_version: updatedOrderVersion,
-                  payment_ids: [],
-                }),
-              },
+
+            // 1. $0 external payment → creates a tender on the order
+            await fetch(`${SQUARE_BASE}/payments`, {
+              method: "POST",
+              headers: sqHeaders(),
+              body: JSON.stringify({
+                idempotency_key: `${idempotencyBase}-close`,
+                source_id: "EXTERNAL",
+                amount_money: { amount: 0, currency: "USD" },
+                order_id: reservation.squareDayofOrderId,
+                location_id: reservation.centerCode,
+                external_details: { type: "OTHER", source: "Walk-in bowling" },
+                autocomplete: true,
+              }),
+            });
+
+            // 2. Re-fetch order for current version + fulfillment uid
+            const refetchRes = await fetch(
+              `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+              { headers: sqHeaders(), cache: "no-store" },
             );
-            console.log(`[lane-open] neonId=${neonId} src=${srcTag} POST pay-order ${Date.now() - tClose}ms`);
-            if (closeRes.ok) {
-              console.log(`[lane-open] neonId=${neonId} closed $0 order for KDS`);
-            } else {
-              const closeBody = await closeRes.json().catch(() => ({})) as {
-                errors?: { detail: string }[];
-              };
-              console.warn(
-                `[lane-open] neonId=${neonId} PayOrder failed:`,
-                closeBody.errors?.[0]?.detail ?? closeRes.status,
+            const refetchJson = await refetchRes.json() as { order?: SquareOrder & { fulfillments?: { uid: string; type: string }[] } };
+            const freshOrder = refetchJson.order;
+
+            if (freshOrder && freshOrder.state !== "COMPLETED") {
+              // 3. Complete fulfillment + order state
+              const ffUpdates = (freshOrder.fulfillments ?? []).map((ff) => ({
+                uid: ff.uid,
+                type: ff.type,
+                state: "COMPLETED",
+              }));
+              const completeRes = await fetch(
+                `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+                {
+                  method: "PUT",
+                  headers: sqHeaders(),
+                  body: JSON.stringify({
+                    order: {
+                      version: freshOrder.version,
+                      location_id: reservation.centerCode,
+                      fulfillments: ffUpdates,
+                      state: "COMPLETED",
+                    },
+                  }),
+                },
               );
+              if (completeRes.ok) {
+                console.log(`[lane-open] neonId=${neonId} closed $0 walkin order for KDS ${Date.now() - tClose}ms`);
+              } else {
+                const errBody = await completeRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
+                console.warn(`[lane-open] neonId=${neonId} complete order failed:`, errBody.errors?.[0]?.detail ?? completeRes.status);
+              }
+            } else {
+              console.log(`[lane-open] neonId=${neonId} order already COMPLETED`);
             }
           } catch (err) {
-            console.warn(`[lane-open] neonId=${neonId} PayOrder threw:`, err);
+            console.warn(`[lane-open] neonId=${neonId} close $0 order threw:`, err);
           }
         }
       }
