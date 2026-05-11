@@ -1957,7 +1957,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           // payment step for the full deposit) or try again.
           if (data.code === "REWARD_FAILED") {
             setSelectedRewardTier(null);
-            setError(`${data.error ?? "Reward couldn't be applied."}${data.debug ? ` [${data.debug}]` : ""}`);
+            setError(data.error ?? "Reward couldn't be applied.");
             setStep("details");
             return;
           }

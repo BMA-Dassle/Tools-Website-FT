@@ -946,8 +946,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const rewardDiscountCents = reservation?.rewardDiscountCents ?? 0;
   // Remaining = total − reward − deposit (reward reduces what's owed at center)
   const displayRemaining = displayTotal - displayDepositPaid - rewardDiscountCents;
-  // Pinz estimated on the post-discount total (reward amount doesn't earn points)
-  const estimatedPinz = hasRewardsLinked ? Math.floor((displayTotal - rewardDiscountCents) / 10) : 0;
 
   const dateLabel = reservation?.bookedAt ? formatBookedAt(reservation.bookedAt) : "";
   const playerCount = reservation?.playerCount;
@@ -1206,9 +1204,6 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   </div>
                   <p className="text-white/55 text-xs leading-relaxed">
                     Earning <span className="text-white font-semibold">10 Pinz for every $1</span> spent.
-                    {estimatedPinz > 0 && (
-                      <> You&apos;ll receive <span className="font-semibold" style={{ color: GOLD }}>{estimatedPinz.toLocaleString()} Pinz</span> from this reservation.</>
-                    )}
                   </p>
                   <p className="text-white/30 text-xs">
                     Pinz are applied after your reservation is checked in.

@@ -628,7 +628,6 @@ export async function POST(req: NextRequest) {
         {
           error: "Your reward couldn't be applied right now. Please try again.",
           code: "REWARD_FAILED",
-          debug: rewardFailReason,
         },
         { status: 422 },
       );

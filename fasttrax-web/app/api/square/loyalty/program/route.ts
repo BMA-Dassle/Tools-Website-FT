@@ -20,7 +20,7 @@ export async function GET() {
     const res = await fetch(`${SQUARE_BASE}/loyalty/programs/main`, {
       method: "GET",
       headers: headers(),
-      next: { revalidate: 3600 }, // cache for 1 hour
+      cache: "no-store",
     });
 
     if (!res.ok) {
