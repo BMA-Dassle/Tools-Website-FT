@@ -181,6 +181,8 @@ export default function GroupEventPage() {
       if (data?.freeflow) setSelectedFreeflow(data.freeflow);
       if (data?.reservations?.length) {
         setExistingReservations(data.reservations);
+        // Returning guest with existing reservations → show confirmation
+        setStep("confirmation");
       }
     } catch { /* first visit */ }
   }
@@ -1063,9 +1065,34 @@ export default function GroupEventPage() {
               ))}
             </div>
 
+            {/* Waiver CTA — prominent, urgent */}
+            <div className="rounded-xl border-2 border-[#E41C1D]/50 bg-[#E41C1D]/10 p-5 text-center space-y-3">
+              <div className="flex items-center justify-center gap-2">
+                <svg className="w-5 h-5 text-[#E41C1D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3 className="text-white font-bold text-sm uppercase tracking-wider">Complete Your Waiver</h3>
+              </div>
+              <p className="text-white/70 text-sm leading-relaxed">
+                A signed waiver is <strong className="text-white">required</strong> before you can participate
+                in Go-Kart Racing, Gel Blaster, or Laser Tag. Please complete it as soon as possible
+                to avoid delays at check-in.
+              </p>
+              <a
+                href="https://kiosk.bmileisure.com/headpinzftmyers"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 w-full py-3.5 rounded-xl font-bold text-sm bg-[#E41C1D] hover:bg-[#c62828] text-white transition-colors"
+              >
+                Sign Waiver Now
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            </div>
+
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
               <p>&middot; Please arrive <strong className="text-white/60">15 minutes early</strong> for check-in.</p>
-              <p>&middot; Don&rsquo;t forget to sign your <strong className="text-white/60">waiver</strong> before the event.</p>
               {event.includesLicense && (
                 <p>&middot; Racing license fee is <strong className="text-white/60">included</strong> &mdash; no charge.</p>
               )}
