@@ -233,6 +233,7 @@ const CENTERS = [
     name: "HeadPinz Fort Myers",
     address: "14513 Global Pkwy, Fort Myers",
     phone: "(239) 302-2155",
+    smsFrom: "+12393022155",
   },
   {
     id: "3148",
@@ -243,6 +244,7 @@ const CENTERS = [
     name: "HeadPinz Naples",
     address: "8525 Radio Ln, Naples",
     phone: "(239) 455-3755",
+    smsFrom: "+12394553755",
   },
 ];
 
@@ -771,6 +773,32 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [smsOptIn, setSmsOptIn] = useState(true);
 
+  // ── HeadPinz Rewards / Loyalty ──────────────────────────────────
+
+  const [loyaltyAccount, setLoyaltyAccount] = useState<{
+    id: string; balance: number; lifetimePoints: number; customerId: string; enrolledAt?: string;
+  } | null>(null);
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState<{
+    id: string; firstName: string; lastName: string; email: string; phone: string; profileComplete: boolean;
+  } | null>(null);
+  const [phoneLookedUp, setPhoneLookedUp] = useState(false);
+  const [phoneLookupLoading, setPhoneLookupLoading] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [verifyStep, setVerifyStep] = useState<"idle" | "sending" | "code" | "verified">("idle");
+  const [verifyCode, setVerifyCode] = useState(["", "", "", "", "", ""]);
+  const [verifyError, setVerifyError] = useState("");
+  const [rewardsSignup, setRewardsSignup] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const verifyCodeRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Reward tiers + selection for Pinz redemption at booking time
+  const [rewardTiers, setRewardTiers] = useState<Array<{
+    id: string; name: string; points: number; discountCents: number;
+  }>>([]);
+  const [selectedRewardTier, setSelectedRewardTier] = useState<{
+    id: string; name: string; points: number; discountCents: number;
+  } | null>(null);
+
   // ── Payment ──────────────────────────────────────────────────────
 
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -897,6 +925,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Extra toppings are added to the quote (Square doesn't know about them).
   const depositCents = (quoteDepositCents > 0 ? quoteDepositCents + extraToppingsCents : preTaxDepositCents);
   const displayTotal = (quoteTotalCents   > 0 ? quoteTotalCents   + extraToppingsCents : preTaxTotalCents);
+
+  // Loyalty reward: reduce deposit by discount amount (floored at $0)
+  const rewardDiscountCents = selectedRewardTier?.discountCents ?? 0;
+  const effectiveDepositCents = Math.max(0, depositCents - rewardDiscountCents);
+  const effectiveDisplayTotal = Math.max(0, displayTotal - rewardDiscountCents);
 
   // Pizza bowl modifier selections:
   //   - selectedModifiers: lane-0 selections (used for Square quote approximation)
@@ -1641,6 +1674,197 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     };
   }, []);
 
+  // ── HeadPinz Rewards helpers ────────────────────────────────────
+
+  const phoneDigits = useCallback((phone: string) => phone.replace(/\D/g, ""), []);
+
+  /** Look up loyalty account once phone has 10 digits */
+  const handlePhoneLookup = useCallback(async (digits: string) => {
+    if (digits.length !== 10) return;
+    setPhoneLookupLoading(true);
+    setPhoneLookedUp(false);
+    try {
+      const res = await fetch("/api/square/loyalty/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: digits }),
+      });
+      const data = await res.json();
+      if (data.exists) {
+        setLoyaltyAccount(data.account);
+        // Customer PII not returned here — only after SMS verification
+      } else {
+        setLoyaltyAccount(null);
+      }
+      setLoyaltyCustomer(null);
+      setPhoneLookedUp(true);
+    } catch {
+      // Silently fail — guest can still proceed without rewards
+      setPhoneLookedUp(true);
+    } finally {
+      setPhoneLookupLoading(false);
+    }
+  }, []);
+
+  /** Send SMS verification code */
+  const handleSendVerifyCode = useCallback(async () => {
+    const digits = phoneDigits(guestPhone);
+    if (digits.length !== 10) return;
+    setVerifyStep("sending");
+    setVerifyError("");
+    try {
+      const res = await fetch("/api/sms-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: digits, from: center.smsFrom }),
+      });
+      const data = await res.json();
+      if (data.sent) {
+        setVerifyStep("code");
+        setVerifyCode(["", "", "", "", "", ""]);
+      } else {
+        setVerifyError(data.error || "Failed to send code");
+        setVerifyStep("idle");
+      }
+    } catch {
+      setVerifyError("Failed to send code");
+      setVerifyStep("idle");
+    }
+  }, [guestPhone, phoneDigits, center.smsFrom]);
+
+  /** Verify the 6-digit code against server */
+  const verifyCodeSubmit = useCallback(async (codeStr: string) => {
+    const digits = phoneDigits(guestPhone);
+    setVerifyError("");
+    try {
+      const res = await fetch("/api/sms-verify", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: digits,
+          code: codeStr,
+          // Pass customer ID so the server returns PII only after verified
+          squareCustomerId: loyaltyAccount?.customerId,
+        }),
+      });
+      const data = await res.json();
+      if (data.verified) {
+        setPhoneVerified(true);
+        setVerifyStep("verified");
+        // Customer PII is returned by sms-verify only after code is correct
+        if (data.customer) {
+          setLoyaltyCustomer(data.customer);
+          const name = [data.customer.firstName, data.customer.lastName].filter(Boolean).join(" ");
+          if (name) setGuestName(name);
+          if (data.customer.email) setGuestEmail(data.customer.email);
+        }
+        // Fetch reward tiers so verified members can redeem Pinz
+        if (loyaltyAccount) {
+          void fetch("/api/square/loyalty/program")
+            .then((r) => r.json())
+            .then((prog) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const orderTiers = (prog.rewardTiers ?? [])
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .filter((t: any) => t.definition?.scope === "ORDER" && t.definition?.fixedDiscountCents)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .map((t: any) => ({
+                  id: t.id as string,
+                  name: t.name as string,
+                  points: t.points as number,
+                  discountCents: t.definition.fixedDiscountCents as number,
+                }))
+                .sort((a: { points: number }, b: { points: number }) => a.points - b.points);
+              setRewardTiers(orderTiers);
+            })
+            .catch(() => {});
+        }
+      } else {
+        setVerifyError(data.error || "Incorrect code");
+      }
+    } catch {
+      setVerifyError("Verification failed");
+    }
+  }, [guestPhone, phoneDigits, loyaltyAccount?.customerId, loyaltyAccount]);
+
+  /** Handle individual code digit input */
+  const handleVerifyCodeInput = useCallback((index: number, value: string) => {
+    if (!/^\d?$/.test(value)) return;
+    setVerifyCode((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      // Auto-submit when all 6 digits entered
+      if (value && index === 5 && next.every((d) => d)) {
+        void verifyCodeSubmit(next.join(""));
+      }
+      return next;
+    });
+    if (value && index < 5) {
+      verifyCodeRefs.current[index + 1]?.focus();
+    }
+  }, [verifyCodeSubmit]);
+
+  const handleVerifyCodeKeyDown = useCallback((index: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !verifyCode[index] && index > 0) {
+      verifyCodeRefs.current[index - 1]?.focus();
+    }
+  }, [verifyCode]);
+
+  const handleVerifyCodePaste = useCallback((e: React.ClipboardEvent) => {
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (pasted.length === 6) {
+      e.preventDefault();
+      const newCode = pasted.split("");
+      setVerifyCode(newCode);
+      verifyCodeRefs.current[5]?.focus();
+      void verifyCodeSubmit(pasted);
+    }
+  }, [verifyCodeSubmit]);
+
+  /** Enroll new customer in HeadPinz Rewards */
+  const handleRewardsEnroll = useCallback(async () => {
+    const digits = phoneDigits(guestPhone);
+    setEnrolling(true);
+    try {
+      const res = await fetch("/api/square/loyalty/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: digits }),
+      });
+      const data = await res.json();
+      if (data.account) {
+        setLoyaltyAccount(data.account);
+        setLoyaltyCustomer(data.customer);
+        setRewardsSignup(false);
+        // Complete profile with name + email if already provided
+        if (guestName && data.account?.id && data.customer?.id) {
+          const parts = guestName.trim().split(/\s+/);
+          const firstName = parts[0] || "";
+          const lastName = parts.slice(1).join(" ") || "";
+          if (firstName && lastName) {
+            void fetch("/api/square/loyalty/complete-profile", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                customerId: data.customer.id,
+                loyaltyAccountId: data.account.id,
+                firstName,
+                lastName,
+                email: guestEmail || undefined,
+              }),
+            }).then((r) => r.json()).then((d) => {
+              if (d.account) setLoyaltyAccount(d.account);
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch {
+      // Silently fail — booking continues without rewards
+    } finally {
+      setEnrolling(false);
+    }
+  }, [guestPhone, guestName, guestEmail, phoneDigits]);
+
   // ── Submit ────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(
@@ -1659,7 +1883,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             email: guestEmail,
             phone: guestPhone,
             firstName: guestName.split(" ")[0] || guestName,
-            amountCents: depositCents,
+            amountCents: effectiveDepositCents,
             bookingType: "attractions",
             policyVersion: CURRENT_POLICY_VERSION,
           }),
@@ -1702,6 +1926,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             locationId: center.squareCenterCode,
             notes,
             smsOptIn,
+            // Link loyalty account to the Square day-of order for point accrual
+            ...(loyaltyCustomer?.id ? { squareCustomerId: loyaltyCustomer.id } : {}),
+            // Loyalty reward redemption — server creates + redeems reward, charges reduced deposit
+            ...(selectedRewardTier && loyaltyAccount ? {
+              rewardTierId: selectedRewardTier.id,
+              loyaltyAccountId: loyaltyAccount.id,
+              rewardDiscountCents: selectedRewardTier.discountCents,
+            } : {}),
             // Pass existing hold ID so reserve route confirms it instead of
             // creating a duplicate QAMF reservation
             ...(holdRef.current?.qamfId
@@ -1711,7 +1943,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               ? {
                   dayofOrderId: quoteDayofOrderId,
                   dayofTotalCents: quoteTotalCents,
-                  depositCents: quoteDepositCents,
+                  // Send the reduced deposit so bowling-orders charges the right amount
+                  depositCents: Math.max(0, (quoteDepositCents ?? 0) - rewardDiscountCents),
                 }
               : {}),
           }),
@@ -1741,12 +1974,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         router.push(dest);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Reservation failed";
-        if (depositCents > 0) {
+        if (effectiveDepositCents > 0) {
           setPaymentError(msg);
         } else {
           setError(msg);
         }
-        setStep(depositCents > 0 ? "payment" : "details");
+        setStep(effectiveDepositCents > 0 ? "payment" : "details");
       } finally {
         setBusy(false);
       }
@@ -1754,6 +1987,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     [
       selectedSlot,
       depositCents,
+      effectiveDepositCents,
       center,
       kind,
       kbfBowlers,
@@ -1769,6 +2003,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       quoteTotalCents,
       quoteDepositCents,
       smsOptIn,
+      loyaltyCustomer,
+      selectedRewardTier,
+      loyaltyAccount,
+      rewardDiscountCents,
     ],
   );
 
@@ -3697,11 +3935,214 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           )}
 
           {/* ═══════════════════════════════════════════════════════
-              STEP: Details
+              STEP: Details (phone-first with HeadPinz Rewards)
           ═══════════════════════════════════════════════════════ */}
           {step === "details" && (
             <div className="space-y-4">
               <h2 className="font-heading uppercase text-white text-lg tracking-wider text-center">Your Details</h2>
+
+              {/* ── Phone (first field) ─────────────────────────── */}
+              <div className="relative">
+                <input
+                  type="tel"
+                  placeholder="Phone Number"
+                  autoComplete="tel"
+                  value={formatPhoneDisplay(guestPhone)}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/\D/g, "").slice(0, 10);
+                    setGuestPhone(raw);
+                    // Reset loyalty state when phone changes
+                    if (phoneLookedUp) {
+                      setPhoneLookedUp(false);
+                      setLoyaltyAccount(null);
+                      setLoyaltyCustomer(null);
+                      setPhoneVerified(false);
+                      setVerifyStep("idle");
+                      setVerifyCode(["", "", "", "", "", ""]);
+                      setRewardsSignup(false);
+                      setRewardTiers([]);
+                      setSelectedRewardTier(null);
+                    }
+                    // Auto-lookup when 10 digits
+                    if (raw.length === 10 && !phoneLookedUp) {
+                      void handlePhoneLookup(raw);
+                    }
+                  }}
+                  className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3.5 text-white font-body text-sm placeholder:text-white/25 focus:outline-none focus:border-[#fd5b56]/50"
+                />
+                {phoneLookupLoading && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div className="w-5 h-5 border-2 border-white/15 border-t-[#22c55e] rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+
+              {/* ── Rewards Member Found ────────────────────────── */}
+              {phoneLookedUp && loyaltyAccount && !phoneVerified && verifyStep === "idle" && (
+                <div className="rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🎳</span>
+                    <span className="font-body font-bold text-[#22c55e] text-sm">HeadPinz Rewards Member</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-body text-white/55 text-xs">
+                      {loyaltyAccount.balance.toLocaleString()} Pinz available
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleSendVerifyCode}
+                      className="rounded-full px-4 py-1.5 font-body font-bold text-xs uppercase tracking-wider bg-[#22c55e] text-white"
+                    >
+                      Verify
+                    </button>
+                  </div>
+                  <p className="font-body text-white/35 text-xs">
+                    We&apos;ll text you a code to confirm your identity and prefill your info.
+                  </p>
+                </div>
+              )}
+
+              {/* ── SMS Verification Code ──────────────────────── */}
+              {(verifyStep === "code" || verifyStep === "sending") && !phoneVerified && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+                  <p className="font-body text-white/70 text-sm text-center">
+                    Enter the 6-digit code sent to {formatPhoneDisplay(guestPhone)}
+                  </p>
+                  <div className="flex justify-center gap-2">
+                    {verifyCode.map((digit, i) => (
+                      <input
+                        key={i}
+                        ref={(el) => { verifyCodeRefs.current[i] = el; }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleVerifyCodeInput(i, e.target.value)}
+                        onKeyDown={(e) => handleVerifyCodeKeyDown(i, e)}
+                        onPaste={i === 0 ? handleVerifyCodePaste : undefined}
+                        className="w-10 h-12 text-center bg-white/5 border border-white/15 rounded-lg text-white font-body text-lg focus:outline-none focus:border-[#22c55e]/50"
+                      />
+                    ))}
+                  </div>
+                  {verifyError && (
+                    <p className="font-body text-xs text-center" style={{ color: CORAL }}>{verifyError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSendVerifyCode}
+                    className="block mx-auto font-body text-xs text-white/35 hover:text-white/55 transition-colors"
+                  >
+                    Resend code
+                  </button>
+                </div>
+              )}
+
+              {/* ── Verified Badge ─────────────────────────────── */}
+              {phoneVerified && loyaltyAccount && (
+                <div className="rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/5 p-3 flex items-center gap-3">
+                  <span className="text-[#22c55e] text-lg">✓</span>
+                  <div className="flex-1">
+                    <span className="font-body font-bold text-[#22c55e] text-sm">HeadPinz Rewards Verified</span>
+                    <span className="font-body text-white/45 text-xs block">
+                      {loyaltyAccount.balance.toLocaleString()} Pinz · Member since {new Date(loyaltyAccount.enrolledAt ?? "").getFullYear() || ""}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Use Your Pinz (reward redemption) ───────────── */}
+              {phoneVerified && loyaltyAccount && rewardTiers.length > 0 && depositCents > 0 && (
+                <div className="rounded-xl border border-[#FFD700]/20 bg-[#FFD700]/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">⭐</span>
+                    <span className="font-body font-bold text-[#FFD700] text-sm">Use Your Pinz</span>
+                  </div>
+                  <p className="font-body text-white/50 text-xs">
+                    Apply a reward to reduce your deposit. Points are deducted when you book.
+                  </p>
+                  <div className="space-y-2">
+                    {rewardTiers.map((tier) => {
+                      const canAfford = loyaltyAccount.balance >= tier.points;
+                      const isSelected = selectedRewardTier?.id === tier.id;
+                      const exceedsDeposit = tier.discountCents > depositCents;
+                      return (
+                        <button
+                          key={tier.id}
+                          type="button"
+                          disabled={!canAfford}
+                          onClick={() => setSelectedRewardTier(isSelected ? null : tier)}
+                          className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 border transition-all text-left ${
+                            isSelected
+                              ? "border-[#FFD700]/50 bg-[#FFD700]/10"
+                              : canAfford
+                                ? "border-white/10 bg-white/[0.03] hover:border-[#FFD700]/30"
+                                : "border-white/5 bg-white/[0.01] opacity-40 cursor-not-allowed"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                                isSelected ? "border-[#FFD700] bg-[#FFD700]" : "border-white/25"
+                              }`}
+                            >
+                              {isSelected && (
+                                <div className="w-1.5 h-1.5 rounded-full bg-[#0a1628]" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <span className="font-body font-semibold text-white text-sm block truncate">
+                                ${(tier.discountCents / 100).toFixed(0)} off{exceedsDeposit ? " (covers full deposit)" : ""}
+                              </span>
+                              <span className="font-body text-white/40 text-xs">
+                                {tier.points.toLocaleString()} Pinz
+                              </span>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span className="text-[#FFD700] text-xs font-body font-bold uppercase tracking-wider flex-shrink-0">Applied</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedRewardTier && (
+                    <div className="flex items-center justify-between pt-1 border-t border-[#FFD700]/10">
+                      <span className="font-body text-white/50 text-xs">New deposit</span>
+                      <span className="font-body font-bold text-[#FFD700] text-sm">
+                        ${(effectiveDepositCents / 100).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Not a Member — Rewards Pitch ───────────────── */}
+              {phoneLookedUp && !loyaltyAccount && phoneDigits(guestPhone).length === 10 && (
+                <div className="rounded-xl border border-[#FFD700]/20 bg-[#FFD700]/5 p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl mt-0.5">⭐</span>
+                    <div className="flex-1 space-y-1">
+                      <span className="font-body font-bold text-[#FFD700] text-sm block">Join HeadPinz Rewards!</span>
+                      <p className="font-body text-white/55 text-xs leading-relaxed">
+                        Earn 10% back in Pinz on every visit. Pinz = free money for bowling, food, and a whole lot of fun at both HeadPinz and FastTrax Entertainment.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={rewardsSignup}
+                      onChange={(e) => setRewardsSignup(e.target.checked)}
+                      className="w-4 h-4 rounded border-[#FFD700]/30 bg-white/5 focus:ring-[#FFD700]/50 focus:ring-offset-0 cursor-pointer accent-[#FFD700]"
+                    />
+                    <span className="text-sm text-white/70 group-hover:text-white transition-colors font-body">
+                      Sign me up for free
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {/* ── Name & Email ────────────────────────────────── */}
               <input
                 type="text"
                 placeholder="Full Name"
@@ -3718,14 +4159,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 onChange={(e) => setGuestEmail(e.target.value)}
                 className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3.5 text-white font-body text-sm placeholder:text-white/25 focus:outline-none focus:border-[#fd5b56]/50"
               />
-              <input
-                type="tel"
-                placeholder="Phone Number"
-                autoComplete="tel"
-                value={guestPhone}
-                onChange={(e) => setGuestPhone(e.target.value)}
-                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3.5 text-white font-body text-sm placeholder:text-white/25 focus:outline-none focus:border-[#fd5b56]/50"
-              />
+
+              {/* ── SMS opt-in + Clickwrap ──────────────────────── */}
               <label className="flex items-center gap-3 cursor-pointer group">
                 <input
                   type="checkbox"
@@ -3742,14 +4177,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 onChange={setClickwrapAccepted}
                 cancellationHours={1}
               />
+
+              {/* ── Actions ─────────────────────────────────────── */}
               <div className="flex gap-2">
                 <button type="button" onClick={() => setStep("review")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (!guestName || !guestEmail || !guestPhone) { setError("Please fill in all contact details"); return; }
                     if (!clickwrapAccepted) { setError("Please accept the cancellation policy"); return; }
                     setError(null);
+
+                    // Enroll in rewards if opted in
+                    if (rewardsSignup && !loyaltyAccount && !enrolling) {
+                      await handleRewardsEnroll();
+                    }
+
                     // Attach the customer to the hold + rename it so staff see
                     // the guest name. Pre-attaching the customer here ensures
                     // PATCH /status at submit time takes effect immediately,
@@ -3766,14 +4209,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         }),
                       }).catch(() => {});
                     }
-                    if (depositCents > 0) setStep("payment");
+                    if (effectiveDepositCents > 0) setStep("payment");
                     else void handleSubmit();
                   }}
-                  disabled={busy || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
+                  disabled={busy || enrolling || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
                   className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider disabled:opacity-50 whitespace-nowrap"
                   style={{ backgroundColor: GOLD, color: BG }}
                 >
-                  {depositCents > 0 ? "Continue to payment" : "Confirm"}
+                  {enrolling ? "Enrolling…" : effectiveDepositCents > 0 ? "Continue to payment" : "Confirm"}
                 </button>
               </div>
             </div>
@@ -3784,11 +4227,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           ═══════════════════════════════════════════════════════ */}
           {step === "payment" && (
             <BowlingPaymentStep
-              depositCents={depositCents}
-              totalCents={displayTotal}
+              depositCents={effectiveDepositCents}
+              totalCents={effectiveDisplayTotal}
               locationId={center.locationKey}
               paymentError={paymentError}
               busy={busy}
+              originalDepositCents={rewardDiscountCents > 0 ? depositCents : undefined}
+              rewardDiscountCents={rewardDiscountCents}
               onBack={() => setStep("details")}
               onPay={(token) => void handleSubmit(token)}
             />

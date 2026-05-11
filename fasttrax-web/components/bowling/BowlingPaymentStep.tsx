@@ -70,6 +70,10 @@ interface BowlingPaymentStepProps {
   payLabel?: string;
   /** Additional condition that disables the pay button (e.g. !agreed). */
   payDisabled?: boolean;
+  /** Original deposit before reward discount (cents). Shows strikethrough when reward applied. */
+  originalDepositCents?: number;
+  /** Discount from a HeadPinz Rewards redemption (cents). */
+  rewardDiscountCents?: number;
   /** Called when the user clicks Back. */
   onBack: () => void;
   /**
@@ -101,6 +105,8 @@ export default function BowlingPaymentStep({
   heading = "Secure Payment",
   payLabel,
   payDisabled = false,
+  originalDepositCents,
+  rewardDiscountCents = 0,
   onBack,
   onPay,
   children,
@@ -230,15 +236,40 @@ export default function BowlingPaymentStep({
       </h2>
 
       {/* Deposit summary */}
-      <p className="text-white/45 text-sm">
-        Deposit due today:{" "}
-        <span className="text-white font-semibold">
-          {centsToDollars(depositCents)}
-        </span>
-        {remaining > 0 && (
-          <> · Balance at center: {centsToDollars(remaining)}</>
-        )}
-      </p>
+      {rewardDiscountCents > 0 && originalDepositCents ? (
+        <div className="rounded-xl border border-[#22c55e]/20 bg-[#22c55e]/5 p-3 space-y-1.5">
+          <div className="flex items-center justify-between text-sm font-body">
+            <span className="text-white/50">Deposit</span>
+            <span className="text-white/50 line-through">{centsToDollars(originalDepositCents)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm font-body">
+            <span className="text-[#22c55e] flex items-center gap-1.5">
+              <span className="text-xs">⭐</span> HeadPinz Reward
+            </span>
+            <span className="text-[#22c55e] font-semibold">-{centsToDollars(rewardDiscountCents)}</span>
+          </div>
+          <div className="border-t border-white/10 pt-1.5 flex items-center justify-between text-sm font-body">
+            <span className="text-white font-semibold">You pay today</span>
+            <span className="text-white font-bold text-base">{centsToDollars(depositCents)}</span>
+          </div>
+          {remaining > 0 && (
+            <div className="flex items-center justify-between text-xs font-body">
+              <span className="text-white/35">Balance at center</span>
+              <span className="text-white/45">{centsToDollars(remaining)}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-white/45 text-sm">
+          Deposit due today:{" "}
+          <span className="text-white font-semibold">
+            {centsToDollars(depositCents)}
+          </span>
+          {remaining > 0 && (
+            <> · Balance at center: {centsToDollars(remaining)}</>
+          )}
+        </p>
+      )}
 
       {/* ── Apple Pay ──────────────────────────────────────────── */}
       {applePayReady && (

@@ -273,6 +273,15 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS lane_ready_sent_at TIMESTAMPTZ`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS booking_source TEXT NOT NULL DEFAULT 'web'`;
 
+  // Square customer ID — links to loyalty account for point accrual.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_customer_id TEXT`;
+
+  // Square Loyalty reward ID — created when a member redeems Pinz at booking time.
+  // Stored so cancellation can DELETE the reward (returning points to the account).
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_loyalty_reward_id TEXT`;
+  // Discount amount in cents from the redeemed reward (e.g. 1000 = $10 off).
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS reward_discount_cents INT NOT NULL DEFAULT 0`;
+
   schemaReady = true;
 }
 
@@ -490,6 +499,12 @@ export interface BowlingReservation {
   laneReadySentAt?: string;
   /** Booking origin: "web" (headpinz.com), "kiosk" (K-prefix), "conqueror" (C-prefix staff POS). Defaults to "web". */
   bookingSource?: "web" | "kiosk" | "conqueror";
+  /** Square customer ID — links to loyalty account for point accrual on day-of order. */
+  squareCustomerId?: string;
+  /** Square Loyalty reward ID — stored for cancellation cleanup (DELETE returns points). */
+  squareLoyaltyRewardId?: string;
+  /** Discount amount in cents from the redeemed loyalty reward (e.g. 1000 = $10 off deposit). */
+  rewardDiscountCents: number;
   insertedAt: string;
 }
 
@@ -664,6 +679,9 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
       ? (row.lane_ready_sent_at as Date).toISOString()
       : undefined,
     bookingSource: (row.booking_source as BowlingReservation["bookingSource"]) ?? "web",
+    squareCustomerId: (row.square_customer_id as string) ?? undefined,
+    squareLoyaltyRewardId: (row.square_loyalty_reward_id as string) ?? undefined,
+    rewardDiscountCents: (row.reward_discount_cents as number) ?? 0,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -691,7 +709,7 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts">,
+  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents"> & { rewardDiscountCents?: number },
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -707,7 +725,8 @@ export async function insertBowlingReservation(
       deposit_cents, total_cents, status,
       booked_at, player_count,
       guest_name, guest_email, guest_phone, notes,
-      booking_source
+      booking_source, square_customer_id,
+      square_loyalty_reward_id, reward_discount_cents
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -716,7 +735,8 @@ export async function insertBowlingReservation(
       ${r.depositCents}, ${r.totalCents}, ${r.status},
       ${r.bookedAt}, ${r.playerCount ?? null},
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
-      ${r.bookingSource ?? "web"}
+      ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
+      ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0}
     )
     RETURNING *
   `;

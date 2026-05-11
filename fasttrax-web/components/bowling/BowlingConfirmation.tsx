@@ -939,8 +939,15 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
   const displayDepositPaid = reservation?.depositCents ?? 0;
   const displayTotal = reservation?.totalCents ?? 0;
-  const displayRemaining = displayTotal - displayDepositPaid;
   const hasPaidDeposit = displayDepositPaid > 0;
+
+  // HeadPinz Rewards — 10 Pinz per $1 spent on the day-of order total (tax-inclusive)
+  const hasRewardsLinked = !!reservation?.squareCustomerId;
+  const rewardDiscountCents = reservation?.rewardDiscountCents ?? 0;
+  // Remaining = total − reward − deposit (reward reduces what's owed at center)
+  const displayRemaining = displayTotal - displayDepositPaid - rewardDiscountCents;
+  // Pinz estimated on the post-discount total (reward amount doesn't earn points)
+  const estimatedPinz = hasRewardsLinked ? Math.floor((displayTotal - rewardDiscountCents) / 10) : 0;
 
   const dateLabel = reservation?.bookedAt ? formatBookedAt(reservation.bookedAt) : "";
   const playerCount = reservation?.playerCount;
@@ -1150,18 +1157,26 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             )}
 
             {/* Payment summary */}
-            {hasPaidDeposit && (
+            {(hasPaidDeposit || rewardDiscountCents > 0) && (
               <>
                 <DividerLine />
                 <div className="space-y-1.5">
                   {displayTotal > 0 && (
                     <Row label="Order total" value={centsToDollars(displayTotal)} />
                   )}
-                  <Row
-                    label="Paid at booking"
-                    value={centsToDollars(displayDepositPaid)}
-                    green
-                  />
+                  {rewardDiscountCents > 0 && (
+                    <Row
+                      label="⭐ HeadPinz Reward"
+                      value={`-${centsToDollars(rewardDiscountCents)}`}
+                    />
+                  )}
+                  {hasPaidDeposit && (
+                    <Row
+                      label="Paid at booking"
+                      value={centsToDollars(displayDepositPaid)}
+                      green
+                    />
+                  )}
                   {displayRemaining > 0 && (
                     <Row
                       label="Balance due at center"
@@ -1171,6 +1186,40 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   {displayRemaining === 0 && (
                     <Row label="Balance due at center" value="Paid in full" />
                   )}
+                </div>
+              </>
+            )}
+
+            {/* HeadPinz Rewards */}
+            {hasRewardsLinked && (
+              <>
+                <DividerLine />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">⭐</span>
+                    <span
+                      className="uppercase font-bold"
+                      style={{ color: GOLD, fontSize: "10px", letterSpacing: "2.5px" }}
+                    >
+                      HeadPinz Rewards
+                    </span>
+                  </div>
+                  <p className="text-white/55 text-xs leading-relaxed">
+                    Earning <span className="text-white font-semibold">10 Pinz for every $1</span> spent.
+                    {estimatedPinz > 0 && (
+                      <> You&apos;ll receive <span className="font-semibold" style={{ color: GOLD }}>{estimatedPinz.toLocaleString()} Pinz</span> from this reservation.</>
+                    )}
+                  </p>
+                  <p className="text-white/30 text-xs">
+                    Pinz are applied after your reservation is checked in.
+                  </p>
+                  <Link
+                    href="/hp/rewards"
+                    className="inline-block text-xs font-semibold hover:underline transition-colors"
+                    style={{ color: GOLD }}
+                  >
+                    Check rewards status →
+                  </Link>
                 </div>
               </>
             )}

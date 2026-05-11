@@ -109,6 +109,38 @@ export async function POST(
     }
   }
 
+  // ── 2b. Delete loyalty reward → return points to customer ─────────
+  if (reservation.squareLoyaltyRewardId) {
+    try {
+      const SQUARE_BASE = "https://connect.squareup.com/v2";
+      const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
+      const delRes = await fetch(`${SQUARE_BASE}/loyalty/rewards/${reservation.squareLoyaltyRewardId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${SQUARE_TOKEN}`,
+          "Square-Version": "2024-12-18",
+          "Content-Type": "application/json",
+        },
+      });
+      if (delRes.ok) {
+        console.log(
+          `[bowling/cancel] loyalty reward deleted neonId=${neonId}` +
+          ` rewardId=${reservation.squareLoyaltyRewardId} (points returned)`,
+        );
+      } else {
+        // REDEEMED rewards can't be deleted — points are already used. Non-fatal.
+        console.warn(
+          `[bowling/cancel] loyalty reward delete failed neonId=${neonId}: ${delRes.status}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[bowling/cancel] loyalty reward delete non-fatal neonId=${neonId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // ── 3. Mark cancelled in Neon ─────────────────────────────────────
   await updateBowlingReservationCancelled(neonId, { squareRefundId, refundCents });
   console.log(`[bowling/cancel] neonId=${neonId} marked cancelled refundCents=${refundCents}`);

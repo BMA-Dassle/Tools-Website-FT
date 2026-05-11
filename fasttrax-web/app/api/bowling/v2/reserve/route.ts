@@ -20,6 +20,17 @@ import { shortenUrl } from "@/lib/short-url";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
+// Square Loyalty constants for reward redemption during booking
+const SQUARE_BASE = "https://connect.squareup.com/v2";
+const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
+function sqLoyaltyHeaders() {
+  return {
+    Authorization: `Bearer ${SQUARE_TOKEN}`,
+    "Square-Version": "2024-12-18",
+    "Content-Type": "application/json",
+  };
+}
+
 interface ConfirmRetryEntry {
   neonId: number;
   centerId: number;
@@ -164,6 +175,13 @@ interface ReserveBody {
    * Passed through to the bowling-confirmation notification route.
    */
   smsOptIn?: boolean;
+  // ── Loyalty reward redemption ─────────────────────────────────────
+  /** Square Loyalty reward tier ID to redeem (e.g. "$10 off F&B"). */
+  rewardTierId?: string;
+  /** Square Loyalty account ID (owner of the reward). */
+  loyaltyAccountId?: string;
+  /** Discount amount in cents from the selected reward tier. */
+  rewardDiscountCents?: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -245,9 +263,11 @@ export async function POST(req: NextRequest) {
       ? Math.round((preTaxDepositCents / preTaxTotalCents) * 100)
       : 100;
 
-  // Any items with a charge require a payment token
+  // Any items with a charge require a payment token — UNLESS a loyalty
+  // reward covers the entire deposit (client sends depositCents: 0).
   const needsPayment = preTaxTotalCents > 0;
-  if (needsPayment && !body.squareToken) {
+  const effectiveClientDeposit = body.depositCents ?? preTaxTotalCents; // pre-tax fallback
+  if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken) {
     return NextResponse.json(
       { error: "squareToken required when deposit > 0" },
       { status: 400 },
@@ -472,6 +492,8 @@ export async function POST(req: NextRequest) {
   let squareDayofOrderId: string | undefined;
   let squareGiftCardId: string | undefined;
   let squareGiftCardGan: string | undefined;
+  let loyaltyRewardId: string | undefined;
+  const rewardDiscountCents = body.rewardDiscountCents ?? 0;
   let depositCents = 0;        // actual charged amount (tax-inclusive)
   let totalCents = 0;          // tax-inclusive day-of order total
 
@@ -522,56 +544,138 @@ export async function POST(req: NextRequest) {
         : []),
     ];
 
-    const origin = req.nextUrl.origin;
-    const sqRes = await fetch(`${origin}/api/square/bowling-orders`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceId: body.squareToken,
-        idempotencyKey: randomUUID(),
-        locationId: squareLocationId,
-        depositPct: overallDepositPct,
-        lineItems: sqLineItems,
-        squareCustomerId: body.squareCustomerId,
-        note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
-        // Pass pre-created day-of order if provided (avoids duplicate creation).
-        // Also forward the pre-computed deposit amount so bowling-orders uses
-        // the exact figure shown to the customer rather than recalculating.
-        ...(body.dayofOrderId ? {
-          existingDayofOrderId: body.dayofOrderId,
-          existingDayofTotalCents: body.dayofTotalCents,
-          existingDepositCents: body.depositCents,
-        } : {}),
-      }),
-    });
-
-    const sqData = await sqRes.json();
-    if (!sqRes.ok) {
-      // Payment failed — best effort: delete the QAMF reservation to avoid orphan
+    // ── Loyalty reward: create + redeem BEFORE payment ─────────────
+    // If the customer selected a reward tier, create the reward (deducts
+    // points immediately) and redeem it against the day-of order (applies
+    // discount). The deposit sent to bowling-orders is already reduced by
+    // the reward amount on the client side.
+    if (body.rewardTierId && body.loyaltyAccountId && body.dayofOrderId && SQUARE_TOKEN) {
       try {
-        const { deleteReservation } = await import("@/lib/qamf-bowling");
-        await deleteReservation(centerId, qamfReservationId);
-      } catch {
-        // Non-fatal
+        // 1. Create reward → ISSUED status, points deducted immediately
+        const createRes = await fetch(`${SQUARE_BASE}/loyalty/rewards`, {
+          method: "POST",
+          headers: sqLoyaltyHeaders(),
+          body: JSON.stringify({
+            reward: {
+              loyalty_account_id: body.loyaltyAccountId,
+              reward_tier_id: body.rewardTierId,
+              order_id: body.dayofOrderId,
+            },
+            idempotency_key: `reward-${body.dayofOrderId}-${body.rewardTierId}`,
+          }),
+        });
+        const createData = await createRes.json();
+        if (createRes.ok && createData.reward?.id) {
+          loyaltyRewardId = createData.reward.id;
+          console.log(`[reserve] Loyalty reward created: ${loyaltyRewardId} (${rewardDiscountCents}c off)`);
+
+          // 2. Redeem reward → applies discount to the day-of order
+          const redeemRes = await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}/redeem`, {
+            method: "POST",
+            headers: sqLoyaltyHeaders(),
+            body: JSON.stringify({
+              idempotency_key: `redeem-${loyaltyRewardId}`,
+              location_id: squareLocationId,
+            }),
+          });
+          if (!redeemRes.ok) {
+            const redeemErr = await redeemRes.text();
+            console.error(`[reserve] Reward redeem failed: ${redeemErr}`);
+            // Redemption failed — delete the reward to return points
+            await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+              method: "DELETE",
+              headers: sqLoyaltyHeaders(),
+            }).catch(() => {});
+            loyaltyRewardId = undefined;
+          }
+        } else {
+          const err = createData.errors?.[0];
+          console.error(`[reserve] Reward creation failed: ${err?.code}: ${err?.detail}`);
+          // Don't block the booking — proceed without reward
+        }
+      } catch (err) {
+        console.error("[reserve] Loyalty reward error:", err);
+        // Clean up if reward was created but redemption threw
+        if (loyaltyRewardId) {
+          await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+            method: "DELETE",
+            headers: sqLoyaltyHeaders(),
+          }).catch(() => {});
+          loyaltyRewardId = undefined;
+        }
       }
-      // Forward Square error code + detail so the client can show a specific message
-      return NextResponse.json(
-        {
-          error: sqData.error ?? "Payment failed",
-          code: sqData.code,
-          detail: sqData.detail,
-        },
-        { status: sqRes.status },
-      );
     }
 
-    squareDepositOrderId  = sqData.depositOrderId  ?? undefined;
-    squareDepositPaymentId = sqData.depositPaymentId ?? undefined;
-    squareDayofOrderId = sqData.dayofOrderId;
-    squareGiftCardId = sqData.giftCardId ?? undefined;
-    squareGiftCardGan = sqData.giftCardGan ?? undefined;
-    depositCents = sqData.depositPaidCents ?? 0;
-    totalCents = sqData.dayofTotalCents ?? preTaxTotalCents;
+    // When reward covers the full deposit ($0 to charge), skip the bowling-orders
+    // call entirely. The day-of order already exists from the quote step and the
+    // reward has been applied above. No card payment needed.
+    const actualDepositToCharge = body.depositCents ?? Math.round((preTaxTotalCents * overallDepositPct) / 100);
+
+    if (actualDepositToCharge > 0 && body.squareToken) {
+      const origin = req.nextUrl.origin;
+      const sqRes = await fetch(`${origin}/api/square/bowling-orders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceId: body.squareToken,
+          idempotencyKey: randomUUID(),
+          locationId: squareLocationId,
+          depositPct: overallDepositPct,
+          lineItems: sqLineItems,
+          squareCustomerId: body.squareCustomerId,
+          note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
+          // Pass pre-created day-of order if provided (avoids duplicate creation).
+          // Also forward the pre-computed deposit amount so bowling-orders uses
+          // the exact figure shown to the customer rather than recalculating.
+          ...(body.dayofOrderId ? {
+            existingDayofOrderId: body.dayofOrderId,
+            existingDayofTotalCents: body.dayofTotalCents,
+            existingDepositCents: body.depositCents,
+          } : {}),
+        }),
+      });
+
+      const sqData = await sqRes.json();
+      if (!sqRes.ok) {
+        // Payment failed — delete loyalty reward to return points
+        if (loyaltyRewardId) {
+          await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+            method: "DELETE",
+            headers: sqLoyaltyHeaders(),
+          }).catch(() => {});
+          loyaltyRewardId = undefined;
+        }
+        // Best effort: delete the QAMF reservation to avoid orphan
+        try {
+          const { deleteReservation } = await import("@/lib/qamf-bowling");
+          await deleteReservation(centerId, qamfReservationId);
+        } catch {
+          // Non-fatal
+        }
+        // Forward Square error code + detail so the client can show a specific message
+        return NextResponse.json(
+          {
+            error: sqData.error ?? "Payment failed",
+            code: sqData.code,
+            detail: sqData.detail,
+          },
+          { status: sqRes.status },
+        );
+      }
+
+      squareDepositOrderId  = sqData.depositOrderId  ?? undefined;
+      squareDepositPaymentId = sqData.depositPaymentId ?? undefined;
+      squareDayofOrderId = sqData.dayofOrderId;
+      squareGiftCardId = sqData.giftCardId ?? undefined;
+      squareGiftCardGan = sqData.giftCardGan ?? undefined;
+      depositCents = sqData.depositPaidCents ?? 0;
+      totalCents = sqData.dayofTotalCents ?? preTaxTotalCents;
+    } else {
+      // $0 deposit (reward covered it) or no token — day-of order from quote
+      squareDayofOrderId = body.dayofOrderId;
+      depositCents = 0;
+      totalCents = body.dayofTotalCents ?? preTaxTotalCents;
+    }
   }
 
   // ── Persist to Neon ─────────────────────────────────────────────
@@ -602,6 +706,9 @@ export async function POST(req: NextRequest) {
         squareDayofOrderId,
         squareGiftCardId,
         squareGiftCardGan,
+        squareCustomerId: body.squareCustomerId,
+        squareLoyaltyRewardId: loyaltyRewardId,
+        rewardDiscountCents,
       },
       reservationLines,
     );

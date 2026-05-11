@@ -40,11 +40,22 @@ export async function GET() {
       id: program.id,
       terminology: program.terminology || { one: "Pinz", other: "Pinz" },
       rewardTiers: (program.reward_tiers || []).map(
-        (t: { id: string; points: number; name: string; created_at: string }) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (t: any) => ({
           id: t.id,
           points: t.points,
           name: t.name,
           createdAt: t.created_at,
+          definition: t.definition
+            ? {
+                scope: t.definition.scope as string,
+                discountType: t.definition.discount_type as string,
+                fixedDiscountCents: t.definition.fixed_discount_money?.amount as number | undefined,
+                percentageDiscount: t.definition.percentage_discount as string | undefined,
+                maxDiscountCents: t.definition.max_discount_money?.amount as number | undefined,
+                catalogObjectIds: (t.definition.catalog_object_ids ?? []) as string[],
+              }
+            : null,
         })
       ),
       accrualRules: (program.accrual_rules || []).map(
