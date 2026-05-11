@@ -9,6 +9,7 @@
  */
 
 import { type BowlingReservation, markLaneReadySent } from "@/lib/bowling-db";
+import { shortenUrl } from "@/lib/short-url";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
@@ -128,7 +129,9 @@ export async function sendLaneReadyNotification(
   const center = CENTER_META[reservation.centerCode] ?? CENTER_META.TXBSQN0FEKQ11;
   const time = formatTime(reservation.bookedAt);
   const guestFirst = (reservation.guestName ?? "").split(" ")[0] || "there";
-  const checkinLink = `${SITE_URL}/hp/book/bowling/checkin?neonId=${reservation.id}`;
+  const rawPath = `/hp/book/bowling/checkin?neonId=${reservation.id}`;
+  const shortCode = await shortenUrl(rawPath);
+  const checkinLink = `${SITE_URL}/s/${shortCode}`;
   const lanePart = laneLabel ? ` ${laneLabel} is ready!` : " Your lane is ready!";
 
   let emailOk = false;
