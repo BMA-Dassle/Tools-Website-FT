@@ -424,7 +424,7 @@ export default function GroupEventPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#000418]">
+    <div className="min-h-screen bg-[#000418] pt-[140px]">
       {/* Header */}
       <div className="border-b border-white/10 bg-white/3">
         <div className="max-w-2xl mx-auto px-4 py-6 text-center">
