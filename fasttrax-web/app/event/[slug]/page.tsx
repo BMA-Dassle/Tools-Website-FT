@@ -8,6 +8,31 @@ import type { ClassifiedProduct, BmiProposal, BmiBlock } from "@/app/book/race/d
 import { bookRaceHeat, bmiPost } from "@/app/book/race/data";
 import HeatPicker from "@/app/book/race/components/HeatPicker";
 
+// ── Track info (mirrors ProductPicker's TRACK_INFO) ──────────────────────────
+
+const TRACK_INFO: Record<string, {
+  title: string;
+  stat: string;
+  tagline: string;
+  image: string;
+  accent: string; // tailwind color class prefix
+}> = {
+  Red: {
+    title: "Red Track",
+    stat: "1,095 ft",
+    tagline: "Technical & clockwise — more turns, more strategy.",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
+    accent: "red",
+  },
+  Blue: {
+    title: "Blue Track",
+    stat: "1,013 ft",
+    tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+    accent: "blue",
+  },
+};
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Step = "gate" | "name" | "dashboard" | "racing-track" | "racing-heat" | "attraction-slots" | "confirmation";
@@ -580,7 +605,7 @@ export default function GroupEventPage() {
                           <img
                             src={attr.image}
                             alt={attr.label}
-                            className={`w-full h-full object-cover ${isBooked ? "opacity-50" : ""}`}
+                            className={`w-full h-full object-cover object-top ${isBooked ? "opacity-50" : ""}`}
                           />
                         ) : (
                           <div className="w-full h-full bg-white/5" />
@@ -672,29 +697,49 @@ export default function GroupEventPage() {
         {step === "racing-track" && (
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Choose Your Track</h2>
-              <p className="text-white/50 text-sm">Select Red or Blue track for your race</p>
+              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Pick Your Track</h2>
+              <p className="text-white/50 text-sm">Two indoor tracks — choose your style</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              {event.attractions
-                .find(a => a.slug === "racing")
-                ?.bmiTracks?.map((t) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(["Blue", "Red"] as const).map((trackName) => {
+                const info = TRACK_INFO[trackName];
+                const trackConfig = event.attractions
+                  .find(a => a.slug === "racing")
+                  ?.bmiTracks?.find(t => t.track === trackName);
+                if (!info || !trackConfig) return null;
+                const ringClass = info.accent === "red"
+                  ? "border-red-500/40 hover:border-red-500 hover:ring-red-500/30"
+                  : "border-blue-500/40 hover:border-blue-500 hover:ring-blue-500/30";
+                const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
+                return (
                   <button
-                    key={t.track}
+                    key={trackName}
                     onClick={() => {
-                      setSelectedTrack(t.track);
+                      setSelectedTrack(trackName);
                       setStep("racing-heat");
                     }}
-                    className="rounded-xl border border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 p-6 text-center transition-all cursor-pointer"
+                    className={`group relative overflow-hidden rounded-xl text-left border transition-all duration-200 hover:scale-[1.02] hover:ring-2 cursor-pointer ${ringClass}`}
                   >
-                    <div
-                      className="w-12 h-12 rounded-full mx-auto mb-3"
-                      style={{ backgroundColor: t.track === "Red" ? "#E41C1D" : "#2563EB" }}
-                    />
-                    <span className="text-white font-bold text-lg">{t.track} Track</span>
-                    <p className="text-white/40 text-xs mt-1">Starter Race</p>
+                    <div className="relative aspect-[21/9] sm:aspect-[4/3]">
+                      <img
+                        src={info.image}
+                        alt={info.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+                    </div>
+                    <div className="p-3">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <h4 className={`font-display text-base uppercase tracking-wide ${titleClass}`}>
+                          {info.title}
+                        </h4>
+                        <span className="text-white/50 text-xs font-mono">{info.stat}</span>
+                      </div>
+                      <p className="text-white/70 text-xs leading-snug">{info.tagline}</p>
+                    </div>
                   </button>
-                ))}
+                );
+              })}
             </div>
             <button
               onClick={() => setStep("dashboard")}
