@@ -8,7 +8,7 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
-import { getReservation } from "@/lib/qamf-bowling";
+import { getReservation, listLanes } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
 
@@ -297,20 +297,47 @@ async function processEvent(
       }
       // Fall through — let the status map advance Neon status
 
-      // Send lane-ready SMS/email if not already sent
-      if (!reservation.laneReadySentAt) {
-        try {
-          const ll = laneNumbers.length === 1
-            ? `Lane ${laneNumbers[0]}`
-            : laneNumbers.length > 1
-            ? `Lanes ${laneNumbers.join(", ")}`
-            : "";
-          await sendLaneReadyNotification(reservation, ll);
-        } catch (err) {
-          console.warn(
-            `[qamf-bowling] lane-ready SMS failed neonId=${reservation.id}:`,
-            err instanceof Error ? err.message : err,
-          );
+      // Send lane-ready SMS/email if not already sent.
+      // Gate: only notify when physical lanes are Closed (ready to start,
+      // not Error or Open for someone else) AND within 30 min of booked time.
+      if (!reservation.laneReadySentAt && laneNumbers.length > 0) {
+        const bookedAt = new Date(reservation.bookedAt).getTime();
+        const minsUntilBooked = (bookedAt - Date.now()) / 60_000;
+
+        if (minsUntilBooked <= 30) {
+          try {
+            const qamfCenterId = centerId ?? CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
+            if (qamfCenterId) {
+              const physicalLanes = await listLanes(qamfCenterId);
+              const assignedPhysical = physicalLanes.filter((pl) =>
+                laneNumbers.includes(pl.LaneNumber),
+              );
+              const allClosed =
+                assignedPhysical.length > 0 &&
+                assignedPhysical.every((pl) => pl.Status === "Closed");
+
+              if (allClosed) {
+                const ll = laneNumbers.length === 1
+                  ? `Lane ${laneNumbers[0]}`
+                  : `Lanes ${laneNumbers.join(", ")}`;
+                await sendLaneReadyNotification(reservation, ll);
+                console.log(
+                  `[qamf-bowling] lane-ready SMS sent neonId=${reservation.id}` +
+                  ` lanes=${laneNumbers.join(",")} allClosed=true`,
+                );
+              } else {
+                console.log(
+                  `[qamf-bowling] lane-ready SMS skipped neonId=${reservation.id}` +
+                  ` — physical lanes not all Closed: ${assignedPhysical.map((pl) => `${pl.LaneNumber}=${pl.Status}`).join(",")}`,
+                );
+              }
+            }
+          } catch (err) {
+            console.warn(
+              `[qamf-bowling] lane-ready SMS check failed neonId=${reservation.id}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
         }
       }
     }
