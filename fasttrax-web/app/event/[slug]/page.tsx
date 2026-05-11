@@ -7,6 +7,9 @@ import type { GroupEventAttraction, GroupEventMealWindow } from "@/lib/group-eve
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "@/app/book/race/data";
 import { bookRaceHeat, bmiPost } from "@/app/book/race/data";
 import HeatPicker from "@/app/book/race/components/HeatPicker";
+import { pandoraOnboardGuest } from "@/lib/pandora";
+import type { PandoraWaiverTemplate } from "@/lib/pandora";
+import WaiverSigning from "@/components/pandora/WaiverSigning";
 
 // ── Track info (mirrors ProductPicker's TRACK_INFO) ──────────────────────────
 
@@ -35,13 +38,14 @@ const TRACK_INFO: Record<string, {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Step = "gate" | "name" | "dashboard" | "racing-track" | "racing-heat" | "attraction-slots" | "confirmation";
+type Step = "gate" | "name" | "waiver" | "dashboard" | "racing-track" | "racing-heat" | "attraction-slots" | "confirmation";
 
 interface GuestInfo {
   email: string;
   firstName: string;
   lastName: string;
   displayName: string; // "Eric O."
+  birthdate?: string;  // "YYYY-MM-DD" — needed for waiver template
 }
 
 /** An item in the cart — selected but not yet booked in BMI */
@@ -104,7 +108,16 @@ export default function GroupEventPage() {
   // Cart — items selected but not yet booked
   const [cart, setCart] = useState<CartItem[]>([]);
   const [confirmedBillId, setConfirmedBillId] = useState<string | null>(null);
-  const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
+
+  // Person + Waiver state
+  const [personId, setPersonId] = useState<string | null>(null);
+  const [waiverValid, setWaiverValid] = useState(false);
+  const [waiverTemplate, setWaiverTemplate] = useState<PandoraWaiverTemplate | null>(null);
+  const [waiverLoading, setWaiverLoading] = useState(false);
+  const [waiverError, setWaiverError] = useState<string | null>(null);
+
+  // Cancel state
+  const [cancellingBillId, setCancellingBillId] = useState<string | null>(null);
 
   // Racing state
   const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
@@ -139,8 +152,14 @@ export default function GroupEventPage() {
       const email = sessionStorage.getItem(sessionKey(slug, "email"));
       const firstName = sessionStorage.getItem(sessionKey(slug, "firstName"));
       const lastName = sessionStorage.getItem(sessionKey(slug, "lastName"));
+      const storedPersonId = sessionStorage.getItem(sessionKey(slug, "personId"));
+      const storedBirthdate = sessionStorage.getItem(sessionKey(slug, "birthdate"));
       if (email && firstName && lastName) {
-        setGuest({ email, firstName, lastName, displayName: makeDisplayName(firstName, lastName) });
+        setGuest({ email, firstName, lastName, displayName: makeDisplayName(firstName, lastName), birthdate: storedBirthdate || undefined });
+        if (storedPersonId) {
+          setPersonId(storedPersonId);
+          setWaiverValid(true); // They already signed if they have a personId in session
+        }
         setStep("dashboard");
         fetchExistingRsvp(slug, email);
       }
@@ -180,39 +199,16 @@ export default function GroupEventPage() {
       const res = await fetch(`/api/group-event/rsvp?slug=${eventSlug}&email=${encodeURIComponent(email)}`);
       const data = await res.json();
       if (data?.freeflow) setSelectedFreeflow(data.freeflow);
+      // Restore personId from RSVP (survives cancel + rebook)
+      if (data?.personId && !personId) {
+        setPersonId(data.personId);
+        sessionStorage.setItem(sessionKey(slug, "personId"), data.personId);
+      }
       if (data?.reservations?.length) {
         setExistingReservations(data.reservations);
-        // Returning guest with existing reservations → show confirmation
         setStep("confirmation");
-        // Fetch reservation-specific waiver link from their bill
-        const firstBillId = data.reservations.find((r: { billId?: string }) => r.billId)?.billId;
-        if (firstBillId) fetchWaiverUrl(firstBillId);
       }
     } catch { /* first visit */ }
-  }
-
-  // ── Fetch reservation-specific waiver URL ─────────────────────────────────
-
-  async function fetchWaiverUrl(billId: string) {
-    try {
-      // Get bill overview → projectId
-      const ovRes = await fetch(`/api/sms?endpoint=${encodeURIComponent("bill/overview")}&billId=${billId}`);
-      if (!ovRes.ok) return;
-      const ov = await ovRes.json();
-      const projectId = ov.id || billId;
-
-      // Get projectReference from Office API
-      const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
-      if (!projRes.ok) return;
-      const proj = await projRes.json();
-      if (proj.projectReference) {
-        setWaiverUrl(
-          `https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`,
-        );
-      }
-    } catch {
-      // Non-fatal — confirmation page falls back to generic kiosk URL
-    }
   }
 
   // ── Not found ────────────────────────────────────────────────────────────
@@ -246,19 +242,103 @@ export default function GroupEventPage() {
     setStep("name");
   }
 
-  function handleNameSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleNameSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const firstName = (form.get("firstName") as string).trim();
     const lastName = (form.get("lastName") as string).trim();
-    if (!firstName || !lastName) return;
+    const birthdate = (form.get("birthdate") as string).trim();
+    if (!firstName || !lastName || !birthdate) return;
     const email = guest!.email;
     const displayName = makeDisplayName(firstName, lastName);
     sessionStorage.setItem(sessionKey(slug, "firstName"), firstName);
     sessionStorage.setItem(sessionKey(slug, "lastName"), lastName);
-    setGuest({ email, firstName, lastName, displayName });
-    setStep("dashboard");
-    fetchExistingRsvp(slug, email);
+    sessionStorage.setItem(sessionKey(slug, "birthdate"), birthdate);
+    setGuest({ email, firstName, lastName, displayName, birthdate });
+
+    setWaiverLoading(true);
+    setWaiverError(null);
+
+    try {
+      // Shared Pandora onboard: create person → check waiver → fetch template
+      const result = await pandoraOnboardGuest(
+        { firstName, lastName, email, birthdate, location: "headpinz" },
+        "headpinz",
+      );
+      setPersonId(result.personId);
+      sessionStorage.setItem(sessionKey(slug, "personId"), result.personId);
+
+      if (result.waiverValid) {
+        setWaiverValid(true);
+        setStep("dashboard");
+        fetchExistingRsvp(slug, email);
+      } else {
+        setWaiverTemplate(result.template);
+        setStep("waiver");
+      }
+    } catch (err) {
+      console.error("[group-event] Name/waiver setup failed:", err);
+      setWaiverError(err instanceof Error ? err.message : "Setup failed. Please try again.");
+    } finally {
+      setWaiverLoading(false);
+    }
+  }
+
+  // ── Cancel reservation ──────────────────────────────────────────────────
+
+  async function handleCancelReservation(billId: string) {
+    if (!guest) return;
+    setCancellingBillId(billId);
+    try {
+      const res = await fetch("/api/group-event/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug, billId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Cancel failed");
+
+      // Preserve personId from the cancelled booking (for waiver link on rebook)
+      if (data.personId && !personId) {
+        setPersonId(data.personId);
+        sessionStorage.setItem(sessionKey(slug, "personId"), data.personId);
+      }
+
+      // Remove cancelled reservation from RSVP
+      const remaining = existingReservations.filter(r => r.billId !== billId);
+      setExistingReservations(remaining);
+
+      // Update RSVP record in Redis
+      await fetch("/api/group-event/rsvp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          email: guest.email,
+          name: guest.displayName,
+          freeflow: selectedFreeflow,
+          reservations: remaining,
+          personId: data.personId || personId,
+        }),
+      });
+
+      // Remove from heat roster too
+      await fetch("/api/group-event/roster", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug, email: guest.email }),
+      });
+
+      // If no reservations left, go back to dashboard
+      if (remaining.length === 0) {
+        setStep("dashboard");
+      }
+    } catch (err) {
+      console.error("[group-event] Cancel failed:", err);
+      setBookingError(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setCancellingBillId(null);
+    }
   }
 
   // ── Cart helpers ────────────────────────────────────────────────────────
@@ -452,6 +532,20 @@ export default function GroupEventPage() {
         }
       }
 
+      // Register person on the reservation so they show up as a participant
+      if (orderId && personId) {
+        try {
+          const regBody = JSON.stringify({ firstName: guest.firstName, lastName: guest.lastName });
+          const rawJson = `{"personId":${personId},"orderId":${orderId},` + regBody.slice(1);
+          await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "person/registerProjectPerson" }), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: rawJson,
+          });
+          console.log("[group-event] registered person", personId, "on bill", orderId);
+        } catch { /* non-fatal */ }
+      }
+
       // Save all reservations to RSVP record
       const existing = await fetch(`/api/group-event/rsvp?slug=${slug}&email=${encodeURIComponent(guest.email)}`).then(r => r.json()).catch(() => null);
       const prevReservations = existing?.reservations || [];
@@ -464,6 +558,7 @@ export default function GroupEventPage() {
           name: guest.displayName,
           freeflow: selectedFreeflow,
           reservations: [...prevReservations, ...bookedItems],
+          personId,
         }),
       });
 
@@ -472,9 +567,6 @@ export default function GroupEventPage() {
       setCart([]);
       setStep("confirmation");
       fetchRosters();
-
-      // Fetch reservation-specific waiver link from the bill we just created
-      if (orderId) fetchWaiverUrl(orderId);
     } catch (err) {
       console.error("[group-event] Booking failed:", err);
       setBookingError(err instanceof Error ? err.message : "Booking failed. Please try again.");
@@ -608,37 +700,75 @@ export default function GroupEventPage() {
           </div>
         )}
 
-        {/* ═══ STEP: Name ═══ */}
+        {/* ═══ STEP: Name + Birthdate ═══ */}
         {step === "name" && (
           <div className="max-w-md mx-auto">
             <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
-              <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">Your Name</h2>
+              <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">Your Details</h2>
               <p className="text-white/50 text-sm mb-6">
-                Used for heat rosters so your team can see who&apos;s in each session.
+                Used for heat rosters and your activity waiver.
               </p>
               <form onSubmit={handleNameSubmit} className="space-y-4">
-                <input
-                  name="firstName"
-                  type="text"
-                  required
-                  placeholder="First name"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
-                />
-                <input
-                  name="lastName"
-                  type="text"
-                  required
-                  placeholder="Last name"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    name="firstName"
+                    type="text"
+                    required
+                    placeholder="First name"
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
+                  />
+                  <input
+                    name="lastName"
+                    type="text"
+                    required
+                    placeholder="Last name"
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ge-birthdate" className="block text-left text-white/40 text-xs mb-1.5 ml-1">Date of Birth</label>
+                  <input
+                    id="ge-birthdate"
+                    name="birthdate"
+                    type="date"
+                    required
+                    max={new Date().toISOString().split("T")[0]}
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                  />
+                </div>
+                {waiverError && <p className="text-red-400 text-xs">{waiverError}</p>}
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors"
+                  disabled={waiverLoading}
+                  className="w-full py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors disabled:opacity-50"
                 >
-                  Enter Event
+                  {waiverLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
+                      Setting up...
+                    </span>
+                  ) : (
+                    "Continue"
+                  )}
                 </button>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* ═══ STEP: Waiver ═══ */}
+        {step === "waiver" && waiverTemplate && personId && (
+          <div className="max-w-md mx-auto">
+            <WaiverSigning
+              personId={personId}
+              template={waiverTemplate}
+              location="headpinz"
+              onComplete={() => {
+                setWaiverValid(true);
+                setStep("dashboard");
+                fetchExistingRsvp(slug, guest!.email);
+              }}
+            />
           </div>
         )}
 
@@ -668,9 +798,9 @@ export default function GroupEventPage() {
             {/* Event info banner */}
             <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
               <p>
-                <strong className="text-white">Go-Kart Racing, Laser Tag, and Gel Blaster</strong> all require a
-                signed waiver and a pre-booked time slot. You can only book for yourself, but your name will
-                appear on the booking so your coworkers can see who&rsquo;s in each session.
+                <strong className="text-white">Go-Kart Racing, Laser Tag, and Gel Blaster</strong>{" "}
+                all require a signed waiver and a pre-booked time slot. You can only book for yourself,
+                but your name will appear on the booking so your coworkers can see who&rsquo;s in each session.
               </p>
               <p>
                 All other activities are <strong className="text-white">free-flow</strong> and available at your leisure throughout the event.
@@ -1082,45 +1212,86 @@ export default function GroupEventPage() {
               <p className="text-white/50 text-sm">Your reservations are confirmed, {guest.firstName}.</p>
             </div>
 
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
-              {existingReservations.map((r, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white text-sm font-medium">
-                      {r.type === "racing" ? `Go-Kart Racing · ${r.track} Track` : r.type === "gel-blaster" ? "Nexus Gel Blaster" : r.type === "laser-tag" ? "Nexus Laser Tag" : r.type}
-                    </p>
-                    {r.time && <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>}
-                  </div>
-                  <span className="text-emerald-400 text-xs font-semibold">&#10003;</span>
-                </div>
-              ))}
+            {/* Waiver status badge */}
+            <div className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}>
+              <div className="flex items-center justify-center gap-2">
+                {waiverValid ? (
+                  <>
+                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <span className="text-emerald-400 font-bold text-sm">Waiver Signed</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-amber-400 font-bold text-sm">Waiver Pending</span>
+                  </>
+                )}
+              </div>
             </div>
 
-            {/* Waiver CTA — prominent, urgent, reservation-specific link */}
-            <div className="rounded-xl border-2 border-[#E41C1D]/50 bg-[#E41C1D]/10 p-5 text-center space-y-3">
-              <div className="flex items-center justify-center gap-2">
-                <svg className="w-5 h-5 text-[#E41C1D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h3 className="text-white font-bold text-sm uppercase tracking-wider">Complete Your Waiver</h3>
+            {/* Reserved activities */}
+            {existingReservations.length > 0 && (
+              <div>
+                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">Reserved Activities</h3>
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+                  {existingReservations.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-white text-sm font-medium">
+                          {r.type === "racing" ? `Go-Kart Racing · ${r.track} Track` : r.type === "gel-blaster" ? "Nexus Gel Blaster" : r.type === "laser-tag" ? "Nexus Laser Tag" : r.type}
+                        </p>
+                        {r.time && <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-400 text-xs font-semibold">&#10003;</span>
+                        {r.billId && (
+                          <button
+                            onClick={() => handleCancelReservation(r.billId!)}
+                            disabled={cancellingBillId === r.billId}
+                            className="text-white/25 hover:text-red-400 transition-colors text-xs disabled:opacity-50"
+                            title="Cancel this reservation"
+                          >
+                            {cancellingBillId === r.billId ? (
+                              <span className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin inline-block" />
+                            ) : (
+                              "✕"
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="text-white/70 text-sm leading-relaxed">
-                A signed waiver is <strong className="text-white">required</strong> before you can participate
-                in Go-Kart Racing, Gel Blaster, or Laser Tag. Please complete it as soon as possible
-                to avoid delays at check-in.
-              </p>
-              <a
-                href={waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 w-full py-3.5 rounded-xl font-bold text-sm bg-[#E41C1D] hover:bg-[#c62828] text-white transition-colors"
-              >
-                Sign Waiver Now
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-            </div>
+            )}
+
+            {/* Free-flow activities */}
+            {selectedFreeflow.length > 0 && (
+              <div>
+                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">Free-Flow Activities</h3>
+                <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-2">
+                  {selectedFreeflow.map((slug) => {
+                    const attr = freeflowAttractions.find(a => a.slug === slug);
+                    return (
+                      <div key={slug} className="flex items-center gap-3">
+                        <span className="text-[#00E2E5] text-xs">&#10003;</span>
+                        <span className="text-white/70 text-sm">{attr?.label || slug}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {bookingError && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
+                <p className="text-red-400 text-sm">{bookingError}</p>
+              </div>
+            )}
 
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
               <p>&middot; Please arrive <strong className="text-white/60">15 minutes early</strong> for check-in.</p>

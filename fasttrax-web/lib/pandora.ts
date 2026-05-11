@@ -1,0 +1,199 @@
+/**
+ * Shared Pandora client-side helpers and types.
+ *
+ * These wrap the API routes at `/api/pandora` (person CRUD + waiver status)
+ * and `/api/pandora/waiver` (template search + signing). Any feature that
+ * needs waiver flows — group events, express lane, future kiosk check-in —
+ * imports from here instead of duplicating fetch logic.
+ *
+ * Server-side Pandora calls live in the API routes themselves; this file
+ * is purely client-side fetch wrappers + shared type definitions.
+ */
+
+import type { PandoraCenterKey } from "@/lib/pandora-locations";
+
+// ── Person types ─────────────────────────────────────────────────────────────
+
+export interface PandoraPersonCreateInput {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  birthdate?: string;        // "YYYY-MM-DD"
+  guardianID?: string;
+  location?: PandoraCenterKey | string;
+}
+
+export interface PandoraPersonCreateResult {
+  personId: string;
+}
+
+// ── Waiver status types ──────────────────────────────────────────────────────
+
+export interface PandoraWaiverStatus {
+  valid: boolean;
+  personId: string;
+  firstName?: string;
+  lastName?: string;
+  birthdate?: string | null;
+  waiverExpiry?: string | null;
+  lastVisit?: string | null;
+  related?: unknown[];
+  reason?: string;
+}
+
+// ── Waiver template types ────────────────────────────────────────────────────
+
+export interface PandoraWaiverTemplate {
+  /** Pandora internal ID */
+  id: string;
+  /** Used when signing the waiver */
+  contentID: string;
+  name: string;
+  /** Duration in days */
+  duration: number;
+  /** HTML body of the waiver text */
+  body: string;
+}
+
+// ── Waiver sign types ────────────────────────────────────────────────────────
+
+export interface PandoraSignWaiverInput {
+  personID: string;
+  waiverContentID: string;
+  /** Base64 PNG data URL from signature pad (with or without data:image prefix) */
+  signature: string;
+  location?: PandoraCenterKey | string;
+  /** "YYYY-MM-DD" — calculated from template duration. If omitted, API uses default. */
+  invalidationDate?: string;
+}
+
+export interface PandoraSignWaiverResult {
+  ok: boolean;
+  waiverID?: string;
+}
+
+// ── Client-side API helpers ──────────────────────────────────────────────────
+
+/**
+ * Create a person in BMI via Pandora.
+ * Calls POST /api/pandora
+ */
+export async function pandoraCreatePerson(
+  input: PandoraPersonCreateInput,
+): Promise<PandoraPersonCreateResult> {
+  const res = await fetch("/api/pandora", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json();
+  if (!data.personId) {
+    throw new Error(data.error || "Failed to create person");
+  }
+  return { personId: data.personId };
+}
+
+/**
+ * Check a person's waiver status via Pandora.
+ * Calls GET /api/pandora?personId=...&location=...
+ */
+export async function pandoraCheckWaiver(
+  personId: string,
+  location?: string,
+): Promise<PandoraWaiverStatus> {
+  const params = new URLSearchParams({ personId });
+  if (location) params.set("location", location);
+  const res = await fetch(`/api/pandora?${params}`);
+  return res.json();
+}
+
+/**
+ * Fetch the age-appropriate waiver template.
+ * Calls GET /api/pandora/waiver?age=...&location=...
+ */
+export async function pandoraFetchWaiverTemplate(
+  age: number,
+  location?: string,
+): Promise<PandoraWaiverTemplate> {
+  const params = new URLSearchParams({ age: String(age) });
+  if (location) params.set("location", location);
+  const res = await fetch(`/api/pandora/waiver?${params}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.error || "Could not load waiver template");
+  }
+  return res.json();
+}
+
+/**
+ * Sign a waiver via Pandora.
+ * Calls POST /api/pandora/waiver
+ */
+export async function pandoraSignWaiver(
+  input: PandoraSignWaiverInput,
+): Promise<PandoraSignWaiverResult> {
+  const res = await fetch("/api/pandora/waiver", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "Waiver signing failed");
+  }
+  return { ok: true, waiverID: data.waiverID };
+}
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+
+/** Calculate age in years from a "YYYY-MM-DD" birthdate string. */
+export function calculateAge(birthdate: string): number {
+  const born = new Date(birthdate);
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const monthDiff = now.getMonth() - born.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < born.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+/**
+ * Calculate the waiver invalidation date from a template's duration.
+ * Returns "YYYY-MM-DD" string.
+ */
+export function calculateWaiverExpiry(durationDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + (durationDays || 365));
+  return d.toISOString().split("T")[0];
+}
+
+/**
+ * Full waiver onboarding flow: create person → check waiver → fetch template if needed.
+ *
+ * Returns either:
+ *   - `{ personId, waiverValid: true }` if waiver is already signed
+ *   - `{ personId, waiverValid: false, template }` if waiver needs signing
+ */
+export async function pandoraOnboardGuest(
+  input: PandoraPersonCreateInput & { birthdate: string },
+  location?: string,
+): Promise<
+  | { personId: string; waiverValid: true; template: null }
+  | { personId: string; waiverValid: false; template: PandoraWaiverTemplate }
+> {
+  // 1. Create person
+  const { personId } = await pandoraCreatePerson({ ...input, location });
+
+  // 2. Check if waiver already valid
+  const status = await pandoraCheckWaiver(personId, location);
+  if (status.valid) {
+    return { personId, waiverValid: true, template: null };
+  }
+
+  // 3. Fetch age-appropriate waiver template
+  const age = calculateAge(input.birthdate);
+  const template = await pandoraFetchWaiverTemplate(age, location);
+  return { personId, waiverValid: false, template };
+}

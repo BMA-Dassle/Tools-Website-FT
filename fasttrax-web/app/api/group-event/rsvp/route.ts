@@ -25,11 +25,20 @@ function rsvpIndexKey(slug: string): string {
   return `groupevent:${slug}:rsvp-index`;
 }
 
+export interface GroupEventReservation {
+  type: string;
+  track?: string;
+  time?: string;
+  billId?: string;
+}
+
 export interface GroupEventRsvp {
   name: string;
   email: string;
   freeflow: string[];
-  reservations: { type: string; track?: string; time?: string; billId?: string }[];
+  reservations: GroupEventReservation[];
+  /** BMI person ID — preserved across cancels so waiver link survives rebook */
+  personId?: string;
   updatedAt: string;
 }
 
@@ -64,7 +73,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { slug, email, name, freeflow = [], reservations } = body;
+    const { slug, email, name, freeflow = [], reservations, personId } = body;
     if (!slug || !email || !name) {
       return NextResponse.json({ error: "slug, email, name required" }, { status: 400 });
     }
@@ -81,6 +90,8 @@ export async function POST(req: NextRequest) {
       email: email.toLowerCase(),
       freeflow,
       reservations: reservations ?? prev.reservations ?? [],
+      // Preserve personId — survives cancel + rebook so waiver status persists
+      personId: personId || prev.personId,
       updatedAt: new Date().toISOString(),
     };
 
