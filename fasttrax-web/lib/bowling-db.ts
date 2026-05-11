@@ -271,6 +271,7 @@ export async function ensureBowlingSchema(): Promise<void> {
 
   // Lane-ready SMS/email notification sent when lanes are physically ready.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS lane_ready_sent_at TIMESTAMPTZ`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS booking_source TEXT NOT NULL DEFAULT 'web'`;
 
   schemaReady = true;
 }
@@ -487,6 +488,8 @@ export interface BowlingReservation {
   preArrivalSentAt?: string;
   /** ISO timestamp when the lane-ready SMS/email was sent (lanes physically ready). */
   laneReadySentAt?: string;
+  /** Booking origin: "web" (headpinz.com), "kiosk" (K-prefix), "conqueror" (C-prefix staff POS). Defaults to "web". */
+  bookingSource?: "web" | "kiosk" | "conqueror";
   insertedAt: string;
 }
 
@@ -660,6 +663,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     laneReadySentAt: row.lane_ready_sent_at
       ? (row.lane_ready_sent_at as Date).toISOString()
       : undefined,
+    bookingSource: (row.booking_source as BowlingReservation["bookingSource"]) ?? "web",
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -702,7 +706,8 @@ export async function insertBowlingReservation(
       square_gift_card_id, square_gift_card_gan,
       deposit_cents, total_cents, status,
       booked_at, player_count,
-      guest_name, guest_email, guest_phone, notes
+      guest_name, guest_email, guest_phone, notes,
+      booking_source
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -710,7 +715,8 @@ export async function insertBowlingReservation(
       ${r.squareGiftCardId ?? null}, ${r.squareGiftCardGan ?? null},
       ${r.depositCents}, ${r.totalCents}, ${r.status},
       ${r.bookedAt}, ${r.playerCount ?? null},
-      ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null}
+      ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
+      ${r.bookingSource ?? "web"}
     )
     RETURNING *
   `;
@@ -920,6 +926,21 @@ export async function markLaneReadySent(id: number): Promise<void> {
     UPDATE bowling_reservations
     SET lane_ready_sent_at = NOW()
     WHERE id = ${id} AND lane_ready_sent_at IS NULL
+  `;
+}
+
+/**
+ * Write the Square day-of order ID to a reservation (used by walkin/kiosk
+ * reservations that don't have a Square order at booking time).
+ */
+export async function updateSquareDayofOrderId(id: number, orderId: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET square_dayof_order_id = ${orderId}
+    WHERE id = ${id}
   `;
 }
 

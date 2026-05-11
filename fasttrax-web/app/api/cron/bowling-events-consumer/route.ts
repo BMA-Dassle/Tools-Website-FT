@@ -3,13 +3,16 @@ import { randomUUID } from "crypto";
 import redis from "@/lib/redis";
 import {
   getBowlingReservationByQamfId,
+  insertBowlingReservation,
   updateBowlingReservationStatus,
   updateBowlingReservationCancelled,
+  updateSquareDayofOrderId,
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { getReservation } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
+import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
 
 /**
  * GET /api/cron/bowling-events-consumer
@@ -170,16 +173,48 @@ export async function GET(req: NextRequest) {
       const qamfId      = data?.Id ?? "";
       const qamfStatus  = data?.Status ?? "";
 
-      // Only process our web reservations (QAMF IDs start with "X")
-      if (qamfId && !qamfId.startsWith("X")) {
-        console.log(`[bowling-events] skipping non-web qamfId=${qamfId} type=${eventType}`);
+      // Only process tracked prefixes (X=web, K=kiosk, C=conqueror)
+      const TRACKED_PREFIXES = ["X", "K", "C"];
+      const isTracked = !qamfId || TRACKED_PREFIXES.some((p) => qamfId.startsWith(p));
+      if (!isTracked) {
+        console.log(`[bowling-events] skipping untracked qamfId=${qamfId} type=${eventType}`);
         results.skipped++;
         continue;
       }
 
       if (eventType === "reservation.created") {
-        // We create the Neon row ourselves — no action needed
-        console.log(`[bowling-events] reservation.created qamfId=${qamfId} — no action`);
+        if (!qamfId || qamfId.startsWith("X")) {
+          results.skipped++;
+          continue;
+        }
+        // K/C dead-letter: backfill Neon row if missing
+        const existing = await getBowlingReservationByQamfId(qamfId);
+        if (!existing && entry.centerId) {
+          try {
+            const QAMF_ID_TO_CODE: Record<number, string> = { 9172: "TXBSQN0FEKQ11", 3148: "PPTR5G2N0QXF7" };
+            const cc = QAMF_ID_TO_CODE[entry.centerId];
+            if (cc) {
+              const qamfRes = await getReservation(entry.centerId, qamfId);
+              const guest = qamfRes.Customer?.Guest;
+              await insertBowlingReservation({
+                centerCode: cc,
+                productKind: "open",
+                qamfReservationId: qamfId,
+                depositCents: 0, totalCents: 0,
+                status: "confirmed",
+                bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
+                playerCount: qamfRes.TotalPlayers ?? undefined,
+                guestName: guest?.Name ?? undefined,
+                guestEmail: guest?.Email ?? undefined,
+                guestPhone: guest?.PhoneNumber ?? undefined,
+                bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
+              }, []);
+              console.log(`[bowling-events] walkin backfill qamfId=${qamfId}`);
+            }
+          } catch (err) {
+            console.warn(`[bowling-events] walkin backfill failed qamfId=${qamfId}:`, err);
+          }
+        }
         results.skipped++;
         continue;
       }
@@ -195,8 +230,30 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Look up the Neon reservation
-      const reservation = await getBowlingReservationByQamfId(qamfId);
+      // Look up the Neon reservation (backfill K/C if missing)
+      let reservation = await getBowlingReservationByQamfId(qamfId);
+      if (!reservation && (qamfId.startsWith("K") || qamfId.startsWith("C")) && entry.centerId) {
+        try {
+          const QAMF_ID_TO_CODE: Record<number, string> = { 9172: "TXBSQN0FEKQ11", 3148: "PPTR5G2N0QXF7" };
+          const cc = QAMF_ID_TO_CODE[entry.centerId];
+          if (cc) {
+            const qamfRes = await getReservation(entry.centerId, qamfId);
+            const guest = qamfRes.Customer?.Guest;
+            await insertBowlingReservation({
+              centerCode: cc, productKind: "open", qamfReservationId: qamfId,
+              depositCents: 0, totalCents: 0, status: "confirmed",
+              bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
+              playerCount: qamfRes.TotalPlayers ?? undefined,
+              guestName: guest?.Name ?? undefined, guestEmail: guest?.Email ?? undefined,
+              guestPhone: guest?.PhoneNumber ?? undefined,
+              bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
+            }, []);
+            reservation = await getBowlingReservationByQamfId(qamfId);
+          }
+        } catch (err) {
+          console.warn(`[bowling-events] walkin backfill failed qamfId=${qamfId}:`, err);
+        }
+      }
       if (!reservation) {
         console.warn(`[bowling-events] no Neon row for qamfId=${qamfId} type=${eventType}`);
         results.unknown++;
@@ -272,6 +329,26 @@ export async function GET(req: NextRequest) {
                   err instanceof Error ? err.message : err,
                 );
               }
+            }
+          }
+
+          // For walkin reservations without a day-of order, create a $0 one
+          if (!reservation.squareDayofOrderId && reservation.bookingSource !== "web") {
+            try {
+              const { dayofOrderId } = await createWalkinDayofOrder({
+                locationId: reservation.centerCode,
+                guestName: reservation.guestName ?? "Walk-in",
+                playerCount: reservation.playerCount ?? 1,
+                neonId: reservation.id,
+                qamfReservationId: qamfId,
+              });
+              await updateSquareDayofOrderId(reservation.id, dayofOrderId);
+              reservation = { ...reservation, squareDayofOrderId: dayofOrderId };
+            } catch (err) {
+              console.error(
+                `[bowling-events] createWalkinDayofOrder failed neonId=${reservation.id}:`,
+                err instanceof Error ? err.message : err,
+              );
             }
           }
 

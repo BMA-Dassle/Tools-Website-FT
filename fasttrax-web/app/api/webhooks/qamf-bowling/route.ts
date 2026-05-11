@@ -3,14 +3,18 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import redis from "@/lib/redis";
 import {
   getBowlingReservationByQamfId,
+  insertBowlingReservation,
   updateBowlingReservationStatus,
   updateBowlingReservationCancelled,
+  updateSquareDayofOrderId,
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { getReservation, listLanes } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
+import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
+import { shortenUrl } from "@/lib/short-url";
 
 /**
  * QubicaAMF bowling reservation + lane webhook receiver.
@@ -76,6 +80,14 @@ const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
 };
+
+const QAMF_ID_TO_CENTER_CODE: Record<number, string> = {
+  9172: "TXBSQN0FEKQ11",
+  3148: "PPTR5G2N0QXF7",
+};
+
+/** Prefixes we track in Neon. Everything else (F, W, etc.) is ignored. */
+const TRACKED_PREFIXES = ["X", "K", "C"];
 
 /** Multi-key support for HMAC rotation. */
 function loadSecrets(): string[] {
@@ -183,6 +195,130 @@ async function handleCancellation(
   return { refunded, error: hadError };
 }
 
+const WALKIN_SMS_FROM: Record<string, string> = {
+  TXBSQN0FEKQ11: "+12393022155",
+  PPTR5G2N0QXF7: "+12394553755",
+};
+
+/**
+ * Handle reservation.created for K (kiosk) and C (conqueror) reservations.
+ * Creates a Neon row from QAMF data, optionally sends a check-in SMS.
+ *
+ * SMS is skipped when:
+ *  - No guest phone available (common for C/staff-created)
+ *  - Lanes are already Running (K Play Now — guest is headed to the lane)
+ */
+async function handleWalkinCreated(
+  qamfId: string,
+  centerId: number | null,
+): Promise<Record<string, unknown>> {
+  // Dedupe: if Neon row already exists, skip
+  const existing = await getBowlingReservationByQamfId(qamfId);
+  if (existing) {
+    console.log(`[qamf-bowling] walkin ${qamfId} already in Neon neonId=${existing.id} — skip`);
+    return { kind: "skipped", reason: "already-exists", neonId: existing.id };
+  }
+
+  // Resolve center code from webhook centerId
+  const centerCode = centerId ? QAMF_ID_TO_CENTER_CODE[centerId] : undefined;
+  if (!centerCode || !centerId) {
+    console.warn(`[qamf-bowling] walkin ${qamfId} unknown centerId=${centerId}`);
+    return { kind: "skipped", reason: "unknown-center" };
+  }
+
+  // Fetch full reservation data from QAMF
+  let qamfRes;
+  try {
+    qamfRes = await getReservation(centerId, qamfId);
+  } catch (err) {
+    console.error(
+      `[qamf-bowling] walkin ${qamfId} getReservation failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    throw err; // Let dead-letter queue retry
+  }
+
+  const guest = qamfRes.Customer?.Guest;
+  const guestName = guest?.Name ?? null;
+  const guestPhone = guest?.PhoneNumber ?? null;
+  const guestEmail = guest?.Email ?? null;
+  const playerCount = qamfRes.TotalPlayers ?? null;
+  const bookedAt = qamfRes.BookedAt ?? new Date().toISOString();
+  const bookingSource: "kiosk" | "conqueror" = qamfId.startsWith("K") ? "kiosk" : "conqueror";
+
+  const reservation = await insertBowlingReservation(
+    {
+      centerCode,
+      productKind: "open",
+      qamfReservationId: qamfId,
+      depositCents: 0,
+      totalCents: 0,
+      status: "confirmed",
+      bookedAt,
+      playerCount: playerCount ?? undefined,
+      guestName: guestName ?? undefined,
+      guestEmail: guestEmail ?? undefined,
+      guestPhone: guestPhone ?? undefined,
+      notes: qamfRes.Notes ?? qamfRes.Title ?? undefined,
+      bookingSource,
+    },
+    [], // No line items — POS handles pricing
+  );
+
+  console.log(
+    `[qamf-bowling] walkin created neonId=${reservation.id} qamfId=${qamfId}` +
+    ` source=${bookingSource} guest=${guestName ?? "?"} phone=${guestPhone ? "yes" : "no"}`,
+  );
+
+  // Check if lanes are already Running (K Play Now → skip SMS)
+  const lanes = qamfRes.Lanes ?? [];
+  const hasRunningLane = lanes.some((l) => l.Status === "Running");
+
+  // Send check-in SMS if phone available AND lanes not already open
+  let smsOk = false;
+  if (guestPhone && !hasRunningLane) {
+    try {
+      const normalized = guestPhone.replace(/\D/g, "").replace(/^1/, "");
+      if (normalized.length >= 10) {
+        const checkinPath = `/hp/book/bowling/checkin?neonId=${reservation.id}`;
+        const shortCode = await shortenUrl(checkinPath);
+        const link = `https://headpinz.com/s/${shortCode}`;
+        const smsBody = `HeadPinz: Enter bowler names & shoe sizes for your bowling session: ${link}`;
+        const fromNumber = WALKIN_SMS_FROM[centerCode] ?? WALKIN_SMS_FROM.TXBSQN0FEKQ11;
+        const toFormatted = normalized.length === 10 ? `+1${normalized}` : `+${normalized}`;
+
+        const { voxSend } = await import("@/lib/sms-retry");
+        const { logSms } = await import("@/lib/sms-log");
+        const result = await voxSend(toFormatted, smsBody, { fromOverride: fromNumber });
+
+        await logSms({
+          ts: new Date().toISOString(),
+          phone: toFormatted,
+          source: "bowling-lane-ready",
+          status: result.status,
+          ok: result.ok,
+          body: smsBody,
+          provider: result.provider,
+          failedOver: result.failedOver,
+          providerMessageId: result.voxId || result.twilioSid,
+        }).catch(() => void 0);
+
+        smsOk = result.ok;
+        console.log(`[qamf-bowling] walkin SMS neonId=${reservation.id} ok=${smsOk}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[qamf-bowling] walkin SMS failed neonId=${reservation.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  } else if (hasRunningLane) {
+    console.log(`[qamf-bowling] walkin ${qamfId} Play Now — lanes Running, skipping SMS`);
+  }
+
+  return { kind: "walkin-created", neonId: reservation.id, bookingSource, smsOk };
+}
+
 /**
  * Process a single QAMF webhook event inline.
  *
@@ -199,15 +335,21 @@ async function processEvent(
   const qamfId = data?.Id ?? "";
   const qamfStatus = data?.Status ?? "";
 
-  // Only process our web reservations (QAMF IDs start with "X")
-  if (qamfId && !qamfId.startsWith("X")) {
-    console.log(`[qamf-bowling] skipping non-web qamfId=${qamfId} type=${eventType}`);
-    return { kind: "skipped", reason: "non-web" };
+  // Only process tracked prefixes (X=web, K=kiosk, C=conqueror)
+  const isTracked = !qamfId || TRACKED_PREFIXES.some((p) => qamfId.startsWith(p));
+  if (!isTracked) {
+    console.log(`[qamf-bowling] skipping untracked qamfId=${qamfId} type=${eventType}`);
+    return { kind: "skipped", reason: "untracked-prefix" };
   }
 
   if (eventType === "reservation.created") {
-    console.log(`[qamf-bowling] reservation.created qamfId=${qamfId} — no action`);
-    return { kind: "skipped", reason: "created" };
+    if (!qamfId || qamfId.startsWith("X")) {
+      // Web reservations — Neon row already created by /api/bowling/v2/reserve
+      console.log(`[qamf-bowling] reservation.created qamfId=${qamfId} — no action (web)`);
+      return { kind: "skipped", reason: "created-web" };
+    }
+    // K/C reservation — create Neon row + optionally send check-in SMS
+    return await handleWalkinCreated(qamfId, centerId);
   }
 
   if (!qamfId) {
@@ -216,7 +358,17 @@ async function processEvent(
   }
 
   // Look up the Neon reservation
-  const reservation = await getBowlingReservationByQamfId(qamfId);
+  let reservation = await getBowlingReservationByQamfId(qamfId);
+
+  // Backfill: if no Neon row for K/C, create one now (missed reservation.created)
+  if (!reservation && (qamfId.startsWith("K") || qamfId.startsWith("C"))) {
+    console.log(`[qamf-bowling] backfill: creating Neon row for ${qamfId} type=${eventType}`);
+    const created = await handleWalkinCreated(qamfId, centerId);
+    if (created.neonId) {
+      reservation = await getBowlingReservationByQamfId(qamfId);
+    }
+  }
+
   if (!reservation) {
     console.warn(`[qamf-bowling] no Neon row for qamfId=${qamfId} type=${eventType}`);
     return { kind: "unknown", reason: "no-neon-row" };
@@ -271,6 +423,28 @@ async function processEvent(
               err instanceof Error ? err.message : err,
             );
           }
+        }
+      }
+
+      // For walkin reservations without a day-of order, create a $0 one now
+      // so processLaneOpen can add SHIPMENT fulfillment for KDS shoe routing.
+      if (!reservation.squareDayofOrderId && reservation.bookingSource !== "web") {
+        try {
+          const { dayofOrderId } = await createWalkinDayofOrder({
+            locationId: reservation.centerCode,
+            guestName: reservation.guestName ?? "Walk-in",
+            playerCount: reservation.playerCount ?? 1,
+            neonId: reservation.id,
+            qamfReservationId: qamfId,
+          });
+          await updateSquareDayofOrderId(reservation.id, dayofOrderId);
+          reservation = { ...reservation, squareDayofOrderId: dayofOrderId };
+        } catch (err) {
+          console.error(
+            `[qamf-bowling] createWalkinDayofOrder failed neonId=${reservation.id}:`,
+            err instanceof Error ? err.message : err,
+          );
+          // Continue — processLaneOpen will skip Square steps
         }
       }
 
