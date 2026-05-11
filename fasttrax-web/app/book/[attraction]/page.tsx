@@ -30,6 +30,7 @@ import {
   type BmiProposalBlock,
   normalizeLocationSlug,
 } from "@/lib/attractions-data";
+import { getGroupEventForDate } from "@/lib/group-events";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -368,7 +369,8 @@ function AttractionDatePicker({
             const day = i + 1;
             const iso = toISO(viewYear, viewMonth, day);
             const isPast = iso < todayStr;
-            const isAvailable = available.has(iso) && !isPast;
+            const groupEvent = getGroupEventForDate(iso);
+            const isAvailable = available.has(iso) && !isPast && !groupEvent;
             const isSelected = iso === selected;
 
             return (
@@ -376,13 +378,16 @@ function AttractionDatePicker({
                 key={day}
                 onClick={() => isAvailable && onSelect(iso)}
                 disabled={!isAvailable}
+                title={groupEvent ? `Private Event: ${groupEvent.companyName}` : undefined}
                 className={`
                   aspect-square rounded-lg flex items-center justify-center text-sm font-medium transition-all
-                  ${isSelected
-                    ? "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/25"
-                    : isAvailable
-                      ? "text-white hover:bg-white/10 cursor-pointer"
-                      : "text-white/15 cursor-not-allowed"
+                  ${groupEvent
+                    ? "bg-amber-500/15 text-amber-400/60 cursor-not-allowed ring-1 ring-amber-500/30"
+                    : isSelected
+                      ? "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/25"
+                      : isAvailable
+                        ? "text-white hover:bg-white/10 cursor-pointer"
+                        : "text-white/15 cursor-not-allowed"
                   }
                 `}
               >

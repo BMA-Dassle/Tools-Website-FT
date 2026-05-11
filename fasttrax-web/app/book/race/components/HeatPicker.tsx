@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "../data";
 import { bmiPost } from "../data";
 import { heatsConflict, HEAT_CONFLICT_TOOLTIP, violatesMinGapAfter, packageGapTooltip } from "@/lib/heat-conflict";
+import { getGroupEventForDate } from "@/lib/group-events";
 
 interface HeatPickerProps {
   race: ClassifiedProduct;
@@ -153,6 +154,31 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
   const blockPrice = selectedBlock?.prices?.find(p => p.depositKind === 0)?.amount ?? race.price;
   const perUnit = blockPrice;
   const total = selectedBlock ? (blockPrice * quantity).toFixed(2) : null;
+
+  // Safety net: block normal bookings on group event (facility buyout) dates.
+  // Group event pages pass `heatRosters` so they're excluded from this guard.
+  const groupEventBlock = !heatRosters ? getGroupEventForDate(date.split("T")[0]) : null;
+  if (groupEventBlock) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Private Event</h2>
+          <p className="text-white/50 text-sm">{displayDate}</p>
+        </div>
+        <div className="max-w-sm mx-auto rounded-xl border border-amber-500/30 bg-amber-500/8 p-6 text-center space-y-3">
+          <p className="text-amber-300 font-semibold text-sm">
+            This date is reserved for a private event and is not available for public booking.
+          </p>
+          <p className="text-white/40 text-xs">
+            Please choose a different date.
+          </p>
+        </div>
+        <div className="text-center">
+          <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">&larr; Pick a different date</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

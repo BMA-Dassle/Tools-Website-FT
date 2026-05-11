@@ -162,3 +162,9 @@ export function getReservationAttractions(event: GroupEvent): GroupEventAttracti
 export function getFreeflowAttractions(event: GroupEvent): GroupEventAttraction[] {
   return event.attractions.filter((a) => a.type === "freeflow");
 }
+
+/** Returns the group event (facility buyout) on a given date, or null.
+ *  Used by the public booking flow to block dates reserved for private events. */
+export function getGroupEventForDate(date: string): GroupEvent | null {
+  return Object.values(GROUP_EVENTS).find((e) => e.eventDate === date) ?? null;
+}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { bmiGet } from "../data";
+import { getGroupEventForDate } from "@/lib/group-events";
 
 interface DatePickerProps {
   /** Optional product to check availability for. If null, uses a default Starter product. */
@@ -220,25 +221,29 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
               const isMega = megaDates.has(dateStr);
               const isSelected = selected === dateStr;
               const isToday = dateStr === todayStr;
+              const groupEvent = getGroupEventForDate(dateStr);
 
               return (
                 <button
                   key={day}
-                  onClick={() => isAvailable && !isPast && onSelect(dateStr)}
-                  disabled={!isAvailable || isPast}
+                  onClick={() => isAvailable && !isPast && !groupEvent && onSelect(dateStr)}
+                  disabled={!isAvailable || isPast || !!groupEvent}
+                  title={groupEvent ? `Private Event: ${groupEvent.companyName}` : undefined}
                   className={`
                     aspect-square rounded-lg text-sm font-medium transition-all duration-150
-                    ${isSelected
-                      ? isMega
-                        ? "bg-[#A855F7] text-white font-bold shadow-lg shadow-[#A855F7]/30"
-                        : "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
-                      : isAvailable && !isPast
+                    ${groupEvent
+                      ? "bg-amber-500/15 text-amber-400/60 cursor-not-allowed ring-1 ring-amber-500/30"
+                      : isSelected
                         ? isMega
-                          ? "bg-[#A855F7]/20 text-[#C084FC] hover:bg-[#A855F7]/35 cursor-pointer"
-                          : "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
-                        : "text-white/20 cursor-not-allowed"
+                          ? "bg-[#A855F7] text-white font-bold shadow-lg shadow-[#A855F7]/30"
+                          : "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
+                        : isAvailable && !isPast
+                          ? isMega
+                            ? "bg-[#A855F7]/20 text-[#C084FC] hover:bg-[#A855F7]/35 cursor-pointer"
+                            : "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
+                          : "text-white/20 cursor-not-allowed"
                     }
-                    ${isToday && !isSelected ? "ring-1 ring-white/30" : ""}
+                    ${isToday && !isSelected && !groupEvent ? "ring-1 ring-white/30" : ""}
                   `}
                 >
                   {day}
@@ -257,6 +262,10 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-[#A855F7]/20 ring-1 ring-[#A855F7]/50" />
             <span>Mega Track</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-amber-500/15 ring-1 ring-amber-500/30" />
+            <span>Private Event</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-white/5" />
