@@ -466,7 +466,7 @@ function CheckinContent() {
     <div style={{ backgroundColor: BG }} className="min-h-screen">
       <HeadPinzNav />
 
-      <main className="pt-24 sm:pt-32 pb-32 px-4 sm:px-6">
+      <main className="pt-32 sm:pt-36 pb-32 px-4 sm:px-6">
         <div className="max-w-lg mx-auto">
 
           {/* ── Loading ── */}
@@ -552,9 +552,6 @@ function CheckinContent() {
                 >
                   Your Lane is Ready!
                 </h1>
-                {displayLaneLabel && (
-                  <p className="font-heading font-bold text-white text-lg">{displayLaneLabel}</p>
-                )}
                 <p className="text-white/50 text-sm">
                   {centerName}{timeStr ? ` · ${timeStr}` : ""}
                   {reservation?.playerCount ? ` · ${reservation.playerCount} bowler${reservation.playerCount !== 1 ? "s" : ""}` : ""}
@@ -639,12 +636,6 @@ function CheckinContent() {
                     <span className="text-white font-mono">{reservation.qamfReservationId}</span>
                   </div>
                 )}
-                {displayLaneLabel && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/40">Lane</span>
-                    <span className="text-white font-semibold">{displayLaneLabel}</span>
-                  </div>
-                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-white/40">Time</span>
                   <span className="text-white">{timeStr}</span>
@@ -677,13 +668,11 @@ function CheckinContent() {
                 </div>
               </div>
 
-              {displayLaneLabel && (
-                <div className="text-center">
-                  <p className="text-green-400 font-heading font-bold text-sm uppercase tracking-wider">
-                    {displayLaneLabel} is ready
-                  </p>
-                </div>
-              )}
+              <div className="text-center">
+                <p className="text-green-400 font-heading font-bold text-sm uppercase tracking-wider">
+                  Your lane is ready
+                </p>
+              </div>
 
               {/* Bowler cards — all expanded for express check-in */}
               <div className="space-y-3">

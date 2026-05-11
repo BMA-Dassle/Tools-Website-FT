@@ -104,7 +104,7 @@ function buildEmailHtml(
 <tr><td style="background:#141414;border-radius:12px;padding:28px 24px;border:1px solid rgba(255,255,255,0.06);">
   <h1 style="margin:0 0 8px;font-size:22px;color:#ffffff;text-align:center;">Your Lane is Ready!</h1>
   <p style="margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:14px;text-align:center;line-height:1.5;">
-    Hey ${guestName}! ${laneLabel ? `<strong style="color:#4ade80;">${laneLabel}</strong> at ` : "Your lane at "}<strong style="color:#ffffff;">${centerName}</strong> is set up and waiting for you.
+    Hey ${guestName}! Your lane at <strong style="color:#ffffff;">${centerName}</strong> is set up and waiting for you.
   </p>
   <p style="margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:14px;text-align:center;line-height:1.5;">
     Check in from your phone to skip the line, or head to Guest Services when you arrive.
@@ -132,7 +132,8 @@ export async function sendLaneReadyNotification(
   const rawPath = `/hp/book/bowling/checkin?neonId=${reservation.id}`;
   const shortCode = await shortenUrl(rawPath);
   const checkinLink = `${SITE_URL}/s/${shortCode}`;
-  const lanePart = laneLabel ? ` ${laneLabel} is ready!` : " Your lane is ready!";
+  // Don't include lane number — guests will walk to it before staff is ready
+  const lanePart = " Your lane is ready!";
 
   let emailOk = false;
   let smsOk = false;
