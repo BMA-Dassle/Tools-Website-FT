@@ -549,6 +549,8 @@ export async function POST(req: NextRequest) {
     // points immediately) and redeem it against the day-of order (applies
     // discount). The deposit sent to bowling-orders is already reduced by
     // the reward amount on the client side.
+    let rewardFailReason: string | undefined;
+
     if (body.rewardDiscountCents && body.rewardDiscountCents > 0) {
       console.log(
         `[reserve] Reward requested: tierId=${body.rewardTierId} accountId=${body.loyaltyAccountId}` +
@@ -587,6 +589,7 @@ export async function POST(req: NextRequest) {
           if (!redeemRes.ok) {
             const redeemErr = await redeemRes.text();
             console.error(`[reserve] Reward redeem failed: ${redeemErr}`);
+            rewardFailReason = `redeem_failed: ${redeemRes.status} ${redeemErr.slice(0, 200)}`;
             // Redemption failed — delete the reward to return points
             await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
               method: "DELETE",
@@ -597,10 +600,11 @@ export async function POST(req: NextRequest) {
         } else {
           const err = createData.errors?.[0];
           console.error(`[reserve] Reward creation failed: ${err?.code}: ${err?.detail}`);
-          // Don't block the booking — proceed without reward
+          rewardFailReason = `create_failed: ${createRes.status} ${err?.code}: ${err?.detail}`;
         }
       } catch (err) {
         console.error("[reserve] Loyalty reward error:", err);
+        rewardFailReason = `exception: ${err instanceof Error ? err.message : String(err)}`;
         // Clean up if reward was created but redemption threw
         if (loyaltyRewardId) {
           await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
@@ -610,6 +614,15 @@ export async function POST(req: NextRequest) {
           loyaltyRewardId = undefined;
         }
       }
+    } else if (rewardDiscountCents > 0) {
+      // Condition was false — figure out which field is missing
+      const missing = [
+        !body.rewardTierId && "rewardTierId",
+        !body.loyaltyAccountId && "loyaltyAccountId",
+        !body.dayofOrderId && "dayofOrderId",
+        !SQUARE_TOKEN && "SQUARE_TOKEN",
+      ].filter(Boolean);
+      rewardFailReason = `condition_false: missing ${missing.join(",")}`;
     }
 
     // ── Guard: reward discount requires a valid reward ───────────────
@@ -620,9 +633,7 @@ export async function POST(req: NextRequest) {
     if (rewardDiscountCents > 0 && !loyaltyRewardId) {
       console.error(
         `[reserve] Reward discount ${rewardDiscountCents}c requested but no reward created` +
-          ` — failing booking. rewardTierId=${body.rewardTierId}` +
-          ` loyaltyAccountId=${body.loyaltyAccountId}` +
-          ` dayofOrderId=${body.dayofOrderId}`,
+          ` — failing booking. reason=${rewardFailReason}`,
       );
       // Clean up QAMF reservation
       try {
@@ -635,6 +646,7 @@ export async function POST(req: NextRequest) {
         {
           error: "Your reward couldn't be applied right now. Please try again.",
           code: "REWARD_FAILED",
+          debug: rewardFailReason,
         },
         { status: 422 },
       );
