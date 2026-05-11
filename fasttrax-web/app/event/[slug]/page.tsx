@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { getGroupEvent, getReservationAttractions, getFreeflowAttractions } from "@/lib/group-events";
-import type { GroupEvent, GroupEventAttraction, GroupEventMealWindow } from "@/lib/group-events";
+import type { GroupEventAttraction, GroupEventMealWindow } from "@/lib/group-events";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "@/app/book/race/data";
 import { bookRaceHeat, bmiPost } from "@/app/book/race/data";
 import HeatPicker from "@/app/book/race/components/HeatPicker";
@@ -15,7 +15,7 @@ const TRACK_INFO: Record<string, {
   stat: string;
   tagline: string;
   image: string;
-  accent: string; // tailwind color class prefix
+  accent: string;
 }> = {
   Red: {
     title: "Red Track",
@@ -44,11 +44,15 @@ interface GuestInfo {
   displayName: string; // "Eric O."
 }
 
-interface RaceBooking {
-  track: string;
-  heatStart: string;
-  heatEnd: string;
-  billId: string;
+/** An item in the cart — selected but not yet booked in BMI */
+interface CartItem {
+  attractionSlug: string;
+  label: string;
+  track?: string;          // racing only
+  proposal: BmiProposal;
+  block: BmiBlock;
+  /** product ID for booking/book */
+  productId: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -68,7 +72,6 @@ function heatOverlapsMeal(
   eventDate: string,
   meal: GroupEventMealWindow,
 ): boolean {
-  // Parse heat times as local
   const parse = (iso: string) => {
     const clean = iso.replace(/Z$/, "");
     const [dp, tp] = clean.split("T");
@@ -79,13 +82,11 @@ function heatOverlapsMeal(
   };
   const hStart = parse(heatStartIso).getTime();
   const hStop = parse(heatStopIso).getTime();
-  // Meal window on event date
   const [mh1, mm1] = meal.startTime.split(":").map(Number);
   const [mh2, mm2] = meal.endTime.split(":").map(Number);
   const [ey, em, ed] = eventDate.split("-").map(Number);
   const mStart = new Date(ey, em - 1, ed, mh1, mm1).getTime();
   const mStop = new Date(ey, em - 1, ed, mh2, mm2).getTime();
-  // Overlap = heat starts before meal ends AND heat ends after meal starts
   return hStart < mStop && hStop > mStart;
 }
 
@@ -100,22 +101,29 @@ export default function GroupEventPage() {
   const [guest, setGuest] = useState<GuestInfo | null>(null);
   const [gateError, setGateError] = useState("");
 
+  // Cart — items selected but not yet booked
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [confirmedBillId, setConfirmedBillId] = useState<string | null>(null);
+
   // Racing state
   const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
-  const [raceBooking, setRaceBooking] = useState<RaceBooking | null>(null);
   const [heatRosters, setHeatRosters] = useState<Record<string, string[]>>({});
   const [bookingInProgress, setBookingInProgress] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
 
-  // Attraction booking state
+  // Attraction slot picker state
   const [activeAttraction, setActiveAttraction] = useState<GroupEventAttraction | null>(null);
   const [attractionSlots, setAttractionSlots] = useState<BmiProposal[]>([]);
   const [attractionLoading, setAttractionLoading] = useState(false);
-  const [attractionBookings, setAttractionBookings] = useState<{ slug: string; time: string; billId: string }[]>([]);
 
   // Free-flow state
   const [selectedFreeflow, setSelectedFreeflow] = useState<string[]>([]);
   const [freeflowSaved, setFreeflowSaved] = useState(false);
+
+  // Already-confirmed reservations (from previous visit)
+  const [existingReservations, setExistingReservations] = useState<{ type: string; track?: string; time?: string; billId?: string }[]>([]);
+
+  const cartRef = useRef<HTMLDivElement>(null);
 
   // ── Auto-scroll to top on step change ──────────────────────────────────
   useEffect(() => {
@@ -133,7 +141,6 @@ export default function GroupEventPage() {
       if (email && firstName && lastName) {
         setGuest({ email, firstName, lastName, displayName: makeDisplayName(firstName, lastName) });
         setStep("dashboard");
-        // Restore existing RSVP data
         fetchExistingRsvp(slug, email);
       }
     } catch { /* sessionStorage unavailable */ }
@@ -146,13 +153,10 @@ export default function GroupEventPage() {
     try {
       const res = await fetch(`/api/group-event/roster?slug=${slug}`);
       const data = await res.json();
-      // Transform from "Red:2026-06-19T09:00:00" → keyed by heatStart for each track
       const mapped: Record<string, string[]> = {};
       for (const [key, names] of Object.entries(data.rosters || {})) {
-        // key format: "Red:2026-06-19T09:00:00"
         const colonIdx = key.indexOf(":");
         const heatStart = key.slice(colonIdx + 1);
-        // HeatPicker keys by block.start ISO string
         if (!mapped[heatStart]) mapped[heatStart] = [];
         mapped[heatStart].push(...(names as string[]));
       }
@@ -176,12 +180,7 @@ export default function GroupEventPage() {
       const data = await res.json();
       if (data?.freeflow) setSelectedFreeflow(data.freeflow);
       if (data?.reservations?.length) {
-        // Restore race booking if exists
-        const race = data.reservations.find((r: { type: string }) => r.type === "racing");
-        if (race) setRaceBooking(race);
-        // Restore attraction bookings
-        const attrs = data.reservations.filter((r: { type: string }) => r.type !== "racing");
-        if (attrs.length) setAttractionBookings(attrs);
+        setExistingReservations(data.reservations);
       }
     } catch { /* first visit */ }
   }
@@ -199,7 +198,7 @@ export default function GroupEventPage() {
     );
   }
 
-  // ── Gate handler ─────────────────────────────────────────────────────────
+  // ── Gate handlers ───────────────────────────────────────────────────────
 
   function handleGateSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -232,159 +231,220 @@ export default function GroupEventPage() {
     fetchExistingRsvp(slug, email);
   }
 
-  // ── Race booking handler ─────────────────────────────────────────────────
+  // ── Cart helpers ────────────────────────────────────────────────────────
 
-  async function handleRaceHeatConfirm(proposal: BmiProposal, block: BmiBlock) {
-    if (!guest || !selectedTrack || !event) return;
+  function addToCart(item: CartItem) {
+    // Replace if same attraction already in cart
+    setCart(prev => {
+      const filtered = prev.filter(c => c.attractionSlug !== item.attractionSlug);
+      return [...filtered, item];
+    });
+    setStep("dashboard");
+    // Scroll to cart after a tick
+    setTimeout(() => {
+      cartRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+  }
+
+  function removeFromCart(attractionSlug: string) {
+    setCart(prev => prev.filter(c => c.attractionSlug !== attractionSlug));
+  }
+
+  /** Check if an attraction is already selected (in cart) or already confirmed */
+  function isAttractionSelected(attrSlug: string): boolean {
+    return cart.some(c => c.attractionSlug === attrSlug);
+  }
+
+  function isAttractionConfirmed(attrSlug: string): boolean {
+    if (attrSlug === "racing") {
+      return existingReservations.some(r => r.type === "racing");
+    }
+    return existingReservations.some(r => r.type === attrSlug);
+  }
+
+  function getExistingBooking(attrSlug: string) {
+    if (attrSlug === "racing") return existingReservations.find(r => r.type === "racing");
+    return existingReservations.find(r => r.type === attrSlug);
+  }
+
+  function getCartItem(attrSlug: string) {
+    return cart.find(c => c.attractionSlug === attrSlug);
+  }
+
+  // ── Racing heat → add to cart (no immediate BMI call) ───────────────────
+
+  function handleRaceHeatSelect(proposal: BmiProposal, block: BmiBlock) {
+    if (!selectedTrack || !event) return;
+    const trackConfig = event.attractions
+      .find(a => a.slug === "racing")
+      ?.bmiTracks?.find(t => t.track === selectedTrack);
+    if (!trackConfig) return;
+
+    addToCart({
+      attractionSlug: "racing",
+      label: `Go-Kart Racing · ${selectedTrack} Track`,
+      track: selectedTrack,
+      proposal,
+      block,
+      productId: trackConfig.productId,
+    });
+  }
+
+  // ── Attraction slot → add to cart (no immediate BMI call) ───────────────
+
+  function handleAttractionSlotSelect(attraction: GroupEventAttraction, proposal: BmiProposal, block: BmiBlock) {
+    addToCart({
+      attractionSlug: attraction.slug,
+      label: attraction.label,
+      proposal,
+      block,
+      productId: attraction.bmiProductId!,
+    });
+  }
+
+  // ── Confirm all — book everything on ONE BMI bill ───────────────────────
+
+  async function handleConfirmAll() {
+    if (!guest || !event || cart.length === 0) return;
     setBookingInProgress(true);
     setBookingError(null);
 
     try {
-      const trackConfig = event.attractions
-        .find(a => a.slug === "racing")
-        ?.bmiTracks?.find(t => t.track === selectedTrack);
-      if (!trackConfig) throw new Error("Track config not found");
+      let orderId: string | null = null;
+      const bookedItems: { type: string; track?: string; time: string; billId: string }[] = [];
 
-      // Build a ClassifiedProduct stub for bookRaceHeat
-      const product: ClassifiedProduct = {
-        productId: trackConfig.productId,
-        pageId: trackConfig.pageId,
-        name: `Starter Race ${selectedTrack}`,
-        tier: "starter",
-        category: "adult",
-        track: selectedTrack,
-        price: 0,
-        isCombo: false,
-        packType: "none",
-        raceCount: 1,
-        sessionGroup: "Karting",
-        raw: {
-          id: Number(trackConfig.productId),
-          name: `Starter Race ${selectedTrack}`,
-          info: "",
-          hasPicture: false,
-          isCombo: false,
-          minAge: null,
-          maxAge: null,
-          isMembersOnly: false,
-          minAmount: -1,
-          maxAmount: 10,
-          resourceKind: "Race",
-          kind: 2,
-          bookingMode: 0,
-          productGroup: "Karting",
-          prices: [{ amount: 0, kind: 0, shortName: "m", depositKind: 0 }],
-          resources: [],
-          dynamicGroups: null,
-          xRef: null,
-        },
-      };
+      for (const item of cart) {
+        if (item.attractionSlug === "racing") {
+          // Racing uses bookRaceHeat which supports existingOrderId chaining
+          const trackConfig = event.attractions
+            .find(a => a.slug === "racing")
+            ?.bmiTracks?.find(t => t.track === item.track);
+          if (!trackConfig) throw new Error("Track config not found");
 
-      // Book the heat
-      const { rawOrderId } = await bookRaceHeat(product, 1, proposal);
+          const product: ClassifiedProduct = {
+            productId: trackConfig.productId,
+            pageId: trackConfig.pageId,
+            name: `Starter Race ${item.track}`,
+            tier: "starter",
+            category: "adult",
+            track: item.track!,
+            price: 0,
+            isCombo: false,
+            packType: "none",
+            raceCount: 1,
+            sessionGroup: "Karting",
+            raw: {
+              id: Number(trackConfig.productId),
+              name: `Starter Race ${item.track}`,
+              info: "",
+              hasPicture: false,
+              isCombo: false,
+              minAge: null,
+              maxAge: null,
+              isMembersOnly: false,
+              minAmount: -1,
+              maxAmount: 10,
+              resourceKind: "Race",
+              kind: 2,
+              bookingMode: 0,
+              productGroup: "Karting",
+              prices: [{ amount: 0, kind: 0, shortName: "m", depositKind: 0 }],
+              resources: [],
+              dynamicGroups: null,
+              xRef: null,
+            },
+          };
 
-      // Close at $0 — credit path
-      const confirmBody = JSON.stringify({
-        id: crypto.randomUUID(),
-        paymentTime: new Date().toISOString(),
-        amount: 0,
-        orderId: Number(rawOrderId),
-        depositKind: 2,
-      });
-      await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "payment/confirm" }), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: confirmBody,
-      });
+          const { rawOrderId } = await bookRaceHeat(product, 1, item.proposal, orderId);
+          orderId = rawOrderId;
+          bookedItems.push({ type: "racing", track: item.track, time: item.block.start, billId: rawOrderId });
 
-      const booking: RaceBooking = {
-        track: selectedTrack,
-        heatStart: block.start,
-        heatEnd: block.stop,
-        billId: rawOrderId,
-      };
-      setRaceBooking(booking);
+          // Record on roster immediately
+          await fetch("/api/group-event/roster", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              slug,
+              track: item.track,
+              heatStart: item.block.start,
+              email: guest.email,
+              displayName: guest.displayName,
+            }),
+          });
+        } else {
+          // Gel blaster / laser tag — booking/book with orderId chaining
+          const payload: Record<string, unknown> = {
+            productId: item.productId,
+            quantity: 1,
+            resourceId: Number(item.proposal.blocks[0]?.block.resourceId) || -1,
+            proposal: {
+              blocks: item.proposal.blocks.map(pb => ({
+                productLineIds: pb.productLineIds || [],
+                block: { ...pb.block, resourceId: Number(pb.block.resourceId) || -1 },
+              })),
+              productLineId: item.proposal.productLineId ?? null,
+            },
+          };
 
-      // Record on roster
-      await fetch("/api/group-event/roster", {
+          // Inject orderId as raw number if chaining onto existing bill
+          let bodyJson = JSON.stringify(payload);
+          if (orderId) {
+            bodyJson = `{"orderId":${orderId},` + bodyJson.slice(1);
+          }
+
+          const bookRes = await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "booking/book" }), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: bodyJson,
+          });
+          const rawText = await bookRes.text();
+          const orderIdMatch = rawText.match(/"orderId"\s*:\s*(\d+)/);
+          if (!orderIdMatch) {
+            console.error("[group-event] booking/book failed:", rawText.substring(0, 300));
+            throw new Error(`Failed to book ${item.label}`);
+          }
+          orderId = orderIdMatch[1];
+          bookedItems.push({ type: item.attractionSlug, time: item.block.start, billId: orderId });
+        }
+      }
+
+      // Close the combined bill at $0 — use raw string injection to avoid
+      // Number() precision loss on large BMI orderIds (see CLAUDE.md)
+      if (orderId) {
+        const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":2}`;
+        const confirmRes = await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "payment/confirm" }), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: confirmBody,
+        });
+        if (!confirmRes.ok) {
+          console.error("[group-event] payment/confirm failed:", await confirmRes.text());
+        }
+      }
+
+      // Save all reservations to RSVP record
+      const existing = await fetch(`/api/group-event/rsvp?slug=${slug}&email=${encodeURIComponent(guest.email)}`).then(r => r.json()).catch(() => null);
+      const prevReservations = existing?.reservations || [];
+      await fetch("/api/group-event/rsvp", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           slug,
-          track: selectedTrack,
-          heatStart: block.start,
           email: guest.email,
-          displayName: guest.displayName,
+          name: guest.displayName,
+          freeflow: selectedFreeflow,
+          reservations: [...prevReservations, ...bookedItems],
         }),
       });
 
-      // Save to RSVP record
-      await saveRsvp({ type: "racing", track: selectedTrack, time: block.start, billId: rawOrderId });
-
-      setStep("dashboard");
+      setConfirmedBillId(orderId);
+      setExistingReservations(prev => [...prev, ...bookedItems]);
+      setCart([]);
+      setStep("confirmation");
       fetchRosters();
     } catch (err) {
-      console.error("[group-event] Race booking failed:", err);
-      setBookingError("Booking failed. Please try again.");
-    } finally {
-      setBookingInProgress(false);
-    }
-  }
-
-  // ── Attraction booking handler ───────────────────────────────────────────
-
-  async function handleAttractionBook(attraction: GroupEventAttraction, proposal: BmiProposal, block: BmiBlock) {
-    if (!guest) return;
-    setBookingInProgress(true);
-    setBookingError(null);
-
-    try {
-      // Book via attractions-data bookAttractionSlot pattern
-      const payload: Record<string, unknown> = {
-        productId: attraction.bmiProductId,
-        quantity: 1,
-        resourceId: Number(proposal.blocks[0]?.block.resourceId) || -1,
-        proposal: {
-          blocks: proposal.blocks.map(pb => ({
-            productLineIds: pb.productLineIds || [],
-            block: { ...pb.block, resourceId: Number(pb.block.resourceId) || -1 },
-          })),
-          productLineId: proposal.productLineId ?? null,
-        },
-      };
-
-      const bookRes = await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "booking/book" }), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const rawText = await bookRes.text();
-      const orderIdMatch = rawText.match(/"orderId"\s*:\s*(\d+)/);
-      if (!orderIdMatch) throw new Error("Booking failed");
-      const rawOrderId = orderIdMatch[1];
-
-      // Close at $0
-      await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "payment/confirm" }), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          id: crypto.randomUUID(),
-          paymentTime: new Date().toISOString(),
-          amount: 0,
-          orderId: Number(rawOrderId),
-          depositKind: 2,
-        }),
-      });
-
-      const newBooking = { slug: attraction.slug, time: block.start, billId: rawOrderId };
-      setAttractionBookings(prev => [...prev, newBooking]);
-      await saveRsvp({ type: attraction.slug, time: block.start, billId: rawOrderId });
-
-      setActiveAttraction(null);
-      setStep("dashboard");
-    } catch (err) {
-      console.error("[group-event] Attraction booking failed:", err);
-      setBookingError("Booking failed. Please try again.");
+      console.error("[group-event] Booking failed:", err);
+      setBookingError(err instanceof Error ? err.message : "Booking failed. Please try again.");
     } finally {
       setBookingInProgress(false);
     }
@@ -439,27 +499,6 @@ export default function GroupEventPage() {
     } catch (err) {
       console.error("[group-event] Failed to save freeflow:", err);
     }
-  }
-
-  // ── RSVP helper ──────────────────────────────────────────────────────────
-
-  async function saveRsvp(newReservation: { type: string; track?: string; time?: string; billId?: string }) {
-    if (!guest) return;
-    // Get current record and append
-    const existing = await fetch(`/api/group-event/rsvp?slug=${slug}&email=${encodeURIComponent(guest.email)}`).then(r => r.json()).catch(() => null);
-    const reservations = existing?.reservations || [];
-    reservations.push(newReservation);
-    await fetch("/api/group-event/rsvp", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        slug,
-        email: guest.email,
-        name: guest.displayName,
-        freeflow: selectedFreeflow,
-        reservations,
-      }),
-    });
   }
 
   // ── Time formatting ──────────────────────────────────────────────────────
@@ -582,8 +621,8 @@ export default function GroupEventPage() {
                   sessionStorage.removeItem(sessionKey(slug, "firstName"));
                   sessionStorage.removeItem(sessionKey(slug, "lastName"));
                   setGuest(null);
-                  setRaceBooking(null);
-                  setAttractionBookings([]);
+                  setCart([]);
+                  setExistingReservations([]);
                   setSelectedFreeflow([]);
                   setStep("gate");
                 }}
@@ -624,22 +663,22 @@ export default function GroupEventPage() {
               </h3>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 {reservationAttractions.map((attr) => {
-                  const isRacing = attr.slug === "racing";
-                  const bookingCount = isRacing
-                    ? (raceBooking ? 1 : 0)
-                    : attractionBookings.filter(b => b.slug === attr.slug).length;
-                  const maxAllowed = attr.maxPerGuest ?? Infinity;
-                  const isBooked = bookingCount >= maxAllowed;
-                  const booking = isRacing
-                    ? raceBooking
-                    : attractionBookings.find(b => b.slug === attr.slug);
+                  const confirmed = isAttractionConfirmed(attr.slug);
+                  const inCart = isAttractionSelected(attr.slug);
+                  const cartItem = getCartItem(attr.slug);
+                  const existingBooking = getExistingBooking(attr.slug);
+                  const isDone = confirmed || inCart;
 
                   return (
                     <button
                       key={attr.slug}
                       onClick={() => {
-                        if (isBooked) return;
-                        if (isRacing) {
+                        if (confirmed) return;
+                        if (inCart) {
+                          // Allow re-picking by removing from cart and opening picker
+                          removeFromCart(attr.slug);
+                        }
+                        if (attr.slug === "racing") {
                           setStep("racing-track");
                         } else {
                           setActiveAttraction(attr);
@@ -647,12 +686,14 @@ export default function GroupEventPage() {
                           setStep("attraction-slots");
                         }
                       }}
-                      disabled={isBooked}
+                      disabled={confirmed}
                       className={`
                         w-full rounded-xl border overflow-hidden text-left transition-all
-                        ${isBooked
+                        ${confirmed
                           ? "border-emerald-500/30"
-                          : "border-white/10 hover:border-white/25 cursor-pointer"
+                          : inCart
+                            ? "border-[#00E2E5]/40 ring-1 ring-[#00E2E5]/20"
+                            : "border-white/10 hover:border-white/25 cursor-pointer"
                         }
                       `}
                     >
@@ -662,33 +703,38 @@ export default function GroupEventPage() {
                           <img
                             src={attr.image}
                             alt={attr.label}
-                            className={`w-full h-full object-cover object-top ${isBooked ? "opacity-50" : ""}`}
+                            className={`w-full h-full object-cover object-top ${isDone ? "opacity-50" : ""}`}
                           />
                         ) : (
                           <div className="w-full h-full bg-white/5" />
                         )}
-                        {/* Gradient overlay — heavy bottom fade for text legibility */}
                         <div className="absolute inset-0 bg-gradient-to-t from-[#000418] via-[#000418]/70 to-[#000418]/20" />
-                        {/* Label */}
                         <div className="absolute bottom-0 left-0 right-0 p-4">
                           <div className="flex items-center gap-2">
                             <span className="text-white font-bold text-base">{attr.label}</span>
-                            {isBooked && (
-                              <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">&#10003; Booked</span>
+                            {confirmed && (
+                              <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">&#10003; Confirmed</span>
+                            )}
+                            {inCart && !confirmed && (
+                              <span className="text-[#00E2E5] text-xs font-semibold bg-[#00E2E5]/15 px-2 py-0.5 rounded-full">Selected</span>
                             )}
                           </div>
                           <p className="text-white/50 text-xs mt-0.5">{attr.description}</p>
-                          {isBooked && booking && (
+                          {confirmed && existingBooking && (
                             <p className="text-emerald-400/70 text-xs mt-1 font-medium">
-                              {isRacing && raceBooking
-                                ? `${raceBooking.track} Track · ${formatTime(raceBooking.heatStart)}`
-                                : "time" in (booking as { time?: string })
-                                  ? formatTime((booking as { time: string }).time)
-                                  : "Reserved"
+                              {existingBooking.track
+                                ? `${existingBooking.track} Track · ${formatTime(existingBooking.time!)}`
+                                : formatTime(existingBooking.time!)
                               }
                             </p>
                           )}
-                          {!isBooked && (
+                          {inCart && cartItem && (
+                            <p className="text-[#00E2E5]/70 text-xs mt-1 font-medium">
+                              {cartItem.track ? `${cartItem.track} Track · ` : ""}{formatTime(cartItem.block.start)}
+                              <span className="text-white/30 ml-2">(tap to change)</span>
+                            </p>
+                          )}
+                          {!isDone && (
                             <p className="text-[#00E2E5] text-xs font-semibold mt-1">Tap to reserve &rsaquo;</p>
                           )}
                         </div>
@@ -737,6 +783,62 @@ export default function GroupEventPage() {
                   <p className="text-emerald-400 text-xs text-center animate-pulse">Saved!</p>
                 )}
               </div>
+            </div>
+
+            {/* ── Cart: Your Selections ── */}
+            <div ref={cartRef}>
+              {cart.length > 0 && (
+                <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-5 space-y-4">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Your Reservations</h3>
+                  <div className="space-y-2">
+                    {cart.map((item) => (
+                      <div key={item.attractionSlug} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+                        <div>
+                          <p className="text-white text-sm font-medium">{item.label}</p>
+                          <p className="text-[#00E2E5]/70 text-xs">{formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}</p>
+                        </div>
+                        <button
+                          onClick={() => removeFromCart(item.attractionSlug)}
+                          className="text-white/30 hover:text-red-400 transition-colors text-xs"
+                          aria-label={`Remove ${item.label}`}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {bookingError && (
+                    <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
+                      <p className="text-red-400 text-sm">{bookingError}</p>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleConfirmAll}
+                    disabled={bookingInProgress}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {bookingInProgress ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
+                        Confirming reservations...
+                      </span>
+                    ) : (
+                      `Confirm ${cart.length} Reservation${cart.length === 1 ? "" : "s"}`
+                    )}
+                  </button>
+                  <p className="text-white/30 text-[11px] text-center">
+                    All reservations will be booked together under your name.
+                  </p>
+                </div>
+              )}
+
+              {cart.length === 0 && !existingReservations.length && (
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-center">
+                  <p className="text-white/30 text-sm">Select your activities above, then confirm them all at once here.</p>
+                </div>
+              )}
             </div>
 
             {/* Info footer */}
@@ -810,16 +912,6 @@ export default function GroupEventPage() {
         {/* ═══ STEP: Heat Picker ═══ */}
         {step === "racing-heat" && selectedTrack && (
           <div className="space-y-6">
-            {bookingError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/8 p-4 text-center">
-                <p className="text-red-400 text-sm">{bookingError}</p>
-              </div>
-            )}
-            {bookingInProgress && (
-              <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/8 p-4 text-center">
-                <p className="text-[#00E2E5] text-sm animate-pulse">Booking your race...</p>
-              </div>
-            )}
             <HeatPicker
               race={{
                 productId: event.attractions.find(a => a.slug === "racing")!.bmiTracks!.find(t => t.track === selectedTrack)!.productId,
@@ -857,9 +949,9 @@ export default function GroupEventPage() {
               date={event.eventDate}
               quantity={1}
               onQuantityChange={() => {}}
-              onConfirm={handleRaceHeatConfirm}
+              onConfirm={handleRaceHeatSelect}
               onBack={() => setStep("racing-track")}
-              confirmLabel="Book This Heat"
+              confirmLabel="Select This Heat"
               packageMode={true}
               immediateConfirm={false}
               heatRosters={heatRosters}
@@ -880,17 +972,6 @@ export default function GroupEventPage() {
               <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">{activeAttraction.label}</h2>
               <p className="text-white/50 text-sm">Pick a session time</p>
             </div>
-
-            {bookingError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/8 p-4 text-center">
-                <p className="text-red-400 text-sm">{bookingError}</p>
-              </div>
-            )}
-            {bookingInProgress && (
-              <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/8 p-4 text-center">
-                <p className="text-[#00E2E5] text-sm animate-pulse">Booking...</p>
-              </div>
-            )}
 
             {attractionLoading ? (
               <div className="h-48 flex items-center justify-center">
@@ -913,10 +994,10 @@ export default function GroupEventPage() {
                     <button
                       key={idx}
                       onClick={() => {
-                        if (isFull || bookingInProgress) return;
-                        handleAttractionBook(activeAttraction, proposal, block);
+                        if (isFull) return;
+                        handleAttractionSlotSelect(activeAttraction, proposal, block);
                       }}
-                      disabled={isFull || bookingInProgress}
+                      disabled={isFull}
                       className={`
                         rounded-xl border p-3 text-left transition-all duration-150
                         ${isFull
@@ -951,6 +1032,50 @@ export default function GroupEventPage() {
               className="text-sm text-white/40 hover:text-white/70 transition-colors"
             >
               &larr; Back to activities
+            </button>
+          </div>
+        )}
+
+        {/* ═══ STEP: Confirmation ═══ */}
+        {step === "confirmation" && guest && (
+          <div className="max-w-md mx-auto space-y-6">
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">You&rsquo;re All Set!</h2>
+              <p className="text-white/50 text-sm">Your reservations are confirmed, {guest.firstName}.</p>
+            </div>
+
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+              {existingReservations.map((r, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white text-sm font-medium">
+                      {r.type === "racing" ? `Go-Kart Racing · ${r.track} Track` : r.type === "gel-blaster" ? "Nexus Gel Blaster" : r.type === "laser-tag" ? "Nexus Laser Tag" : r.type}
+                    </p>
+                    {r.time && <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>}
+                  </div>
+                  <span className="text-emerald-400 text-xs font-semibold">&#10003;</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
+              <p>&middot; Please arrive <strong className="text-white/60">15 minutes early</strong> for check-in.</p>
+              <p>&middot; Don&rsquo;t forget to sign your <strong className="text-white/60">waiver</strong> before the event.</p>
+              {event.includesLicense && (
+                <p>&middot; Racing license fee is <strong className="text-white/60">included</strong> &mdash; no charge.</p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setStep("dashboard")}
+              className="w-full py-3 rounded-xl font-bold text-sm border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
+            >
+              &larr; Back to Activities
             </button>
           </div>
         )}
