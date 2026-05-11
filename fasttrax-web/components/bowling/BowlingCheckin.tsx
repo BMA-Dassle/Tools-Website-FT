@@ -526,6 +526,7 @@ function CheckinContent() {
               {/* Express Check-In */}
               <button
                 type="button"
+                aria-label="Express Check-In"
                 onClick={() => setStage("express")}
                 className="w-full rounded-2xl border p-6 text-left transition-all hover:scale-[1.01] active:scale-[0.99]"
                 style={{
@@ -549,6 +550,7 @@ function CheckinContent() {
               {/* Guest Services */}
               <button
                 type="button"
+                aria-label="Guest Services"
                 onClick={() => setStage("guest-services")}
                 className="w-full rounded-2xl border border-white/15 bg-white/[0.03] p-6 text-left transition-all hover:scale-[1.01] active:scale-[0.99] hover:bg-white/[0.05]"
               >
