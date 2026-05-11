@@ -518,6 +518,21 @@ export default function GroupEventPage() {
             <div className="text-center">
               <p className="text-white/50 text-sm">Welcome, <span className="text-white font-semibold">{guest.firstName}</span>!</p>
               <p className="text-white/30 text-xs mt-1">Choose your activities below</p>
+              <button
+                onClick={() => {
+                  sessionStorage.removeItem(sessionKey(slug, "email"));
+                  sessionStorage.removeItem(sessionKey(slug, "firstName"));
+                  sessionStorage.removeItem(sessionKey(slug, "lastName"));
+                  setGuest(null);
+                  setRaceBooking(null);
+                  setAttractionBookings([]);
+                  setSelectedFreeflow([]);
+                  setStep("gate");
+                }}
+                className="text-white/30 text-xs mt-2 hover:text-white/60 underline underline-offset-2 transition-colors"
+              >
+                Not {guest.firstName}? Switch account
+              </button>
             </div>
 
             {/* Reservation-based activities */}
