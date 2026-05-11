@@ -557,9 +557,13 @@ export async function POST(req: NextRequest) {
           ` orderId=${body.dayofOrderId} discount=${body.rewardDiscountCents}c token=${SQUARE_TOKEN ? "yes" : "NO"}`,
       );
     }
-    if (body.rewardTierId && body.loyaltyAccountId && body.dayofOrderId && SQUARE_TOKEN) {
+    if (body.rewardTierId && body.loyaltyAccountId && SQUARE_TOKEN) {
       try {
-        // 1. Create reward → ISSUED status, points deducted immediately
+        // Create reward → ISSUED status, points deducted immediately.
+        // Do NOT pass order_id — Square auto-attaches and then blocks
+        // explicit redeem ("Cannot explicitly redeem rewards attached to
+        // an order"). We track the discount ourselves via rewardDiscountCents
+        // and delete the reward on cancellation to return points.
         const createRes = await fetch(`${SQUARE_BASE}/loyalty/rewards`, {
           method: "POST",
           headers: sqLoyaltyHeaders(),
@@ -567,36 +571,14 @@ export async function POST(req: NextRequest) {
             reward: {
               loyalty_account_id: body.loyaltyAccountId,
               reward_tier_id: body.rewardTierId,
-              order_id: body.dayofOrderId,
             },
-            idempotency_key: `reward-${body.dayofOrderId}-${body.rewardTierId}`,
+            idempotency_key: `reward-${qamfReservationId}-${body.rewardTierId}`,
           }),
         });
         const createData = await createRes.json();
         if (createRes.ok && createData.reward?.id) {
           loyaltyRewardId = createData.reward.id;
           console.log(`[reserve] Loyalty reward created: ${loyaltyRewardId} (${rewardDiscountCents}c off)`);
-
-          // 2. Redeem reward → applies discount to the day-of order
-          const redeemRes = await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}/redeem`, {
-            method: "POST",
-            headers: sqLoyaltyHeaders(),
-            body: JSON.stringify({
-              idempotency_key: `redeem-${loyaltyRewardId}`,
-              location_id: squareLocationId,
-            }),
-          });
-          if (!redeemRes.ok) {
-            const redeemErr = await redeemRes.text();
-            console.error(`[reserve] Reward redeem failed: ${redeemErr}`);
-            rewardFailReason = `redeem_failed: ${redeemRes.status} ${redeemErr.slice(0, 200)}`;
-            // Redemption failed — delete the reward to return points
-            await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
-              method: "DELETE",
-              headers: sqLoyaltyHeaders(),
-            }).catch(() => {});
-            loyaltyRewardId = undefined;
-          }
         } else {
           const err = createData.errors?.[0];
           console.error(`[reserve] Reward creation failed: ${err?.code}: ${err?.detail}`);
@@ -605,7 +587,7 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error("[reserve] Loyalty reward error:", err);
         rewardFailReason = `exception: ${err instanceof Error ? err.message : String(err)}`;
-        // Clean up if reward was created but redemption threw
+        // Clean up if reward was created but threw afterwards
         if (loyaltyRewardId) {
           await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
             method: "DELETE",
@@ -619,7 +601,6 @@ export async function POST(req: NextRequest) {
       const missing = [
         !body.rewardTierId && "rewardTierId",
         !body.loyaltyAccountId && "loyaltyAccountId",
-        !body.dayofOrderId && "dayofOrderId",
         !SQUARE_TOKEN && "SQUARE_TOKEN",
       ].filter(Boolean);
       rewardFailReason = `condition_false: missing ${missing.join(",")}`;
