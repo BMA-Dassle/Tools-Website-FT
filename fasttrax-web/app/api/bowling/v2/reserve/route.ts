@@ -634,10 +634,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // When reward covers the full deposit ($0 to charge), skip the bowling-orders
-    // call entirely. The day-of order already exists from the quote step and the
-    // reward has been applied above. No card payment needed.
-    const actualDepositToCharge = body.depositCents ?? Math.round((preTaxTotalCents * overallDepositPct) / 100);
+    // ── Re-fetch order total after reward (authoritative price) ─────
+    // When a reward is attached, Square recalculates the order total
+    // (discount + tax adjustment). Re-fetch so the deposit is based on
+    // the actual Square total, not the client's pre-reward estimate.
+    let orderTotalAfterReward: number | undefined;
+    if (loyaltyRewardId && body.dayofOrderId) {
+      try {
+        const orderRes = await fetch(`${SQUARE_BASE}/orders/${body.dayofOrderId}`, {
+          headers: sqLoyaltyHeaders(),
+        });
+        if (orderRes.ok) {
+          const orderData = await orderRes.json();
+          orderTotalAfterReward = orderData.order?.total_money?.amount as number | undefined;
+          console.log(
+            `[reserve] Order total after reward: ${orderTotalAfterReward}c` +
+              ` (was ${body.dayofTotalCents ?? "?"}c before reward)`,
+          );
+        }
+      } catch {
+        // Non-fatal — fall back to client-provided values
+      }
+    }
+
+    // Use the reward-adjusted total from Square when available;
+    // otherwise fall back to the client-provided day-of total.
+    const authoritativeTotalCents = orderTotalAfterReward ?? body.dayofTotalCents ?? preTaxTotalCents;
+    const actualDepositToCharge = loyaltyRewardId
+      ? Math.round((authoritativeTotalCents * overallDepositPct) / 100)
+      : (body.depositCents ?? Math.round((preTaxTotalCents * overallDepositPct) / 100));
+
+    if (loyaltyRewardId) {
+      console.log(
+        `[reserve] Deposit calc: ${authoritativeTotalCents}c × ${overallDepositPct}% = ${actualDepositToCharge}c`,
+      );
+    }
 
     if (actualDepositToCharge > 0 && body.squareToken) {
       const origin = req.nextUrl.origin;
@@ -653,12 +684,11 @@ export async function POST(req: NextRequest) {
           squareCustomerId: body.squareCustomerId,
           note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
           // Pass pre-created day-of order if provided (avoids duplicate creation).
-          // Also forward the pre-computed deposit amount so bowling-orders uses
-          // the exact figure shown to the customer rather than recalculating.
+          // Use the reward-adjusted total/deposit when a reward was applied.
           ...(body.dayofOrderId ? {
             existingDayofOrderId: body.dayofOrderId,
-            existingDayofTotalCents: body.dayofTotalCents,
-            existingDepositCents: body.depositCents,
+            existingDayofTotalCents: authoritativeTotalCents,
+            existingDepositCents: actualDepositToCharge,
           } : {}),
         }),
       });
@@ -697,12 +727,12 @@ export async function POST(req: NextRequest) {
       squareGiftCardId = sqData.giftCardId ?? undefined;
       squareGiftCardGan = sqData.giftCardGan ?? undefined;
       depositCents = sqData.depositPaidCents ?? 0;
-      totalCents = sqData.dayofTotalCents ?? preTaxTotalCents;
+      totalCents = sqData.dayofTotalCents ?? authoritativeTotalCents;
     } else {
       // $0 deposit (reward covered it) or no token — day-of order from quote
       squareDayofOrderId = body.dayofOrderId;
       depositCents = 0;
-      totalCents = body.dayofTotalCents ?? preTaxTotalCents;
+      totalCents = authoritativeTotalCents;
     }
   }
 
