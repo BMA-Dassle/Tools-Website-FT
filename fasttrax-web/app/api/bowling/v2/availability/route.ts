@@ -219,9 +219,20 @@ export async function GET(req: NextRequest) {
       const nowH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
       const nowM = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
       let nowTotalMin = nowH * 60 + nowM;
-      // Post-midnight (0–2 AM) → 24*60+ so it compares correctly with 24+ hour chips
-      if (nowH < 6) nowTotalMin += 24 * 60;
-      earliestMin = Math.max(earliestMin, nowTotalMin + 15);
+      // Post-midnight (0–2 AM) → convert to 24+ notation so late-night
+      // Fri/Sat slots (hour 24–26) are correctly gated. BUT only apply
+      // this when the center actually HAS post-midnight hours (closeHour > 24,
+      // i.e. Fri/Sat). On other days, pre-opening browsing (e.g. 3 AM on
+      // Monday) should just use openHour as the floor — the +24*60 shift
+      // would push earliestMin past closeHour, generating zero probes.
+      if (nowH < 6 && closeHour > 24) {
+        nowTotalMin += 24 * 60;
+      }
+      // Only apply the "don't probe past times" filter when we're within
+      // operating hours. Before opening, openHour already floors the window.
+      if (nowTotalMin >= openHour * 60) {
+        earliestMin = Math.max(earliestMin, nowTotalMin + 15);
+      }
     }
     // Snap earliestMin UP to next multiple of 15 so QAMF gets clean
     // quarter-hour probe times (QAMF rejects minutes not divisible by 5).
