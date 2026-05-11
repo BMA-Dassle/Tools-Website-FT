@@ -120,6 +120,7 @@ export async function GET(
       bookedAt: reservation.bookedAt,
       daysOfWeek,
       durationMinutes,
+      hasAttractions: (reservation.attractionBookings?.length ?? 0) > 0,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";

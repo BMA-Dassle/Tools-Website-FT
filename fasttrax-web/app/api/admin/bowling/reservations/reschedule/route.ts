@@ -9,6 +9,7 @@ import {
   updateReservationReschedule,
 } from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
+import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 
 const CENTER_CODE_TO_QAMF: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
@@ -88,6 +89,11 @@ export async function POST(req: NextRequest) {
       { error: `unknown center: ${existing.centerCode}` },
       { status: 400 },
     );
+  }
+
+  // ── Cancel BMI attraction bookings (best-effort) ──────────────────
+  if (existing.attractionBookings?.length) {
+    await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
   // ── Delete old QAMF reservation (best-effort) ─────────────────────

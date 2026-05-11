@@ -6,6 +6,7 @@ import {
 } from "@/lib/qamf-bowling";
 import { getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
+import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 
 /**
  * PATCH /api/bowling/v2/reservations/[id]/reschedule
@@ -91,6 +92,14 @@ export async function PATCH(
       { error: `unknown centerCode: ${existing.centerCode}` },
       { status: 400 },
     );
+  }
+
+  // ── Cancel BMI attraction bookings (best-effort) ──────────────────
+  // Attractions are time-specific and cannot transfer to the new bowling
+  // time slot. They're cleared from Neon in updateReservationReschedule().
+  // The customer can re-add attractions after rescheduling.
+  if (existing.attractionBookings?.length) {
+    await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
   // ── Delete old QAMF reservation (best-effort) ────────────────────

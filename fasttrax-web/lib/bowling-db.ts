@@ -1142,7 +1142,9 @@ export async function updateReservationReschedule(
   const q = sql();
   await q`
     UPDATE bowling_reservations
-    SET booked_at = ${bookedAt}, qamf_reservation_id = ${qamfReservationId}
+    SET booked_at = ${bookedAt},
+        qamf_reservation_id = ${qamfReservationId},
+        attraction_bookings = '[]'::jsonb
     WHERE id = ${id}
   `;
 }

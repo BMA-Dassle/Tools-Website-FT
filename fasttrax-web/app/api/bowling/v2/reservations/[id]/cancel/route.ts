@@ -6,6 +6,7 @@ import {
 } from "@/lib/bowling-db";
 import { deleteReservation } from "@/lib/qamf-bowling";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
+import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 
 /**
  * POST /api/bowling/v2/reservations/[id]/cancel
@@ -191,6 +192,11 @@ export async function POST(
         err instanceof Error ? err.message : err,
       );
     }
+  }
+
+  // ── 2d. Cancel BMI attraction bookings (best-effort) ──────────────
+  if (reservation.attractionBookings?.length) {
+    await cancelBmiAttractions(reservation.centerCode, reservation.attractionBookings);
   }
 
   // ── 3. Mark cancelled in Neon ─────────────────────────────────────

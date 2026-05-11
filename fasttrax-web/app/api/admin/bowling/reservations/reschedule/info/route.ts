@@ -85,6 +85,7 @@ export async function GET(req: NextRequest) {
       bookedAt: reservation.bookedAt,
       guestName: reservation.guestName,
       productKind: reservation.productKind,
+      hasAttractions: (reservation.attractionBookings?.length ?? 0) > 0,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";

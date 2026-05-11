@@ -6,6 +6,7 @@ import {
 } from "@/lib/bowling-db";
 import { deleteReservation } from "@/lib/qamf-bowling";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
+import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 
 const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
@@ -85,6 +86,11 @@ export async function POST(req: NextRequest) {
         { status: 502 },
       );
     }
+  }
+
+  // ── 2b. Cancel BMI attraction bookings (best-effort) ──────────────
+  if (reservation.attractionBookings?.length) {
+    await cancelBmiAttractions(reservation.centerCode, reservation.attractionBookings);
   }
 
   // ── 3. Mark cancelled in Neon ─────────────────────────────────────
