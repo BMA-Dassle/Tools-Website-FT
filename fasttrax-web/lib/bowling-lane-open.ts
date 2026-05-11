@@ -166,6 +166,7 @@ export async function processLaneOpen(opts: {
         uid:  li.uid,
         note: li.note ? `${laneLabel} | ${li.note}` : laneLabel,
       }));
+      let updatedOrderVersion = order.version;
       try {
         const tNotes = Date.now();
         const noteRes = await fetch(
@@ -196,6 +197,8 @@ export async function processLaneOpen(opts: {
         console.log(`[lane-open] neonId=${neonId} src=${srcTag} PUT notes ${Date.now() - tNotes}ms`);
         if (noteRes.ok) {
           kitchenItemsUpdated = kitchenItems.length;
+          const noteJson = await noteRes.json().catch(() => ({})) as { order?: { version: number } };
+          updatedOrderVersion = noteJson.order?.version ?? order.version + 1;
         } else {
           const noteBody = await noteRes.json().catch(() => ({})) as {
             errors?: { detail: string }[];
@@ -273,6 +276,45 @@ export async function processLaneOpen(opts: {
           const errMsg = err instanceof Error ? err.message : String(err);
           console.error(`[lane-open] neonId=${neonId} payment threw: ${errMsg}`);
           processingError = errMsg;
+        }
+      }
+
+      // ── 3b. Close $0 orders for KDS visibility ──────────────
+      // Walkin orders have $0 totals and no gift card, so no payment
+      // is made above. KDS only displays completed orders, so we
+      // explicitly close them via PayOrder with empty payment_ids.
+      if (!paymentId) {
+        const due = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
+        if (due <= 0) {
+          try {
+            const tClose = Date.now();
+            const closeRes = await fetch(
+              `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}/pay`,
+              {
+                method: "POST",
+                headers: sqHeaders(),
+                body: JSON.stringify({
+                  idempotency_key: `${idempotencyBase}-close`,
+                  order_version: updatedOrderVersion,
+                  payment_ids: [],
+                }),
+              },
+            );
+            console.log(`[lane-open] neonId=${neonId} src=${srcTag} POST pay-order ${Date.now() - tClose}ms`);
+            if (closeRes.ok) {
+              console.log(`[lane-open] neonId=${neonId} closed $0 order for KDS`);
+            } else {
+              const closeBody = await closeRes.json().catch(() => ({})) as {
+                errors?: { detail: string }[];
+              };
+              console.warn(
+                `[lane-open] neonId=${neonId} PayOrder failed:`,
+                closeBody.errors?.[0]?.detail ?? closeRes.status,
+              );
+            }
+          } catch (err) {
+            console.warn(`[lane-open] neonId=${neonId} PayOrder threw:`, err);
+          }
         }
       }
     } else if (terminal) {
