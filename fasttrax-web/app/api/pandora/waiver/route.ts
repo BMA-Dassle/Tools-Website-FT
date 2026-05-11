@@ -39,8 +39,32 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Waiver template not found" }, { status: res.status });
     }
 
-    const data = await res.json();
-    return NextResponse.json(data);
+    const raw = await res.json();
+    console.log(`[pandora-waiver] raw keys: ${JSON.stringify(Object.keys(raw))}`);
+
+    // Pandora wraps responses in { success, data, message }
+    // data may be an array (multiple waivers by age) — pick the first match
+    const payload = raw?.data ?? raw;
+    const template = Array.isArray(payload) ? payload[0] : payload;
+
+    if (!template) {
+      return NextResponse.json({ error: "No waiver template found" }, { status: 404 });
+    }
+
+    console.log(`[pandora-waiver] template keys: ${JSON.stringify(Object.keys(template))}`);
+    console.log(`[pandora-waiver] template sample: ${JSON.stringify(template).substring(0, 500)}`);
+
+    // Normalize to our PandoraWaiverTemplate shape
+    const normalized = {
+      id: template.id || template.waiverContentID || "",
+      contentID: template.waiverContentID || template.contentID || "",
+      name: template.name || template.waiverName || "",
+      duration: template.duration ?? template.validDays ?? 365,
+      body: template.body || template.content || template.waiverBody || "",
+    };
+
+    console.log(`[pandora-waiver] template: id=${normalized.id} contentID=${normalized.contentID} bodyLen=${normalized.body.length}`);
+    return NextResponse.json(normalized);
   } catch (err) {
     console.error("[pandora-waiver] search error:", err);
     return NextResponse.json({ error: "Failed to fetch waiver" }, { status: 500 });
