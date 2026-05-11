@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  createReservation,
-  deleteReservation,
-  setReservationStatus,
-} from "@/lib/qamf-bowling";
+import { patchReservation } from "@/lib/qamf-bowling";
 import { getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
@@ -16,12 +12,10 @@ import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
  *
  * Flow:
  *  1. Load existing Neon record
- *  2. Delete old QAMF reservation (best-effort — may have already expired)
- *  3. Create new QAMF reservation at the new time with identical guest/player data
- *  4. Confirm new QAMF reservation — MUST succeed or whole operation fails
- *  5. Update bowling_reservations: booked_at + qamf_reservation_id + status
- *  6. Resend confirmation email + SMS
- *  7. Return { id, bookedAt, qamfReservationId }
+ *  2. PATCH existing QAMF reservation with new BookedAt
+ *  3. If old attractions exist, cancel them on BMI
+ *  4. Update Neon: booked_at, clear attraction_bookings + lane-open fields
+ *  5. Resend confirmation email + SMS
  *
  * Payment is not touched — Square deposit/day-of orders are unchanged.
  * A reschedule is a time-only change within the same web offer; price stays the same.
@@ -29,7 +23,7 @@ import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
  * Body:
  *   bookedAt    — ISO 8601 with ET offset from the new availability slot
  *   webOfferId  — QAMF web offer ID (from the slot)
- *   optionId?   — QAMF option ID (game/time/unlimited, from the slot)
+ *   optionId?   — QAMF option ID (game/time/unlimited)
  *   optionType? — "Game" | "Time" | "Unlimited" (default "Game")
  */
 
@@ -60,7 +54,7 @@ export async function PATCH(
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const { bookedAt, webOfferId, optionId, optionType = "Game" } = body;
+  const { bookedAt, webOfferId } = body;
   if (!bookedAt || !webOfferId) {
     return NextResponse.json(
       { error: "bookedAt and webOfferId are required" },
@@ -94,85 +88,32 @@ export async function PATCH(
     );
   }
 
-  // ── Cancel BMI attraction bookings (best-effort) ──────────────────
-  // Attractions are time-specific and cannot transfer to the new bowling
-  // time slot. They're cleared from Neon in updateReservationReschedule().
-  // The customer can re-add attractions after rescheduling.
+  // ── PATCH existing QAMF reservation with new time ────────────────
+  if (existing.qamfReservationId) {
+    try {
+      await patchReservation(qamfCenterId, existing.qamfReservationId, {
+        BookedAt: bookedAt,
+      });
+      console.log(
+        `[bowling/v2/reschedule] QAMF PATCH ok neonId=${neonId} qamfId=${existing.qamfReservationId} → ${bookedAt}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "QAMF error";
+      console.error("[bowling/v2/reschedule] QAMF PATCH failed:", msg);
+      return NextResponse.json(
+        { error: `Reschedule failed: ${msg}` },
+        { status: 502 },
+      );
+    }
+  }
+
+  // ── Cancel old BMI attraction bookings (best-effort) ─────────────
   if (existing.attractionBookings?.length) {
     await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
-  // ── Delete old QAMF reservation (best-effort) ────────────────────
-  if (existing.qamfReservationId) {
-    try {
-      await deleteReservation(qamfCenterId, existing.qamfReservationId);
-    } catch {
-      // Non-fatal: QAMF reservation may have expired or already been cancelled.
-      // We continue regardless so the new slot is claimed.
-    }
-  }
-
-  // ── Build QAMF WebOffer.Options ──────────────────────────────────
-  const qamfOptions: {
-    Game?: { Id: number }[];
-    Time?: { Id: number }[];
-    Unlimited?: { Id: number }[];
-  } = {};
-  if (optionId) {
-    if (optionType === "Time") qamfOptions.Time = [{ Id: optionId }];
-    else if (optionType === "Unlimited") qamfOptions.Unlimited = [{ Id: optionId }];
-    else qamfOptions.Game = [{ Id: optionId }];
-  }
-
-  // ── Create new QAMF reservation ──────────────────────────────────
-  let newQamfId: string;
-  try {
-    const created = await createReservation(qamfCenterId, {
-      BookedAt: bookedAt,
-      Title: `${existing.guestName ?? "Guest"} (${existing.playerCount ?? 1}p)`,
-      Notes: existing.notes,
-      Customer: {
-        Guest: {
-          Name: existing.guestName ?? "Guest",
-          PhoneNumber: existing.guestPhone ?? "",
-          Email: existing.guestEmail ?? "",
-        },
-      },
-      WebOffer: {
-        Id: webOfferId,
-        Options: qamfOptions,
-        Services: ["BookForLater"],
-      },
-      TotalPlayers: existing.playerCount ?? 1,
-    });
-    newQamfId = created.Id;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "QAMF error";
-    console.error("[bowling/v2/reschedule] QAMF createReservation failed:", msg);
-    return NextResponse.json(
-      { error: `Reschedule failed: ${msg}` },
-      { status: 502 },
-    );
-  }
-
-  // ── Confirm the new QAMF reservation — MUST succeed ─────────────
-  try {
-    await setReservationStatus(qamfCenterId, newQamfId, "Confirmed");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "QAMF error";
-    console.error("[bowling/v2/reschedule] setReservationStatus failed:", msg);
-    // Clean up the orphaned temporary reservation
-    try {
-      await deleteReservation(qamfCenterId, newQamfId);
-    } catch { /* best effort */ }
-    return NextResponse.json(
-      { error: `QAMF confirm failed: ${msg}` },
-      { status: 502 },
-    );
-  }
-
   // ── Update Neon ──────────────────────────────────────────────────
-  await updateReservationReschedule(neonId, bookedAt, newQamfId);
+  await updateReservationReschedule(neonId, bookedAt, existing.qamfReservationId ?? "");
 
   // Reset status + clear lane-open fields
   try {
@@ -206,5 +147,9 @@ export async function PATCH(
     }).catch(() => {});
   } catch { /* non-fatal */ }
 
-  return NextResponse.json({ id: neonId, bookedAt, qamfReservationId: newQamfId });
+  return NextResponse.json({
+    id: neonId,
+    bookedAt,
+    qamfReservationId: existing.qamfReservationId,
+  });
 }

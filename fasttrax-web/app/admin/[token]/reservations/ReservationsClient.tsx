@@ -1635,26 +1635,31 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* Actions — reschedule + resend + cancel */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", gap: 4 }}>
-                          {!isCancelled && r.status !== "completed" && r.status !== "arrived" && r.qamfReservationId && (
-                            <button
-                              type="button"
-                              onClick={() => setRescheduleTarget(r)}
-                              style={{
-                                background: "none",
-                                border: "1px solid rgba(0,226,229,0.3)",
-                                borderRadius: 5,
-                                color: "#00E2E5",
-                                cursor: "pointer",
-                                fontSize: "0.6rem",
-                                fontWeight: 600,
-                                padding: "2px 6px",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.03em",
-                              }}
-                            >
-                              Time
-                            </button>
-                          )}
+                          {!isCancelled && r.status !== "completed" && r.status !== "arrived" && r.qamfReservationId && (() => {
+                            const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
+                            return (
+                              <button
+                                type="button"
+                                onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
+                                disabled={hasAttr}
+                                title={hasAttr ? "Rescheduling not available for bookings with attractions" : "Reschedule bowling time"}
+                                style={{
+                                  background: "none",
+                                  border: `1px solid ${hasAttr ? "rgba(255,255,255,0.1)" : "rgba(0,226,229,0.3)"}`,
+                                  borderRadius: 5,
+                                  color: hasAttr ? "rgba(255,255,255,0.2)" : "#00E2E5",
+                                  cursor: hasAttr ? "not-allowed" : "pointer",
+                                  fontSize: "0.6rem",
+                                  fontWeight: 600,
+                                  padding: "2px 6px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.03em",
+                                }}
+                              >
+                                Time
+                              </button>
+                            );
+                          })()}
                           {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (r.guestEmail || r.guestPhone) && (
                             <button
                               type="button"

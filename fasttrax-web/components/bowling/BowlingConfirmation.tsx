@@ -1391,6 +1391,24 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 
           {/* ── Change Date & Time (hidden when cancelled / lane running / within 1hr) ── */}
           {!isCancelled && hasNeonRecord && cfg.changeLink && laneReadyPhase !== "running" && !isWithin1Hour && (() => {
+            const hasAttractions = (reservation?.attractionBookings?.length ?? 0) > 0;
+
+            // Attractions block reschedule — show greyed-out notice instead
+            if (hasAttractions) {
+              return (
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+                  <div className="w-full text-center px-5 py-4 font-body font-semibold text-sm text-white/25 cursor-not-allowed">
+                    {cfg.changeLink!.label}
+                  </div>
+                  <div className="px-5 pb-4 -mt-1">
+                    <p className="text-[11px] text-white/30 text-center leading-relaxed">
+                      Online rescheduling is not available for bookings with attractions. Please call us to reschedule.
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
             // Derive experience label from first non-shoe line item
             const expLabel = reservation?.lines
               ?.find((l) => !/shoe/i.test(l.label))

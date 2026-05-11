@@ -344,11 +344,12 @@ export async function setReservationStatus(
 /** PATCH /centers/{centerId}/reservations/{reservationId}
  *  — updates mutable fields on a reservation (Title, Notes, Status, etc.).
  *  Used to rename the hold from "Hold (Np)" to "Guest Name (Np)" once
- *  the guest fills in their details. */
+ *  the guest fills in their details.  Also used for reschedules
+ *  (BookedAt) — PATCH keeps the same reservation ID. */
 export async function patchReservation(
   centerId: number,
   reservationId: string,
-  fields: { Title?: string; Notes?: string; Status?: ReservationStatus },
+  fields: { Title?: string; Notes?: string; Status?: ReservationStatus; BookedAt?: string },
 ): Promise<void> {
   await call({
     method: "PATCH",
