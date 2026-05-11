@@ -35,6 +35,8 @@ interface Reservation {
   dayofOrderError?: string;
   dayofOrderSource?: string;
   preArrivalSentAt?: string;
+  laneReadySentAt?: string;
+  bookingSource?: string;
   insertedAt: string;
   lines: ReservationLine[];
 }
@@ -70,6 +72,18 @@ const STATUS_LABELS: Record<string, string> = {
   arrived: "Arrived",
   completed: "Completed",
   cancelled: "Cancelled",
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  web: "Web",
+  kiosk: "Kiosk",
+  conqueror: "Conq",
+};
+
+const SOURCE_COLORS: Record<string, string> = {
+  web: "#22c55e",
+  kiosk: "#f59e0b",
+  conqueror: "#ec4899",
 };
 
 /** Food items that should be displayed on the admin board */
@@ -786,6 +800,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [center, setCenter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [hideCancelled, setHideCancelled] = useState(true);
+  const [hideWalkins, setHideWalkins] = useState(true);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -850,6 +865,9 @@ export default function ReservationsClient({ token }: { token: string }) {
   // Client-side search + cancelled filter
   const filtered = useMemo(() => {
     let list = reservations;
+    if (hideWalkins) {
+      list = list.filter((r) => !r.bookingSource || r.bookingSource === "web");
+    }
     if (hideCancelled) {
       list = list.filter((r) => r.status !== "cancelled" && r.status !== "completed");
     }
@@ -869,12 +887,13 @@ export default function ReservationsClient({ token }: { token: string }) {
       });
     }
     return list;
-  }, [reservations, search, hideCancelled]);
+  }, [reservations, search, hideCancelled, hideWalkins]);
 
   // Stats
   const active = filtered.filter((r) => r.status !== "cancelled" && r.status !== "completed");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
+  const totalWalkins = reservations.filter((r) => r.bookingSource && r.bookingSource !== "web").length;
   const totalHidden = totalCancelledAll + totalCompletedAll;
   const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
   const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
@@ -1109,6 +1128,20 @@ export default function ReservationsClient({ token }: { token: string }) {
           </button>
           <button
             type="button"
+            onClick={() => setHideWalkins((v) => !v)}
+            style={{
+              ...NAV_BTN,
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              backgroundColor: hideWalkins ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.08)",
+              borderColor: hideWalkins ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.15)",
+              color: hideWalkins ? "#22c55e" : "rgba(255,255,255,0.6)",
+            }}
+          >
+            {hideWalkins ? "Web Only" : "All Sources"}
+          </button>
+          <button
+            type="button"
             onClick={() => setDate(todayET())}
             style={{ ...NAV_BTN, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}
           >
@@ -1181,6 +1214,11 @@ export default function ReservationsClient({ token }: { token: string }) {
               {!hideCancelled && totalCancelledAll > 0 && (
                 <span style={{ color: "rgba(239,68,68,0.7)" }}>
                   {" "}· {totalCancelledAll} cancelled
+                </span>
+              )}
+              {hideWalkins && totalWalkins > 0 && (
+                <span style={{ color: "rgba(255,255,255,0.3)" }}>
+                  {" "}· {totalWalkins} walk-in
                 </span>
               )}
             </span>
@@ -1289,7 +1327,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                         )}
                       </td>
 
-                      {/* Type — badge + player count */}
+                      {/* Type — badge + player count + source */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <span
                           style={{
@@ -1317,6 +1355,25 @@ export default function ReservationsClient({ token }: { token: string }) {
                         <span style={{ marginLeft: 5, color: "rgba(255,255,255,0.4)", fontSize: "0.68rem" }}>
                           {r.playerCount ?? "—"}p
                         </span>
+                        {r.bookingSource && r.bookingSource !== "web" && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              marginLeft: 5,
+                              padding: "0.05rem 0.3rem",
+                              borderRadius: 4,
+                              fontSize: "0.55rem",
+                              fontWeight: 600,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.03em",
+                              backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                              color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                              border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                            }}
+                          >
+                            {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                          </span>
+                        )}
                       </td>
 
                       {/* Status */}
@@ -1440,9 +1497,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                         )}
                       </td>
 
-                      {/* Alert — pre-arrival notification status */}
+                      {/* Alert — lane-ready + pre-arrival notification status */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {r.preArrivalSentAt ? (
+                        {r.laneReadySentAt ? (
                           <span
                             style={{
                               display: "inline-block",
@@ -1454,9 +1511,25 @@ export default function ReservationsClient({ token }: { token: string }) {
                               color: "#22c55e",
                               border: "1px solid rgba(34,197,94,0.3)",
                             }}
-                            title={`Sent ${new Date(r.preArrivalSentAt).toLocaleTimeString()}`}
+                            title={`Lane-ready sent ${new Date(r.laneReadySentAt).toLocaleTimeString()}`}
                           >
-                            Sent
+                            Ready
+                          </span>
+                        ) : r.preArrivalSentAt ? (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "0.1rem 0.35rem",
+                              borderRadius: 5,
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(59,130,246,0.15)",
+                              color: "#60a5fa",
+                              border: "1px solid rgba(59,130,246,0.3)",
+                            }}
+                            title={`Pre-arrival sent ${new Date(r.preArrivalSentAt).toLocaleTimeString()}`}
+                          >
+                            Alert
                           </span>
                         ) : (
                           <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
