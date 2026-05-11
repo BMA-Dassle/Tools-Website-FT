@@ -354,6 +354,31 @@ function CheckinContent() {
     return () => { alive = false; clearInterval(timer); };
   }, [stage, neonId]);
 
+  // ── Poll for lane opened while user is mid-flow ────────────────
+  // If staff or webhook opens the lane externally, stop the guest
+  // from proceeding and show "Lane X Opened".
+  useEffect(() => {
+    if (stage !== "choice" && stage !== "express" && stage !== "guest-services") return;
+    if (!neonId) return;
+    let alive = true;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { cache: "no-store" });
+        if (!res.ok || !alive) return;
+        const data = await res.json() as { phase?: string; laneLabel?: string; laneNumbers?: number[] };
+        if (!alive) return;
+        const p = data.phase ?? "";
+        if (p === "running" || p === "completed") {
+          if (data.laneLabel) setLaneLabel(data.laneLabel);
+          if (data.laneNumbers?.length) setLaneNumbers(data.laneNumbers);
+          setPhase(p);
+          setStage("success");
+        }
+      } catch { /* silent */ }
+    }, 10_000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [stage, neonId]);
+
   // ── Player update ──────────────────────────────────────────────
   function updatePlayer(slot: number, patch: Partial<BowlingReservationPlayer>) {
     setPlayers((prev) => prev.map((p) => (p.slot === slot ? { ...p, ...patch } : p)));
@@ -406,6 +431,19 @@ function CheckinContent() {
       if (openData.laneLabel) setLaneLabel(openData.laneLabel);
       setStage("success");
     } catch (err) {
+      // If lane was already opened externally, check status and show success
+      try {
+        const checkRes = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { cache: "no-store" });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json() as { phase?: string; laneLabel?: string; laneNumbers?: number[] };
+          if (checkData.phase === "running" || checkData.phase === "completed") {
+            if (checkData.laneLabel) setLaneLabel(checkData.laneLabel);
+            if (checkData.laneNumbers?.length) setLaneNumbers(checkData.laneNumbers);
+            setStage("success");
+            return;
+          }
+        }
+      } catch { /* fall through to error */ }
       setSaveError(err instanceof Error ? err.message : "Something went wrong");
       setStage("express");
     }
