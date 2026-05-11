@@ -33,6 +33,10 @@ interface HeatPickerProps {
    *  pricing is bundled at the package level and license is
    *  already included. */
   packageMode?: boolean;
+  /** Group event heat rosters — maps heatStart ISO → ["Eric O.", "Sarah J."].
+   *  When provided, each heat card shows who's already booked.
+   *  Undefined for normal (non-group) bookings — zero impact on existing flow. */
+  heatRosters?: Record<string, string[]>;
 }
 
 function parseLocal(iso: string): Date {
@@ -54,7 +58,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false, heatRosters }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +254,11 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   <div className={`text-[13px] font-medium ${statusClass}`}>
                     {statusLabel}
                   </div>
+                  {heatRosters?.[block.start]?.length ? (
+                    <p className="text-[10px] text-white/40 mt-1 truncate">
+                      {heatRosters[block.start].join(", ")}
+                    </p>
+                  ) : null}
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                     <div
                       className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}

@@ -336,7 +336,8 @@ export function middleware(request: NextRequest) {
   // metadata renders the right brand per request).
   const isSharedTopLevelRoute =
     pathname === "/accessibility" || pathname.startsWith("/accessibility/") ||
-    pathname === "/cancellation-policy" || pathname.startsWith("/cancellation-policy/");
+    pathname === "/cancellation-policy" || pathname.startsWith("/cancellation-policy/") ||
+    pathname.startsWith("/event/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
