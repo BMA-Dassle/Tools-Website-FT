@@ -274,49 +274,11 @@ async function handleWalkinCreated(
   const lanes = qamfRes.Lanes ?? [];
   const hasRunningLane = lanes.some((l) => l.Status === "Running");
 
-  // Send check-in SMS if phone available AND lanes not already open
-  let smsOk = false;
-  if (guestPhone && !hasRunningLane) {
-    try {
-      const normalized = guestPhone.replace(/\D/g, "").replace(/^1/, "");
-      if (normalized.length >= 10) {
-        const checkinPath = `/hp/book/bowling/checkin?neonId=${reservation.id}`;
-        const shortCode = await shortenUrl(checkinPath);
-        const link = `https://headpinz.com/s/${shortCode}`;
-        const smsBody = `HeadPinz: Enter bowler names & shoe sizes for your bowling session: ${link}`;
-        const fromNumber = WALKIN_SMS_FROM[centerCode] ?? WALKIN_SMS_FROM.TXBSQN0FEKQ11;
-        const toFormatted = normalized.length === 10 ? `+1${normalized}` : `+${normalized}`;
+  // SMS disabled for K/C reservations until we confirm self-service
+  // lane open works for kiosk/conqueror bookings.
+  // TODO: re-enable check-in SMS once K/C lane open is validated
 
-        const { voxSend } = await import("@/lib/sms-retry");
-        const { logSms } = await import("@/lib/sms-log");
-        const result = await voxSend(toFormatted, smsBody, { fromOverride: fromNumber });
-
-        await logSms({
-          ts: new Date().toISOString(),
-          phone: toFormatted,
-          source: "bowling-lane-ready",
-          status: result.status,
-          ok: result.ok,
-          body: smsBody,
-          provider: result.provider,
-          failedOver: result.failedOver,
-          providerMessageId: result.voxId || result.twilioSid,
-        }).catch(() => void 0);
-
-        smsOk = result.ok;
-        console.log(`[qamf-bowling] walkin SMS neonId=${reservation.id} ok=${smsOk}`);
-      }
-    } catch (err) {
-      console.warn(
-        `[qamf-bowling] walkin SMS failed neonId=${reservation.id}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  } else if (hasRunningLane) {
-    console.log(`[qamf-bowling] walkin ${qamfId} Play Now — lanes Running, skipping SMS`);
-  }
-
-  return { kind: "walkin-created", neonId: reservation.id, bookingSource, smsOk };
+  return { kind: "walkin-created", neonId: reservation.id, bookingSource };
 }
 
 /**
@@ -471,10 +433,11 @@ async function processEvent(
       }
       // Fall through — let the status map advance Neon status
 
-      // Send lane-ready SMS/email if not already sent.
+      // Send lane-ready SMS/email if not already sent (web reservations only).
+      // K/C SMS disabled until we confirm self-service lane open works for kiosk/conqueror.
       // Gate: only notify when physical lanes are Closed (ready to start,
       // not Error or Open for someone else) AND within 30 min of booked time.
-      if (!reservation.laneReadySentAt && laneNumbers.length > 0) {
+      if (!reservation.laneReadySentAt && laneNumbers.length > 0 && reservation.bookingSource === "web") {
         const bookedAt = new Date(reservation.bookedAt).getTime();
         const minsUntilBooked = (bookedAt - Date.now()) / 60_000;
 

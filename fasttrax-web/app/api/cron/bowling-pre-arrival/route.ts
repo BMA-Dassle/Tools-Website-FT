@@ -115,6 +115,12 @@ export async function GET(req: NextRequest) {
   }> = [];
 
   for (const r of reservations) {
+    // Skip K/C reservations — SMS disabled until self-service lane open is validated
+    if (r.bookingSource && r.bookingSource !== "web") {
+      results.push({ id: r.id, guest: r.guestName ?? "?", phase: "skipped-walkin", email: false, sms: false });
+      continue;
+    }
+
     if (!r.qamfReservationId) {
       results.push({ id: r.id, guest: r.guestName ?? "?", phase: "no_qamf_id", email: false, sms: false });
       continue;
