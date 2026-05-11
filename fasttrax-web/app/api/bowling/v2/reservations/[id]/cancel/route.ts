@@ -141,6 +141,58 @@ export async function POST(
     }
   }
 
+  // ── 2c. Cancel Square day-of order ──────────────────────────────────
+  // The day-of order sits OPEN in Square until paid at the register.
+  // On cancellation we need to cancel it so staff don't see a phantom
+  // order, and so the attached reward (if any) is released.
+  if (reservation.squareDayofOrderId) {
+    try {
+      const SQUARE_BASE = "https://connect.squareup.com/v2";
+      const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
+      // Fetch current order to get its version (required by UpdateOrder)
+      const getRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
+        headers: {
+          Authorization: `Bearer ${SQUARE_TOKEN}`,
+          "Square-Version": "2024-12-18",
+          "Content-Type": "application/json",
+        },
+      });
+      if (getRes.ok) {
+        const { order } = await getRes.json();
+        if (order && order.state === "OPEN") {
+          const updateRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${SQUARE_TOKEN}`,
+              "Square-Version": "2024-12-18",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              order: {
+                location_id: order.location_id,
+                version: order.version,
+                state: "CANCELED",
+              },
+            }),
+          });
+          if (updateRes.ok) {
+            console.log(`[bowling/cancel] Square day-of order cancelled neonId=${neonId} orderId=${reservation.squareDayofOrderId}`);
+          } else {
+            console.warn(`[bowling/cancel] Square order cancel failed neonId=${neonId}: ${updateRes.status}`);
+          }
+        } else {
+          console.log(`[bowling/cancel] Square order not OPEN (${order?.state}) — skipping cancel`);
+        }
+      }
+    } catch (err) {
+      // Non-fatal — order stays open but reservation is still cancelled
+      console.warn(
+        `[bowling/cancel] Square order cancel non-fatal neonId=${neonId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // ── 3. Mark cancelled in Neon ─────────────────────────────────────
   await updateBowlingReservationCancelled(neonId, { squareRefundId, refundCents });
   console.log(`[bowling/cancel] neonId=${neonId} marked cancelled refundCents=${refundCents}`);
