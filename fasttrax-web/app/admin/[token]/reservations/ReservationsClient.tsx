@@ -37,6 +37,8 @@ interface Reservation {
   preArrivalSentAt?: string;
   laneReadySentAt?: string;
   bookingSource?: string;
+  squareLoyaltyRewardId?: string;
+  rewardDiscountCents: number;
   insertedAt: string;
   lines: ReservationLine[];
 }
@@ -1023,6 +1025,24 @@ export default function ReservationsClient({ token }: { token: string }) {
                 {orderMeta.remainingCents > 0 && (
                   <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>
                     Due: <strong style={{ color: "#f59e0b" }}>${(orderMeta.remainingCents / 100).toFixed(2)}</strong>
+                  </span>
+                )}
+              </div>
+            )}
+
+            {orderTarget.rewardDiscountCents > 0 && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+                padding: "6px 10px", borderRadius: 6,
+                background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.2)",
+              }}>
+                <span style={{ fontSize: "0.85rem" }}>⭐</span>
+                <span style={{ color: "#FFD700", fontSize: "0.75rem", fontWeight: 600 }}>
+                  HeadPinz Reward −${(orderTarget.rewardDiscountCents / 100).toFixed(2)}
+                </span>
+                {orderTarget.squareLoyaltyRewardId && (
+                  <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "0.6rem", fontFamily: "monospace" }}>
+                    {orderTarget.squareLoyaltyRewardId.slice(0, 8)}…
                   </span>
                 )}
               </div>
