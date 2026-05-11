@@ -557,13 +557,12 @@ export async function POST(req: NextRequest) {
           ` orderId=${body.dayofOrderId} discount=${body.rewardDiscountCents}c token=${SQUARE_TOKEN ? "yes" : "NO"}`,
       );
     }
-    if (body.rewardTierId && body.loyaltyAccountId && SQUARE_TOKEN) {
+    if (body.rewardTierId && body.loyaltyAccountId && body.dayofOrderId && SQUARE_TOKEN) {
       try {
-        // Create reward → ISSUED status, points deducted immediately.
-        // Do NOT pass order_id — Square auto-attaches and then blocks
-        // explicit redeem ("Cannot explicitly redeem rewards attached to
-        // an order"). We track the discount ourselves via rewardDiscountCents
-        // and delete the reward on cancellation to return points.
+        // Create reward with order_id → ISSUED status, points deducted
+        // immediately, reward attached to the day-of order. Do NOT call
+        // /redeem — Square auto-redeems order-attached rewards at payment
+        // time ("Cannot explicitly redeem rewards attached to an order").
         const createRes = await fetch(`${SQUARE_BASE}/loyalty/rewards`, {
           method: "POST",
           headers: sqLoyaltyHeaders(),
@@ -571,8 +570,9 @@ export async function POST(req: NextRequest) {
             reward: {
               loyalty_account_id: body.loyaltyAccountId,
               reward_tier_id: body.rewardTierId,
+              order_id: body.dayofOrderId,
             },
-            idempotency_key: `reward-${qamfReservationId}-${body.rewardTierId}`,
+            idempotency_key: `reward-${body.dayofOrderId}-${body.rewardTierId}`,
           }),
         });
         const createData = await createRes.json();
@@ -601,6 +601,7 @@ export async function POST(req: NextRequest) {
       const missing = [
         !body.rewardTierId && "rewardTierId",
         !body.loyaltyAccountId && "loyaltyAccountId",
+        !body.dayofOrderId && "dayofOrderId",
         !SQUARE_TOKEN && "SQUARE_TOKEN",
       ].filter(Boolean);
       rewardFailReason = `condition_false: missing ${missing.join(",")}`;
