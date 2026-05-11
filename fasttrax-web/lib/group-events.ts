@@ -31,6 +31,13 @@ export interface GroupEventAttraction {
   bmiPageId?: string;
 }
 
+export interface GroupEventMealWindow {
+  label: string;               // "Food Buffet"
+  location: string;            // "HeadPinz"
+  startTime: string;           // "11:30" (24h)
+  endTime: string;             // "12:30" (24h)
+}
+
 export interface GroupEvent {
   slug: string;
   companyName: string;
@@ -45,6 +52,8 @@ export interface GroupEvent {
   racingTier: "starter";       // all group events = starter only
   includesLicense: boolean;
   maxGuests?: number;
+  /** Meal window — if set, heats overlapping this window show a warning */
+  mealWindow?: GroupEventMealWindow;
 }
 
 // ── Event Registry ───────────────────────────────────────────────────────────
@@ -62,6 +71,12 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     accentColor: "#00E2E5",
     racingTier: "starter",
     includesLicense: true,
+    mealWindow: {
+      label: "Food Buffet",
+      location: "HeadPinz",
+      startTime: "11:00",
+      endTime: "12:30",
+    },
     attractions: [
       // ── Reservation-based (pick a time slot) ──
       {
@@ -115,7 +130,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         slug: "food",
         type: "freeflow",
         label: "Food & Drinks",
-        description: "Complimentary food & beverages",
+        description: "Buffet at HeadPinz · 11:30 AM – 12:30 PM",
       },
       {
         slug: "ping-pong",

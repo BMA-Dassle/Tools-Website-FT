@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { getGroupEvent, getReservationAttractions, getFreeflowAttractions } from "@/lib/group-events";
-import type { GroupEvent, GroupEventAttraction } from "@/lib/group-events";
+import type { GroupEvent, GroupEventAttraction, GroupEventMealWindow } from "@/lib/group-events";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "@/app/book/race/data";
 import { bookRaceHeat, bmiPost } from "@/app/book/race/data";
 import HeatPicker from "@/app/book/race/components/HeatPicker";
@@ -59,6 +59,34 @@ function makeDisplayName(first: string, last: string): string {
 
 function sessionKey(slug: string, key: string): string {
   return `groupEvent:${slug}:${key}`;
+}
+
+/** Check if a heat (ISO start/stop) overlaps with the meal window */
+function heatOverlapsMeal(
+  heatStartIso: string,
+  heatStopIso: string,
+  eventDate: string,
+  meal: GroupEventMealWindow,
+): boolean {
+  // Parse heat times as local
+  const parse = (iso: string) => {
+    const clean = iso.replace(/Z$/, "");
+    const [dp, tp] = clean.split("T");
+    if (!tp) return new Date(clean);
+    const [y, m, d] = dp.split("-").map(Number);
+    const [h, min] = tp.split(":").map(Number);
+    return new Date(y, m - 1, d, h, min);
+  };
+  const hStart = parse(heatStartIso).getTime();
+  const hStop = parse(heatStopIso).getTime();
+  // Meal window on event date
+  const [mh1, mm1] = meal.startTime.split(":").map(Number);
+  const [mh2, mm2] = meal.endTime.split(":").map(Number);
+  const [ey, em, ed] = eventDate.split("-").map(Number);
+  const mStart = new Date(ey, em - 1, ed, mh1, mm1).getTime();
+  const mStop = new Date(ey, em - 1, ed, mh2, mm2).getTime();
+  // Overlap = heat starts before meal ends AND heat ends after meal starts
+  return hStart < mStop && hStop > mStart;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -565,6 +593,30 @@ export default function GroupEventPage() {
               </button>
             </div>
 
+            {/* Event info banner */}
+            <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
+              <p>
+                <strong className="text-white">Go-Kart Racing, Laser Tag, and Gel Blaster</strong> all require a
+                signed waiver and a pre-booked time slot. You can only book for yourself, but your name will
+                appear on the booking so your coworkers can see who&rsquo;s in each session.
+              </p>
+              <p>
+                All other activities are <strong className="text-white">free-flow</strong> and available at your leisure throughout the event.
+              </p>
+              {event.mealWindow && (
+                <p className="text-amber-300/90">
+                  <strong className="text-amber-300">{event.mealWindow.label}</strong> is served
+                  at {event.mealWindow.location} from{" "}
+                  <strong className="text-amber-300">
+                    {new Date(`2000-01-01T${event.mealWindow.startTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                    {" "}&ndash;{" "}
+                    {new Date(`2000-01-01T${event.mealWindow.endTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                  </strong>
+                  &mdash; plan your reservations around it!
+                </p>
+              )}
+            </div>
+
             {/* Reservation-based activities */}
             <div>
               <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
@@ -811,6 +863,12 @@ export default function GroupEventPage() {
               packageMode={true}
               immediateConfirm={false}
               heatRosters={heatRosters}
+              mealWarning={event.mealWindow ? {
+                label: event.mealWindow.label,
+                eventDate: event.eventDate,
+                startTime: event.mealWindow.startTime,
+                endTime: event.mealWindow.endTime,
+              } : undefined}
             />
           </div>
         )}
@@ -848,6 +906,9 @@ export default function GroupEventPage() {
                   const block = proposal.blocks?.[0]?.block;
                   if (!block) return null;
                   const isFull = block.freeSpots < 1;
+                  const mealOverlap = event.mealWindow
+                    ? heatOverlapsMeal(block.start, block.stop, event.eventDate, event.mealWindow)
+                    : false;
                   return (
                     <button
                       key={idx}
@@ -860,7 +921,9 @@ export default function GroupEventPage() {
                         rounded-xl border p-3 text-left transition-all duration-150
                         ${isFull
                           ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                          : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
+                          : mealOverlap
+                            ? "border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50 hover:bg-amber-500/10 cursor-pointer"
+                            : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
                         }
                       `}
                     >
@@ -869,6 +932,14 @@ export default function GroupEventPage() {
                       <div className={`text-xs font-medium ${isFull ? "text-red-400" : "text-emerald-400"}`}>
                         {isFull ? "Full" : `${block.freeSpots} spot${block.freeSpots === 1 ? "" : "s"} open`}
                       </div>
+                      {mealOverlap && !isFull && (
+                        <div className="flex items-center gap-1 mt-1.5 text-amber-400 text-[10px] font-medium">
+                          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Overlaps with food buffet
+                        </div>
+                      )}
                     </button>
                   );
                 })}

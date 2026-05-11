@@ -37,6 +37,15 @@ interface HeatPickerProps {
    *  When provided, each heat card shows who's already booked.
    *  Undefined for normal (non-group) bookings — zero impact on existing flow. */
   heatRosters?: Record<string, string[]>;
+  /** Optional meal/event window warning. Heats overlapping this window
+   *  get an amber warning badge. Used by group events (e.g. "Food Buffet
+   *  at HeadPinz 11:30–12:30"). */
+  mealWarning?: {
+    label: string;            // "Food Buffet"
+    eventDate: string;        // "2026-06-19"
+    startTime: string;        // "11:00" (24h) — warning window start
+    endTime: string;          // "12:30" (24h) — warning window end
+  };
 }
 
 function parseLocal(iso: string): Date {
@@ -58,7 +67,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false, heatRosters }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false, heatRosters, mealWarning }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,6 +208,20 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                 ? violatesMinGapAfter(minutesAfterEnd.stop, block.start, minutesAfterEnd.minutes)
                 : false;
 
+              // Meal window overlap (group events only) — non-blocking
+              // amber warning, does NOT disable the card.
+              const isMealOverlap = (() => {
+                if (!mealWarning) return false;
+                const hS = parseLocal(block.start).getTime();
+                const hE = parseLocal(block.stop).getTime();
+                const [mh1, mm1] = mealWarning.startTime.split(":").map(Number);
+                const [mh2, mm2] = mealWarning.endTime.split(":").map(Number);
+                const [ey, em, ed] = mealWarning.eventDate.split("-").map(Number);
+                const mS = new Date(ey, em - 1, ed, mh1, mm1).getTime();
+                const mE = new Date(ey, em - 1, ed, mh2, mm2).getTime();
+                return hS < mE && hE > mS;
+              })();
+
               // Distinguish "not enough spots" from "too close to picked
               // heat" — both disable the card but the label needs to
               // tell the guest why. Previously both collapsed into the
@@ -259,6 +282,14 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                       {heatRosters[block.start].join(", ")}
                     </p>
                   ) : null}
+                  {isMealOverlap && !isFull && (
+                    <div className="flex items-center gap-1 mt-1.5 text-amber-400 text-[10px] font-medium">
+                      <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Overlaps with {mealWarning!.label.toLowerCase()}
+                    </div>
+                  )}
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                     <div
                       className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
