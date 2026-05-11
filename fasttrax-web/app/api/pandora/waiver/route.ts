@@ -40,30 +40,25 @@ export async function GET(req: NextRequest) {
     }
 
     const raw = await res.json();
-    console.log(`[pandora-waiver] raw keys: ${JSON.stringify(Object.keys(raw))}`);
 
-    // Pandora wraps responses in { success, data, message }
-    // data may be an array (multiple waivers by age) — pick the first match
-    const payload = raw?.data ?? raw;
-    const template = Array.isArray(payload) ? payload[0] : payload;
+    // Pandora wraps: { success: true, data: { id, contentID, name, duration, body } }
+    const template = raw?.data ?? raw;
 
-    if (!template) {
+    if (!template || !template.contentID) {
+      console.error(`[pandora-waiver] unexpected shape:`, JSON.stringify(raw).substring(0, 300));
       return NextResponse.json({ error: "No waiver template found" }, { status: 404 });
     }
 
-    console.log(`[pandora-waiver] template keys: ${JSON.stringify(Object.keys(template))}`);
-    console.log(`[pandora-waiver] template sample: ${JSON.stringify(template).substring(0, 500)}`);
-
-    // Normalize to our PandoraWaiverTemplate shape
+    // Pass through — Pandora field names match our PandoraWaiverTemplate type
     const normalized = {
-      id: template.id || template.waiverContentID || "",
-      contentID: template.waiverContentID || template.contentID || "",
-      name: template.name || template.waiverName || "",
-      duration: template.duration ?? template.validDays ?? 365,
-      body: template.body || template.content || template.waiverBody || "",
+      id: String(template.id || ""),
+      contentID: String(template.contentID),
+      name: template.name || "",
+      duration: template.duration ?? 365,
+      body: template.body || "",
     };
 
-    console.log(`[pandora-waiver] template: id=${normalized.id} contentID=${normalized.contentID} bodyLen=${normalized.body.length}`);
+    console.log(`[pandora-waiver] template "${normalized.name}" contentID=${normalized.contentID} bodyLen=${normalized.body.length}`);
     return NextResponse.json(normalized);
   } catch (err) {
     console.error("[pandora-waiver] search error:", err);
@@ -130,11 +125,13 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       console.error(`[pandora-waiver] sign failed ${res.status}:`, JSON.stringify(data).substring(0, 300));
-      return NextResponse.json({ error: data.message || "Waiver signing failed" }, { status: res.status });
+      return NextResponse.json({ error: data?.message || data?.data?.message || "Waiver signing failed" }, { status: res.status });
     }
 
-    console.log(`[pandora-waiver] signed waiver for person ${personID}: waiverID=${data.waiverID}`);
-    return NextResponse.json({ ok: true, waiverID: data.waiverID });
+    // Pandora wraps: { success, data: { waiverID } }
+    const waiverID = data?.data?.waiverID || data?.waiverID;
+    console.log(`[pandora-waiver] signed waiver for person ${personID}: waiverID=${waiverID}`);
+    return NextResponse.json({ ok: true, waiverID });
   } catch (err) {
     console.error("[pandora-waiver] sign error:", err);
     return NextResponse.json(
