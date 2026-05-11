@@ -69,7 +69,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Go-Kart Racing",
         description: "High-speed electric karts on Red or Blue track",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
         maxPerGuest: 1,
         bmiTracks: [
           { track: "Red", productId: "47122743", pageId: "47123025" },

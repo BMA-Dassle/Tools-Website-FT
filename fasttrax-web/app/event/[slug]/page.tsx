@@ -585,8 +585,8 @@ export default function GroupEventPage() {
                         ) : (
                           <div className="w-full h-full bg-white/5" />
                         )}
-                        {/* Gradient overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#000418] via-[#000418]/40 to-transparent" />
+                        {/* Gradient overlay — heavy bottom fade for text legibility */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#000418] via-[#000418]/70 to-[#000418]/20" />
                         {/* Label */}
                         <div className="absolute bottom-0 left-0 right-0 p-4">
                           <div className="flex items-center gap-2">
