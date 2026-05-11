@@ -309,21 +309,26 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // ── Lane-open trigger — two independent conditions: ─────────
-        //  1. Data.Status="Ready" (reservation-level) = lanes assigned → send shoes early
-        //  2. Lanes[].Status="Running" (lane-level)   = bowling started → fallback
+        // ── Lane-open trigger — fires on any of:
+        //  1. Data.Status="Ready"       (reservation-level)
+        //  2. Lanes[].Status="Ready"    (lane-level) — X/C only, NOT kiosk (K needs
+        //     time to collect shoe sizes via check-in before sending to KDS)
+        //  3. Lanes[].Status="Running"  (lane-level) — all prefixes
         const webhookLanes = Array.isArray((data as Record<string, unknown>)?.Lanes)
           ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: Array<{ Name?: string; ShoeSize?: string | null }> }>)
           : [];
         const rezStatusReady = qamfStatus === "Ready";
+        const hasReadyLane = webhookLanes.some((l) => l.Status === "Ready");
         const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
-        const shouldTriggerLaneOpen = rezStatusReady || hasRunningLane;
+        const isKiosk = qamfId.startsWith("K");
+        const shouldTriggerLaneOpen =
+          rezStatusReady || hasRunningLane || (!isKiosk && hasReadyLane);
 
         if (shouldTriggerLaneOpen && !reservation.dayofOrderSentAt) {
           const tLaneOpen = Date.now();
           console.log(
             `[bowling-events] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-            ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneRunning=${hasRunningLane}` +
+            ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneReady=${hasReadyLane} laneRunning=${hasRunningLane} isKiosk=${isKiosk}` +
             ` webhookId=${entry.webhookId}`,
           );
 
