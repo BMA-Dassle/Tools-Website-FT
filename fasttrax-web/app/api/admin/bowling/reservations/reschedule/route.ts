@@ -96,8 +96,24 @@ export async function POST(req: NextRequest) {
     await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
-  // ── Delete old QAMF reservation (best-effort) ─────────────────────
+  // ── Unlink old QAMF ID from Neon BEFORE deleting ───────────────────
+  // QAMF fires a reservation.deleted webhook when we delete below.
+  // The webhook handler looks up Neon by qamf_reservation_id — if the
+  // old ID is still on the row it will cancel + refund the booking.
+  // Clearing the ID first makes the webhook find no matching row → skip.
   if (existing.qamfReservationId) {
+    try {
+      const q = sql();
+      await q`
+        UPDATE bowling_reservations
+        SET qamf_reservation_id = NULL
+        WHERE id = ${neonId}
+      `;
+    } catch (err) {
+      console.error("[admin/reschedule] failed to clear old qamfId:", err);
+    }
+
+    // ── Delete old QAMF reservation (best-effort) ───────────────────
     try {
       await deleteReservation(qamfCenterId, existing.qamfReservationId);
     } catch {
@@ -178,7 +194,7 @@ export async function POST(req: NextRequest) {
           dayof_payment_id = NULL,
           dayof_order_error = NULL
       WHERE id = ${neonId}
-        AND status NOT IN ('cancelled')
+        -- no status guard: reschedule must override even if webhook raced
     `;
   } catch (err) {
     console.error("[admin/reschedule] status reset failed:", err);
