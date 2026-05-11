@@ -104,6 +104,7 @@ export default function GroupEventPage() {
   // Cart — items selected but not yet booked
   const [cart, setCart] = useState<CartItem[]>([]);
   const [confirmedBillId, setConfirmedBillId] = useState<string | null>(null);
+  const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
 
   // Racing state
   const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
@@ -183,8 +184,35 @@ export default function GroupEventPage() {
         setExistingReservations(data.reservations);
         // Returning guest with existing reservations → show confirmation
         setStep("confirmation");
+        // Fetch reservation-specific waiver link from their bill
+        const firstBillId = data.reservations.find((r: { billId?: string }) => r.billId)?.billId;
+        if (firstBillId) fetchWaiverUrl(firstBillId);
       }
     } catch { /* first visit */ }
+  }
+
+  // ── Fetch reservation-specific waiver URL ─────────────────────────────────
+
+  async function fetchWaiverUrl(billId: string) {
+    try {
+      // Get bill overview → projectId
+      const ovRes = await fetch(`/api/sms?endpoint=${encodeURIComponent("bill/overview")}&billId=${billId}`);
+      if (!ovRes.ok) return;
+      const ov = await ovRes.json();
+      const projectId = ov.id || billId;
+
+      // Get projectReference from Office API
+      const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
+      if (!projRes.ok) return;
+      const proj = await projRes.json();
+      if (proj.projectReference) {
+        setWaiverUrl(
+          `https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`,
+        );
+      }
+    } catch {
+      // Non-fatal — confirmation page falls back to generic kiosk URL
+    }
   }
 
   // ── Not found ────────────────────────────────────────────────────────────
@@ -444,6 +472,9 @@ export default function GroupEventPage() {
       setCart([]);
       setStep("confirmation");
       fetchRosters();
+
+      // Fetch reservation-specific waiver link from the bill we just created
+      if (orderId) fetchWaiverUrl(orderId);
     } catch (err) {
       console.error("[group-event] Booking failed:", err);
       setBookingError(err instanceof Error ? err.message : "Booking failed. Please try again.");
@@ -1065,7 +1096,7 @@ export default function GroupEventPage() {
               ))}
             </div>
 
-            {/* Waiver CTA — prominent, urgent */}
+            {/* Waiver CTA — prominent, urgent, reservation-specific link */}
             <div className="rounded-xl border-2 border-[#E41C1D]/50 bg-[#E41C1D]/10 p-5 text-center space-y-3">
               <div className="flex items-center justify-center gap-2">
                 <svg className="w-5 h-5 text-[#E41C1D]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1079,7 +1110,7 @@ export default function GroupEventPage() {
                 to avoid delays at check-in.
               </p>
               <a
-                href="https://kiosk.bmileisure.com/headpinzftmyers"
+                href={waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 w-full py-3.5 rounded-xl font-bold text-sm bg-[#E41C1D] hover:bg-[#c62828] text-white transition-colors"
