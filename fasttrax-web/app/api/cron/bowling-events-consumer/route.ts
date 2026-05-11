@@ -38,7 +38,7 @@ import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
  *     Canceled   → cancelled  + Square refund
  *
  *   Lane-open trigger (processLaneOpen):
- *     Fires when Data.Status="Arrived" OR Data.Lanes[].Status="Running".
+ *     Fires when Data.Status="Ready" OR Data.Lanes[].Status="Running".
  *
  *   reservation.deleted  — treat as cancellation + Square refund
  *   reservation.created  — logged, no Neon action
@@ -49,11 +49,10 @@ const QUEUE_KEY = "qamf:bowling:events:queue";
 const BATCH_SIZE = 50;
 
 // QAMF reservation-level status → Neon status mapping.
-// Note: "Ready" and "Running" are lane-level statuses (BookedLaneStatus),
-// NOT reservation statuses — they never appear in Data.Status.
 // See docs/qamf-lane-lifecycle.md for the full state machine.
 const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> = {
   Confirmed:  "confirmed",
+  Ready:      "arrived",   // lane assigned — triggers shoe KDS
   Arrived:    "arrived",
   Completed:  "completed",
   Canceled:   "cancel",      // triggers refund flow
@@ -312,22 +311,19 @@ export async function GET(req: NextRequest) {
 
         // ── Lane-open trigger ───────────────────────────────────────
         // Fire processLaneOpen when EITHER:
-        //   1. Data.Status = "Arrived" (reservation-level status)
-        //   2. Data.Lanes[].Status includes "Running" (lane-level status)
-        // QAMF sends Data.Status="Arrived" + Lanes[].Status="Running"
-        // simultaneously when lanes open. Data.Status is never "Running"
-        // — that's a lane-level status only.
+        //   1. Data.Status = "Ready" (reservation-level — lane assigned)
+        //   2. Data.Lanes[].Status includes "Running" (lane-level fallback)
         const webhookLanes = Array.isArray((data as Record<string, unknown>)?.Lanes)
           ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: Array<{ Name?: string; ShoeSize?: string | null }> }>)
           : [];
         const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
-        const isArrived = qamfStatus === "Arrived";
+        const isReady = qamfStatus === "Ready";
 
-        if ((isArrived || hasRunningLane) && !reservation.dayofOrderSentAt) {
+        if ((isReady || hasRunningLane) && !reservation.dayofOrderSentAt) {
           const tLaneOpen = Date.now();
           console.log(
             `[bowling-events] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-            ` Data.Status="${qamfStatus}" hasRunningLane=${hasRunningLane}` +
+            ` Data.Status="${qamfStatus}" isReady=${isReady} hasRunningLane=${hasRunningLane}` +
             ` webhookId=${entry.webhookId}`,
           );
 
@@ -339,8 +335,7 @@ export async function GET(req: NextRequest) {
             .map((l) => l.LaneNumber)
             .filter((n): n is number => typeof n === "number");
 
-          // Fallback: if no Running lanes in payload (e.g. only got
-          // Arrived status), fetch from QAMF to get lane numbers
+          // Fallback: if no Running lanes in payload, fetch from QAMF
           if (laneNumbers.length === 0) {
             const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
               TXBSQN0FEKQ11: 9172,

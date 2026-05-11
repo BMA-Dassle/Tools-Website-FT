@@ -44,8 +44,9 @@ import { shortenUrl } from "@/lib/short-url";
  *     Completed  → completed
  *     Canceled   → cancelled + Square refund
  *
- *   Lane-open fires when Data.Status="Arrived" OR Data.Lanes[].Status="Running".
- *   QAMF sends both simultaneously when lanes open.
+ *   Lane-open fires when Data.Status="Ready" OR Data.Lanes[].Status="Running".
+ *   "Ready" (reservation-level) = lane assigned, send shoes to KDS.
+ *   "Running" (lane-level) = bowling started, fallback if Ready missed.
  *
  *   reservation.deleted  → cancellation + Square refund
  *
@@ -67,10 +68,10 @@ const DEDUP_TTL = 60 * 60 * 24 * 3; // 3d
 const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 
 // QAMF reservation-level status → Neon status mapping.
-// "Ready" and "Running" are lane-level statuses only — never in Data.Status.
 // See docs/qamf-lane-lifecycle.md for the full state machine.
 const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> = {
   Confirmed:  "confirmed",
+  Ready:      "arrived",   // lane assigned — triggers shoe KDS
   Arrived:    "arrived",
   Completed:  "completed",
   Canceled:   "cancel",
@@ -403,18 +404,20 @@ async function processEvent(
       }
     }
 
-    // Lane-open trigger: Data.Status="Arrived" OR Lanes[].Status="Running"
+    // Lane-open trigger: Data.Status="Ready" OR Lanes[].Status="Running"
+    // "Ready" (reservation-level) = lane assigned, send shoes to KDS.
+    // "Running" (lane-level) = bowling started (fallback if Ready missed).
     const webhookLanes = Array.isArray(data?.Lanes)
       ? (data!.Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: QamfWebhookPlayer[] }>)
       : [];
     const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
-    const isArrived = qamfStatus === "Arrived";
+    const isReady = qamfStatus === "Ready";
 
-    if ((isArrived || hasRunningLane) && !reservation.dayofOrderSentAt) {
+    if ((isReady || hasRunningLane) && !reservation.dayofOrderSentAt) {
       const tLaneOpen = Date.now();
       console.log(
         `[qamf-bowling] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-        ` Data.Status="${qamfStatus}" hasRunningLane=${hasRunningLane}` +
+        ` Data.Status="${qamfStatus}" isReady=${isReady} hasRunningLane=${hasRunningLane}` +
         ` webhookId=${webhookId}`,
       );
 
