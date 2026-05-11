@@ -1952,6 +1952,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
         const data = await res.json();
         if (!res.ok) {
+          // If the server couldn't create the loyalty reward, clear the
+          // selection so the customer can retry without it (proceeds to
+          // payment step for the full deposit) or try again.
+          if (data.code === "REWARD_FAILED") {
+            setSelectedRewardTier(null);
+            setError(data.error ?? "Reward couldn't be applied. Please try again or proceed without it.");
+            setStep("details");
+            return;
+          }
           const detail = data.code
             ? ` (${data.code}${data.detail ? `: ${data.detail}` : ""})`
             : "";

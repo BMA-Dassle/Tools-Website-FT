@@ -493,7 +493,7 @@ export async function POST(req: NextRequest) {
   let squareGiftCardId: string | undefined;
   let squareGiftCardGan: string | undefined;
   let loyaltyRewardId: string | undefined;
-  const rewardDiscountCents = body.rewardDiscountCents ?? 0;
+  let rewardDiscountCents = body.rewardDiscountCents ?? 0;
   let depositCents = 0;        // actual charged amount (tax-inclusive)
   let totalCents = 0;          // tax-inclusive day-of order total
 
@@ -549,6 +549,12 @@ export async function POST(req: NextRequest) {
     // points immediately) and redeem it against the day-of order (applies
     // discount). The deposit sent to bowling-orders is already reduced by
     // the reward amount on the client side.
+    if (body.rewardDiscountCents && body.rewardDiscountCents > 0) {
+      console.log(
+        `[reserve] Reward requested: tierId=${body.rewardTierId} accountId=${body.loyaltyAccountId}` +
+          ` orderId=${body.dayofOrderId} discount=${body.rewardDiscountCents}c token=${SQUARE_TOKEN ? "yes" : "NO"}`,
+      );
+    }
     if (body.rewardTierId && body.loyaltyAccountId && body.dayofOrderId && SQUARE_TOKEN) {
       try {
         // 1. Create reward → ISSUED status, points deducted immediately
@@ -604,6 +610,34 @@ export async function POST(req: NextRequest) {
           loyaltyRewardId = undefined;
         }
       }
+    }
+
+    // ── Guard: reward discount requires a valid reward ───────────────
+    // The client sends rewardDiscountCents and a reduced depositCents.
+    // If the reward wasn't successfully created (Square API error, missing
+    // fields, etc.) we MUST NOT honor the discount — it would give the
+    // customer a free/reduced deposit without deducting loyalty points.
+    if (rewardDiscountCents > 0 && !loyaltyRewardId) {
+      console.error(
+        `[reserve] Reward discount ${rewardDiscountCents}c requested but no reward created` +
+          ` — failing booking. rewardTierId=${body.rewardTierId}` +
+          ` loyaltyAccountId=${body.loyaltyAccountId}` +
+          ` dayofOrderId=${body.dayofOrderId}`,
+      );
+      // Clean up QAMF reservation
+      try {
+        const { deleteReservation } = await import("@/lib/qamf-bowling");
+        await deleteReservation(centerId, qamfReservationId);
+      } catch {
+        // Non-fatal
+      }
+      return NextResponse.json(
+        {
+          error: "Your reward couldn't be applied right now. Please try again.",
+          code: "REWARD_FAILED",
+        },
+        { status: 422 },
+      );
     }
 
     // When reward covers the full deposit ($0 to charge), skip the bowling-orders
