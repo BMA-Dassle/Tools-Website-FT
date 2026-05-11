@@ -12,8 +12,8 @@ export default function MobileBookBar() {
   const agentsOnline = useChatAvailable();
   const pathname = usePathname();
 
-  // Hide on booking pages — user is already booking
-  if (pathname?.startsWith("/book")) return null;
+  // Hide on booking pages and group event pages — user is already booking
+  if (pathname?.startsWith("/book") || pathname?.startsWith("/event/")) return null;
 
   return (
     <>

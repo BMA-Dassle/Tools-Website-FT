@@ -89,6 +89,11 @@ export default function GroupEventPage() {
   const [selectedFreeflow, setSelectedFreeflow] = useState<string[]>([]);
   const [freeflowSaved, setFreeflowSaved] = useState(false);
 
+  // ── Auto-scroll to top on step change ──────────────────────────────────
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
+
   // ── Restore session ──────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -565,7 +570,7 @@ export default function GroupEventPage() {
               <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
                 Reserve a Time Slot
               </h3>
-              <div className="grid gap-3">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 {reservationAttractions.map((attr) => {
                   const isRacing = attr.slug === "racing";
                   const bookingCount = isRacing
