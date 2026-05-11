@@ -1402,7 +1402,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   </div>
                   <div className="px-5 pb-4 -mt-1">
                     <p className="text-[11px] text-white/30 text-center leading-relaxed">
-                      Online rescheduling is not available for bookings with attractions. Please call us to reschedule.
+                      Online rescheduling is not available for bookings with attractions. Cancel and rebook if needed.
                     </p>
                   </div>
                 </div>
