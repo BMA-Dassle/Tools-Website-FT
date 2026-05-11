@@ -1315,7 +1315,13 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* Guest — name, phone, center tag */}
                       <td style={{ padding: "0.5rem 0.4rem" }}>
                         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                          {r.guestName || "—"}
+                          {r.guestName || (
+                            r.bookingSource && r.bookingSource !== "web"
+                              ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "rgba(255,255,255,0.4)" }}>
+                                  {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                                </span>
+                              : "—"
+                          )}
                           <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", fontWeight: 500 }}>
                             {centerShort}
                           </span>
@@ -1544,6 +1550,21 @@ export default function ReservationsClient({ token }: { token: string }) {
                             <span style={{ color: "rgba(255,255,255,0.25)", margin: "0 2px" }}>/</span>
                             <span style={{ color: "rgba(255,255,255,0.5)" }}>{dollars(r.totalCents)}</span>
                           </>
+                        ) : r.bookingSource && r.bookingSource !== "web" ? (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "0.1rem 0.35rem",
+                              borderRadius: 5,
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                              color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                              border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                            }}
+                          >
+                            {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                          </span>
                         ) : (
                           <span style={{ color: "rgba(255,255,255,0.3)" }}>Free</span>
                         )}
