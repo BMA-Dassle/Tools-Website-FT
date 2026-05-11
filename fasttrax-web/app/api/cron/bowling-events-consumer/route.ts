@@ -52,6 +52,7 @@ const BATCH_SIZE = 50;
 // See docs/qamf-lane-lifecycle.md for the full state machine.
 const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> = {
   Confirmed:  "confirmed",
+  Ready:      "arrived",     // reservation-level Ready = lanes assigned
   Arrived:    "arrived",
   Completed:  "completed",
   Canceled:   "cancel",      // triggers refund flow
@@ -308,22 +309,21 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // ── Lane-open trigger ───────────────────────────────────────
-        // Fire processLaneOpen when Lanes[].Status includes "Ready" or "Running".
-        // "Ready" = lane assigned (send shoes to KDS early).
-        // "Running" = bowling started (fallback if Ready missed).
+        // ── Lane-open trigger — two independent conditions: ─────────
+        //  1. Data.Status="Ready" (reservation-level) = lanes assigned → send shoes early
+        //  2. Lanes[].Status="Running" (lane-level)   = bowling started → fallback
         const webhookLanes = Array.isArray((data as Record<string, unknown>)?.Lanes)
           ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: Array<{ Name?: string; ShoeSize?: string | null }> }>)
           : [];
-        const hasReadyOrRunningLane = webhookLanes.some(
-          (l) => l.Status === "Ready" || l.Status === "Running",
-        );
+        const rezStatusReady = qamfStatus === "Ready";
+        const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
+        const shouldTriggerLaneOpen = rezStatusReady || hasRunningLane;
 
-        if (hasReadyOrRunningLane && !reservation.dayofOrderSentAt) {
+        if (shouldTriggerLaneOpen && !reservation.dayofOrderSentAt) {
           const tLaneOpen = Date.now();
           console.log(
             `[bowling-events] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-            ` Data.Status="${qamfStatus}" hasReadyOrRunning=${hasReadyOrRunningLane}` +
+            ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneRunning=${hasRunningLane}` +
             ` webhookId=${entry.webhookId}`,
           );
 
