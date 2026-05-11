@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listLanes } from "@/lib/qamf-bowling";
-import { getBowlingReservationByQamfId, insertBowlingReservation, updateSquareDayofOrderId } from "@/lib/bowling-db";
+import { getBowlingReservationByQamfId, insertBowlingReservation, updateSquareDayofOrderId, updateWalkinGuestData } from "@/lib/bowling-db";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { getReservation } from "@/lib/qamf-bowling";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
@@ -123,15 +123,42 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        // For walkin reservations without a day-of order, create a $0 one
+        // Sync guest data + create $0 order for walkin reservations
         if (!reservation.squareDayofOrderId && reservation.bookingSource !== "web") {
           try {
+            // Lane-poll has no webhook payload — fetch player/shoe data from QAMF
+            const qamfFull = await getReservation(centerId, qamfId);
+            const guest = qamfFull.Customer?.Guest;
+
+            // Always sync guest data
+            await updateWalkinGuestData(reservation.id, {
+              guestName: guest?.Name ?? null,
+              guestEmail: guest?.Email ?? null,
+              guestPhone: guest?.PhoneNumber ?? null,
+              playerCount: qamfFull.TotalPlayers ?? null,
+            });
+            reservation = {
+              ...reservation,
+              guestName: guest?.Name ?? undefined,
+              guestEmail: guest?.Email ?? undefined,
+              guestPhone: guest?.PhoneNumber ?? undefined,
+              playerCount: qamfFull.TotalPlayers ?? reservation.playerCount,
+            };
+
+            // Extract players for shoe line items
+            const qamfPlayers = (qamfFull.Lanes ?? [])
+              .flatMap((l) => l.Players ?? [])
+              .filter((p) => p.Name && p.Name !== "Player1")
+              .map((p) => ({ name: p.Name!, shoeSize: p.ShoeSize }));
+
             const { dayofOrderId } = await createWalkinDayofOrder({
               locationId: reservation.centerCode,
               guestName: reservation.guestName ?? "Walk-in",
               playerCount: reservation.playerCount ?? 1,
               neonId: reservation.id,
               qamfReservationId: qamfId,
+              squareCustomerId: reservation.squareCustomerId,
+              players: qamfPlayers.length > 0 ? qamfPlayers : undefined,
             });
             await updateSquareDayofOrderId(reservation.id, dayofOrderId);
             reservation = { ...reservation, squareDayofOrderId: dayofOrderId };

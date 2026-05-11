@@ -7,6 +7,7 @@ import {
   updateBowlingReservationStatus,
   updateBowlingReservationCancelled,
   updateSquareDayofOrderId,
+  updateWalkinGuestData,
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
@@ -278,6 +279,37 @@ export async function GET(req: NextRequest) {
 
       // ── reservation.updated → map status ─────────────────────────────
       if (eventType === "reservation.updated") {
+        // ── Sync guest + player data for K/C reservations ──────────
+        const isWalkin = qamfId.startsWith("K") || qamfId.startsWith("C");
+        if (isWalkin) {
+          const CENTER_CODE_TO_QAMF: Record<string, number> = {
+            TXBSQN0FEKQ11: 9172,
+            PPTR5G2N0QXF7: 3148,
+          };
+          try {
+            const cid = entry.centerId ?? CENTER_CODE_TO_QAMF[reservation.centerCode];
+            if (cid) {
+              const qamfFull = await getReservation(cid, qamfId);
+              const guest = qamfFull.Customer?.Guest;
+              await updateWalkinGuestData(reservation.id, {
+                guestName: guest?.Name ?? null,
+                guestEmail: guest?.Email ?? null,
+                guestPhone: guest?.PhoneNumber ?? null,
+                playerCount: qamfFull.TotalPlayers ?? null,
+              });
+              reservation = {
+                ...reservation,
+                guestName: guest?.Name ?? undefined,
+                guestEmail: guest?.Email ?? undefined,
+                guestPhone: guest?.PhoneNumber ?? undefined,
+                playerCount: qamfFull.TotalPlayers ?? reservation.playerCount,
+              };
+            }
+          } catch (err) {
+            console.warn(`[bowling-events] guest sync failed neonId=${reservation.id}:`, err);
+          }
+        }
+
         // ── Lane-open trigger ───────────────────────────────────────
         // Fire processLaneOpen when EITHER:
         //   1. Data.Status = "Arrived" (reservation-level status)
@@ -286,7 +318,7 @@ export async function GET(req: NextRequest) {
         // simultaneously when lanes open. Data.Status is never "Running"
         // — that's a lane-level status only.
         const webhookLanes = Array.isArray((data as Record<string, unknown>)?.Lanes)
-          ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string }>)
+          ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: Array<{ Name?: string; ShoeSize?: string | null }> }>)
           : [];
         const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
         const isArrived = qamfStatus === "Arrived";
@@ -335,12 +367,19 @@ export async function GET(req: NextRequest) {
           // For walkin reservations without a day-of order, create a $0 one
           if (!reservation.squareDayofOrderId && reservation.bookingSource !== "web") {
             try {
+              const webhookPlayers = webhookLanes
+                .flatMap((l) => l.Players ?? [])
+                .filter((p) => p.Name && p.Name !== "Player1")
+                .map((p) => ({ name: p.Name!, shoeSize: p.ShoeSize }));
+
               const { dayofOrderId } = await createWalkinDayofOrder({
                 locationId: reservation.centerCode,
                 guestName: reservation.guestName ?? "Walk-in",
                 playerCount: reservation.playerCount ?? 1,
                 neonId: reservation.id,
                 qamfReservationId: qamfId,
+                squareCustomerId: reservation.squareCustomerId,
+                players: webhookPlayers.length > 0 ? webhookPlayers : undefined,
               });
               await updateSquareDayofOrderId(reservation.id, dayofOrderId);
               reservation = { ...reservation, squareDayofOrderId: dayofOrderId };

@@ -4,8 +4,12 @@
  * fulfillment added later by processLaneOpen tells kitchen staff which lane
  * to deliver shoes to.
  *
+ * When player data is available (name + shoe size from QAMF), each player
+ * gets a separate $0 "Shoes" line item so KDS staff see individual sizes.
+ * Falls back to a single generic line item when no player data exists.
+ *
  * Payment is handled at the POS (cash/card at the register). This order
- * is left OPEN with a single $0 ad-hoc line item.
+ * is left OPEN with $0 line items.
  */
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -26,21 +30,55 @@ function sqHeaders() {
   };
 }
 
+/** Player/shoe data from QAMF webhook Lanes[].Players[]. */
+export interface WalkinPlayer {
+  name: string;
+  shoeSize?: string | null;
+}
+
 export async function createWalkinDayofOrder(opts: {
   locationId: string;
   guestName: string;
   playerCount: number;
   neonId: number;
   qamfReservationId: string;
+  squareCustomerId?: string;
+  /** Player data from QAMF — when present, each player gets a shoe line item. */
+  players?: WalkinPlayer[];
 }): Promise<{ dayofOrderId: string }> {
-  const { locationId, guestName, playerCount, neonId, qamfReservationId } = opts;
+  const { locationId, guestName, playerCount, neonId, qamfReservationId, squareCustomerId, players } = opts;
 
   const taxCatalogId = LOCATION_TAX[locationId];
   const orderTaxes = taxCatalogId
     ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
     : [];
 
-  const label = `Walk-in Bowling - ${guestName} (${playerCount}p)`;
+  // Build line items: one shoe line per player when data is available,
+  // otherwise a single generic "Walk-in Bowling" line.
+  const lineItems: Array<{ name: string; quantity: string; base_price_money: { amount: number; currency: string } }> = [];
+
+  const playersWithShoes = (players ?? []).filter((p) => p.shoeSize);
+  if (playersWithShoes.length > 0) {
+    for (const p of playersWithShoes) {
+      lineItems.push({
+        name: `Shoes: ${p.name} - ${p.shoeSize}`,
+        quantity: "1",
+        base_price_money: { amount: 0, currency: "USD" },
+      });
+    }
+    // Add a summary line so the order is identifiable in Square dashboard
+    lineItems.push({
+      name: `Walk-in Bowling - ${guestName} (${playerCount}p)`,
+      quantity: "1",
+      base_price_money: { amount: 0, currency: "USD" },
+    });
+  } else {
+    lineItems.push({
+      name: `Walk-in Bowling - ${guestName} (${playerCount}p)`,
+      quantity: "1",
+      base_price_money: { amount: 0, currency: "USD" },
+    });
+  }
 
   const res = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",
@@ -49,14 +87,9 @@ export async function createWalkinDayofOrder(opts: {
       idempotency_key: `walkin-dayof-${neonId}`,
       order: {
         location_id: locationId,
+        ...(squareCustomerId ? { customer_id: squareCustomerId } : {}),
         reference_id: qamfReservationId,
-        line_items: [
-          {
-            name: label,
-            quantity: "1",
-            base_price_money: { amount: 0, currency: "USD" },
-          },
-        ],
+        line_items: lineItems,
         ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
       },
     }),

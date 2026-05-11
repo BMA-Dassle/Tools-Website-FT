@@ -975,6 +975,36 @@ export async function markLaneReadySent(id: number): Promise<void> {
 }
 
 /**
+ * Sync guest + player data from QAMF into a kiosk/conqueror Neon row.
+ *
+ * Called on every `reservation.updated` webhook for K/C reservations.
+ * Guest name/email/phone may change (kiosk collects data AFTER creating
+ * the reservation), and player count can change with lane reassignment,
+ * so we always overwrite — not just when null.
+ */
+export async function updateWalkinGuestData(
+  id: number,
+  opts: {
+    guestName?: string | null;
+    guestEmail?: string | null;
+    guestPhone?: string | null;
+    playerCount?: number | null;
+  },
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET guest_name   = ${opts.guestName ?? null},
+        guest_email  = ${opts.guestEmail ?? null},
+        guest_phone  = ${opts.guestPhone ?? null},
+        player_count = COALESCE(${opts.playerCount ?? null}, player_count)
+    WHERE id = ${id}
+  `;
+}
+
+/**
  * Write the Square day-of order ID to a reservation (used by walkin/kiosk
  * reservations that don't have a Square order at booking time).
  */

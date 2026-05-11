@@ -7,6 +7,7 @@ import {
   updateBowlingReservationStatus,
   updateBowlingReservationCancelled,
   updateSquareDayofOrderId,
+  updateWalkinGuestData,
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
@@ -133,14 +134,29 @@ function verifySignature(
   return false;
 }
 
+interface QamfWebhookPlayer {
+  Name?: string;
+  ShoeSize?: string | null;
+  ActivateBumpers?: boolean;
+  Id?: number;
+}
+
 interface QamfEnvelope {
   Type?: string;
   CenterId?: number;
   Timestamp?: string;
   Data?: {
     Id?: string;
+    Source?: string;
+    Title?: string | null;
     Status?: string;
-    Lanes?: Array<{ Id?: string; LaneNumber?: number; Status?: string }>;
+    TotalPlayers?: number;
+    Lanes?: Array<{
+      Id?: string;
+      LaneNumber?: number;
+      Status?: string;
+      Players?: QamfWebhookPlayer[];
+    }>;
     [key: string]: unknown;
   };
 }
@@ -347,9 +363,49 @@ async function processEvent(
   if (eventType === "reservation.updated") {
     let laneOpenAction: string | undefined;
 
+    // ── Sync guest + player data for K/C reservations ────────────────
+    // Kiosk creates the reservation BEFORE collecting guest info, so
+    // reservation.created arrives with null guest data. The real data
+    // only appears in subsequent reservation.updated events. Always
+    // sync so edits (name change, shoe size correction) propagate too.
+    const isWalkin = qamfId.startsWith("K") || qamfId.startsWith("C");
+    if (isWalkin) {
+      try {
+        // Prefer fresh QAMF API data for email/phone (not in webhook payload)
+        const qamfCenterIdForGuest = centerId ?? CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
+        if (qamfCenterIdForGuest) {
+          const qamfFull = await getReservation(qamfCenterIdForGuest, qamfId);
+          const guest = qamfFull.Customer?.Guest;
+          await updateWalkinGuestData(reservation.id, {
+            guestName: guest?.Name ?? (data?.Title as string) ?? null,
+            guestEmail: guest?.Email ?? null,
+            guestPhone: guest?.PhoneNumber ?? null,
+            playerCount: qamfFull.TotalPlayers ?? (data?.TotalPlayers as number) ?? null,
+          });
+          // Update in-memory reservation so lane-open uses fresh data
+          reservation = {
+            ...reservation,
+            guestName: guest?.Name ?? (data?.Title as string) ?? undefined,
+            guestEmail: guest?.Email ?? undefined,
+            guestPhone: guest?.PhoneNumber ?? undefined,
+            playerCount: qamfFull.TotalPlayers ?? reservation.playerCount,
+          };
+          console.log(
+            `[qamf-bowling] synced guest data neonId=${reservation.id} name=${guest?.Name ?? "?"} phone=${guest?.PhoneNumber ? "yes" : "no"}`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal — continue with existing data
+        console.warn(
+          `[qamf-bowling] guest data sync failed neonId=${reservation.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     // Lane-open trigger: Data.Status="Arrived" OR Lanes[].Status="Running"
     const webhookLanes = Array.isArray(data?.Lanes)
-      ? (data!.Lanes as Array<{ LaneNumber?: number; Status?: string }>)
+      ? (data!.Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: QamfWebhookPlayer[] }>)
       : [];
     const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
     const isArrived = qamfStatus === "Arrived";
@@ -390,14 +446,23 @@ async function processEvent(
 
       // For walkin reservations without a day-of order, create a $0 one now
       // so processLaneOpen can add SHIPMENT fulfillment for KDS shoe routing.
+      // Extract player/shoe data from the webhook payload so KDS sees sizes.
       if (!reservation.squareDayofOrderId && reservation.bookingSource !== "web") {
         try {
+          // Collect players from ALL lanes in the webhook payload
+          const webhookPlayers = webhookLanes
+            .flatMap((l) => l.Players ?? [])
+            .filter((p) => p.Name && p.Name !== "Player1")
+            .map((p) => ({ name: p.Name!, shoeSize: p.ShoeSize }));
+
           const { dayofOrderId } = await createWalkinDayofOrder({
             locationId: reservation.centerCode,
             guestName: reservation.guestName ?? "Walk-in",
             playerCount: reservation.playerCount ?? 1,
             neonId: reservation.id,
             qamfReservationId: qamfId,
+            squareCustomerId: reservation.squareCustomerId,
+            players: webhookPlayers.length > 0 ? webhookPlayers : undefined,
           });
           await updateSquareDayofOrderId(reservation.id, dayofOrderId);
           reservation = { ...reservation, squareDayofOrderId: dayofOrderId };
