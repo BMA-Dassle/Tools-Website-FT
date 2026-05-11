@@ -282,6 +282,10 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Discount amount in cents from the redeemed reward (e.g. 1000 = $10 off).
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS reward_discount_cents INT NOT NULL DEFAULT 0`;
 
+  // Attraction add-ons booked via BMI during the bowling wizard.
+  // JSON array of { slug, name, bmiOrderId, bmiBillLineId, quantity, totalPriceDollars, timeSlot, timeLabel }.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS attraction_bookings JSONB NOT NULL DEFAULT '[]'`;
+
   schemaReady = true;
 }
 
@@ -505,6 +509,18 @@ export interface BowlingReservation {
   squareLoyaltyRewardId?: string;
   /** Discount amount in cents from the redeemed loyalty reward (e.g. 1000 = $10 off deposit). */
   rewardDiscountCents: number;
+  /** Attraction add-ons booked via BMI during the bowling wizard (laser tag, gel blaster, etc.). */
+  attractionBookings: Array<{
+    slug: string;
+    name: string;
+    bmiOrderId: string | null;
+    bmiBillLineId: string | null;
+    squareCatalogObjectId: string | null;
+    quantity: number;
+    totalPriceDollars: number;
+    timeSlot: string;
+    timeLabel: string;
+  }>;
   insertedAt: string;
 }
 
@@ -682,6 +698,13 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     squareCustomerId: (row.square_customer_id as string) ?? undefined,
     squareLoyaltyRewardId: (row.square_loyalty_reward_id as string) ?? undefined,
     rewardDiscountCents: (row.reward_discount_cents as number) ?? 0,
+    attractionBookings: (() => {
+      const raw = row.attraction_bookings;
+      if (!raw) return [];
+      if (typeof raw === "string") try { return JSON.parse(raw); } catch { return []; }
+      if (Array.isArray(raw)) return raw;
+      return [];
+    })(),
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -709,7 +732,7 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents"> & { rewardDiscountCents?: number },
+  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents" | "attractionBookings"> & { rewardDiscountCents?: number; attractionBookings?: BowlingReservation["attractionBookings"] },
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -726,7 +749,8 @@ export async function insertBowlingReservation(
       booked_at, player_count,
       guest_name, guest_email, guest_phone, notes,
       booking_source, square_customer_id,
-      square_loyalty_reward_id, reward_discount_cents
+      square_loyalty_reward_id, reward_discount_cents,
+      attraction_bookings
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -736,7 +760,8 @@ export async function insertBowlingReservation(
       ${r.bookedAt}, ${r.playerCount ?? null},
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
       ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
-      ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0}
+      ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0},
+      ${JSON.stringify(r.attractionBookings ?? [])}::jsonb
     )
     RETURNING *
   `;

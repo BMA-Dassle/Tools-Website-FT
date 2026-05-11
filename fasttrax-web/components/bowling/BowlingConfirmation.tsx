@@ -1154,6 +1154,31 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               </>
             )}
 
+            {/* Attraction add-ons */}
+            {reservation?.attractionBookings && reservation.attractionBookings.length > 0 && (
+              <>
+                <DividerLine />
+                <div className="space-y-1.5">
+                  <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">
+                    Activities
+                  </p>
+                  {reservation.attractionBookings.map((a, i) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="font-body text-white/60">
+                        {a.name}{" "}
+                        <span className="text-white/35">
+                          {a.quantity}p · {a.timeLabel}
+                        </span>
+                      </span>
+                      <span className="font-body text-white/50">
+                        ${a.totalPriceDollars.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
             {/* Payment summary */}
             {(hasPaidDeposit || rewardDiscountCents > 0) && (
               <>

@@ -39,6 +39,10 @@ interface Reservation {
   bookingSource?: string;
   squareLoyaltyRewardId?: string;
   rewardDiscountCents: number;
+  attractionBookings?: Array<{
+    slug: string; name: string; quantity: number;
+    totalPriceDollars: number; timeLabel: string;
+  }>;
   insertedAt: string;
   lines: ReservationLine[];
 }

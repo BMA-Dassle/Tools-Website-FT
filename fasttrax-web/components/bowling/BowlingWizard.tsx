@@ -5,6 +5,8 @@ import { modalBackdropProps } from "@/lib/a11y";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import BowlingPaymentStep from "@/components/bowling/BowlingPaymentStep";
+import BowlingAttractionsStep from "@/components/bowling/BowlingAttractionsStep";
+import type { AttractionAddon } from "@/components/bowling/BowlingAttractionsStep";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import { bookableDateRange, isKbfBookableDate } from "@/lib/kbf-schedule";
@@ -751,6 +753,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Length == laneCount; index 0 = Lane 1, index 1 = Lane 2, etc.
   const [pizzaModifierSelections, setPizzaModifierSelections] = useState<Array<Record<string, string[]>>>([{}]);
 
+  // ── Attraction add-ons (laser tag / gel blaster) ─────────────────
+  const [attractionAddons, setAttractionAddons] = useState<AttractionAddon[]>([]);
+
   // ── KBF: existing reservation ────────────────────────────────────
 
   const [existingReservation, setExistingReservation] = useState<ExistingReservation | null>(null);
@@ -806,6 +811,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // ── Computed values ──────────────────────────────────────────────
 
   const center = CENTER_BY_ID[centerId] ?? CENTERS[0];
+  const bmiClientKey = center.locationKey === "naples" ? "headpinznaples" : undefined;
 
   const kbfBowlers = bowlerSelections.filter((b) => b.selected);
   const activePlayerCount = kind === "kbf" ? kbfBowlers.length : playerCount;
@@ -887,6 +893,19 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // For non-hourly or the default 1.5hr option, this is 1.
   const durationMultiplier = selectedDurationOpt?.squareMultiplier ?? 1;
 
+  // ── Bowling duration for attraction time-blocking ──────────────
+  // Derives the bowling session length in minutes so the attractions
+  // step can grey-out overlapping time slots and label them "Bowling".
+  const bowlingDurationMinutes = (() => {
+    if (selectedDurationOpt) return selectedDurationOpt.durationMinutes;
+    const slug = selectedExperience?.slug ?? "";
+    if (slug.includes("pizza-bowl")) return 120;
+    if (slug.includes("midnight-madness")) return 180;
+    if (slug.includes("fun-4-all")) return 90;
+    if (slug.startsWith("kbf")) return 60;
+    return 90; // safe default
+  })();
+
   // Shoe totals (pre-tax, for display before quote lands)
   const shoePreTaxTotal = Object.entries(shoeQty).reduce((sum, [pidStr, qty]) => {
     const p = shoeProducts.find((sp) => sp.id === Number(pidStr));
@@ -918,8 +937,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     0,
   );
 
-  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents;
-  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents;
+  // Attraction add-ons: full price, 100% deposit (no split — guest pays in full online)
+  const attractionPreTaxCents = attractionAddons.reduce(
+    (s, a) => s + Math.round(a.totalPrice * 100), 0,
+  );
+
+  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents;
+  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents;
 
   // Use Square's tax-inclusive quote once loaded.
   // Extra toppings are added to the quote (Square doesn't know about them).
@@ -1286,10 +1310,21 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [laneCount]);
 
+  // ── Clear attraction add-ons when bowling date changes ─────────────
+  // BMI bookings are date-specific — if the user goes back and picks
+  // a different bowling date, stale attraction slots must be dropped.
+  const prevDateRef = useRef(selectedDate);
+  useEffect(() => {
+    if (selectedDate !== prevDateRef.current) {
+      prevDateRef.current = selectedDate;
+      if (attractionAddons.length > 0) setAttractionAddons([]);
+    }
+  }, [selectedDate, attractionAddons.length]);
+
   // ── Clear stale quote when user backs up to shoes step ────────────
 
   useEffect(() => {
-    if (step === "shoes") {
+    if (step === "shoes" || step === "attractions") {
       setQuoteDayofOrderId(null);
       setQuoteTotalCents(0);
       setQuoteDepositCents(0);
@@ -1356,6 +1391,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           name: p.label,
           quantity: String(shoeQty[p.id]),
           catalogObjectId: p.squareCatalogObjectId,
+        })),
+      // Attraction add-ons (laser tag / gel blaster) — full-price catalog items
+      ...attractionAddons
+        .filter((a) => a.squareCatalogObjectId)
+        .map((a) => ({
+          name: `${a.name} · ${a.timeLabel}`,
+          quantity: String(a.quantity),
+          catalogObjectId: a.squareCatalogObjectId!,
         })),
     ];
 
@@ -1649,9 +1692,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
       void createHold(slot);
       if (isPerLaneExp) {
-        setStep(isPizzaBowl ? "food" : "review");
+        setStep("attractions");
       } else {
-        setStep(incShoes ? "review" : "shoes");
+        setStep(incShoes ? "attractions" : "shoes");
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1933,6 +1976,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               rewardTierId: selectedRewardTier.id,
               loyaltyAccountId: loyaltyAccount.id,
               rewardDiscountCents: selectedRewardTier.discountCents,
+            } : {}),
+            // Attraction add-ons booked on BMI (included in Square order)
+            ...(attractionAddons.length > 0 ? {
+              attractionBookings: attractionAddons.map((a) => ({
+                slug: a.slug,
+                name: a.name,
+                bmiOrderId: a.bmiOrderId,
+                bmiBillLineId: a.bmiBillLineId,
+                squareCatalogObjectId: a.squareCatalogObjectId,
+                quantity: a.quantity,
+                totalPriceDollars: a.totalPrice,
+                timeSlot: a.block.start,
+                timeLabel: a.timeLabel,
+              })),
             } : {}),
             // Pass existing hold ID so reserve route confirms it instead of
             // creating a duplicate QAMF reservation
@@ -3432,9 +3489,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       // Hold was already created when user tapped the time chip.
                       // Just advance to the next step.
                       if (selectedIsPerLane) {
-                        setStep(isPizzaBowl ? "food" : "review");
+                        setStep("attractions");
                       } else if (selectedIncludesShoes) {
-                        setStep("review");
+                        setStep("attractions");
                       } else {
                         setStep("shoes");
                       }
@@ -3612,7 +3669,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button type="button" onClick={() => { if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); } }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
-                  onClick={() => { setError(null); setStep(isPizzaBowl ? "food" : "review"); }}
+                  onClick={() => { setError(null); setStep("attractions"); }}
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
@@ -3623,18 +3680,28 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           )}
 
           {/* ═══════════════════════════════════════════════════════
-              STEP: Attractions (stub)
+              STEP: Attractions (laser tag / gel blaster add-ons)
           ═══════════════════════════════════════════════════════ */}
           {step === "attractions" && (
-            <div className="space-y-4">
-              <div className="rounded-xl p-6 text-center" style={{ border: "1.78px dashed rgba(255,255,255,0.08)" }}>
-                <p className="font-body text-white/35 text-sm">Coming soon — laser tag, gel blasters, and more.</p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("shoes")} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
-                <button type="button" onClick={() => setStep("food")} className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white" style={{ backgroundColor: CORAL }}>Skip</button>
-              </div>
-            </div>
+            <BowlingAttractionsStep
+              locationKey={center.locationKey}
+              bmiClientKey={bmiClientKey}
+              date={selectedDate}
+              playerCount={activePlayerCount}
+              addons={attractionAddons}
+              onAddonsChange={setAttractionAddons}
+              onContinue={() => setStep(isPizzaBowl ? "food" : "review")}
+              onBack={() => {
+                if (selectedIncludesShoes) {
+                  // Shoes were skipped — go back to offer (with hold-release guard)
+                  if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); }
+                } else {
+                  setStep("shoes");
+                }
+              }}
+              bowlingStartIso={selectedSlot?.bookedAt}
+              bowlingDurationMinutes={bowlingDurationMinutes}
+            />
           )}
 
           {/* ═══════════════════════════════════════════════════════
@@ -3763,7 +3830,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setStep("offer")}
+                  onClick={() => setStep("attractions")}
                   className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
                   Back
@@ -3868,6 +3935,23 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </div>
                 )}
 
+                {/* Attraction add-ons (included in Square order) */}
+                {attractionAddons.map((addon) => (
+                  <div key={addon.slug} className="flex justify-between text-sm">
+                    <span className="font-body text-white/55">
+                      {addon.name}
+                      <span className="text-white/35"> × {addon.quantity} · {addon.timeLabel}</span>
+                    </span>
+                    {quoteLoading ? (
+                      <span className="font-body text-white/35 text-xs italic">calculating…</span>
+                    ) : (
+                      <span className="font-body font-bold" style={{ color: addon.color }}>
+                        {centsToDollars(Math.round(addon.totalPrice * 100))}
+                      </span>
+                    )}
+                  </div>
+                ))}
+
                 {/* Extra toppings line */}
                 {extraToppingsCents > 0 && (
                   <div className="flex justify-between text-sm">
@@ -3918,13 +4002,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    const backTo = selectedIncludesShoes ? "offer" : "shoes";
-                    // Going back to offer releases the hold — warn first.
-                    if (selectedIncludesShoes && holdActive) {
-                      setPendingRelease("offer");
-                    } else {
-                      setStep(backTo);
-                    }
+                    setStep(isPizzaBowl ? "food" : "attractions");
                   }}
                   className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >

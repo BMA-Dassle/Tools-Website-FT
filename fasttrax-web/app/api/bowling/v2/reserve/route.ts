@@ -182,6 +182,19 @@ interface ReserveBody {
   loyaltyAccountId?: string;
   /** Discount amount in cents from the selected reward tier. */
   rewardDiscountCents?: number;
+  // ── Attraction add-ons (laser tag / gel blaster booked via BMI) ──
+  /** Attraction bookings made during the wizard. Stored on the reservation for tracking. */
+  attractionBookings?: Array<{
+    slug: string;
+    name: string;
+    bmiOrderId: string | null;
+    bmiBillLineId: string | null;
+    squareCatalogObjectId: string | null;
+    quantity: number;
+    totalPriceDollars: number;
+    timeSlot: string;
+    timeLabel: string;
+  }>;
 }
 
 export async function POST(req: NextRequest) {
@@ -766,6 +779,7 @@ export async function POST(req: NextRequest) {
         squareCustomerId: body.squareCustomerId,
         squareLoyaltyRewardId: loyaltyRewardId,
         rewardDiscountCents,
+        attractionBookings: body.attractionBookings,
       },
       reservationLines,
     );
@@ -894,6 +908,14 @@ export async function POST(req: NextRequest) {
     // Tax-inclusive deposit
     if (depositCents > 0) {
       finalParts.push(`Deposit $${(depositCents / 100).toFixed(2)} paid (incl. tax)`);
+    }
+
+    // Attraction add-ons
+    if (body.attractionBookings && body.attractionBookings.length > 0) {
+      const attrParts = body.attractionBookings.map(
+        (a) => `${a.name} ${a.quantity}p @ ${a.timeLabel} ($${a.totalPriceDollars.toFixed(2)})`,
+      );
+      finalParts.push("Activities: " + attrParts.join(", "));
     }
 
     // User-supplied notes
