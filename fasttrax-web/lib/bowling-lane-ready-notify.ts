@@ -126,6 +126,20 @@ export async function sendLaneReadyNotification(
   reservation: BowlingReservation,
   laneLabel?: string,
 ): Promise<{ smsOk: boolean; emailOk: boolean }> {
+  // If the reservation was just created (< 30s ago), delay so the booking
+  // confirmation SMS/email arrives first. Without this, a booking within
+  // 30 min of the current time can get the lane-ready SMS before the
+  // confirmation because QAMF webhooks fire within seconds.
+  const insertedMs = reservation.insertedAt ? new Date(reservation.insertedAt).getTime() : 0;
+  const ageSec = (Date.now() - insertedMs) / 1000;
+  if (ageSec > 0 && ageSec < 30) {
+    console.log(
+      `[lane-ready] neonId=${reservation.id} recent booking (${Math.round(ageSec)}s ago)` +
+      ` — delaying 5s for confirmation to arrive first`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+
   const center = CENTER_META[reservation.centerCode] ?? CENTER_META.TXBSQN0FEKQ11;
   const time = formatTime(reservation.bookedAt);
   const guestFirst = (reservation.guestName ?? "").split(" ")[0] || "there";
