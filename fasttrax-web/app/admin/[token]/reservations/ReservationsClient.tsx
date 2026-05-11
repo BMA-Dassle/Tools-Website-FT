@@ -1611,7 +1611,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* Actions — reschedule + resend + cancel */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", gap: 4 }}>
-                          {!isCancelled && r.status !== "completed" && r.qamfReservationId && (
+                          {!isCancelled && r.status !== "completed" && r.status !== "arrived" && r.qamfReservationId && (
                             <button
                               type="button"
                               onClick={() => setRescheduleTarget(r)}
@@ -1631,7 +1631,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               Time
                             </button>
                           )}
-                          {!isCancelled && (r.guestEmail || r.guestPhone) && (
+                          {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (r.guestEmail || r.guestPhone) && (
                             <button
                               type="button"
                               onClick={() => setResendTarget(r)}
@@ -1651,7 +1651,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               Resend
                             </button>
                           )}
-                          {!isCancelled && (
+                          {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (
                             <button
                               type="button"
                               onClick={() => setCancelTarget(r)}
