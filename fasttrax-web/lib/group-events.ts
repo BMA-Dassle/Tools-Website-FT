@@ -19,7 +19,9 @@ export interface GroupEventAttraction {
   type: "reservation" | "freeflow";
   label: string;
   description: string;
-  icon: string;         // emoji for dashboard card
+  /** Card image URL — reservation activities get a full image card,
+   *  freeflow activities get a small thumbnail. */
+  image?: string;
   /** Max bookings per email for this attraction (default: unlimited) */
   maxPerGuest?: number;
   /** Per-track BMI products (racing) */
@@ -67,7 +69,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Go-Kart Racing",
         description: "High-speed electric karts on Red or Blue track",
-        icon: "🏎️",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp",
         maxPerGuest: 1,
         bmiTracks: [
           { track: "Red", productId: "47122743", pageId: "47123025" },
@@ -79,7 +81,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Nexus Gel Blaster",
         description: "15-min gel blaster battles in a glowing arena",
-        icon: "🔫",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
         maxPerGuest: 1,
         bmiProductId: "47122817",
         bmiPageId: "47123025",
@@ -89,7 +91,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Nexus Laser Tag",
         description: "Multi-level laser tag with haptic vests",
-        icon: "🔴",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
         maxPerGuest: 1,
         bmiProductId: "47122935",
         bmiPageId: "47123025",
@@ -100,35 +102,33 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "freeflow",
         label: "Bowling",
         description: "Classic & VIP bowling lanes",
-        icon: "🎳",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
       },
       {
         slug: "electric-shuffle",
         type: "freeflow",
         label: "Electric Shuffle",
         description: "AR-powered shuffleboard tables",
-        icon: "🏓",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
       },
       {
         slug: "food",
         type: "freeflow",
         label: "Food & Drinks",
         description: "Complimentary food & beverages",
-        icon: "🍕",
       },
       {
         slug: "ping-pong",
         type: "freeflow",
         label: "Ping Pong",
         description: "Open ping pong tables",
-        icon: "🏓",
       },
       {
         slug: "games",
         type: "freeflow",
         label: "Arcade Games",
         description: "Full arcade access",
-        icon: "🕹️",
+        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp",
       },
     ],
   },

@@ -552,37 +552,49 @@ export default function GroupEventPage() {
                       }}
                       disabled={isBooked}
                       className={`
-                        w-full rounded-xl border p-4 text-left transition-all
+                        w-full rounded-xl border overflow-hidden text-left transition-all
                         ${isBooked
-                          ? "border-emerald-500/30 bg-emerald-500/8"
-                          : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/8 cursor-pointer"
+                          ? "border-emerald-500/30"
+                          : "border-white/10 hover:border-white/25 cursor-pointer"
                         }
                       `}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{attr.icon}</span>
-                        <div className="flex-1 min-w-0">
+                      {/* Image */}
+                      <div className="relative h-32 sm:h-40 w-full">
+                        {attr.image ? (
+                          <img
+                            src={attr.image}
+                            alt={attr.label}
+                            className={`w-full h-full object-cover ${isBooked ? "opacity-50" : ""}`}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-white/5" />
+                        )}
+                        {/* Gradient overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#000418] via-[#000418]/40 to-transparent" />
+                        {/* Label */}
+                        <div className="absolute bottom-0 left-0 right-0 p-4">
                           <div className="flex items-center gap-2">
-                            <span className="text-white font-semibold text-sm">{attr.label}</span>
+                            <span className="text-white font-bold text-base">{attr.label}</span>
                             {isBooked && (
-                              <span className="text-emerald-400 text-xs font-semibold">&#10003; Booked</span>
+                              <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">&#10003; Booked</span>
                             )}
                           </div>
-                          <p className="text-white/40 text-xs mt-0.5">{attr.description}</p>
+                          <p className="text-white/50 text-xs mt-0.5">{attr.description}</p>
                           {isBooked && booking && (
-                            <p className="text-emerald-400/70 text-xs mt-1">
+                            <p className="text-emerald-400/70 text-xs mt-1 font-medium">
                               {isRacing && raceBooking
-                                ? `${raceBooking.track} Track • ${formatTime(raceBooking.heatStart)}`
+                                ? `${raceBooking.track} Track · ${formatTime(raceBooking.heatStart)}`
                                 : "time" in (booking as { time?: string })
                                   ? formatTime((booking as { time: string }).time)
                                   : "Reserved"
                               }
                             </p>
                           )}
+                          {!isBooked && (
+                            <p className="text-[#00E2E5] text-xs font-semibold mt-1">Tap to reserve &rsaquo;</p>
+                          )}
                         </div>
-                        {!isBooked && (
-                          <span className="text-white/30 text-sm">&rsaquo;</span>
-                        )}
                       </div>
                     </button>
                   );
@@ -595,13 +607,13 @@ export default function GroupEventPage() {
               <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
                 I Plan to Attend
               </h3>
-              <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/3 p-3 space-y-2">
                 {freeflowAttractions.map((attr) => {
                   const checked = selectedFreeflow.includes(attr.slug);
                   return (
                     <label
                       key={attr.slug}
-                      className="flex items-center gap-3 cursor-pointer group"
+                      className={`flex items-center gap-3 cursor-pointer group rounded-lg p-2 transition-colors ${checked ? "bg-[#00E2E5]/8" : "hover:bg-white/3"}`}
                     >
                       <input
                         type="checkbox"
@@ -612,12 +624,14 @@ export default function GroupEventPage() {
                             : [...selectedFreeflow, attr.slug];
                           saveFreeflow(next);
                         }}
-                        className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#00E2E5] focus:ring-[#00E2E5]/30 accent-[#00E2E5]"
+                        className="w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-[#00E2E5] focus:ring-[#00E2E5]/30 accent-[#00E2E5]"
                       />
-                      <span className="text-lg">{attr.icon}</span>
-                      <div>
-                        <span className="text-white text-sm group-hover:text-white/90">{attr.label}</span>
-                        <p className="text-white/30 text-xs">{attr.description}</p>
+                      {attr.image && (
+                        <img src={attr.image} alt={attr.label} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <span className="text-white text-sm font-medium group-hover:text-white/90">{attr.label}</span>
+                        <p className="text-white/30 text-xs truncate">{attr.description}</p>
                       </div>
                     </label>
                   );
