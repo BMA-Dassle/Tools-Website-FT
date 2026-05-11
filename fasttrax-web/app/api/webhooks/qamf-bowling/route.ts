@@ -44,8 +44,8 @@ import { shortenUrl } from "@/lib/short-url";
  *     Completed  → completed
  *     Canceled   → cancelled + Square refund
  *
- *   Lane-open fires when Data.Status="Ready" OR Data.Lanes[].Status="Running".
- *   "Ready" (reservation-level) = lane assigned, send shoes to KDS.
+ *   Lane-open fires when Lanes[].Status="Ready" OR Lanes[].Status="Running".
+ *   "Ready" (lane-level) = lane assigned, send shoes to KDS early.
  *   "Running" (lane-level) = bowling started, fallback if Ready missed.
  *
  *   reservation.deleted  → cancellation + Square refund
@@ -71,7 +71,6 @@ const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 // See docs/qamf-lane-lifecycle.md for the full state machine.
 const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> = {
   Confirmed:  "confirmed",
-  Ready:      "arrived",   // lane assigned — triggers shoe KDS
   Arrived:    "arrived",
   Completed:  "completed",
   Canceled:   "cancel",
@@ -404,30 +403,32 @@ async function processEvent(
       }
     }
 
-    // Lane-open trigger: Data.Status="Ready" OR Lanes[].Status="Running"
-    // "Ready" (reservation-level) = lane assigned, send shoes to KDS.
-    // "Running" (lane-level) = bowling started (fallback if Ready missed).
+    // Lane-open trigger: Lanes[].Status="Ready" OR Lanes[].Status="Running"
+    // "Ready" (lane-level) = lane assigned, send shoes to KDS early.
+    // "Running" (lane-level) = bowling started, fallback if Ready missed.
+    // Note: "Ready" never appears in Data.Status — it's lane-level only.
     const webhookLanes = Array.isArray(data?.Lanes)
       ? (data!.Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: QamfWebhookPlayer[] }>)
       : [];
-    const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
-    const isReady = qamfStatus === "Ready";
+    const hasReadyOrRunningLane = webhookLanes.some(
+      (l) => l.Status === "Ready" || l.Status === "Running",
+    );
 
-    if ((isReady || hasRunningLane) && !reservation.dayofOrderSentAt) {
+    if (hasReadyOrRunningLane && !reservation.dayofOrderSentAt) {
       const tLaneOpen = Date.now();
       console.log(
         `[qamf-bowling] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-        ` Data.Status="${qamfStatus}" isReady=${isReady} hasRunningLane=${hasRunningLane}` +
+        ` Data.Status="${qamfStatus}" hasReadyOrRunning=${hasReadyOrRunningLane}` +
         ` webhookId=${webhookId}`,
       );
 
-      // Extract lane numbers from webhook payload
+      // Extract lane numbers from webhook payload (Ready or Running)
       let laneNumbers: number[] = webhookLanes
-        .filter((l) => l.Status === "Running")
+        .filter((l) => l.Status === "Ready" || l.Status === "Running")
         .map((l) => l.LaneNumber)
         .filter((n): n is number => typeof n === "number");
 
-      // Fallback: fetch from QAMF if no Running lanes in payload
+      // Fallback: fetch from QAMF if no Ready/Running lanes in payload
       if (laneNumbers.length === 0) {
         const qamfCenterId = centerId ?? CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
         if (qamfCenterId) {
