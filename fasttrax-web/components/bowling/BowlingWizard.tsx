@@ -793,6 +793,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [verifyCode, setVerifyCode] = useState(["", "", "", "", "", ""]);
   const [verifyError, setVerifyError] = useState("");
   const [rewardsSignup, setRewardsSignup] = useState(false);
+  const [loyaltyIsNewSignup, setLoyaltyIsNewSignup] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const verifyCodeRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -1878,6 +1879,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       if (data.account) {
         setLoyaltyAccount(data.account);
         setLoyaltyCustomer(data.customer);
+        setLoyaltyIsNewSignup(true);
         setRewardsSignup(false);
         // Complete profile with name + email if already provided
         if (guestName && data.account?.id && data.customer?.id) {
@@ -1971,6 +1973,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             smsOptIn,
             // Link loyalty account to the Square day-of order for point accrual
             ...(loyaltyCustomer?.id ? { squareCustomerId: loyaltyCustomer.id } : {}),
+            // Track loyalty action for admin reporting
+            ...(loyaltyCustomer?.id ? { loyaltyAction: loyaltyIsNewSignup ? "signup" : "existing" } : {}),
             // Loyalty reward redemption — server creates + redeems reward, charges reduced deposit
             ...(selectedRewardTier && loyaltyAccount ? {
               rewardTierId: selectedRewardTier.id,

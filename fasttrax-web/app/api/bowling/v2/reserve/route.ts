@@ -182,6 +182,8 @@ interface ReserveBody {
   loyaltyAccountId?: string;
   /** Discount amount in cents from the selected reward tier. */
   rewardDiscountCents?: number;
+  /** Loyalty action during booking: 'signup' (new account) or 'existing' (logged in). */
+  loyaltyAction?: "signup" | "existing";
   // ── Attraction add-ons (laser tag / gel blaster booked via BMI) ──
   /** Attraction bookings made during the wizard. Stored on the reservation for tracking. */
   attractionBookings?: Array<{
@@ -779,6 +781,7 @@ export async function POST(req: NextRequest) {
         squareCustomerId: body.squareCustomerId,
         squareLoyaltyRewardId: loyaltyRewardId,
         rewardDiscountCents,
+        loyaltyAction: body.loyaltyAction,
         attractionBookings: body.attractionBookings,
       },
       reservationLines,

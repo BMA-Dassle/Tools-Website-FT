@@ -286,6 +286,15 @@ export async function ensureBowlingSchema(): Promise<void> {
   // JSON array of { slug, name, bmiOrderId, bmiBillLineId, quantity, totalPriceDollars, timeSlot, timeLabel }.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS attraction_bookings JSONB NOT NULL DEFAULT '[]'`;
 
+  // Check-in method: 'self' (kiosk/self-service) or 'desk' (front desk staff).
+  // Set by admin board; NULL = not yet checked in.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checkin_method TEXT`;
+
+  // Loyalty action during booking: 'signup' (new account), 'existing' (logged in),
+  // or NULL (no loyalty interaction). Redemption tracked separately via
+  // square_loyalty_reward_id + reward_discount_cents.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS loyalty_action TEXT`;
+
   schemaReady = true;
 }
 
@@ -509,6 +518,10 @@ export interface BowlingReservation {
   squareLoyaltyRewardId?: string;
   /** Discount amount in cents from the redeemed loyalty reward (e.g. 1000 = $10 off deposit). */
   rewardDiscountCents: number;
+  /** Check-in method: 'self' (kiosk/self-service), 'desk' (front desk), or undefined (not checked in). */
+  checkinMethod?: "self" | "desk";
+  /** Loyalty action during booking: 'signup' (new account created), 'existing' (logged in with existing). */
+  loyaltyAction?: "signup" | "existing";
   /** Attraction add-ons booked via BMI during the bowling wizard (laser tag, gel blaster, etc.). */
   attractionBookings: Array<{
     slug: string;
@@ -698,6 +711,8 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     squareCustomerId: (row.square_customer_id as string) ?? undefined,
     squareLoyaltyRewardId: (row.square_loyalty_reward_id as string) ?? undefined,
     rewardDiscountCents: (row.reward_discount_cents as number) ?? 0,
+    checkinMethod: (row.checkin_method as BowlingReservation["checkinMethod"]) ?? undefined,
+    loyaltyAction: (row.loyalty_action as BowlingReservation["loyaltyAction"]) ?? undefined,
     attractionBookings: (() => {
       const raw = row.attraction_bookings;
       if (!raw) return [];
@@ -732,7 +747,7 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents" | "attractionBookings"> & { rewardDiscountCents?: number; attractionBookings?: BowlingReservation["attractionBookings"] },
+  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents" | "attractionBookings" | "checkinMethod"> & { rewardDiscountCents?: number; attractionBookings?: BowlingReservation["attractionBookings"] },
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -750,7 +765,7 @@ export async function insertBowlingReservation(
       guest_name, guest_email, guest_phone, notes,
       booking_source, square_customer_id,
       square_loyalty_reward_id, reward_discount_cents,
-      attraction_bookings
+      loyalty_action, attraction_bookings
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -761,7 +776,7 @@ export async function insertBowlingReservation(
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
       ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
       ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0},
-      ${JSON.stringify(r.attractionBookings ?? [])}::jsonb
+      ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb
     )
     RETURNING *
   `;
@@ -901,6 +916,17 @@ export async function updateBowlingReservationStatus(
   await ensureBowlingSchema();
   const q = sql();
   await q`UPDATE bowling_reservations SET status = ${status} WHERE id = ${id}`;
+}
+
+/** Set check-in method on a reservation (admin action). */
+export async function updateBowlingCheckinMethod(
+  id: number,
+  method: "self" | "desk" | null,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`UPDATE bowling_reservations SET checkin_method = ${method} WHERE id = ${id}`;
 }
 
 /**

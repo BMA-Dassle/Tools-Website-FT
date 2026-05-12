@@ -39,6 +39,9 @@ interface Reservation {
   bookingSource?: string;
   squareLoyaltyRewardId?: string;
   rewardDiscountCents: number;
+  checkinMethod?: string;
+  loyaltyAction?: string;
+  squareCustomerId?: string;
   attractionBookings?: Array<{
     slug: string; name: string; quantity: number;
     totalPriceDollars: number; timeLabel: string;
@@ -820,6 +823,25 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [orderMeta, setOrderMeta] = useState<{ state: string; totalCents: number; remainingCents: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  async function setCheckinMethod(neonId: number, method: "self" | "desk" | null) {
+    try {
+      const res = await fetch(
+        `/api/admin/bowling/reservations/checkin?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ neonId, method }),
+        },
+      );
+      if (!res.ok) throw new Error("Failed");
+      setReservations(prev =>
+        prev.map(r => r.id === neonId ? { ...r, checkinMethod: method ?? undefined } : r),
+      );
+    } catch {
+      setToast("Check-in update failed");
+    }
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -1298,7 +1320,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Type", "Status", "Lane", "Order", "Square", "Alert", "Payment", "Ref", "Actions"].map(
+                  {["Time", "Guest", "Type", "Status", "Check-in", "Rewards", "Lane", "Order", "Square", "Alert", "Payment", "Ref", "Actions"].map(
                     (h) => (
                       <th
                         key={h}
@@ -1422,6 +1444,128 @@ export default function ReservationsClient({ token }: { token: string }) {
                         >
                           {STATUS_LABELS[r.status] ?? r.status}
                         </span>
+                      </td>
+
+                      {/* Check-in */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        {!isCancelled ? (
+                          r.checkinMethod ? (
+                            <button
+                              type="button"
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                backgroundColor: r.checkinMethod === "self" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.15)",
+                                color: r.checkinMethod === "self" ? "#a855f7" : "#60a5fa",
+                                border: `1px solid ${r.checkinMethod === "self" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
+                                cursor: "pointer",
+                              }}
+                              title="Click to clear"
+                              onClick={() => setCheckinMethod(r.id, null)}
+                            >
+                              {r.checkinMethod === "self" ? "Self" : "Desk"}
+                            </button>
+                          ) : (
+                            <div style={{ display: "flex", gap: 3 }}>
+                              <button
+                                type="button"
+                                onClick={() => setCheckinMethod(r.id, "self")}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid rgba(168,85,247,0.25)",
+                                  borderRadius: 4,
+                                  color: "rgba(168,85,247,0.6)",
+                                  cursor: "pointer",
+                                  fontSize: "0.55rem",
+                                  fontWeight: 600,
+                                  padding: "1px 4px",
+                                }}
+                                title="Self-service check-in"
+                              >
+                                Self
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCheckinMethod(r.id, "desk")}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid rgba(59,130,246,0.25)",
+                                  borderRadius: 4,
+                                  color: "rgba(59,130,246,0.6)",
+                                  cursor: "pointer",
+                                  fontSize: "0.55rem",
+                                  fontWeight: 600,
+                                  padding: "1px 4px",
+                                }}
+                                title="Front desk check-in"
+                              >
+                                Desk
+                              </button>
+                            </div>
+                          )
+                        ) : (
+                          <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Rewards */}
+                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {r.loyaltyAction === "signup" && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.3rem",
+                                borderRadius: 4,
+                                fontSize: "0.55rem",
+                                fontWeight: 600,
+                                backgroundColor: "rgba(34,197,94,0.15)",
+                                color: "#22c55e",
+                                border: "1px solid rgba(34,197,94,0.3)",
+                              }}
+                            >
+                              New
+                            </span>
+                          )}
+                          {r.loyaltyAction === "existing" && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.3rem",
+                                borderRadius: 4,
+                                fontSize: "0.55rem",
+                                fontWeight: 600,
+                                backgroundColor: "rgba(59,130,246,0.15)",
+                                color: "#60a5fa",
+                                border: "1px solid rgba(59,130,246,0.3)",
+                              }}
+                            >
+                              Member
+                            </span>
+                          )}
+                          {r.rewardDiscountCents > 0 && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.3rem",
+                                borderRadius: 4,
+                                fontSize: "0.55rem",
+                                fontWeight: 600,
+                                backgroundColor: "rgba(245,158,11,0.15)",
+                                color: "#f59e0b",
+                                border: "1px solid rgba(245,158,11,0.3)",
+                              }}
+                            >
+                              −${(r.rewardDiscountCents / 100).toFixed(0)}
+                            </span>
+                          )}
+                          {!r.loyaltyAction && r.rewardDiscountCents === 0 && (
+                            <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Lane */}
