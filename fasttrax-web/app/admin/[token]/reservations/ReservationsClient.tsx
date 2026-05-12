@@ -1175,9 +1175,9 @@ export default function ReservationsClient({ token }: { token: string }) {
     }
   }
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) { setLoading(true); setError(null); }
     try {
       const params = new URLSearchParams({
         token,
@@ -1193,9 +1193,12 @@ export default function ReservationsClient({ token }: { token: string }) {
       }
       const data = await res.json();
       setReservations(data.reservations ?? []);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
-      setReservations([]);
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Failed to load");
+        setReservations([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -1205,9 +1208,9 @@ export default function ReservationsClient({ token }: { token: string }) {
     void load();
   }, [load]);
 
-  // Auto-refresh every 10 seconds
+  // Auto-refresh every 10s — silent so cards update inline without flash
   useEffect(() => {
-    const id = setInterval(() => { void load(); }, 10_000);
+    const id = setInterval(() => { void load({ silent: true }); }, 10_000);
     return () => clearInterval(id);
   }, [load]);
 
@@ -1644,322 +1647,191 @@ export default function ReservationsClient({ token }: { token: string }) {
         ) : (
           <>
           {/* ── Mobile card list (<md) ────────────────────────── */}
-          <div className="md:hidden space-y-2">
+          <div className="md:hidden" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {filtered.map((r) => {
               const isCancelled = r.status === "cancelled";
               const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
               const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
+              const cPath = confirmPath(r);
               return (
                 <div
                   key={r.id}
-                  className="rounded-lg border p-3 text-sm"
                   style={{
-                    borderColor: "var(--ba-border)",
+                    borderRadius: 8,
+                    border: "1px solid var(--ba-border)",
                     backgroundColor: "var(--ba-bg2)",
                     opacity: isCancelled ? 0.45 : 1,
+                    padding: "8px 10px",
                   }}
                 >
-                  {/* Top row: time + status + check-in */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--ba-fg)" }}>
-                      {fmtTime(r.bookedAt)}
-                    </span>
-                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.4rem",
-                          borderRadius: 5,
-                          fontSize: "0.65rem",
-                          fontWeight: 600,
-                          backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
-                          color: STATUS_COLORS[r.status] ?? "#6b7280",
-                          border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
-                        }}
-                      >
+                  {/* Row 1: time · name · center ——— badges */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ba-fg)", whiteSpace: "nowrap" }}>
+                        {fmtTime(r.bookedAt)}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.guestName || (
+                          r.bookingSource && r.bookingSource !== "web"
+                            ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)" }}>
+                                {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                              </span>
+                            : "—"
+                        )}
+                      </span>
+                      <span style={{ fontSize: "0.55rem", color: "var(--ba-muted)", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {centerShort}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0, marginLeft: 6 }}>
+                      <span style={{
+                        padding: "1px 5px", borderRadius: 4, fontSize: "0.6rem", fontWeight: 600,
+                        backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
+                        color: STATUS_COLORS[r.status] ?? "#6b7280",
+                        border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
+                      }}>
                         {STATUS_LABELS[r.status] ?? r.status}
                       </span>
                       {r.checkinMethod === "self" ? (
-                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>Self</span>
+                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>Self</span>
                       ) : r.checkinMethod === "desk" ? (
-                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(20,184,166,0.15)", color: "#14b8a6", border: "1px solid rgba(20,184,166,0.3)" }}>Admin</span>
+                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(20,184,166,0.15)", color: "#14b8a6", border: "1px solid rgba(20,184,166,0.3)" }}>Admin</span>
                       ) : r.checkinMethod ? (
-                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(107,114,128,0.15)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)" }}>{r.checkinMethod}</span>
+                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(107,114,128,0.15)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)" }}>{r.checkinMethod}</span>
                       ) : r.preArrivalSentAt ? (
-                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>SMS Sent</span>
+                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>SMS</span>
                       ) : null}
                     </div>
                   </div>
 
-                  {/* Guest name + center tag */}
-                  <div style={{ fontWeight: 700, fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 6 }}>
-                    {r.guestName || (
-                      r.bookingSource && r.bookingSource !== "web"
-                        ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)" }}>
-                            {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
-                          </span>
-                        : "—"
+                  {/* Row 2: phone · type · players · source · lane · payment */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap", fontSize: "0.68rem" }}>
+                    {r.guestPhone && (
+                      <span style={{ color: "var(--ba-muted)" }}>{r.guestPhone}</span>
                     )}
-                    <span style={{ fontSize: "0.6rem", color: "var(--ba-muted)", fontWeight: 500 }}>
-                      {centerShort}
-                    </span>
-                  </div>
-                  {r.guestPhone && (
-                    <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem", marginTop: 1 }}>
-                      {r.guestPhone}
-                    </div>
-                  )}
-
-                  {/* Details row: type, players, source, lane */}
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        padding: "0.1rem 0.4rem",
-                        borderRadius: 5,
-                        fontSize: "0.65rem",
-                        fontWeight: 600,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.03em",
-                        backgroundColor: r.productKind === "kbf" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.15)",
-                        color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
-                        border: `1px solid ${r.productKind === "kbf" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
-                      }}
-                    >
+                    <span style={{
+                      padding: "0px 4px", borderRadius: 3, fontSize: "0.6rem", fontWeight: 600,
+                      textTransform: "uppercase", letterSpacing: "0.02em",
+                      backgroundColor: r.productKind === "kbf" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.15)",
+                      color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
+                      border: `1px solid ${r.productKind === "kbf" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
+                    }}>
                       {r.productKind === "kbf" ? "KBF" : "Open"}
                     </span>
-                    <span style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>
-                      {r.playerCount ?? "—"}p
-                    </span>
+                    <span style={{ color: "var(--ba-muted)", fontSize: "0.65rem" }}>{r.playerCount ?? "—"}p</span>
                     {r.bookingSource && r.bookingSource !== "web" && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.05rem 0.3rem",
-                          borderRadius: 4,
-                          fontSize: "0.55rem",
-                          fontWeight: 600,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.03em",
-                          backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
-                          color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
-                          border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
-                        }}
-                      >
+                      <span style={{
+                        padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600,
+                        textTransform: "uppercase",
+                        backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                        color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                        border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                      }}>
                         {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                       </span>
                     )}
                     {r.dayofOrderLane && (
-                      <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.75rem" }}>
-                        L{r.dayofOrderLane}
-                      </span>
+                      <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.7rem" }}>L{r.dayofOrderLane}</span>
                     )}
-                  </div>
-
-                  {/* Rewards row */}
-                  {(r.loyaltyAction || r.rewardDiscountCents > 0) && (
-                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
-                      {r.loyaltyAction === "signup" && (
-                        <span style={{
-                          display: "inline-block", padding: "0.1rem 0.3rem", borderRadius: 4,
-                          fontSize: "0.55rem", fontWeight: 600,
-                          backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e",
-                          border: "1px solid rgba(34,197,94,0.3)",
-                        }}>New</span>
-                      )}
-                      {r.loyaltyAction === "existing" && (
-                        <span style={{
-                          display: "inline-block", padding: "0.1rem 0.3rem", borderRadius: 4,
-                          fontSize: "0.55rem", fontWeight: 600,
-                          backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa",
-                          border: "1px solid rgba(59,130,246,0.3)",
-                        }}>Member</span>
-                      )}
-                      {r.rewardDiscountCents > 0 && (
-                        <span style={{
-                          display: "inline-block", padding: "0.1rem 0.3rem", borderRadius: 4,
-                          fontSize: "0.55rem", fontWeight: 600,
-                          backgroundColor: "rgba(245,158,11,0.15)", color: "#f59e0b",
-                          border: "1px solid rgba(245,158,11,0.3)",
-                        }}>−${(r.rewardDiscountCents / 100).toFixed(0)}</span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Payment row */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
-                    <div>
+                    <span style={{ marginLeft: "auto" }}>
                       {r.depositCents > 0 ? (
                         <>
-                          <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.75rem" }}>{dollars(r.depositCents)}</span>
-                          <span style={{ color: "var(--ba-muted)", margin: "0 2px", fontSize: "0.68rem" }}>/</span>
-                          <span style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>{dollars(r.totalCents)}</span>
+                          <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.7rem" }}>{dollars(r.depositCents)}</span>
+                          <span style={{ color: "var(--ba-muted)", margin: "0 1px", fontSize: "0.6rem" }}>/</span>
+                          <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>{dollars(r.totalCents)}</span>
                         </>
                       ) : r.bookingSource && r.bookingSource !== "web" ? (
-                        <span
-                          style={{
-                            display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
-                            fontSize: "0.6rem", fontWeight: 600,
-                            backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
-                            color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
-                            border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
-                          }}
-                        >
-                          {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
-                        </span>
+                        <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>Walk-in</span>
                       ) : (
-                        <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>Free</span>
+                        <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>Free</span>
                       )}
-                    </div>
-                    {r.refundCents > 0 && (
-                      <span style={{ color: "#ef4444", fontSize: "0.68rem", fontWeight: 600 }}>
-                        -{dollars(r.refundCents)}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Square row */}
-                  {r.squareDayofOrderId && (
-                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => setOrderTarget(r)}
-                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                        title="View Square order"
-                      >
-                        {r.dayofOrderSentAt ? (
-                          <span style={{
-                            display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
-                            fontSize: "0.6rem", fontWeight: 600,
-                            backgroundColor: r.dayofOrderError ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
-                            color: r.dayofOrderError ? "#ef4444" : "#22c55e",
-                            border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
-                          }}>
-                            {r.dayofOrderError ? "ERR" : "Sent"}
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", textDecoration: "underline" }}>
-                            Pending
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Ref line */}
-                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "var(--ba-muted)" }}>
-                      {r.qamfReservationId ?? `#${r.id}`}
+                      {r.refundCents > 0 && (
+                        <span style={{ color: "#ef4444", fontSize: "0.6rem", fontWeight: 600, marginLeft: 4 }}>
+                          -{dollars(r.refundCents)}
+                        </span>
+                      )}
                     </span>
                   </div>
 
-                  {/* Action buttons */}
+                  {/* Row 3 (optional): rewards + square */}
+                  {(r.loyaltyAction || r.rewardDiscountCents > 0 || r.squareDayofOrderId) && (
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
+                      {r.loyaltyAction === "signup" && (
+                        <span style={{ padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600, backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }}>New</span>
+                      )}
+                      {r.loyaltyAction === "existing" && (
+                        <span style={{ padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>Member</span>
+                      )}
+                      {r.rewardDiscountCents > 0 && (
+                        <span style={{ padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600, backgroundColor: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>−${(r.rewardDiscountCents / 100).toFixed(0)}</span>
+                      )}
+                      {r.squareDayofOrderId && (
+                        <button type="button" onClick={() => setOrderTarget(r)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: "auto" }}>
+                          <span style={{
+                            padding: "0px 4px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600,
+                            backgroundColor: r.dayofOrderError ? "rgba(239,68,68,0.15)" : r.dayofOrderSentAt ? "rgba(34,197,94,0.15)" : "rgba(107,114,128,0.1)",
+                            color: r.dayofOrderError ? "#ef4444" : r.dayofOrderSentAt ? "#22c55e" : "var(--ba-muted)",
+                            border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : r.dayofOrderSentAt ? "rgba(34,197,94,0.3)" : "var(--ba-border)"}`,
+                          }}>
+                            {r.dayofOrderError ? "SQ ERR" : r.dayofOrderSentAt ? "SQ Sent" : "SQ Pending"}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Row 4: action buttons */}
                   {!isCancelled && r.status !== "completed" && (
-                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                      {/* Check In */}
-                      <button
-                        type="button"
-                        onClick={() => setCheckinTarget(r)}
-                        style={{
-                          flex: 1,
-                          background: "none",
-                          border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
-                          borderRadius: 5,
-                          color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
-                          cursor: "pointer",
-                          fontSize: "0.65rem", fontWeight: 600,
-                          padding: "4px 8px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.03em",
-                        }}
-                      >
+                    <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                      <button type="button" onClick={() => setCheckinTarget(r)} style={{
+                        flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
+                        border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
+                        color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
+                        fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
+                        textTransform: "uppercase", letterSpacing: "0.02em",
+                      }}>
                         Check In
                       </button>
-                      {/* Reschedule */}
                       {r.status !== "arrived" && r.qamfReservationId && (
-                        <button
-                          type="button"
-                          onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
-                          disabled={hasAttr}
-                          title={hasAttr ? "Rescheduling not available for bookings with attractions" : "Reschedule bowling time"}
-                          style={{
-                            flex: 1,
-                            background: "none",
-                            border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
-                            borderRadius: 5,
-                            color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
-                            cursor: hasAttr ? "not-allowed" : "pointer",
-                            fontSize: "0.65rem", fontWeight: 600,
-                            padding: "4px 8px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.03em",
-                          }}
-                        >
+                        <button type="button" onClick={hasAttr ? undefined : () => setRescheduleTarget(r)} disabled={hasAttr} style={{
+                          flex: 1, background: "none", borderRadius: 4,
+                          border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
+                          color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
+                          cursor: hasAttr ? "not-allowed" : "pointer",
+                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
+                          textTransform: "uppercase", letterSpacing: "0.02em",
+                        }}>
                           Resched
                         </button>
                       )}
-                      {/* View */}
-                      {confirmPath(r) && (
-                        <a
-                          href={confirmPath(r)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            flex: 1,
-                            display: "inline-flex", alignItems: "center", justifyContent: "center",
-                            background: "none",
-                            border: "1px solid rgba(96,165,250,0.3)",
-                            borderRadius: 5,
-                            color: "#60a5fa",
-                            fontSize: "0.65rem", fontWeight: 600,
-                            padding: "4px 8px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.03em",
-                            textDecoration: "none",
-                          }}
-                        >
+                      {cPath && (
+                        <a href={cPath} target="_blank" rel="noopener noreferrer" style={{
+                          flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          background: "none", borderRadius: 4,
+                          border: "1px solid rgba(96,165,250,0.3)", color: "#60a5fa",
+                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
+                          textTransform: "uppercase", letterSpacing: "0.02em", textDecoration: "none",
+                        }}>
                           View
                         </a>
                       )}
-                      {/* Resend */}
                       {r.status !== "arrived" && (r.guestEmail || r.guestPhone) && (
-                        <button
-                          type="button"
-                          onClick={() => setResendTarget(r)}
-                          style={{
-                            flex: 1,
-                            background: "none",
-                            border: "1px solid rgba(96,165,250,0.3)",
-                            borderRadius: 5,
-                            color: "#60a5fa",
-                            cursor: "pointer",
-                            fontSize: "0.65rem", fontWeight: 600,
-                            padding: "4px 8px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.03em",
-                          }}
-                        >
+                        <button type="button" onClick={() => setResendTarget(r)} style={{
+                          flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
+                          border: "1px solid rgba(96,165,250,0.3)", color: "#60a5fa",
+                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
+                          textTransform: "uppercase", letterSpacing: "0.02em",
+                        }}>
                           Resend
                         </button>
                       )}
-                      {/* Cancel */}
                       {r.status !== "arrived" && (
-                        <button
-                          type="button"
-                          onClick={() => setCancelTarget(r)}
-                          style={{
-                            flex: 1,
-                            background: "none",
-                            border: "1px solid rgba(239,68,68,0.3)",
-                            borderRadius: 5,
-                            color: "#ef4444",
-                            cursor: "pointer",
-                            fontSize: "0.65rem", fontWeight: 600,
-                            padding: "4px 8px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.03em",
-                          }}
-                        >
+                        <button type="button" onClick={() => setCancelTarget(r)} style={{
+                          flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
+                          border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
+                          textTransform: "uppercase", letterSpacing: "0.02em",
+                        }}>
                           Cancel
                         </button>
                       )}
