@@ -455,6 +455,23 @@ export default function GroupEventPage() {
       const { rawOrderId } = await bookRaceHeat(product, 1, proposal);
       console.log("[group-event] race held, orderId:", rawOrderId);
 
+      // Register contact person on held order so BMI links waiver to guest
+      if (personId) {
+        try {
+          const contactBody = JSON.stringify({
+            firstName: guest.firstName,
+            lastName: guest.lastName,
+            email: guest.email,
+          });
+          const contactJson = `{"personId":${personId},"orderId":${rawOrderId},` + contactBody.slice(1);
+          await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: contactJson,
+          });
+        } catch { /* non-fatal */ }
+      }
+
       // Record on roster immediately so other guests see the name
       await fetch("/api/group-event/roster", {
         method: "POST",
@@ -560,6 +577,25 @@ export default function GroupEventPage() {
           orderId = orderIdMatch[1];
           bookedItems.push({ type: item.attractionSlug, time: item.block.start, billId: orderId });
         }
+      }
+
+      // Register contact person on the bill so BMI links the waiver + shows
+      // the guest name instead of blank/online. Must happen BEFORE payment/confirm.
+      if (orderId && personId) {
+        try {
+          const contactBody = JSON.stringify({
+            firstName: guest.firstName,
+            lastName: guest.lastName,
+            email: guest.email,
+          });
+          const contactJson = `{"personId":${personId},"orderId":${orderId},` + contactBody.slice(1);
+          await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: contactJson,
+          });
+          console.log("[group-event] registered contact person", personId, "on bill", orderId);
+        } catch { /* non-fatal */ }
       }
 
       // Close the combined bill at $0 — use raw string injection to avoid
