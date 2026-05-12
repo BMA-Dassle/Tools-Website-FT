@@ -57,6 +57,8 @@ interface CartItem {
   block: BmiBlock;
   /** product ID for booking/book */
   productId: string;
+  /** Set after booking/book succeeds — the BMI order ID (temp hold). */
+  heldOrderId?: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -356,7 +358,29 @@ export default function GroupEventPage() {
     }, 100);
   }
 
-  function removeFromCart(attractionSlug: string) {
+  async function removeFromCart(attractionSlug: string) {
+    const item = cart.find(c => c.attractionSlug === attractionSlug);
+
+    // If this item had a temp hold (racing), cancel the BMI order
+    if (item?.heldOrderId && guest) {
+      try {
+        await fetch("/api/group-event/cancel", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, billId: item.heldOrderId }),
+        });
+        // Remove from heat roster
+        await fetch("/api/group-event/roster", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, email: guest.email }),
+        });
+        fetchRosters();
+      } catch (err) {
+        console.error("[group-event] Failed to cancel held order:", err);
+      }
+    }
+
     setCart(prev => prev.filter(c => c.attractionSlug !== attractionSlug));
   }
 
@@ -381,23 +405,86 @@ export default function GroupEventPage() {
     return cart.find(c => c.attractionSlug === attrSlug);
   }
 
-  // ── Racing heat → add to cart (no immediate BMI call) ───────────────────
+  // ── Racing heat → book immediately (creates temp hold like normal flow) ──
 
-  function handleRaceHeatSelect(proposal: BmiProposal, block: BmiBlock) {
-    if (!selectedTrack || !event) return;
+  async function handleRaceHeatSelect(proposal: BmiProposal, block: BmiBlock) {
+    if (!selectedTrack || !event || !guest) return;
     const trackConfig = event.attractions
       .find(a => a.slug === "racing")
       ?.bmiTracks?.find(t => t.track === selectedTrack);
     if (!trackConfig) return;
 
-    addToCart({
-      attractionSlug: "racing",
-      label: `Go-Kart Racing · ${selectedTrack} Track`,
-      track: selectedTrack,
-      proposal,
-      block,
-      productId: trackConfig.productId,
-    });
+    setBookingInProgress(true);
+    setBookingError(null);
+
+    try {
+      const product: ClassifiedProduct = {
+        productId: trackConfig.productId,
+        pageId: trackConfig.pageId,
+        name: `Starter Race ${selectedTrack}`,
+        tier: "starter",
+        category: "adult",
+        track: selectedTrack,
+        price: 0,
+        isCombo: false,
+        packType: "none",
+        raceCount: 1,
+        sessionGroup: "Karting",
+        raw: {
+          id: 0,
+          name: `Starter Race ${selectedTrack}`,
+          info: "",
+          hasPicture: false,
+          isCombo: false,
+          minAge: null,
+          maxAge: null,
+          isMembersOnly: false,
+          minAmount: -1,
+          maxAmount: 10,
+          resourceKind: "Race",
+          kind: 2,
+          bookingMode: 0,
+          productGroup: "Karting",
+          prices: [{ amount: 0, kind: 0, shortName: "m", depositKind: 0 }],
+          resources: [],
+          dynamicGroups: null,
+          xRef: null,
+        },
+      };
+
+      const { rawOrderId } = await bookRaceHeat(product, 1, proposal);
+      console.log("[group-event] race held, orderId:", rawOrderId);
+
+      // Record on roster immediately so other guests see the name
+      await fetch("/api/group-event/roster", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          track: selectedTrack,
+          heatStart: block.start,
+          email: guest.email,
+          displayName: guest.displayName,
+        }),
+      });
+      fetchRosters();
+
+      addToCart({
+        attractionSlug: "racing",
+        label: `Go-Kart Racing · ${selectedTrack} Track`,
+        track: selectedTrack,
+        proposal,
+        block,
+        productId: trackConfig.productId,
+        heldOrderId: rawOrderId,
+      });
+    } catch (err) {
+      console.error("[group-event] Race hold failed:", err);
+      setBookingError(err instanceof Error ? err.message : "Failed to reserve heat. Please try again.");
+      // Stay on heat picker so they can retry
+    } finally {
+      setBookingInProgress(false);
+    }
   }
 
   // ── Attraction slot → add to cart (no immediate BMI call) ───────────────
@@ -412,7 +499,7 @@ export default function GroupEventPage() {
     });
   }
 
-  // ── Confirm all — book everything on ONE BMI bill ───────────────────────
+  // ── Confirm all — close held racing + book remaining items on same bill ─
 
   async function handleConfirmAll() {
     if (!guest || !event || cart.length === 0) return;
@@ -420,68 +507,25 @@ export default function GroupEventPage() {
     setBookingError(null);
 
     try {
-      let orderId: string | null = null;
+      // Racing is already booked (temp held) — reuse its orderId
+      const racingItem = cart.find(c => c.heldOrderId);
+      let orderId: string | null = racingItem?.heldOrderId || null;
       const bookedItems: { type: string; track?: string; time: string; billId: string }[] = [];
 
+      // Record the racing hold as a booked item
+      if (racingItem) {
+        bookedItems.push({
+          type: "racing",
+          track: racingItem.track,
+          time: racingItem.block.start,
+          billId: racingItem.heldOrderId!,
+        });
+      }
+
+      // Book non-racing items (gel blaster, laser tag) — chain onto racing's orderId
       for (const item of cart) {
-        if (item.attractionSlug === "racing") {
-          // Racing uses bookRaceHeat which supports existingOrderId chaining
-          const trackConfig = event.attractions
-            .find(a => a.slug === "racing")
-            ?.bmiTracks?.find(t => t.track === item.track);
-          if (!trackConfig) throw new Error("Track config not found");
-
-          const product: ClassifiedProduct = {
-            productId: trackConfig.productId,
-            pageId: trackConfig.pageId,
-            name: `Starter Race ${item.track}`,
-            tier: "starter",
-            category: "adult",
-            track: item.track!,
-            price: 0,
-            isCombo: false,
-            packType: "none",
-            raceCount: 1,
-            sessionGroup: "Karting",
-            raw: {
-              id: Number(trackConfig.productId),
-              name: `Starter Race ${item.track}`,
-              info: "",
-              hasPicture: false,
-              isCombo: false,
-              minAge: null,
-              maxAge: null,
-              isMembersOnly: false,
-              minAmount: -1,
-              maxAmount: 10,
-              resourceKind: "Race",
-              kind: 2,
-              bookingMode: 0,
-              productGroup: "Karting",
-              prices: [{ amount: 0, kind: 0, shortName: "m", depositKind: 0 }],
-              resources: [],
-              dynamicGroups: null,
-              xRef: null,
-            },
-          };
-
-          const { rawOrderId } = await bookRaceHeat(product, 1, item.proposal, orderId);
-          orderId = rawOrderId;
-          bookedItems.push({ type: "racing", track: item.track, time: item.block.start, billId: rawOrderId });
-
-          // Record on roster immediately
-          await fetch("/api/group-event/roster", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              slug,
-              track: item.track,
-              heatStart: item.block.start,
-              email: guest.email,
-              displayName: guest.displayName,
-            }),
-          });
-        } else {
+        if (item.heldOrderId) continue; // Already booked (racing)
+        {
           // Gel blaster / laser tag — booking/book with orderId chaining
           const payload: Record<string, unknown> = {
             productId: item.productId,
@@ -957,7 +1001,12 @@ export default function GroupEventPage() {
                     {cart.map((item) => (
                       <div key={item.attractionSlug} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
                         <div>
-                          <p className="text-white text-sm font-medium">{item.label}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-white text-sm font-medium">{item.label}</p>
+                            {item.heldOrderId && (
+                              <span className="text-emerald-400 text-[10px] font-semibold bg-emerald-500/15 px-1.5 py-0.5 rounded">Held</span>
+                            )}
+                          </div>
                           <p className="text-[#00E2E5]/70 text-xs">{formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}</p>
                         </div>
                         <button
@@ -1114,7 +1163,7 @@ export default function GroupEventPage() {
               onQuantityChange={() => {}}
               onConfirm={handleRaceHeatSelect}
               onBack={() => setStep("racing-track")}
-              confirmLabel="Select This Heat"
+              confirmLabel={bookingInProgress ? "Reserving..." : "Reserve This Heat"}
               packageMode={true}
               immediateConfirm={false}
               heatRosters={heatRosters}
