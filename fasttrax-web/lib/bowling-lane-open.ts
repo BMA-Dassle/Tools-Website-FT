@@ -355,6 +355,60 @@ export async function processLaneOpen(opts: {
     }
   }
 
+  // ── 3c. Accrue loyalty points ─────────────────────────────────────
+  // Square requires the order to be paid/completed before AccumulateLoyaltyPoints
+  // succeeds, so this runs after the gift card / $0-close step.
+  // Best-effort: look up loyalty account from customer_id, then accrue.
+  if (reservation.squareCustomerId && reservation.squareDayofOrderId && !processingError) {
+    try {
+      const searchRes = await fetch(`${SQUARE_BASE}/loyalty/accounts/search`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({ query: { customer_ids: [reservation.squareCustomerId] } }),
+      });
+      if (searchRes.ok) {
+        const searchData = await searchRes.json() as {
+          loyalty_accounts?: { id: string }[];
+        };
+        const loyaltyAccountId = searchData.loyalty_accounts?.[0]?.id;
+        if (loyaltyAccountId) {
+          const accRes = await fetch(
+            `${SQUARE_BASE}/loyalty/accounts/${loyaltyAccountId}/accumulate`,
+            {
+              method: "POST",
+              headers: sqHeaders(),
+              body: JSON.stringify({
+                accumulate_points: { order_id: reservation.squareDayofOrderId },
+                location_id: reservation.centerCode,
+                idempotency_key: `${idempotencyBase}-loyalty`,
+              }),
+            },
+          );
+          if (accRes.ok) {
+            const accData = await accRes.json() as {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              events?: Array<{ accumulate_points?: { points?: number } }>;
+            };
+            const pts = (accData.events ?? []).reduce(
+              (s, e) => s + (e.accumulate_points?.points ?? 0), 0,
+            );
+            console.log(`[lane-open] neonId=${neonId} loyalty accrued ${pts} pts`);
+          } else {
+            // Non-fatal — order might not be fully paid yet (partial deposit)
+            const accErr = await accRes.json().catch(() => ({}));
+            console.log(
+              `[lane-open] neonId=${neonId} loyalty accumulate skipped (order may not be fully paid):`,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (accErr as any).errors?.[0]?.detail ?? accRes.status,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[lane-open] neonId=${neonId} loyalty accrual error:`, err);
+    }
+  }
+
   // ── 4. Write to Neon ──────────────────────────────────────────────
   const tNeon = Date.now();
   const written = await updateBowlingReservationLaneOpen(neonId, {
