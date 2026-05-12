@@ -16,7 +16,17 @@ info:
     |------|---------|----------|
     | TXBSQN0FEKQ11 | 9172 | Fort Myers |
     | PPTR5G2N0QXF7 | 3148 | Naples |
-  version: "1.2.0"
+
+    **Portal Embed:**
+    The bowling admin page can be embedded in the HeadPinz portal via
+    `/admin/embed/bowling?ts=...&sig=...`. Authentication uses HMAC-SHA256
+    signed timestamps (shared `ADMIN_EMBED_SECRET`). The iframe is locked
+    to `portal.headpinz.com` via `frame-ancestors` CSP.
+
+    Supports `&theme=dark|light` for first-paint theming and
+    `&center=fm|naples` for location pre-selection. Live theme toggle
+    via `postMessage({ type: "portal.theme", value: "light" })`.
+  version: "1.3.0"
 
 servers:
   - url: https://headpinz.com
@@ -329,6 +339,62 @@ components:
                 type: integer
 
 paths:
+  /admin/embed/bowling:
+    get:
+      summary: Portal iframe embed page (HMAC-gated)
+      description: |
+        Serves the bowling admin page for embedding in the HeadPinz portal
+        iframe. Authentication is via HMAC-SHA256 signed timestamps instead
+        of the static admin token — the token never appears in the URL.
+
+        **Auth flow:**
+        1. Portal calls its own `/api/integrations/bowling-admin-url` endpoint
+        2. That endpoint generates `HMAC-SHA256(ADMIN_EMBED_SECRET, timestamp)`
+        3. Returns this URL with `ts` and `sig` query params
+        4. FastTrax middleware validates signature + 15-minute expiry
+        5. Response includes `Content-Security-Policy: frame-ancestors https://portal.headpinz.com`
+
+        **Optional params:**
+        - `theme=dark|light` — first-paint theme (avoids flash)
+        - `center=fm|naples` — pre-select center
+
+        **Live theme toggle:** Portal sends `postMessage({ type: "portal.theme", value: "light" })`
+        targeted to `https://headpinz.com` origin.
+
+        **Rotation:** Change `ADMIN_EMBED_SECRET` on both Vercel projects.
+        All outstanding URLs expire within 15 minutes.
+      parameters:
+        - name: ts
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Unix timestamp (milliseconds) of when the URL was generated
+        - name: sig
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "HMAC-SHA256(ADMIN_EMBED_SECRET, ts) as hex string"
+        - name: theme
+          in: query
+          schema:
+            type: string
+            enum: [dark, light]
+            default: dark
+          description: Initial color theme
+        - name: center
+          in: query
+          schema:
+            type: string
+            enum: [fm, fort-myers, naples]
+          description: Pre-select center (slug mapped to center code)
+      responses:
+        "200":
+          description: HTML page (bowling admin UI)
+        "404":
+          description: Invalid/expired signature, missing ADMIN_EMBED_SECRET, or bad params
+
   /api/admin/bowling/reservations:
     get:
       summary: List reservations for a date
