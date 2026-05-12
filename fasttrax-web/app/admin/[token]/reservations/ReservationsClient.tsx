@@ -843,8 +843,6 @@ function CheckInModal({
   );
   const [names, setNames] = useState<string[]>(() => Array.from({ length: playerCount }, () => ""));
 
-  const isToday = reservation.bookedAt.slice(0, 10) === todayET();
-
   // Parse existing shoe size string like "Female 8" into category + size
   function parseShoeSize(raw: string | null): { category: ShoeCategory | null; size: string | null } {
     if (!raw) return { category: null, size: null };
@@ -1091,7 +1089,7 @@ function CheckInModal({
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>Close</button>
-          {(phase === "running" || phase === "error" || (phase === "not_ready" && !isToday)) && (
+          {(phase === "not_ready" || phase === "running" || phase === "error") && (
             <button
               type="button"
               onClick={handleSaveShoesOnly}
@@ -1107,7 +1105,7 @@ function CheckInModal({
               {savingShoes ? "Saving…" : "Save Shoes"}
             </button>
           )}
-          {(phase === "ready" || (phase === "not_ready" && isToday)) && (
+          {phase === "ready" && (
             <button
               type="button"
               onClick={handleCheckin}
