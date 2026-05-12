@@ -715,7 +715,7 @@ export async function POST(req: NextRequest) {
           depositPct: overallDepositPct,
           lineItems: sqLineItems,
           squareCustomerId: body.squareCustomerId,
-          note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
+          note: `Bowling – ${guest.name} – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`,
           // Custom GAN so staff see "Gift Card HPFMX77012" instead of random digits
           giftCardGan: `${CENTER_GAN_PREFIX[centerCode] ?? "HP"}${qamfReservationId.replace(/[^A-Za-z0-9]/g, "")}`,
           // Pass pre-created day-of order if provided (avoids duplicate creation).
