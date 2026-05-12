@@ -1448,66 +1448,23 @@ export default function ReservationsClient({ token }: { token: string }) {
 
                       {/* Check-in */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {!isCancelled ? (
-                          r.checkinMethod ? (
-                            <button
-                              type="button"
-                              style={{
-                                display: "inline-block",
-                                padding: "0.1rem 0.35rem",
-                                borderRadius: 5,
-                                fontSize: "0.6rem",
-                                fontWeight: 600,
-                                backgroundColor: r.checkinMethod === "self" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.15)",
-                                color: r.checkinMethod === "self" ? "#a855f7" : "#60a5fa",
-                                border: `1px solid ${r.checkinMethod === "self" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
-                                cursor: "pointer",
-                              }}
-                              title="Click to clear"
-                              onClick={() => setCheckinMethod(r.id, null)}
-                            >
-                              {r.checkinMethod === "self" ? "Self" : "Desk"}
-                            </button>
-                          ) : (
-                            <div style={{ display: "flex", gap: 3 }}>
-                              <button
-                                type="button"
-                                onClick={() => setCheckinMethod(r.id, "self")}
-                                style={{
-                                  background: "none",
-                                  border: "1px solid rgba(168,85,247,0.25)",
-                                  borderRadius: 4,
-                                  color: "rgba(168,85,247,0.6)",
-                                  cursor: "pointer",
-                                  fontSize: "0.55rem",
-                                  fontWeight: 600,
-                                  padding: "1px 4px",
-                                }}
-                                title="Self-service check-in"
-                              >
-                                Self
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCheckinMethod(r.id, "desk")}
-                                style={{
-                                  background: "none",
-                                  border: "1px solid rgba(59,130,246,0.25)",
-                                  borderRadius: 4,
-                                  color: "rgba(59,130,246,0.6)",
-                                  cursor: "pointer",
-                                  fontSize: "0.55rem",
-                                  fontWeight: 600,
-                                  padding: "1px 4px",
-                                }}
-                                title="Front desk check-in"
-                              >
-                                Desk
-                              </button>
-                            </div>
-                          )
+                        {r.checkinMethod === "self" ? (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "0.1rem 0.35rem",
+                              borderRadius: 5,
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(168,85,247,0.15)",
+                              color: "#a855f7",
+                              border: "1px solid rgba(168,85,247,0.3)",
+                            }}
+                          >
+                            Self
+                          </span>
                         ) : (
-                          <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>
+                          <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
                         )}
                       </td>
 

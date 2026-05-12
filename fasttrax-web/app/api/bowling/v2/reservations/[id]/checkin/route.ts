@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBowlingReservation } from "@/lib/bowling-db";
+import { getBowlingReservation, updateBowlingCheckinMethod } from "@/lib/bowling-db";
 import { getReservation, listLanes, setReservationStatus, setLaneStatus } from "@/lib/qamf-bowling";
 
 /**
@@ -197,8 +197,11 @@ export async function POST(
   const laneNumbers = lanes.map((l) => l.LaneNumber).filter(Boolean).sort((a, b) => a - b);
   const laneLabel = buildLaneLabel(laneNumbers);
 
+  // Record self-service check-in (non-fatal)
+  updateBowlingCheckinMethod(neonId, "self").catch(() => {});
+
   console.log(
-    `[checkin] neonId=${neonId} qamfId=${qamfId}: Arrived + ${lanesOpened}/${lanes.length} lanes opened → ${laneLabel}`,
+    `[checkin] neonId=${neonId} qamfId=${qamfId}: Arrived + ${lanesOpened}/${lanes.length} lanes opened → ${laneLabel} (self-checkin)`,
   );
 
   return NextResponse.json({ ok: true, lanesOpened, laneLabel });
