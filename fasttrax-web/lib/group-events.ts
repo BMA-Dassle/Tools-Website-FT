@@ -52,6 +52,8 @@ export interface GroupEvent {
   racingTier: "starter";       // all group events = starter only
   includesLicense: boolean;
   maxGuests?: number;
+  /** Minimum age to RSVP (e.g. 18 for corporate events). Validated at name step. */
+  minAge?: number;
   /** Meal window — if set, heats overlapping this window show a warning */
   mealWindow?: GroupEventMealWindow;
 }
@@ -71,6 +73,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     accentColor: "#00E2E5",
     racingTier: "starter",
     includesLicense: true,
+    minAge: 18,
     mealWindow: {
       label: "Food Buffet",
       location: "HeadPinz",

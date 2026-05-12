@@ -249,8 +249,26 @@ export default function GroupEventPage() {
     const form = new FormData(e.currentTarget);
     const firstName = (form.get("firstName") as string).trim();
     const lastName = (form.get("lastName") as string).trim();
-    const birthdate = (form.get("birthdate") as string).trim();
-    if (!firstName || !lastName || !birthdate) return;
+    const bYear = form.get("birth-year") as string;
+    const bMonth = form.get("birth-month") as string;
+    const bDay = form.get("birth-day") as string;
+    if (!firstName || !lastName || !bYear || !bMonth || !bDay) return;
+    const birthdate = `${bYear}-${bMonth.padStart(2, "0")}-${bDay.padStart(2, "0")}`;
+
+    // Age validation
+    if (event?.minAge) {
+      const today = new Date();
+      const bd = new Date(Number(bYear), Number(bMonth) - 1, Number(bDay));
+      let age = today.getFullYear() - bd.getFullYear();
+      const monthDiff = today.getMonth() - bd.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < bd.getDate())) age--;
+      if (age < event.minAge) {
+        setWaiverError(`You must be at least ${event.minAge} years old to attend this event.`);
+        return;
+      }
+    }
+    setWaiverError(null);
+
     const email = guest!.email;
     const displayName = makeDisplayName(firstName, lastName);
     sessionStorage.setItem(sessionKey(slug, "firstName"), firstName);
@@ -806,15 +824,43 @@ export default function GroupEventPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ge-birthdate" className="block text-left text-white/40 text-xs mb-1.5 ml-1">Date of Birth</label>
-                  <input
-                    id="ge-birthdate"
-                    name="birthdate"
-                    type="date"
-                    required
-                    max={new Date().toISOString().split("T")[0]}
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
-                  />
+                  <label htmlFor="ge-birth-year" className="block text-left text-white/40 text-xs mb-1.5 ml-1">Date of Birth</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <select
+                      id="ge-birth-year"
+                      name="birth-year"
+                      required
+                      defaultValue=""
+                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                    >
+                      <option value="" disabled>Year</option>
+                      {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                    <select
+                      name="birth-month"
+                      required
+                      defaultValue=""
+                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                    >
+                      <option value="" disabled>Month</option>
+                      {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((m, i) => (
+                        <option key={i + 1} value={i + 1}>{m}</option>
+                      ))}
+                    </select>
+                    <select
+                      name="birth-day"
+                      required
+                      defaultValue=""
+                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                    >
+                      <option value="" disabled>Day</option>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 {waiverError && <p className="text-red-400 text-xs">{waiverError}</p>}
                 <button
