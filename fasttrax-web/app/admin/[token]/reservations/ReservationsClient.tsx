@@ -1180,46 +1180,9 @@ export default function ReservationsClient({ token }: { token: string }) {
         </div>
       )}
 
-      {/* Header */}
+      {/* Filters */}
       <div style={{ maxWidth: 1200, margin: "0 auto", marginBottom: "1.5rem" }}>
-        <h1
-          style={{
-            fontSize: "1.5rem",
-            fontWeight: 800,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            marginBottom: "1rem",
-          }}
-        >
-          Bowling Reservations
-        </h1>
-
-        {/* Filters row */}
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            style={INPUT_STYLE}
-          />
-          <select
-            value={center}
-            onChange={(e) => {
-              const code = e.target.value;
-              setCenter(code);
-              // Update URL so refresh keeps the selection
-              const url = new URL(window.location.href);
-              const slug = Object.entries(CENTER_SLUGS).find(([, v]) => v === code)?.[0];
-              if (slug) { url.searchParams.set("center", slug); }
-              else { url.searchParams.delete("center"); }
-              window.history.replaceState({}, "", url.toString());
-            }}
-            style={INPUT_STYLE}
-          >
-            <option value="">All Centers</option>
-            <option value="TXBSQN0FEKQ11">Fort Myers</option>
-            <option value="PPTR5G2N0QXF7">Naples</option>
-          </select>
           <button
             type="button"
             onClick={() => setHideCancelled((v) => !v)}
