@@ -1330,7 +1330,338 @@ export default function ReservationsClient({ token }: { token: string }) {
             {search ? "No matching reservations." : "No reservations for this date."}
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <>
+          {/* ── Mobile card list (<md) ────────────────────────── */}
+          <div className="md:hidden space-y-2">
+            {filtered.map((r) => {
+              const isCancelled = r.status === "cancelled";
+              const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
+              const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
+              return (
+                <div
+                  key={r.id}
+                  className="rounded-lg border p-3 text-sm"
+                  style={{
+                    borderColor: "var(--ba-border)",
+                    backgroundColor: "var(--ba-bg2)",
+                    opacity: isCancelled ? 0.45 : 1,
+                  }}
+                >
+                  {/* Top row: time + status + check-in */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--ba-fg)" }}>
+                      {fmtTime(r.bookedAt)}
+                    </span>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "0.1rem 0.4rem",
+                          borderRadius: 5,
+                          fontSize: "0.65rem",
+                          fontWeight: 600,
+                          backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
+                          color: STATUS_COLORS[r.status] ?? "#6b7280",
+                          border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
+                        }}
+                      >
+                        {STATUS_LABELS[r.status] ?? r.status}
+                      </span>
+                      {r.checkinMethod === "self" && (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0.1rem 0.35rem",
+                            borderRadius: 5,
+                            fontSize: "0.6rem",
+                            fontWeight: 600,
+                            backgroundColor: "rgba(168,85,247,0.15)",
+                            color: "#a855f7",
+                            border: "1px solid rgba(168,85,247,0.3)",
+                          }}
+                        >
+                          Self
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Guest name + center tag */}
+                  <div style={{ fontWeight: 700, fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 6 }}>
+                    {r.guestName || (
+                      r.bookingSource && r.bookingSource !== "web"
+                        ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)" }}>
+                            {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                          </span>
+                        : "—"
+                    )}
+                    <span style={{ fontSize: "0.6rem", color: "var(--ba-muted)", fontWeight: 500 }}>
+                      {centerShort}
+                    </span>
+                  </div>
+                  {r.guestPhone && (
+                    <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem", marginTop: 1 }}>
+                      {r.guestPhone}
+                    </div>
+                  )}
+
+                  {/* Details row: type, players, source, lane */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "0.1rem 0.4rem",
+                        borderRadius: 5,
+                        fontSize: "0.65rem",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.03em",
+                        backgroundColor: r.productKind === "kbf" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.15)",
+                        color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
+                        border: `1px solid ${r.productKind === "kbf" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
+                      }}
+                    >
+                      {r.productKind === "kbf" ? "KBF" : "Open"}
+                    </span>
+                    <span style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>
+                      {r.playerCount ?? "—"}p
+                    </span>
+                    {r.bookingSource && r.bookingSource !== "web" && (
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "0.05rem 0.3rem",
+                          borderRadius: 4,
+                          fontSize: "0.55rem",
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.03em",
+                          backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                          color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                          border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                        }}
+                      >
+                        {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                      </span>
+                    )}
+                    {r.dayofOrderLane && (
+                      <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.75rem" }}>
+                        L{r.dayofOrderLane}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Rewards row */}
+                  {(r.loyaltyAction || r.rewardDiscountCents > 0) && (
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
+                      {r.loyaltyAction === "signup" && (
+                        <span style={{
+                          display: "inline-block", padding: "0.1rem 0.3rem", borderRadius: 4,
+                          fontSize: "0.55rem", fontWeight: 600,
+                          backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e",
+                          border: "1px solid rgba(34,197,94,0.3)",
+                        }}>New</span>
+                      )}
+                      {r.loyaltyAction === "existing" && (
+                        <span style={{
+                          display: "inline-block", padding: "0.1rem 0.3rem", borderRadius: 4,
+                          fontSize: "0.55rem", fontWeight: 600,
+                          backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa",
+                          border: "1px solid rgba(59,130,246,0.3)",
+                        }}>Member</span>
+                      )}
+                      {r.rewardDiscountCents > 0 && (
+                        <span style={{
+                          display: "inline-block", padding: "0.1rem 0.3rem", borderRadius: 4,
+                          fontSize: "0.55rem", fontWeight: 600,
+                          backgroundColor: "rgba(245,158,11,0.15)", color: "#f59e0b",
+                          border: "1px solid rgba(245,158,11,0.3)",
+                        }}>−${(r.rewardDiscountCents / 100).toFixed(0)}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Payment row */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                    <div>
+                      {r.depositCents > 0 ? (
+                        <>
+                          <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.75rem" }}>{dollars(r.depositCents)}</span>
+                          <span style={{ color: "var(--ba-muted)", margin: "0 2px", fontSize: "0.68rem" }}>/</span>
+                          <span style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>{dollars(r.totalCents)}</span>
+                        </>
+                      ) : r.bookingSource && r.bookingSource !== "web" ? (
+                        <span
+                          style={{
+                            display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
+                            fontSize: "0.6rem", fontWeight: 600,
+                            backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                            color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                            border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                          }}
+                        >
+                          {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>Free</span>
+                      )}
+                    </div>
+                    {r.refundCents > 0 && (
+                      <span style={{ color: "#ef4444", fontSize: "0.68rem", fontWeight: 600 }}>
+                        -{dollars(r.refundCents)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Alert + Square row */}
+                  {(r.laneReadySentAt || r.preArrivalSentAt || r.squareDayofOrderId) && (
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                      {r.laneReadySentAt ? (
+                        <span style={{
+                          display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
+                          fontSize: "0.6rem", fontWeight: 600,
+                          backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e",
+                          border: "1px solid rgba(34,197,94,0.3)",
+                        }}>Ready</span>
+                      ) : r.preArrivalSentAt ? (
+                        <span style={{
+                          display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
+                          fontSize: "0.6rem", fontWeight: 600,
+                          backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa",
+                          border: "1px solid rgba(59,130,246,0.3)",
+                        }}>Alert</span>
+                      ) : null}
+                      {r.squareDayofOrderId && (
+                        <button
+                          type="button"
+                          onClick={() => setOrderTarget(r)}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                          title="View Square order"
+                        >
+                          {r.dayofOrderSentAt ? (
+                            <span style={{
+                              display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
+                              fontSize: "0.6rem", fontWeight: 600,
+                              backgroundColor: r.dayofOrderError ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                              color: r.dayofOrderError ? "#ef4444" : "#22c55e",
+                              border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                            }}>
+                              {r.dayofOrderError ? "ERR" : "Sent"}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", textDecoration: "underline" }}>
+                              Pending
+                            </span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Ref line */}
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "var(--ba-muted)" }}>
+                      {r.qamfReservationId ?? `#${r.id}`}
+                    </span>
+                    {confirmPath(r) && (
+                      <>
+                        <a
+                          href={confirmPath(r)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "#60a5fa", fontSize: "0.6rem", textDecoration: "none" }}
+                        >
+                          link
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => copyLink(r)}
+                          style={{
+                            background: "none", border: "none",
+                            color: copiedId === r.id ? "#22c55e" : "var(--ba-muted)",
+                            cursor: "pointer", fontSize: "0.6rem", padding: "0 2px",
+                          }}
+                        >
+                          {copiedId === r.id ? "ok" : "cp"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Action buttons */}
+                  {!isCancelled && r.status !== "completed" && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      {r.status !== "arrived" && r.qamfReservationId && (
+                        <button
+                          type="button"
+                          onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
+                          disabled={hasAttr}
+                          title={hasAttr ? "Rescheduling not available for bookings with attractions" : "Reschedule bowling time"}
+                          style={{
+                            flex: 1,
+                            background: "none",
+                            border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
+                            borderRadius: 5,
+                            color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
+                            cursor: hasAttr ? "not-allowed" : "pointer",
+                            fontSize: "0.65rem", fontWeight: 600,
+                            padding: "4px 8px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.03em",
+                          }}
+                        >
+                          Time
+                        </button>
+                      )}
+                      {r.status !== "arrived" && (r.guestEmail || r.guestPhone) && (
+                        <button
+                          type="button"
+                          onClick={() => setResendTarget(r)}
+                          style={{
+                            flex: 1,
+                            background: "none",
+                            border: "1px solid rgba(96,165,250,0.3)",
+                            borderRadius: 5,
+                            color: "#60a5fa",
+                            cursor: "pointer",
+                            fontSize: "0.65rem", fontWeight: 600,
+                            padding: "4px 8px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.03em",
+                          }}
+                        >
+                          Resend
+                        </button>
+                      )}
+                      {r.status !== "arrived" && (
+                        <button
+                          type="button"
+                          onClick={() => setCancelTarget(r)}
+                          style={{
+                            flex: 1,
+                            background: "none",
+                            border: "1px solid rgba(239,68,68,0.3)",
+                            borderRadius: 5,
+                            color: "#ef4444",
+                            cursor: "pointer",
+                            fontSize: "0.65rem", fontWeight: 600,
+                            padding: "4px 8px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.03em",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop table (md+) ───────────────────────────── */}
+          <div className="hidden md:block" style={{ overflowX: "auto" }}>
             <table
               style={{
                 width: "100%",
@@ -1834,6 +2165,7 @@ export default function ReservationsClient({ token }: { token: string }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
