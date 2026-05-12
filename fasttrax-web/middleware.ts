@@ -50,17 +50,17 @@ export async function middleware(request: NextRequest) {
     if (embedMatch && EMBED_TOOLS.has(embedMatch[1])) {
       const embedSecret = process.env.ADMIN_EMBED_SECRET || process.env.BOWLING_EMBED_SECRET || "";
       if (!embedSecret) {
-        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+        return new NextResponse("embed: ADMIN_EMBED_SECRET not configured", { status: 403, headers: { "content-type": "text/plain" } });
       }
       const ts = request.nextUrl.searchParams.get("ts") || "";
       const sig = request.nextUrl.searchParams.get("sig") || "";
       if (!ts || !sig) {
-        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+        return new NextResponse("embed: missing ts or sig param", { status: 403, headers: { "content-type": "text/plain" } });
       }
       // Timestamp must be within 15 minutes
       const age = Math.abs(Date.now() - Number(ts));
       if (isNaN(age) || age > 15 * 60 * 1000) {
-        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+        return new NextResponse(`embed: signature expired (age ${Math.round(age / 1000)}s, max 900s)`, { status: 403, headers: { "content-type": "text/plain" } });
       }
       // HMAC-SHA256 verify (Web Crypto — available in Edge runtime)
       const enc = new TextEncoder();
@@ -72,7 +72,7 @@ export async function middleware(request: NextRequest) {
       );
       const hex = Array.from(expected_sig).map(b => b.toString(16).padStart(2, "0")).join("");
       if (sig !== hex) {
-        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+        return new NextResponse("embed: invalid signature (wrong key)", { status: 403, headers: { "content-type": "text/plain" } });
       }
       // Valid — allow through with frame-ancestors lock + admin flag
       const requestHeaders = new Headers(request.headers);
