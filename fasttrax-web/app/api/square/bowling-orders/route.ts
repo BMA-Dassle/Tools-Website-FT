@@ -292,7 +292,7 @@ export async function POST(req: NextRequest) {
         idempotency_key: `bowl-dep-${baseKey}`,
         order: {
           location_id: locationId,
-          reference_id: note ?? undefined,
+          reference_id: note ? note.slice(0, 40) : undefined,
           line_items: [
             {
               name: "Bowling Reservation Deposit",

@@ -1121,38 +1121,53 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             {guestName && <Row label="Guest" value={guestName} />}
 
             {/* Line items */}
-            {lines.length > 0 && (
-              <>
-                <DividerLine />
-                <div>
-                  <div
-                    className="uppercase font-bold mb-2"
-                    style={{
-                      color: "rgba(255,255,255,0.35)",
-                      fontSize: "10px",
-                      letterSpacing: "2.5px",
-                    }}
-                  >
-                    {cfg.linesHeader}
+            {lines.length > 0 && (() => {
+              const linesSubtotal = lines.reduce(
+                (s, l) => s + l.unitPriceCents * l.quantity,
+                0,
+              );
+              const taxAndFees = displayTotal - linesSubtotal;
+              return (
+                <>
+                  <DividerLine />
+                  <div>
+                    <div
+                      className="uppercase font-bold mb-2"
+                      style={{
+                        color: "rgba(255,255,255,0.35)",
+                        fontSize: "10px",
+                        letterSpacing: "2.5px",
+                      }}
+                    >
+                      {cfg.linesHeader}
+                    </div>
+                    <div className="space-y-1.5">
+                      {lines.map((line, i) => (
+                        <div key={i} className="flex justify-between text-sm">
+                          <span className="text-white/75">
+                            {line.label}
+                            {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                          </span>
+                          <span className="text-white">
+                            {line.unitPriceCents === 0
+                              ? "Free"
+                              : centsToDollars(line.unitPriceCents * line.quantity)}
+                          </span>
+                        </div>
+                      ))}
+                      {taxAndFees > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-white/50">Tax &amp; fees</span>
+                          <span className="text-white/50">
+                            {centsToDollars(taxAndFees)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    {lines.map((line, i) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span className="text-white/75">
-                          {line.label}
-                          {line.quantity > 1 ? ` ×${line.quantity}` : ""}
-                        </span>
-                        <span className="text-white">
-                          {line.unitPriceCents === 0
-                            ? "Free"
-                            : centsToDollars(line.unitPriceCents * line.quantity)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
+                </>
+              );
+            })()}
 
             {/* Attraction add-ons */}
             {reservation?.attractionBookings && reservation.attractionBookings.length > 0 && (

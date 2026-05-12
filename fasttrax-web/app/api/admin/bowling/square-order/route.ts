@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
         id: string;
         state: string;
         total_money?: { amount: number; currency: string };
+        total_tax_money?: { amount: number; currency: string };
+        total_discount_money?: { amount: number; currency: string };
         net_amount_due_money?: { amount: number; currency: string };
         line_items?: Array<{
           uid: string;
@@ -60,6 +62,9 @@ export async function GET(req: NextRequest) {
           note?: string;
           catalog_object_id?: string;
           base_price_money?: { amount: number; currency: string };
+          gross_sales_money?: { amount: number; currency: string };
+          total_tax_money?: { amount: number; currency: string };
+          total_discount_money?: { amount: number; currency: string };
           total_money?: { amount: number; currency: string };
         }>;
       };
@@ -70,20 +75,32 @@ export async function GET(req: NextRequest) {
     }
 
     // Flatten to a simpler shape for the admin UI
-    const lineItems = (order.line_items ?? []).map((li) => ({
-      uid: li.uid,
-      name: li.name ?? "—",
-      quantity: parseInt(li.quantity, 10),
-      note: li.note ?? null,
-      priceCents: li.base_price_money?.amount ?? 0,
-      totalCents: li.total_money?.amount ?? 0,
-      catalogId: li.catalog_object_id ?? null,
-    }));
+    // Use gross_sales (pre-tax, pre-discount) for display; show tax separately
+    const lineItems = (order.line_items ?? []).map((li) => {
+      const qty = parseInt(li.quantity, 10);
+      const baseCents = li.base_price_money?.amount ?? 0;
+      // gross_sales = base * qty (pre-tax, pre-discount). Fallback: compute it.
+      const grossCents = li.gross_sales_money?.amount ?? (baseCents * qty);
+      return {
+        uid: li.uid,
+        name: li.name ?? "—",
+        quantity: qty,
+        note: li.note ?? null,
+        priceCents: baseCents,
+        grossCents,
+        taxCents: li.total_tax_money?.amount ?? 0,
+        discountCents: li.total_discount_money?.amount ?? 0,
+        totalCents: li.total_money?.amount ?? 0,
+        catalogId: li.catalog_object_id ?? null,
+      };
+    });
 
     return NextResponse.json({
       orderId: order.id,
       state: order.state,
       totalCents: order.total_money?.amount ?? 0,
+      taxCents: order.total_tax_money?.amount ?? 0,
+      discountCents: order.total_discount_money?.amount ?? 0,
       remainingCents: order.net_amount_due_money?.amount ?? 0,
       lineItems,
     });

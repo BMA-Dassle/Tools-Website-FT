@@ -56,6 +56,9 @@ interface SquareLineItem {
   quantity: number;
   note: string | null;
   priceCents: number;
+  grossCents: number;
+  taxCents: number;
+  discountCents: number;
   totalCents: number;
   catalogId: string | null;
 }
@@ -1172,7 +1175,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [orderTarget, setOrderTarget] = useState<Reservation | null>(null);
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
-  const [orderMeta, setOrderMeta] = useState<{ state: string; totalCents: number; remainingCents: number } | null>(null);
+  const [orderMeta, setOrderMeta] = useState<{ state: string; totalCents: number; taxCents: number; discountCents: number; remainingCents: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   async function setCheckinMethod(neonId: number, method: "self" | "desk" | null) {
@@ -1245,7 +1248,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       .then((data) => {
         if (data.error) { setOrderItems([]); return; }
         setOrderItems(data.lineItems ?? []);
-        setOrderMeta({ state: data.state, totalCents: data.totalCents, remainingCents: data.remainingCents });
+        setOrderMeta({ state: data.state, totalCents: data.totalCents, taxCents: data.taxCents ?? 0, discountCents: data.discountCents ?? 0, remainingCents: data.remainingCents });
       })
       .catch(() => setOrderItems([]))
       .finally(() => setOrderLoading(false));
@@ -1423,7 +1426,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             {orderLoading && <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>Loading…</p>}
 
             {orderMeta && (
-              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
                 <span style={{
                   padding: "2px 8px", borderRadius: 5, fontSize: "0.65rem", fontWeight: 600,
                   background: orderMeta.state === "OPEN" ? "rgba(59,130,246,0.15)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
@@ -1431,9 +1434,6 @@ export default function ReservationsClient({ token }: { token: string }) {
                   border: `1px solid ${orderMeta.state === "OPEN" ? "rgba(59,130,246,0.3)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
                 }}>
                   {orderMeta.state}
-                </span>
-                <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
-                  Total: <strong style={{ color: "var(--ba-fg)" }}>${(orderMeta.totalCents / 100).toFixed(2)}</strong>
                 </span>
                 {orderMeta.remainingCents > 0 && (
                   <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
@@ -1461,37 +1461,65 @@ export default function ReservationsClient({ token }: { token: string }) {
               </div>
             )}
 
-            {orderItems && orderItems.length > 0 && (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--ba-border)" }}>
-                    {["Item", "Qty", "Price"].map((h) => (
-                      <th key={h} style={{
-                        padding: "6px 8px", textAlign: h === "Item" ? "left" : "right",
-                        color: "var(--ba-muted)", fontSize: "0.65rem",
-                        textTransform: "uppercase", fontWeight: 600,
-                      }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {orderItems.map((li) => (
-                    <tr key={li.uid} style={{ borderBottom: "1px solid var(--ba-border)" }}>
-                      <td style={{ padding: "6px 8px" }}>
-                        <div style={{ fontWeight: 600 }}>{li.name}</div>
-                        {li.note && (
-                          <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem", fontStyle: "italic" }}>{li.note}</div>
-                        )}
-                      </td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--ba-muted)" }}>{li.quantity}</td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: li.totalCents === 0 ? "var(--ba-muted)" : "var(--ba-fg)" }}>
-                        {li.totalCents === 0 ? "$0" : `$${(li.totalCents / 100).toFixed(2)}`}
-                      </td>
+            {orderItems && orderItems.length > 0 && (() => {
+              const subtotalCents = orderItems.reduce((s, li) => s + li.grossCents, 0);
+              const taxCents = orderMeta?.taxCents ?? orderItems.reduce((s, li) => s + li.taxCents, 0);
+              const discountCents = orderMeta?.discountCents ?? orderItems.reduce((s, li) => s + li.discountCents, 0);
+              const totalCents = orderMeta?.totalCents ?? (subtotalCents + taxCents - discountCents);
+              return (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--ba-border)" }}>
+                      {["Item", "Qty", "Price"].map((h) => (
+                        <th key={h} style={{
+                          padding: "6px 8px", textAlign: h === "Item" ? "left" : "right",
+                          color: "var(--ba-muted)", fontSize: "0.65rem",
+                          textTransform: "uppercase", fontWeight: 600,
+                        }}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  </thead>
+                  <tbody>
+                    {orderItems.map((li) => (
+                      <tr key={li.uid} style={{ borderBottom: "1px solid var(--ba-border)" }}>
+                        <td style={{ padding: "6px 8px" }}>
+                          <div style={{ fontWeight: 600 }}>{li.name}</div>
+                          {li.note && (
+                            <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem", fontStyle: "italic" }}>{li.note}</div>
+                          )}
+                        </td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--ba-muted)" }}>{li.quantity}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: li.grossCents === 0 ? "var(--ba-muted)" : "var(--ba-fg)" }}>
+                          {li.grossCents === 0 ? "$0" : `$${(li.grossCents / 100).toFixed(2)}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: "1px solid var(--ba-border)" }}>
+                      <td colSpan={2} style={{ padding: "5px 8px", textAlign: "right", color: "var(--ba-muted)", fontSize: "0.72rem" }}>Subtotal</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: "var(--ba-fg)", fontSize: "0.72rem" }}>${(subtotalCents / 100).toFixed(2)}</td>
+                    </tr>
+                    {taxCents > 0 && (
+                      <tr>
+                        <td colSpan={2} style={{ padding: "2px 8px", textAlign: "right", color: "var(--ba-muted)", fontSize: "0.72rem" }}>Tax</td>
+                        <td style={{ padding: "2px 8px", textAlign: "right", color: "var(--ba-muted)", fontSize: "0.72rem" }}>${(taxCents / 100).toFixed(2)}</td>
+                      </tr>
+                    )}
+                    {discountCents > 0 && (
+                      <tr>
+                        <td colSpan={2} style={{ padding: "2px 8px", textAlign: "right", color: "#f59e0b", fontSize: "0.72rem" }}>Discount</td>
+                        <td style={{ padding: "2px 8px", textAlign: "right", color: "#f59e0b", fontSize: "0.72rem" }}>−${(discountCents / 100).toFixed(2)}</td>
+                      </tr>
+                    )}
+                    <tr style={{ borderTop: "1px solid var(--ba-border)" }}>
+                      <td colSpan={2} style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, fontSize: "0.78rem" }}>Total</td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, fontSize: "0.78rem" }}>${(totalCents / 100).toFixed(2)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              );
+            })()}
 
             {orderItems && orderItems.length === 0 && (
               <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>No line items</p>
