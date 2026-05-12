@@ -16,7 +16,7 @@ info:
     |------|---------|----------|
     | TXBSQN0FEKQ11 | 9172 | Fort Myers |
     | PPTR5G2N0QXF7 | 3148 | Naples |
-  version: "1.1.0"
+  version: "1.2.0"
 
 servers:
   - url: https://headpinz.com
@@ -156,6 +156,43 @@ components:
           type: string
           nullable: true
           description: Error message if lane-open processing failed
+        dayofOrderSource:
+          type: string
+          nullable: true
+          description: "Source of the day-of order trigger (e.g. 'webhook', 'cron')"
+        bookingSource:
+          type: string
+          enum: [web, kiosk, conqueror]
+          default: web
+          description: Where the reservation was created
+        checkinMethod:
+          type: string
+          enum: [self, desk]
+          nullable: true
+          description: |
+            How the guest checked in. "self" is recorded automatically when
+            the guest uses Express Check-In (POST /api/bowling/v2/reservations/{id}/checkin).
+            All others are assumed desk check-in (null).
+        loyaltyAction:
+          type: string
+          enum: [signup, existing]
+          nullable: true
+          description: |
+            Whether the guest enrolled in HeadPinz Rewards during booking
+            ("signup") or linked an existing Square Loyalty account ("existing").
+            Null if no loyalty interaction.
+        squareCustomerId:
+          type: string
+          nullable: true
+          description: Square customer ID (loyalty-linked guests)
+        squareLoyaltyRewardId:
+          type: string
+          nullable: true
+          description: Square reward ID if a loyalty reward was redeemed at booking
+        rewardDiscountCents:
+          type: integer
+          default: 0
+          description: Discount amount from redeemed loyalty reward (cents)
         insertedAt:
           type: string
           format: date-time
@@ -163,6 +200,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ReservationLine"
+        attractionBookings:
+          type: array
+          nullable: true
+          description: Non-bowling attractions bundled with this reservation (gel blaster, laser tag, etc.)
+          items:
+            type: object
+            properties:
+              slug:
+                type: string
+              name:
+                type: string
+              quantity:
+                type: integer
+              totalPriceDollars:
+                type: number
+              timeLabel:
+                type: string
 
     SquareLineItem:
       type: object
@@ -403,6 +457,150 @@ paths:
           description: Already cancelled
         "502":
           description: Square refund failed (requires manual reconciliation)
+
+  /api/admin/bowling/reservations/checkin:
+    post:
+      summary: Set check-in method (admin override)
+      description: |
+        Manually sets or clears the check-in method on a reservation.
+        Primarily exists for admin override — the normal flow is automatic:
+        Express Check-In (POST /api/bowling/v2/reservations/{id}/checkin)
+        records "self" automatically. All others are assumed desk (null).
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [neonId, method]
+              properties:
+                neonId:
+                  type: integer
+                method:
+                  type: string
+                  nullable: true
+                  enum: [self, desk, null]
+                  description: "Pass null to clear"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          description: Invalid neonId or method
+        "401":
+          description: Invalid admin token
+
+  /api/bowling/v2/reservations/{id}/checkin:
+    get:
+      summary: Poll lane status for check-in
+      description: |
+        Polls QAMF for the current lane status of a reservation. No side effects.
+        Used by the Express Check-In page to determine when the guest can
+        self-open their lanes.
+
+        **Phase values:**
+        - `not_ready` — lanes not yet assigned (None/Temporary status in QAMF)
+        - `ready` — lane(s) are Confirmed or Ready, eligible for self-service open.
+          Also returned when lanes are "Closed" (hardware off) and booking is
+          within 30 minutes, allowing the guest to open them.
+        - `running` — lane(s) are Running (already open / bowling in progress)
+        - `completed` — session complete
+        - `cancelled` — reservation cancelled in Neon
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Neon DB reservation ID
+      responses:
+        "200":
+          description: Current check-in phase
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  phase:
+                    type: string
+                    enum: [not_ready, ready, running, completed, cancelled]
+                  laneLabel:
+                    type: string
+                    description: "Human-readable label, e.g. 'Lanes 12, 13'"
+                  laneNumbers:
+                    type: array
+                    items:
+                      type: integer
+                  laneIds:
+                    type: array
+                    items:
+                      type: string
+                    description: QAMF lane GUIDs (used by POST for status transitions)
+                  reservationStatus:
+                    type: string
+                    description: Raw QAMF reservation status
+        "400":
+          description: Invalid ID
+        "404":
+          description: Reservation not found
+        "502":
+          description: QAMF fetch failed
+
+    post:
+      summary: Self-service lane open (Express Check-In)
+      description: |
+        Self-service lane open flow: sets reservation to Arrived, then
+        transitions each lane through Ready → Running.
+
+        **Only call after GET confirms phase="ready".**
+
+        Automatically records `checkinMethod = "self"` in Neon DB so the
+        admin page shows the purple "Self" badge. This is fire-and-forget
+        (never blocks the check-in response).
+
+        Steps:
+        1. Set QAMF reservation status → Arrived
+        2. Fetch lane GUIDs from QAMF
+        3. For each lane: set Ready → set Running
+        4. Record self-service check-in in Neon
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Neon DB reservation ID
+      responses:
+        "200":
+          description: Lanes opened
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  lanesOpened:
+                    type: integer
+                    description: Number of lanes successfully transitioned to Running
+                  laneLabel:
+                    type: string
+        "400":
+          description: Invalid ID or no QAMF link
+        "404":
+          description: Reservation not found
+        "409":
+          description: Reservation cancelled
+        "502":
+          description: Failed to set Arrived in QAMF
 
   /api/admin/bowling/reservations/reschedule/info:
     get:
