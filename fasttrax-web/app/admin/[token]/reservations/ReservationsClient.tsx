@@ -65,6 +65,13 @@ const CENTERS: Record<string, string> = {
   PPTR5G2N0QXF7: "Naples",
 };
 
+/** URL-friendly slugs → center codes for ?center= param */
+const CENTER_SLUGS: Record<string, string> = {
+  fm: "TXBSQN0FEKQ11",
+  "fort-myers": "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
+
 const STATUS_COLORS: Record<string, string> = {
   confirmed: "#22c55e",
   confirm_pending: "#f59e0b",
@@ -827,7 +834,13 @@ export default function ReservationsClient({ token }: { token: string }) {
   }, []);
 
   const [date, setDate] = useState(todayET);
-  const [center, setCenter] = useState<string>("");
+  // Read ?center= slug from URL on mount (e.g. ?center=fm or ?center=naples)
+  const [center, setCenter] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    const p = new URLSearchParams(window.location.search);
+    const slug = p.get("center")?.toLowerCase() || "";
+    return CENTER_SLUGS[slug] || "";
+  });
   const [search, setSearch] = useState("");
   const [hideCancelled, setHideCancelled] = useState(true);
   const [hideWalkins, setHideWalkins] = useState(true);
@@ -1191,7 +1204,16 @@ export default function ReservationsClient({ token }: { token: string }) {
           />
           <select
             value={center}
-            onChange={(e) => setCenter(e.target.value)}
+            onChange={(e) => {
+              const code = e.target.value;
+              setCenter(code);
+              // Update URL so refresh keeps the selection
+              const url = new URL(window.location.href);
+              const slug = Object.entries(CENTER_SLUGS).find(([, v]) => v === code)?.[0];
+              if (slug) { url.searchParams.set("center", slug); }
+              else { url.searchParams.delete("center"); }
+              window.history.replaceState({}, "", url.toString());
+            }}
             style={INPUT_STYLE}
           >
             <option value="">All Centers</option>

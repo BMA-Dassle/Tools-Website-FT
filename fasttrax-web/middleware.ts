@@ -168,6 +168,32 @@ export async function middleware(request: NextRequest) {
       }
       return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
     }
+
+    // ── IP allowlist for /admin/{token}/ page routes ─────────────────
+    // Direct browser access to admin pages requires the visitor's IP to
+    // be in ADMIN_ALLOWED_IPS (comma-separated). API routes (/api/admin/*)
+    // are exempt — they're called by the admin page's own client-side JS,
+    // which would come from the user's same IP anyway, but the token gate
+    // is sufficient there. The embed path is also exempt (HMAC + frame-ancestors).
+    //
+    // When ADMIN_ALLOWED_IPS is unset or empty, the check is skipped
+    // (backwards compatible — opt-in lockdown).
+    if (pathname.startsWith("/admin/") && !pathname.startsWith("/api/")) {
+      const allowedIps = (process.env.ADMIN_ALLOWED_IPS || "")
+        .split(",")
+        .map((ip) => ip.trim())
+        .filter(Boolean);
+      if (allowedIps.length > 0) {
+        const clientIp =
+          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+          request.headers.get("x-real-ip") ||
+          "";
+        if (!allowedIps.includes(clientIp)) {
+          return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+        }
+      }
+    }
+
     // Flag admin routes so the root layout can strip the nav/footer/chat
     // chrome — staff-only tool, no public branding.
     const requestHeaders = new Headers(request.headers);
