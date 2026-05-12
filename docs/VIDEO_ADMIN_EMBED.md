@@ -73,9 +73,6 @@ Generate the shared secret: `openssl rand -hex 32`
 **Same secret as bowling and e-tickets.** All embed pages share `ADMIN_EMBED_SECRET`.
 Rotating the secret invalidates all outstanding URLs within 15 minutes.
 
-> **Backward compat:** FastTrax also reads `BOWLING_EMBED_SECRET` as a fallback
-> if `ADMIN_EMBED_SECRET` is not set.
-
 ---
 
 ## Portal Endpoint

@@ -39,7 +39,8 @@ export async function middleware(request: NextRequest) {
     // Portal iframe loads /admin/embed/{tool}?ts=...&sig=...
     // No static admin token in the URL — portal signs a timestamp with
     // a shared secret and FastTrax validates it here. URL expires after
-    // 15 minutes. Rotate ADMIN_EMBED_SECRET to invalidate all URLs.
+    // 15 min. Rotate ADMIN_EMBED_SECRET on both Vercel projects to
+    // invalidate all outstanding URLs.
     //
     // Supported tools:
     //   /admin/embed/bowling    — reservation management
@@ -48,7 +49,7 @@ export async function middleware(request: NextRequest) {
     const EMBED_TOOLS = new Set(["bowling", "e-tickets", "videos"]);
     const embedMatch = pathname.match(/^\/admin\/embed\/([a-z-]+)$/);
     if (embedMatch && EMBED_TOOLS.has(embedMatch[1])) {
-      const embedSecret = process.env.ADMIN_EMBED_SECRET || process.env.BOWLING_EMBED_SECRET || "";
+      const embedSecret = process.env.ADMIN_EMBED_SECRET || "";
       if (!embedSecret) {
         return new NextResponse("embed: ADMIN_EMBED_SECRET not configured", { status: 403, headers: { "content-type": "text/plain" } });
       }
