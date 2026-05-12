@@ -1666,7 +1666,7 @@ export default function ReservationsClient({ token }: { token: string }) {
         ) : (
           <>
           {/* ── Mobile card list (<md) ────────────────────────── */}
-          <div className="md:hidden" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="md:hidden flex flex-col gap-1.5">
             {filtered.map((r) => {
               const isCancelled = r.status === "cancelled";
               const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
@@ -1802,15 +1802,17 @@ export default function ReservationsClient({ token }: { token: string }) {
                   {/* Row 4: action buttons */}
                   {!isCancelled && r.status !== "completed" && (
                     <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-                      <button type="button" onClick={() => setCheckinTarget(r)} style={{
-                        flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
-                        border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
-                        color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
-                        fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
-                        textTransform: "uppercase", letterSpacing: "0.02em",
-                      }}>
-                        Check In
-                      </button>
+                      {r.status !== "arrived" && !r.checkinMethod && (
+                        <button type="button" onClick={() => setCheckinTarget(r)} style={{
+                          flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
+                          border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
+                          color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
+                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
+                          textTransform: "uppercase", letterSpacing: "0.02em",
+                        }}>
+                          Check In
+                        </button>
+                      )}
                       {r.status !== "arrived" && r.qamfReservationId && (
                         <button type="button" onClick={hasAttr ? undefined : () => setRescheduleTarget(r)} disabled={hasAttr} style={{
                           flex: 1, background: "none", borderRadius: 4,
@@ -2221,8 +2223,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* Actions — check-in, resched, view, resend, cancel */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", gap: 4 }}>
-                          {/* Check In — always visible for actionable reservations */}
-                          {!isCancelled && r.status !== "completed" && (
+                          {/* Check In — hidden once arrived or already checked in */}
+                          {!isCancelled && r.status !== "completed" && r.status !== "arrived" && !r.checkinMethod && (
                             <button
                               type="button"
                               onClick={() => setCheckinTarget(r)}
