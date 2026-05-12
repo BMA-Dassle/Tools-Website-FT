@@ -872,6 +872,12 @@ export default function ReservationsClient({ token }: { token: string }) {
     void load();
   }, [load]);
 
+  // Auto-refresh every 10 seconds
+  useEffect(() => {
+    const id = setInterval(() => { void load(); }, 10_000);
+    return () => clearInterval(id);
+  }, [load]);
+
   // Fetch Square order details when target is set
   useEffect(() => {
     if (!orderTarget?.squareDayofOrderId) return;
