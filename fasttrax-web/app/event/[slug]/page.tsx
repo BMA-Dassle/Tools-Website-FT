@@ -687,12 +687,31 @@ export default function GroupEventPage() {
         PersonId: null,
         DynamicLines: [],
       }, { date: event!.eventDate });
-      const proposals: BmiProposal[] = data.proposals || [];
+      let proposals: BmiProposal[] = data.proposals || [];
       proposals.sort((a, b) => {
         const aS = a.blocks?.[0]?.block?.start || "";
         const bS = b.blocks?.[0]?.block?.start || "";
         return aS.localeCompare(bS);
       });
+
+      // Filter to event time window
+      if (event) {
+        const [sh, sm] = event.startTime.split(":").map(Number);
+        const [eh, em] = event.endTime.split(":").map(Number);
+        const winStart = sh * 60 + sm;
+        const winEnd = eh * 60 + em;
+        proposals = proposals.filter(p => {
+          const start = p.blocks?.[0]?.block?.start;
+          if (!start) return true;
+          const clean = start.replace(/Z$/, "");
+          const tp = clean.split("T")[1];
+          if (!tp) return true;
+          const [h, m] = tp.split(":").map(Number);
+          const blockMin = h * 60 + m;
+          return blockMin >= winStart && blockMin < winEnd;
+        });
+      }
+
       setAttractionSlots(proposals);
     } catch {
       setAttractionSlots([]);
@@ -1255,6 +1274,7 @@ export default function GroupEventPage() {
                 startTime: event.mealWindow.startTime,
                 endTime: event.mealWindow.endTime,
               } : undefined}
+              timeWindow={{ start: event.startTime, end: event.endTime }}
             />
           </div>
         )}

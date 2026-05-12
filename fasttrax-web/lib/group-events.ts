@@ -67,7 +67,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     eventTitle: "Healthcare Network Team Day",
     eventDate: "2026-06-19",
     startTime: "09:00",
-    endTime: "13:00",
+    endTime: "14:00",
     allowedDomains: ["healthcareswfl.org", "headpinz.com", "fasttraxent.com"],
     heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/group-events/healthcare-network-logo.png",
     accentColor: "#00E2E5",

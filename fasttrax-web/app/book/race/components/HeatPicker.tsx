@@ -47,6 +47,10 @@ interface HeatPickerProps {
     startTime: string;        // "11:00" (24h) — warning window start
     endTime: string;          // "12:30" (24h) — warning window end
   };
+  /** Optional event time window — only show heats whose start time falls
+   *  within this range. Used by group events to hide heats outside the
+   *  buyout window. Format: "HH:MM" (24h). Undefined = show all. */
+  timeWindow?: { start: string; end: string };
 }
 
 function parseLocal(iso: string): Date {
@@ -68,7 +72,7 @@ function spotsLabel(free: number, capacity: number) {
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false, heatRosters, mealWarning }: HeatPickerProps) {
+export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false, heatRosters, mealWarning, timeWindow }: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,12 +130,27 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
 
       // Filter out heats that are too soon (new racers need 1hr 15min lead time)
       const cutoff = minAdvanceMinutes > 0 ? Date.now() + minAdvanceMinutes * 60_000 : 0;
-      const filtered = cutoff > 0
+      let filtered = cutoff > 0
         ? proposals.filter(p => {
             const start = p.blocks?.[0]?.block?.start;
             return start ? parseLocal(start).getTime() >= cutoff : true;
           })
         : proposals;
+
+      // Filter to event time window (group events — e.g. 09:00–13:00)
+      if (timeWindow) {
+        const [twSh, twSm] = timeWindow.start.split(":").map(Number);
+        const [twEh, twEm] = timeWindow.end.split(":").map(Number);
+        const twStartMin = twSh * 60 + twSm;
+        const twEndMin = twEh * 60 + twEm;
+        filtered = filtered.filter(p => {
+          const start = p.blocks?.[0]?.block?.start;
+          if (!start) return true;
+          const d = parseLocal(start);
+          const blockMin = d.getHours() * 60 + d.getMinutes();
+          return blockMin >= twStartMin && blockMin < twEndMin;
+        });
+      }
 
       setProposals(filtered);
     } catch {
@@ -139,7 +158,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     } finally {
       setLoading(false);
     }
-  }, [race.productId, race.pageId, date, minAdvanceMinutes]);
+  }, [race.productId, race.pageId, date, minAdvanceMinutes, timeWindow]);
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
