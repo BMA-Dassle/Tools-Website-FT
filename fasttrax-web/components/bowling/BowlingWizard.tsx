@@ -1051,8 +1051,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     ...shoeProducts
       .filter((p) => (shoeQty[p.id] ?? 0) > 0)
       .map((p) => ({ squareProductId: p.id, quantity: shoeQty[p.id] })),
-    // Booking fee ($2.99) on every non-$0 reservation
-    ...(hasBookingFee ? [{ squareProductId: BOOKING_FEE_CATALOG_ID, quantity: 1 }] : []),
   ];
 
   // ── Date bookability helpers ─────────────────────────────────────
@@ -1982,6 +1980,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             players,
             guest: { name: guestName, email: guestEmail, phone: guestPhone },
             lineItems,
+            // Booking fee on non-$0 reservations
+            ...(hasBookingFee ? { bookingFee: true } : {}),
             // $0 pizza/soda items — must be separate Square order line items
             ...(pizzaBowlRawItems.length > 0 ? { rawItems: pizzaBowlRawItems } : {}),
             // Extra topping surcharge (1 free per lane, $1 each extra)

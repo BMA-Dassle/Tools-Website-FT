@@ -184,6 +184,8 @@ interface ReserveBody {
   rewardDiscountCents?: number;
   /** Loyalty action during booking: 'signup' (new account) or 'existing' (logged in). */
   loyaltyAction?: "signup" | "existing";
+  /** Add $2.99 booking fee to the day-of order (non-$0 reservations only). */
+  bookingFee?: boolean;
   // ── Attraction add-ons (laser tag / gel blaster booked via BMI) ──
   /** Attraction bookings made during the wizard. Stored on the reservation for tracking. */
   attractionBookings?: Array<{
@@ -260,16 +262,23 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Booking fee: $2.99, 100% deposit, catalog item 7VKAFU3HDPRSKY7ZB6CKXTRW
+  const BOOKING_FEE_CENTS = 299;
+  const BOOKING_FEE_CATALOG_ID = "7VKAFU3HDPRSKY7ZB6CKXTRW";
+  const hasBookingFee = body.bookingFee === true;
+
   // Pre-tax subtotal (used to compute overallDepositPct + squareToken validation)
-  const preTaxTotalCents = productItems.reduce(
+  const productTotal = productItems.reduce(
     (s, { product, quantity }) => s + product.priceCents * quantity,
     0,
   );
-  const preTaxDepositCents = productItems.reduce(
+  const preTaxTotalCents = productTotal + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
+  const productDeposit = productItems.reduce(
     (s, { product, quantity }) =>
       s + Math.round(product.priceCents * quantity * (product.depositPct / 100)),
     0,
   );
+  const preTaxDepositCents = productDeposit + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
 
   // Weighted-average deposit % across all line items — passed to bowling-orders
   // so it can apply the same proportion to the tax-inclusive total.
@@ -556,6 +565,10 @@ export async function POST(req: NextRequest) {
             quantity: String(body.extraToppingsCents / 100),
             basePriceMoney: { amount: 100, currency: "USD" as const },
           }]
+        : []),
+      // Booking fee — catalog-priced (no basePriceMoney override)
+      ...(hasBookingFee
+        ? [{ name: "Booking Fee", quantity: "1", catalogObjectId: BOOKING_FEE_CATALOG_ID }]
         : []),
     ];
 
