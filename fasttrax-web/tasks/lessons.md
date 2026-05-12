@@ -106,6 +106,43 @@ Write-up preserved at `tasks/bmi-checkin-double-credit-bug.md`.
 Test artifacts: reservations **W28792** (orderId 63000000003256749)
 and **W28881** (orderId 63000000003257765), both on personId 409523.
 
+## 2026-05-11 — BMI cancel: Office API can't find orders from new REST API
+
+**Context:** Group event cancel route uses Office API (`office-api22.sms-timing.com`)
+to cancel confirmed orders by setting `stateId: "-4"`. This is required because
+`DELETE bill/{orderId}/cancel` on the Public API only works on open/held orders —
+once `payment/confirm` closes the bill, only the Office API can cancel the project.
+
+**Problem:** Orders created via the **new Public REST API** (`api.bmileisure.com /
+public-booking/{clientKey}/booking/book`) return orderIds (e.g. `63000000003453231`)
+that the Office API's `GET /api/{clientKey}/project/{orderId}` endpoint returns 404
+for. All 4 group event products (Blue Starter, Red Starter, Gel Blaster, Laser Tag)
+exhibited this — book + confirm succeed, but Office API project lookup fails.
+
+**What works vs. what doesn't:**
+- `DELETE bill/{orderId}/cancel` via Public API: works ONLY on open/held orders (before `payment/confirm`)
+- Office API `GET project/{orderId}`: works for orders created via Office API or old SMS-Timing API — FAILS for orders created via new REST API
+- The orderId format is the same (`63000000003xxxxxx`) in both systems
+
+**Current status:** Not resolved. Group event cancel buttons on the confirmation
+page call `/api/group-event/cancel` which hits Office API and gets "Project not found".
+The `removeFromCart` function (which cancels held orders) could potentially use
+`DELETE bill/{orderId}/cancel` instead since held orders aren't confirmed yet — but
+this hasn't been implemented.
+
+**Possible investigation paths:**
+1. Check if there's a delay/sync before new REST API orders appear in Office API
+2. Check if Office API uses a different identifier (projectNumber, billNumber) vs orderId
+3. Ask BMI support if there's a cancel endpoint on the new REST API for confirmed orders
+4. Use `booking/removeItem` to remove line items before cancelling (may release the slot)
+
+**Rule for future:**
+- Two BMI cancel mechanisms exist and are NOT interchangeable:
+  - `DELETE bill/{orderId}/cancel` — Public API, open orders only
+  - Office API `PUT project` with `stateId: "-4"` — confirmed orders, but only finds projects from older APIs
+- When building cancel flows, verify the cancel mechanism matches the API used to create the order
+- Test cancel end-to-end with a real booked+confirmed order, not just held orders
+
 ## 2026-04-10 — BMI race-pack credit-assignment bug
 
 Separate BMI regression: credits don't post on race-pack sells via
