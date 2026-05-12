@@ -137,19 +137,19 @@ function confirmPath(r: Reservation): string | null {
 }
 
 const INPUT_STYLE: React.CSSProperties = {
-  backgroundColor: "rgba(255,255,255,0.08)",
-  border: "1px solid rgba(255,255,255,0.15)",
+  backgroundColor: "var(--ba-input-bg)",
+  border: "1px solid var(--ba-input-border)",
   borderRadius: 8,
-  color: "#fff",
+  color: "var(--ba-fg)",
   padding: "0.5rem 0.75rem",
   fontSize: "0.875rem",
 };
 
 const NAV_BTN: React.CSSProperties = {
-  backgroundColor: "rgba(255,255,255,0.08)",
-  border: "1px solid rgba(255,255,255,0.15)",
+  backgroundColor: "var(--ba-input-bg)",
+  border: "1px solid var(--ba-input-border)",
   borderRadius: 8,
-  color: "rgba(255,255,255,0.6)",
+  color: "var(--ba-muted)",
   padding: "0.5rem 0.75rem",
   fontSize: "0.875rem",
   cursor: "pointer",
@@ -285,7 +285,7 @@ function CancelModal({
         alignItems: "center",
         justifyContent: "center",
         padding: "1rem",
-        backgroundColor: "rgba(0,0,0,0.75)",
+        backgroundColor: "var(--ba-overlay)",
         backdropFilter: "blur(4px)",
       }}
       {...modalBackdropProps(onClose)}
@@ -294,7 +294,7 @@ function CancelModal({
         style={{
           width: "100%",
           maxWidth: 400,
-          backgroundColor: "#0e1d3a",
+          backgroundColor: "var(--ba-modal-bg)",
           border: "1px solid rgba(239,68,68,0.3)",
           borderRadius: 16,
           padding: "1.5rem",
@@ -308,7 +308,7 @@ function CancelModal({
           <button
             type="button"
             onClick={onClose}
-            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: "1.2rem" }}
+            style={{ background: "none", border: "none", color: "var(--ba-muted)", cursor: "pointer", fontSize: "1.2rem" }}
           >
             &times;
           </button>
@@ -319,18 +319,18 @@ function CancelModal({
           style={{
             padding: "0.75rem",
             borderRadius: 10,
-            backgroundColor: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
+            backgroundColor: "var(--ba-bg2)",
+            border: "1px solid var(--ba-border)",
             marginBottom: "1rem",
             fontSize: "0.8rem",
             lineHeight: 1.7,
           }}
         >
-          <div><strong style={{ color: "#fff" }}>{reservation.guestName || "Guest"}</strong></div>
-          <div style={{ color: "rgba(255,255,255,0.5)" }}>
+          <div><strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong></div>
+          <div style={{ color: "var(--ba-muted)" }}>
             {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
           </div>
-          <div style={{ color: "rgba(255,255,255,0.5)" }}>
+          <div style={{ color: "var(--ba-muted)" }}>
             {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""} &middot;{" "}
             {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
@@ -349,7 +349,7 @@ function CancelModal({
             backgroundColor: "rgba(239,68,68,0.1)",
             border: "1px solid rgba(239,68,68,0.2)",
             fontSize: "0.75rem",
-            color: "rgba(255,255,255,0.6)",
+            color: "var(--ba-muted)",
             marginBottom: "1rem",
             lineHeight: 1.5,
           }}
@@ -570,7 +570,7 @@ function RescheduleModal({
         alignItems: "center",
         justifyContent: "center",
         padding: "1rem",
-        backgroundColor: "rgba(0,0,0,0.75)",
+        backgroundColor: "var(--ba-overlay)",
         backdropFilter: "blur(4px)",
       }}
       {...modalBackdropProps(onClose)}
@@ -579,7 +579,7 @@ function RescheduleModal({
         style={{
           width: "100%",
           maxWidth: 480,
-          backgroundColor: "#0e1d3a",
+          backgroundColor: "var(--ba-modal-bg)",
           border: "1px solid rgba(0,226,229,0.25)",
           borderRadius: 16,
           padding: "1.5rem",
@@ -595,7 +595,7 @@ function RescheduleModal({
           <button
             type="button"
             onClick={onClose}
-            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: "1.2rem" }}
+            style={{ background: "none", border: "none", color: "var(--ba-muted)", cursor: "pointer", fontSize: "1.2rem" }}
           >
             &times;
           </button>
@@ -606,18 +606,18 @@ function RescheduleModal({
           style={{
             padding: "0.75rem",
             borderRadius: 10,
-            backgroundColor: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
+            backgroundColor: "var(--ba-bg2)",
+            border: "1px solid var(--ba-border)",
             marginBottom: "1rem",
             fontSize: "0.8rem",
             lineHeight: 1.7,
           }}
         >
-          <div><strong style={{ color: "#fff" }}>{reservation.guestName || "Guest"}</strong></div>
-          <div style={{ color: "rgba(255,255,255,0.5)" }}>
+          <div><strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong></div>
+          <div style={{ color: "var(--ba-muted)" }}>
             Current: {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
           </div>
-          <div style={{ color: "rgba(255,255,255,0.5)" }}>
+          <div style={{ color: "var(--ba-muted)" }}>
             {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""} &middot;{" "}
             {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
@@ -631,7 +631,7 @@ function RescheduleModal({
             backgroundColor: "rgba(0,226,229,0.06)",
             border: "1px solid rgba(0,226,229,0.15)",
             fontSize: "0.7rem",
-            color: "rgba(255,255,255,0.5)",
+            color: "var(--ba-muted)",
             marginBottom: "1rem",
           }}
         >
@@ -640,7 +640,7 @@ function RescheduleModal({
 
         {/* Loading info */}
         {loadingInfo && (
-          <div style={{ textAlign: "center", padding: "2rem", color: "rgba(255,255,255,0.4)" }}>
+          <div style={{ textAlign: "center", padding: "2rem", color: "var(--ba-muted)" }}>
             Loading offer info...
           </div>
         )}
@@ -667,7 +667,7 @@ function RescheduleModal({
         {info && !infoError && (
           <>
             <label style={{ display: "block", marginBottom: "0.75rem" }}>
-              <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>
+              <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 4 }}>
                 New date
               </span>
               <input
@@ -683,16 +683,16 @@ function RescheduleModal({
 
             {/* Time slots */}
             <div style={{ marginBottom: "1rem" }}>
-              <span style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 6 }}>
+              <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 6 }}>
                 Available times
               </span>
 
               {loadingSlots ? (
-                <div style={{ textAlign: "center", padding: "1.5rem", color: "rgba(255,255,255,0.3)", fontSize: "0.8rem" }}>
+                <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--ba-muted)", fontSize: "0.8rem" }}>
                   Checking availability...
                 </div>
               ) : slots.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "1.5rem", color: "rgba(255,255,255,0.3)", fontSize: "0.8rem" }}>
+                <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--ba-muted)", fontSize: "0.8rem" }}>
                   No available times for this date. Try another date.
                 </div>
               ) : (
@@ -723,22 +723,22 @@ function RescheduleModal({
                           cursor: isCurrent ? "not-allowed" : "pointer",
                           border: isSelected
                             ? "1.5px solid #00E2E5"
-                            : "1px solid rgba(255,255,255,0.12)",
+                            : "1px solid var(--ba-border)",
                           backgroundColor: isSelected
                             ? "rgba(0,226,229,0.15)"
                             : isCurrent
-                              ? "rgba(255,255,255,0.03)"
-                              : "rgba(255,255,255,0.06)",
+                              ? "var(--ba-bg2)"
+                              : "var(--ba-input-bg)",
                           color: isSelected
                             ? "#00E2E5"
                             : isCurrent
-                              ? "rgba(255,255,255,0.25)"
-                              : "rgba(255,255,255,0.8)",
+                              ? "var(--ba-muted)"
+                              : "var(--ba-fg)",
                         }}
                       >
                         {fmtTime(slot.bookedAt)}
                         {isCurrent && (
-                          <span style={{ display: "block", fontSize: "0.55rem", color: "rgba(255,255,255,0.25)", marginTop: 1 }}>
+                          <span style={{ display: "block", fontSize: "0.55rem", color: "var(--ba-muted)", marginTop: 1 }}>
                             current
                           </span>
                         )}
@@ -805,6 +805,27 @@ function RescheduleModal({
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function ReservationsClient({ token }: { token: string }) {
+  // Theme: "dark" (default) or "light" — set via URL ?theme= or portal postMessage
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window === "undefined") return "dark";
+    const p = new URLSearchParams(window.location.search);
+    return p.get("theme") === "light" ? "light" : "dark";
+  });
+
+  // Listen for theme changes from portal via postMessage
+  // Portal sends { type: "portal.theme", value: "light" | "dark" }
+  // targeted to the FastTrax origin. Also fires on iframe onLoad.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== "https://portal.headpinz.com") return;
+      if (e.data?.type === "portal.theme" && (e.data.value === "dark" || e.data.value === "light")) {
+        setTheme(e.data.value);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   const [date, setDate] = useState(todayET);
   const [center, setCenter] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -948,16 +969,29 @@ export default function ReservationsClient({ token }: { token: string }) {
     setTimeout(() => setToast(null), 4000);
   }
 
+  // Theme palette — CSS variable approach avoids touching 137 inline styles.
+  // The <style> block sets variables on [data-theme], and key surface colors
+  // reference them. Accent colors (status badges, pills) stay hardcoded
+  // since they work on both backgrounds.
+  const themeStyle = theme === "light" ? `
+    [data-ba-theme="light"] { --ba-bg: #f8f9fb; --ba-fg: #1a1a2e; --ba-bg2: #ffffff; --ba-border: rgba(0,0,0,0.1); --ba-muted: rgba(0,0,0,0.45); --ba-muted2: rgba(0,0,0,0.08); --ba-hover: rgba(0,0,0,0.04); --ba-input-bg: #ffffff; --ba-input-border: rgba(0,0,0,0.15); --ba-shadow: rgba(0,0,0,0.08); --ba-modal-bg: #ffffff; --ba-modal-border: rgba(0,0,0,0.12); --ba-overlay: rgba(0,0,0,0.4); }
+  ` : `
+    [data-ba-theme="dark"] { --ba-bg: #0a1628; --ba-fg: #fff; --ba-bg2: rgba(255,255,255,0.03); --ba-border: rgba(255,255,255,0.06); --ba-muted: rgba(255,255,255,0.35); --ba-muted2: rgba(255,255,255,0.06); --ba-hover: rgba(255,255,255,0.04); --ba-input-bg: rgba(255,255,255,0.05); --ba-input-border: rgba(255,255,255,0.1); --ba-shadow: rgba(0,0,0,0.5); --ba-modal-bg: #111827; --ba-modal-border: rgba(255,255,255,0.08); --ba-overlay: rgba(0,0,0,0.7); }
+  `;
+
   return (
     <div
+      data-ba-theme={theme}
       style={{
         minHeight: "100vh",
-        backgroundColor: "#0a1628",
-        color: "#fff",
+        backgroundColor: "var(--ba-bg)",
+        color: "var(--ba-fg)",
         fontFamily: "system-ui, -apple-system, sans-serif",
         padding: "1rem",
       }}
     >
+      {/* eslint-disable-next-line react/no-danger -- theme CSS variables */}
+      <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
       {/* Toast */}
       {toast && (
         <div
@@ -1021,25 +1055,25 @@ export default function ReservationsClient({ token }: { token: string }) {
           {...modalBackdropProps(() => { setOrderTarget(null); setOrderItems(null); setOrderMeta(null); })}
           style={{
             position: "fixed", inset: 0, zIndex: 50,
-            background: "rgba(0,0,0,0.7)", display: "flex",
+            background: "var(--ba-overlay)", display: "flex",
             alignItems: "center", justifyContent: "center", padding: 16,
           }}
         >
           <div
             style={{
-              background: "#1a1a1a", borderRadius: 12, padding: 24,
-              border: "1px solid rgba(255,255,255,0.08)", maxWidth: 500, width: "100%",
+              background: "var(--ba-modal-bg)", borderRadius: 12, padding: 24,
+              border: "1px solid var(--ba-modal-border)", maxWidth: 500, width: "100%",
               maxHeight: "80vh", overflow: "auto",
             }}
           >
             <h3 style={{ margin: "0 0 4px", fontSize: "0.95rem", fontWeight: 700 }}>
               Square Order — {orderTarget.guestName}
             </h3>
-            <p style={{ margin: "0 0 16px", color: "rgba(255,255,255,0.35)", fontSize: "0.68rem", fontFamily: "monospace" }}>
+            <p style={{ margin: "0 0 16px", color: "var(--ba-muted)", fontSize: "0.68rem", fontFamily: "monospace" }}>
               {orderTarget.squareDayofOrderId}
             </p>
 
-            {orderLoading && <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>Loading…</p>}
+            {orderLoading && <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>Loading…</p>}
 
             {orderMeta && (
               <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
@@ -1051,11 +1085,11 @@ export default function ReservationsClient({ token }: { token: string }) {
                 }}>
                   {orderMeta.state}
                 </span>
-                <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>
-                  Total: <strong style={{ color: "#fff" }}>${(orderMeta.totalCents / 100).toFixed(2)}</strong>
+                <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
+                  Total: <strong style={{ color: "var(--ba-fg)" }}>${(orderMeta.totalCents / 100).toFixed(2)}</strong>
                 </span>
                 {orderMeta.remainingCents > 0 && (
-                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>
+                  <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
                     Due: <strong style={{ color: "#f59e0b" }}>${(orderMeta.remainingCents / 100).toFixed(2)}</strong>
                   </span>
                 )}
@@ -1073,7 +1107,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                   HeadPinz Reward −${(orderTarget.rewardDiscountCents / 100).toFixed(2)}
                 </span>
                 {orderTarget.squareLoyaltyRewardId && (
-                  <span style={{ color: "rgba(255,255,255,0.25)", fontSize: "0.6rem", fontFamily: "monospace" }}>
+                  <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", fontFamily: "monospace" }}>
                     {orderTarget.squareLoyaltyRewardId.slice(0, 8)}…
                   </span>
                 )}
@@ -1083,11 +1117,11 @@ export default function ReservationsClient({ token }: { token: string }) {
             {orderItems && orderItems.length > 0 && (
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
                 <thead>
-                  <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                  <tr style={{ borderBottom: "1px solid var(--ba-border)" }}>
                     {["Item", "Qty", "Price"].map((h) => (
                       <th key={h} style={{
                         padding: "6px 8px", textAlign: h === "Item" ? "left" : "right",
-                        color: "rgba(255,255,255,0.35)", fontSize: "0.65rem",
+                        color: "var(--ba-muted)", fontSize: "0.65rem",
                         textTransform: "uppercase", fontWeight: 600,
                       }}>{h}</th>
                     ))}
@@ -1095,15 +1129,15 @@ export default function ReservationsClient({ token }: { token: string }) {
                 </thead>
                 <tbody>
                   {orderItems.map((li) => (
-                    <tr key={li.uid} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <tr key={li.uid} style={{ borderBottom: "1px solid var(--ba-border)" }}>
                       <td style={{ padding: "6px 8px" }}>
                         <div style={{ fontWeight: 600 }}>{li.name}</div>
                         {li.note && (
-                          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem", fontStyle: "italic" }}>{li.note}</div>
+                          <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem", fontStyle: "italic" }}>{li.note}</div>
                         )}
                       </td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", color: "rgba(255,255,255,0.5)" }}>{li.quantity}</td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: li.totalCents === 0 ? "rgba(255,255,255,0.25)" : "#fff" }}>
+                      <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--ba-muted)" }}>{li.quantity}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: li.totalCents === 0 ? "var(--ba-muted)" : "var(--ba-fg)" }}>
                         {li.totalCents === 0 ? "$0" : `$${(li.totalCents / 100).toFixed(2)}`}
                       </td>
                     </tr>
@@ -1113,7 +1147,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             )}
 
             {orderItems && orderItems.length === 0 && (
-              <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.8rem" }}>No line items</p>
+              <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>No line items</p>
             )}
 
             <div style={{ marginTop: 16, textAlign: "right" }}>
@@ -1122,8 +1156,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                 onClick={() => { setOrderTarget(null); setOrderItems(null); setOrderMeta(null); }}
                 style={{
                   padding: "6px 16px", borderRadius: 6, fontSize: "0.75rem",
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)",
-                  color: "#fff", cursor: "pointer", fontWeight: 600,
+                  background: "var(--ba-input-bg)", border: "1px solid var(--ba-input-border)",
+                  color: "var(--ba-fg)", cursor: "pointer", fontWeight: 600,
                 }}
               >
                 Close
@@ -1171,9 +1205,9 @@ export default function ReservationsClient({ token }: { token: string }) {
               ...NAV_BTN,
               fontSize: "0.75rem",
               fontWeight: 600,
-              backgroundColor: hideCancelled ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.08)",
-              borderColor: hideCancelled ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.15)",
-              color: hideCancelled ? "#22c55e" : "rgba(255,255,255,0.6)",
+              backgroundColor: hideCancelled ? "rgba(34,197,94,0.15)" : "var(--ba-input-bg)",
+              borderColor: hideCancelled ? "rgba(34,197,94,0.3)" : "var(--ba-input-border)",
+              color: hideCancelled ? "#22c55e" : "var(--ba-muted)",
             }}
           >
             {hideCancelled ? "Active Only" : "All Statuses"}
@@ -1185,9 +1219,9 @@ export default function ReservationsClient({ token }: { token: string }) {
               ...NAV_BTN,
               fontSize: "0.75rem",
               fontWeight: 600,
-              backgroundColor: hideWalkins ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.08)",
-              borderColor: hideWalkins ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.15)",
-              color: hideWalkins ? "#22c55e" : "rgba(255,255,255,0.6)",
+              backgroundColor: hideWalkins ? "rgba(34,197,94,0.15)" : "var(--ba-input-bg)",
+              borderColor: hideWalkins ? "rgba(34,197,94,0.3)" : "var(--ba-input-border)",
+              color: hideWalkins ? "#22c55e" : "var(--ba-muted)",
             }}
           >
             {hideWalkins ? "Web Only" : "All Sources"}
@@ -1221,7 +1255,7 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             &rarr;
           </button>
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.875rem" }}>
+          <span style={{ color: "var(--ba-muted)", fontSize: "0.875rem" }}>
             {fmtDate(date + "T12:00:00")}
           </span>
         </div>
@@ -1249,14 +1283,14 @@ export default function ReservationsClient({ token }: { token: string }) {
               gap: "1.5rem",
               marginTop: "0.75rem",
               fontSize: "0.8rem",
-              color: "rgba(255,255,255,0.5)",
+              color: "var(--ba-muted)",
               flexWrap: "wrap",
             }}
           >
             <span>
-              <strong style={{ color: "#fff" }}>{active.length}</strong> active
+              <strong style={{ color: "var(--ba-fg)" }}>{active.length}</strong> active
               {hideCancelled && totalHidden > 0 && (
-                <span style={{ color: "rgba(255,255,255,0.3)" }}>
+                <span style={{ color: "var(--ba-muted)" }}>
                   {" "}+ {totalHidden} hidden
                   {totalCancelledAll > 0 && totalCompletedAll > 0
                     ? ` (${totalCancelledAll} cancelled, ${totalCompletedAll} completed)`
@@ -1269,13 +1303,13 @@ export default function ReservationsClient({ token }: { token: string }) {
                 </span>
               )}
               {hideWalkins && totalWalkins > 0 && (
-                <span style={{ color: "rgba(255,255,255,0.3)" }}>
+                <span style={{ color: "var(--ba-muted)" }}>
                   {" "}· {totalWalkins} walk-in
                 </span>
               )}
             </span>
             <span>
-              <strong style={{ color: "#fff" }}>{totalPlayers}</strong> bowlers
+              <strong style={{ color: "var(--ba-fg)" }}>{totalPlayers}</strong> bowlers
             </span>
             <span>
               Deposits <strong style={{ color: "#22c55e" }}>{dollars(totalDeposit)}</strong>
@@ -1290,7 +1324,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       {/* Content */}
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
         {loading ? (
-          <div style={{ textAlign: "center", padding: "3rem", color: "rgba(255,255,255,0.4)" }}>
+          <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
             Loading...
           </div>
         ) : error ? (
@@ -1307,7 +1341,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             {error}
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "3rem", color: "rgba(255,255,255,0.3)" }}>
+          <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
             {search ? "No matching reservations." : "No reservations for this date."}
           </div>
         ) : (
@@ -1322,7 +1356,7 @@ export default function ReservationsClient({ token }: { token: string }) {
               <thead>
                 <tr
                   style={{
-                    borderBottom: "1px solid rgba(255,255,255,0.1)",
+                    borderBottom: "1px solid var(--ba-border)",
                     textAlign: "left",
                   }}
                 >
@@ -1332,7 +1366,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                         key={h}
                         style={{
                           padding: "0.5rem 0.4rem",
-                          color: "rgba(255,255,255,0.4)",
+                          color: "var(--ba-muted)",
                           fontWeight: 600,
                           fontSize: "0.65rem",
                           textTransform: "uppercase",
@@ -1355,7 +1389,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     <tr
                       key={r.id}
                       style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.05)",
+                        borderBottom: "1px solid var(--ba-border)",
                         opacity: rowOpacity,
                       }}
                     >
@@ -1369,17 +1403,17 @@ export default function ReservationsClient({ token }: { token: string }) {
                         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
                           {r.guestName || (
                             r.bookingSource && r.bookingSource !== "web"
-                              ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "rgba(255,255,255,0.4)" }}>
+                              ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)" }}>
                                   {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                                 </span>
                               : "—"
                           )}
-                          <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", fontWeight: 500 }}>
+                          <span style={{ fontSize: "0.6rem", color: "var(--ba-muted)", fontWeight: 500 }}>
                             {centerShort}
                           </span>
                         </div>
                         {r.guestPhone && (
-                          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.68rem" }}>
+                          <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>
                             {r.guestPhone}
                           </div>
                         )}
@@ -1410,7 +1444,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                         >
                           {r.productKind === "kbf" ? "KBF" : "Open"}
                         </span>
-                        <span style={{ marginLeft: 5, color: "rgba(255,255,255,0.4)", fontSize: "0.68rem" }}>
+                        <span style={{ marginLeft: 5, color: "var(--ba-muted)", fontSize: "0.68rem" }}>
                           {r.playerCount ?? "—"}p
                         </span>
                         {r.bookingSource && r.bookingSource !== "web" && (
@@ -1470,7 +1504,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Self
                           </span>
                         ) : (
-                          <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
+                          <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
                         )}
                       </td>
 
@@ -1526,7 +1560,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             </span>
                           )}
                           {!r.loyaltyAction && r.rewardDiscountCents === 0 && (
-                            <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
+                            <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
                           )}
                         </div>
                       </td>
@@ -1537,7 +1571,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                           padding: "0.5rem 0.4rem",
                           textAlign: "center",
                           fontWeight: r.dayofOrderLane ? 700 : 400,
-                          color: r.dayofOrderLane ? "#22c55e" : "rgba(255,255,255,0.15)",
+                          color: r.dayofOrderLane ? "#22c55e" : "var(--ba-muted2)",
                           fontSize: "0.75rem",
                         }}
                       >
@@ -1548,7 +1582,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       <td style={{ padding: "0.5rem 0.4rem" }}>
                         {(() => {
                           const food = r.lines.filter((l) => FOOD_RE.test(l.label));
-                          if (!food.length) return <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>;
+                          if (!food.length) return <span style={{ color: "var(--ba-muted2)" }}>—</span>;
                           return food.map((f, i) => {
                             const short = f.label
                               .replace(/^VIP\s+/i, "")
@@ -1556,7 +1590,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               .replace(/Soda Pitcher/i, "Soda")
                               .replace(/Chips & Salsa/i, "C&S");
                             return (
-                              <div key={i} style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.55)", whiteSpace: "nowrap" }}>
+                              <div key={i} style={{ fontSize: "0.62rem", color: "var(--ba-muted)", whiteSpace: "nowrap" }}>
                                 {short}{f.quantity > 1 ? ` ×${f.quantity}` : ""}
                               </div>
                             );
@@ -1600,9 +1634,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                                       borderRadius: 3,
                                       fontSize: "0.5rem",
                                       fontWeight: 500,
-                                      backgroundColor: r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.08)",
-                                      color: r.dayofOrderSource === "webhook" ? "#818cf8" : "rgba(255,255,255,0.4)",
-                                      border: `1px solid ${r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.12)"}`,
+                                      backgroundColor: r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.15)" : "var(--ba-input-bg)",
+                                      color: r.dayofOrderSource === "webhook" ? "#818cf8" : "var(--ba-muted)",
+                                      border: `1px solid ${r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.3)" : "var(--ba-border)"}`,
                                       textTransform: "uppercase",
                                       letterSpacing: "0.5px",
                                     }}
@@ -1611,7 +1645,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   </span>
                                 )}
                                 {r.dayofPaymentId && (
-                                  <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.3)", marginTop: 1 }}>
+                                  <div style={{ fontSize: "0.55rem", color: "var(--ba-muted)", marginTop: 1 }}>
                                     {r.dayofPaymentId.slice(-8)}
                                   </div>
                                 )}
@@ -1624,13 +1658,13 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 )}
                               </div>
                             ) : (
-                              <span style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.6rem", textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)" }}>
+                              <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", textDecoration: "underline", textDecorationColor: "var(--ba-border)" }}>
                                 Pending
                               </span>
                             )}
                           </button>
                         ) : (
-                          <span style={{ color: "rgba(255,255,255,0.12)" }}>—</span>
+                          <span style={{ color: "var(--ba-muted2)" }}>—</span>
                         )}
                       </td>
 
@@ -1669,7 +1703,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Alert
                           </span>
                         ) : (
-                          <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "0.6rem" }}>—</span>
+                          <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
                         )}
                       </td>
 
@@ -1678,8 +1712,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                         {r.depositCents > 0 ? (
                           <>
                             <span style={{ color: "#22c55e", fontWeight: 600 }}>{dollars(r.depositCents)}</span>
-                            <span style={{ color: "rgba(255,255,255,0.25)", margin: "0 2px" }}>/</span>
-                            <span style={{ color: "rgba(255,255,255,0.5)" }}>{dollars(r.totalCents)}</span>
+                            <span style={{ color: "var(--ba-muted)", margin: "0 2px" }}>/</span>
+                            <span style={{ color: "var(--ba-muted)" }}>{dollars(r.totalCents)}</span>
                           </>
                         ) : r.bookingSource && r.bookingSource !== "web" ? (
                           <span
@@ -1697,7 +1731,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                           </span>
                         ) : (
-                          <span style={{ color: "rgba(255,255,255,0.3)" }}>Free</span>
+                          <span style={{ color: "var(--ba-muted)" }}>Free</span>
                         )}
                         {r.refundCents > 0 && (
                           <div style={{ color: "#ef4444", fontSize: "0.6rem" }}>
@@ -1708,7 +1742,7 @@ export default function ReservationsClient({ token }: { token: string }) {
 
                       {/* Ref — QAMF ID + confirmation link */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "rgba(255,255,255,0.35)" }}>
+                        <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--ba-muted)" }}>
                           {r.qamfReservationId ?? `#${r.id}`}
                         </span>
                         {confirmPath(r) && (
@@ -1727,7 +1761,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               style={{
                                 background: "none",
                                 border: "none",
-                                color: copiedId === r.id ? "#22c55e" : "rgba(255,255,255,0.25)",
+                                color: copiedId === r.id ? "#22c55e" : "var(--ba-muted)",
                                 cursor: "pointer",
                                 fontSize: "0.6rem",
                                 padding: "0 3px",
@@ -1752,9 +1786,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 title={hasAttr ? "Rescheduling not available for bookings with attractions" : "Reschedule bowling time"}
                                 style={{
                                   background: "none",
-                                  border: `1px solid ${hasAttr ? "rgba(255,255,255,0.1)" : "rgba(0,226,229,0.3)"}`,
+                                  border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
                                   borderRadius: 5,
-                                  color: hasAttr ? "rgba(255,255,255,0.2)" : "#00E2E5",
+                                  color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
                                   cursor: hasAttr ? "not-allowed" : "pointer",
                                   fontSize: "0.6rem",
                                   fontWeight: 600,
