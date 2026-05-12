@@ -172,7 +172,18 @@ export async function middleware(request: NextRequest) {
     // chrome — staff-only tool, no public branding.
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-admin-route", "1");
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    const resp = NextResponse.next({ request: { headers: requestHeaders } });
+    // Allow portal to iframe admin pages when ?embedded=1 is set.
+    // Without this, the default X-Frame-Options blocks cross-origin framing.
+    if (request.nextUrl.searchParams.get("embedded") === "1") {
+      resp.headers.set(
+        "Content-Security-Policy",
+        "frame-ancestors https://portal.headpinz.com",
+      );
+      // Override any default X-Frame-Options that would conflict
+      resp.headers.delete("X-Frame-Options");
+    }
+    return resp;
   }
 
   // Dev: ?brand=headpinz sets a cookie to simulate headpinz.com on localhost

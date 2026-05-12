@@ -62,6 +62,32 @@ const nextConfig: NextConfig = {
     },
   ],
   headers: async () => [
+    // Admin embed pages — allow portal.headpinz.com to iframe them.
+    // Must come before the catch-all so the more-specific rule wins.
+    {
+      source: "/admin/:path*",
+      has: [{ type: "query", key: "embedded", value: "1" }],
+      headers: [
+        { key: "X-Frame-Options", value: "ALLOW-FROM https://portal.headpinz.com" },
+        {
+          key: "Content-Security-Policy",
+          value: [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+            "style-src 'self' 'unsafe-inline' https:",
+            "font-src 'self' https:",
+            "img-src 'self' data: blob: https: http:",
+            "connect-src 'self' https: wss://webserver22.sms-timing.com:10015",
+            "frame-src 'self' https:",
+            "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self' https:",
+            "frame-ancestors https://portal.headpinz.com",
+          ].join("; "),
+        },
+      ],
+    },
     {
       source: "/(.*)",
       headers: [
@@ -94,7 +120,7 @@ const nextConfig: NextConfig = {
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self' https://www.cognitoforms.com https:",
-            "frame-ancestors 'self' https://booking.bmileisure.com",
+            "frame-ancestors 'self' https://booking.bmileisure.com https://portal.headpinz.com",
           ].join("; "),
         },
       ],
