@@ -37,7 +37,7 @@ export const PLANNERS: Record<string, Planner> = {
   stephanie: {
     key: "stephanie",
     displayName: "Stephanie",
-    phone: "+12392148353",
+    phone: "+12392148357",
     email: "stephanie@headpinz.com",
     teamsChatId: "19:85691711056541ff9f273d8f787eb532@thread.v2",
     isIndividual: true,

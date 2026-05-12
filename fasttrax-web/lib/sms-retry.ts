@@ -201,7 +201,7 @@ export interface VoxSendOpts {
    * `fallbackPrefix` prepended to the body — so the customer still sees who it's from.
    */
   fromOverride?: string;
-  /** Prefix prepended on fallback, e.g. "From Stephanie (direct: 239-214-8353): ". */
+  /** Prefix prepended on fallback, e.g. "From Stephanie (direct: 239-214-8357): ". */
   fallbackPrefix?: string;
 }
 
