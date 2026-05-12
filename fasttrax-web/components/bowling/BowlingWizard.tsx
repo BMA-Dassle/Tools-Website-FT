@@ -47,6 +47,10 @@ const BLOB  = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const PIZZA_BOWL_PIZZA_CATALOG_ID = "2IKZB4O2HQBXWMTSUQ2SEKJY";
 const PIZZA_BOWL_SODA_CATALOG_ID  = "SJUBJLB4QGHIHCW5AKTTMLH7";
 
+// Booking fee — added to every non-$0 reservation (100% deposit)
+const BOOKING_FEE_CATALOG_ID = "7VKAFU3HDPRSKY7ZB6CKXTRW";
+const BOOKING_FEE_CENTS = 299;
+
 // Pizza bowl: 1 topping included per lane, $1 each additional
 const PIZZA_BOWL_FREE_TOPPINGS = 1;
 const EXTRA_TOPPING_CENTS = 100;
@@ -948,8 +952,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     (s, a) => s + Math.round(a.totalPrice * 100), 0,
   );
 
-  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents;
-  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents;
+  // Booking fee: $2.99 on every non-$0 reservation (100% deposit)
+  const hasBookingFee = (basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents) > 0;
+  const bookingFeeCents = hasBookingFee ? BOOKING_FEE_CENTS : 0;
+
+  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + bookingFeeCents;
+  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents + bookingFeeCents;
 
   // Use Square's tax-inclusive quote once loaded.
   // Extra toppings are added to the quote (Square doesn't know about them).
@@ -1043,6 +1051,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     ...shoeProducts
       .filter((p) => (shoeQty[p.id] ?? 0) > 0)
       .map((p) => ({ squareProductId: p.id, quantity: shoeQty[p.id] })),
+    // Booking fee ($2.99) on every non-$0 reservation
+    ...(hasBookingFee ? [{ squareProductId: BOOKING_FEE_CATALOG_ID, quantity: 1 }] : []),
   ];
 
   // ── Date bookability helpers ─────────────────────────────────────
@@ -1406,6 +1416,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           quantity: String(a.quantity),
           catalogObjectId: a.squareCatalogObjectId!,
         })),
+      // Booking fee ($2.99)
+      ...(hasBookingFee
+        ? [{ name: "Booking Fee", quantity: "1", catalogObjectId: BOOKING_FEE_CATALOG_ID }]
+        : []),
     ];
 
     const preTaxDeposit = preTaxDepositCents;
@@ -3963,6 +3977,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     )}
                   </div>
                 ))}
+
+                {/* Booking fee line */}
+                {hasBookingFee && (
+                  <div className="flex justify-between text-sm">
+                    <span className="font-body text-white/55">Booking fee</span>
+                    {quoteLoading ? (
+                      <span className="font-body text-white/35 text-xs italic">calculating…</span>
+                    ) : (
+                      <span className="font-body font-bold" style={{ color: CORAL }}>
+                        {centsToDollars(BOOKING_FEE_CENTS)}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Extra toppings line */}
                 {extraToppingsCents > 0 && (
