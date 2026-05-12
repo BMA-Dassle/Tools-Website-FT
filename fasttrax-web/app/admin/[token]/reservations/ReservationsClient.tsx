@@ -102,6 +102,14 @@ const SOURCE_COLORS: Record<string, string> = {
   conqueror: "#ec4899",
 };
 
+type ShoeCategory = "Toddler" | "Male" | "Female";
+const SHOE_SIZES: Record<ShoeCategory, string[]> = {
+  Toddler: ["6","7","8","9","10","11","12","13"],
+  Male: ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12","12.5","13","13.5","14","14.5","15"],
+  Female: ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12"],
+};
+const SHOE_CATEGORY_LABELS: Record<ShoeCategory, string> = { Toddler: "Toddler", Male: "Men", Female: "Women" };
+
 /** Food items that should be displayed on the admin board */
 const FOOD_RE = /pizza\s+bowl\s+pizza|pizza\s+bowl\s+soda|chips.+salsa/i;
 
@@ -809,6 +817,296 @@ function RescheduleModal({
   );
 }
 
+// ── Check-In Modal ──────────────────────────────────────────────────────
+
+function CheckInModal({
+  reservation,
+  token,
+  onClose,
+  onCheckedIn,
+}: {
+  reservation: Reservation;
+  token: string;
+  onClose: () => void;
+  onCheckedIn: (msg: string) => void;
+}) {
+  const [phase, setPhase] = useState<string>("loading");
+  const [laneLabel, setLaneLabel] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [savingShoes, setSavingShoes] = useState(false);
+
+  // Shoe sizes: one entry per player slot
+  const playerCount = reservation.playerCount ?? 1;
+  const [shoes, setShoes] = useState<Array<{ category: ShoeCategory | null; size: string | null }>>(
+    () => Array.from({ length: playerCount }, () => ({ category: null, size: null }))
+  );
+
+  // Parse existing shoe size string like "Female 8" into category + size
+  function parseShoeSize(raw: string | null): { category: ShoeCategory | null; size: string | null } {
+    if (!raw) return { category: null, size: null };
+    const space = raw.indexOf(" ");
+    if (space === -1) return { category: null, size: null };
+    const cat = raw.slice(0, space);
+    const sz = raw.slice(space + 1);
+    if (cat === "Female" || cat === "Women") return { category: "Female", size: sz };
+    if (cat === "Male" || cat === "Men") return { category: "Male", size: sz };
+    if (cat === "Toddler" || cat === "Kids") return { category: "Toddler", size: sz };
+    return { category: null, size: null };
+  }
+
+  // Fetch phase + existing players on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [phaseRes, playersRes] = await Promise.all([
+          fetch(`/api/bowling/v2/reservations/${reservation.id}/checkin`, { cache: "no-store" }),
+          fetch(`/api/bowling/v2/reservations/${reservation.id}/players`, { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+        if (phaseRes.ok) {
+          const pd = await phaseRes.json();
+          setPhase(pd.phase || "not_ready");
+          setLaneLabel(pd.laneLabel || "");
+        } else {
+          setPhase("error");
+        }
+        if (playersRes.ok) {
+          const plData = await playersRes.json();
+          const existing = (plData.players || []) as Array<{ slot: number; shoeSize?: string | null }>;
+          if (existing.length > 0) {
+            setShoes(prev => prev.map((_, i) => {
+              const player = existing.find(p => p.slot === i + 1);
+              return parseShoeSize(player?.shoeSize ?? null);
+            }));
+          }
+        }
+      } catch {
+        if (!cancelled) setPhase("error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reservation.id]);
+
+  // Poll phase every 10s while not_ready
+  useEffect(() => {
+    if (phase !== "not_ready") return;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/bowling/v2/reservations/${reservation.id}/checkin`, { cache: "no-store" });
+        if (res.ok) {
+          const pd = await res.json();
+          setPhase(pd.phase || "not_ready");
+          setLaneLabel(pd.laneLabel || "");
+        }
+      } catch { /* ignore */ }
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [phase, reservation.id]);
+
+  function shoeString(s: { category: ShoeCategory | null; size: string | null }): string | null {
+    if (!s.category || !s.size) return null;
+    return `${s.category} ${s.size}`;
+  }
+
+  async function saveShoes() {
+    const payload = shoes.map((s, i) => ({ slot: i + 1, shoeSize: shoeString(s) }));
+    const res = await fetch(`/api/bowling/v2/reservations/${reservation.id}/players`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ players: payload }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || `Save shoes failed (${res.status})`);
+    }
+  }
+
+  async function handleSaveShoesOnly() {
+    setSavingShoes(true);
+    setError(null);
+    try {
+      await saveShoes();
+      onCheckedIn("Shoe sizes saved");
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setSavingShoes(false);
+    }
+  }
+
+  async function handleCheckin() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      // 1. Save shoe sizes
+      await saveShoes();
+      // 2. Open lanes (express check-in POST)
+      const openRes = await fetch(`/api/bowling/v2/reservations/${reservation.id}/checkin`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      });
+      const openData = await openRes.json();
+      if (!openRes.ok) throw new Error(openData.error || `Lane open failed (${openRes.status})`);
+      // 3. Override method to "desk" (admin check-in)
+      await fetch(`/api/admin/bowling/reservations/checkin?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ neonId: reservation.id, method: "desk" }),
+      });
+      onCheckedIn(`Checked in — ${openData.laneLabel || laneLabel || "lanes opened"}`);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Phase banner colors
+  const bannerStyle: Record<string, { bg: string; border: string; color: string; text: string }> = {
+    loading:   { bg: "var(--ba-bg2)", border: "var(--ba-border)", color: "var(--ba-muted)", text: "Loading lane status…" },
+    not_ready: { bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.25)", color: "#f59e0b", text: "Lanes not yet assigned — polling for updates…" },
+    ready:     { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)", color: "#22c55e", text: `${laneLabel || "Lane"} ready` },
+    running:   { bg: "rgba(20,184,166,0.1)", border: "rgba(20,184,166,0.25)", color: "#14b8a6", text: `Already open — ${laneLabel || "lanes running"}` },
+    completed: { bg: "var(--ba-bg2)", border: "var(--ba-border)", color: "var(--ba-muted)", text: "Session completed" },
+    cancelled: { bg: "var(--ba-bg2)", border: "var(--ba-border)", color: "var(--ba-muted)", text: "Reservation cancelled" },
+    error:     { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#ef4444", text: "Failed to load lane status" },
+  };
+  const banner = bannerStyle[phase] || bannerStyle.error;
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backgroundColor: "var(--ba-overlay)", backdropFilter: "blur(4px)" }}
+      {...modalBackdropProps(onClose)}
+    >
+      <div style={{ width: "100%", maxWidth: 500, backgroundColor: "var(--ba-modal-bg)", border: "1px solid var(--ba-modal-border)", borderRadius: 16, padding: "1.5rem", maxHeight: "calc(100dvh - 2rem)", overflowY: "auto" }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#22c55e", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>Check In</h3>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--ba-muted)", cursor: "pointer", fontSize: "1.2rem" }}>&times;</button>
+        </div>
+
+        {/* Reservation info */}
+        <div style={{ padding: "0.75rem", borderRadius: 10, backgroundColor: "var(--ba-bg2)", border: "1px solid var(--ba-border)", marginBottom: "1rem", fontSize: "0.8rem", lineHeight: 1.7 }}>
+          <div><strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong></div>
+          <div style={{ color: "var(--ba-muted)" }}>
+            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          </div>
+          <div style={{ color: "var(--ba-muted)" }}>
+            {playerCount} bowler{playerCount > 1 ? "s" : ""} &middot; {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
+          </div>
+        </div>
+
+        {/* Phase banner */}
+        <div style={{ padding: "0.6rem 0.75rem", borderRadius: 8, backgroundColor: banner.bg, border: `1px solid ${banner.border}`, fontSize: "0.75rem", fontWeight: 600, color: banner.color, marginBottom: "1rem" }}>
+          {banner.text}
+        </div>
+
+        {/* Shoe size picker */}
+        {phase !== "loading" && phase !== "completed" && phase !== "cancelled" && (
+          <div style={{ marginBottom: "1rem" }}>
+            <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Shoe Sizes</span>
+            {shoes.map((shoe, idx) => (
+              <div key={idx} style={{ marginBottom: 10, padding: "0.5rem", borderRadius: 8, backgroundColor: "var(--ba-bg2)", border: "1px solid var(--ba-border)" }}>
+                <div style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ba-muted)", marginBottom: 6 }}>Bowler {idx + 1}</div>
+                {/* Category buttons */}
+                <div style={{ display: "flex", gap: 4, marginBottom: shoe.category ? 6 : 0 }}>
+                  {(["Toddler", "Male", "Female"] as ShoeCategory[]).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setShoes(prev => prev.map((s, i) => i === idx ? { category: s.category === cat ? null : cat, size: null } : s))}
+                      style={{
+                        padding: "0.25rem 0.6rem", borderRadius: 6, fontSize: "0.65rem", fontWeight: 600, cursor: "pointer",
+                        border: `1px solid ${shoe.category === cat ? "rgba(0,226,229,0.4)" : "var(--ba-border)"}`,
+                        backgroundColor: shoe.category === cat ? "rgba(0,226,229,0.15)" : "var(--ba-input-bg)",
+                        color: shoe.category === cat ? "#00E2E5" : "var(--ba-muted)",
+                      }}
+                    >
+                      {SHOE_CATEGORY_LABELS[cat]}
+                    </button>
+                  ))}
+                  {shoe.category && shoe.size && (
+                    <span style={{ marginLeft: "auto", fontSize: "0.65rem", fontWeight: 600, color: "#00E2E5" }}>
+                      {SHOE_CATEGORY_LABELS[shoe.category]} {shoe.size}
+                    </span>
+                  )}
+                </div>
+                {/* Size chips */}
+                {shoe.category && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                    {SHOE_SIZES[shoe.category].map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setShoes(prev => prev.map((s, i) => i === idx ? { ...s, size: sz } : s))}
+                        style={{
+                          padding: "0.2rem 0.4rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, cursor: "pointer", minWidth: 28, textAlign: "center",
+                          border: `1px solid ${shoe.size === sz ? "#22c55e" : "var(--ba-border)"}`,
+                          backgroundColor: shoe.size === sz ? "rgba(34,197,94,0.15)" : "var(--ba-input-bg)",
+                          color: shoe.size === sz ? "#22c55e" : "var(--ba-fg)",
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div style={{ padding: "0.5rem 0.75rem", borderRadius: 8, fontSize: "0.8rem", fontWeight: 600, marginBottom: "1rem", backgroundColor: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}>
+            {error}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>Close</button>
+          {(phase === "not_ready" || phase === "running" || phase === "error") && (
+            <button
+              type="button"
+              onClick={handleSaveShoesOnly}
+              disabled={savingShoes}
+              style={{
+                padding: "0.5rem 1.25rem", borderRadius: 8, fontSize: "0.8rem", fontWeight: 700,
+                cursor: savingShoes ? "not-allowed" : "pointer", border: "none",
+                backgroundColor: savingShoes ? "rgba(0,226,229,0.2)" : "rgba(0,226,229,0.9)",
+                color: savingShoes ? "rgba(0,226,229,0.5)" : "#000418",
+                opacity: savingShoes ? 0.6 : 1,
+              }}
+            >
+              {savingShoes ? "Saving…" : "Save Shoes"}
+            </button>
+          )}
+          {phase === "ready" && (
+            <button
+              type="button"
+              onClick={handleCheckin}
+              disabled={submitting}
+              style={{
+                padding: "0.5rem 1.25rem", borderRadius: 8, fontSize: "0.8rem", fontWeight: 700,
+                cursor: submitting ? "not-allowed" : "pointer", border: "none",
+                backgroundColor: submitting ? "rgba(34,197,94,0.3)" : "#22c55e",
+                color: "#fff", opacity: submitting ? 0.6 : 1,
+              }}
+            >
+              {submitting ? "Checking in…" : "Check In & Open Lanes"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function ReservationsClient({ token }: { token: string }) {
@@ -851,6 +1149,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
+  const [checkinTarget, setCheckinTarget] = useState<Reservation | null>(null);
   const [orderTarget, setOrderTarget] = useState<Reservation | null>(null);
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
@@ -1057,6 +1356,19 @@ export default function ReservationsClient({ token }: { token: string }) {
           onClose={() => setRescheduleTarget(null)}
           onRescheduled={(msg) => {
             showToast(`${rescheduleTarget.guestName || "Guest"}: ${msg}`);
+            void load();
+          }}
+        />
+      )}
+
+      {/* Check-in modal */}
+      {checkinTarget && (
+        <CheckInModal
+          reservation={checkinTarget}
+          token={token}
+          onClose={() => setCheckinTarget(null)}
+          onCheckedIn={(msg) => {
+            showToast(`${checkinTarget.guestName || "Guest"}: ${msg}`);
             void load();
           }}
         />
@@ -1367,22 +1679,15 @@ export default function ReservationsClient({ token }: { token: string }) {
                       >
                         {STATUS_LABELS[r.status] ?? r.status}
                       </span>
-                      {r.checkinMethod === "self" && (
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "0.1rem 0.35rem",
-                            borderRadius: 5,
-                            fontSize: "0.6rem",
-                            fontWeight: 600,
-                            backgroundColor: "rgba(168,85,247,0.15)",
-                            color: "#a855f7",
-                            border: "1px solid rgba(168,85,247,0.3)",
-                          }}
-                        >
-                          Self
-                        </span>
-                      )}
+                      {r.checkinMethod === "self" ? (
+                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>Self</span>
+                      ) : r.checkinMethod === "desk" ? (
+                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(20,184,166,0.15)", color: "#14b8a6", border: "1px solid rgba(20,184,166,0.3)" }}>Admin</span>
+                      ) : r.checkinMethod ? (
+                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(107,114,128,0.15)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)" }}>{r.checkinMethod}</span>
+                      ) : r.preArrivalSentAt ? (
+                        <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>SMS Sent</span>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1513,48 +1818,31 @@ export default function ReservationsClient({ token }: { token: string }) {
                     )}
                   </div>
 
-                  {/* Alert + Square row */}
-                  {(r.laneReadySentAt || r.preArrivalSentAt || r.squareDayofOrderId) && (
+                  {/* Square row */}
+                  {r.squareDayofOrderId && (
                     <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                      {r.laneReadySentAt ? (
-                        <span style={{
-                          display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
-                          fontSize: "0.6rem", fontWeight: 600,
-                          backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e",
-                          border: "1px solid rgba(34,197,94,0.3)",
-                        }}>Ready</span>
-                      ) : r.preArrivalSentAt ? (
-                        <span style={{
-                          display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
-                          fontSize: "0.6rem", fontWeight: 600,
-                          backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa",
-                          border: "1px solid rgba(59,130,246,0.3)",
-                        }}>Alert</span>
-                      ) : null}
-                      {r.squareDayofOrderId && (
-                        <button
-                          type="button"
-                          onClick={() => setOrderTarget(r)}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                          title="View Square order"
-                        >
-                          {r.dayofOrderSentAt ? (
-                            <span style={{
-                              display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
-                              fontSize: "0.6rem", fontWeight: 600,
-                              backgroundColor: r.dayofOrderError ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
-                              color: r.dayofOrderError ? "#ef4444" : "#22c55e",
-                              border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
-                            }}>
-                              {r.dayofOrderError ? "ERR" : "Sent"}
-                            </span>
-                          ) : (
-                            <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", textDecoration: "underline" }}>
-                              Pending
-                            </span>
-                          )}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setOrderTarget(r)}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                        title="View Square order"
+                      >
+                        {r.dayofOrderSentAt ? (
+                          <span style={{
+                            display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5,
+                            fontSize: "0.6rem", fontWeight: 600,
+                            backgroundColor: r.dayofOrderError ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                            color: r.dayofOrderError ? "#ef4444" : "#22c55e",
+                            border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                          }}>
+                            {r.dayofOrderError ? "ERR" : "Sent"}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", textDecoration: "underline" }}>
+                            Pending
+                          </span>
+                        )}
+                      </button>
                     </div>
                   )}
 
@@ -1563,34 +1851,31 @@ export default function ReservationsClient({ token }: { token: string }) {
                     <span style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "var(--ba-muted)" }}>
                       {r.qamfReservationId ?? `#${r.id}`}
                     </span>
-                    {confirmPath(r) && (
-                      <>
-                        <a
-                          href={confirmPath(r)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: "#60a5fa", fontSize: "0.6rem", textDecoration: "none" }}
-                        >
-                          link
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => copyLink(r)}
-                          style={{
-                            background: "none", border: "none",
-                            color: copiedId === r.id ? "#22c55e" : "var(--ba-muted)",
-                            cursor: "pointer", fontSize: "0.6rem", padding: "0 2px",
-                          }}
-                        >
-                          {copiedId === r.id ? "ok" : "cp"}
-                        </button>
-                      </>
-                    )}
                   </div>
 
                   {/* Action buttons */}
                   {!isCancelled && r.status !== "completed" && (
                     <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      {/* Check In */}
+                      <button
+                        type="button"
+                        onClick={() => setCheckinTarget(r)}
+                        style={{
+                          flex: 1,
+                          background: "none",
+                          border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
+                          borderRadius: 5,
+                          color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
+                          cursor: "pointer",
+                          fontSize: "0.65rem", fontWeight: 600,
+                          padding: "4px 8px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.03em",
+                        }}
+                      >
+                        Check In
+                      </button>
+                      {/* Reschedule */}
                       {r.status !== "arrived" && r.qamfReservationId && (
                         <button
                           type="button"
@@ -1610,9 +1895,33 @@ export default function ReservationsClient({ token }: { token: string }) {
                             letterSpacing: "0.03em",
                           }}
                         >
-                          Time
+                          Resched
                         </button>
                       )}
+                      {/* View */}
+                      {confirmPath(r) && (
+                        <a
+                          href={confirmPath(r)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            flex: 1,
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            background: "none",
+                            border: "1px solid rgba(96,165,250,0.3)",
+                            borderRadius: 5,
+                            color: "#60a5fa",
+                            fontSize: "0.65rem", fontWeight: 600,
+                            padding: "4px 8px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.03em",
+                            textDecoration: "none",
+                          }}
+                        >
+                          View
+                        </a>
+                      )}
+                      {/* Resend */}
                       {r.status !== "arrived" && (r.guestEmail || r.guestPhone) && (
                         <button
                           type="button"
@@ -1633,6 +1942,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                           Resend
                         </button>
                       )}
+                      {/* Cancel */}
                       {r.status !== "arrived" && (
                         <button
                           type="button"
@@ -1676,7 +1986,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     textAlign: "left",
                   }}
                 >
-                  {["Time", "Guest", "Type", "Status", "Check-in", "Rewards", "Lane", "Order", "Square", "Alert", "Payment", "Ref", "Actions"].map(
+                  {["Time", "Guest", "Type", "Status", "Check-in", "Rewards", "Lane", "Order", "Square", "Payment", "Ref", "Actions"].map(
                     (h) => (
                       <th
                         key={h}
@@ -1805,20 +2115,13 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* Check-in */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         {r.checkinMethod === "self" ? (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: 5,
-                              fontSize: "0.6rem",
-                              fontWeight: 600,
-                              backgroundColor: "rgba(168,85,247,0.15)",
-                              color: "#a855f7",
-                              border: "1px solid rgba(168,85,247,0.3)",
-                            }}
-                          >
-                            Self
-                          </span>
+                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>Self</span>
+                        ) : r.checkinMethod === "desk" ? (
+                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(20,184,166,0.15)", color: "#14b8a6", border: "1px solid rgba(20,184,166,0.3)" }}>Admin</span>
+                        ) : r.checkinMethod ? (
+                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(107,114,128,0.15)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)" }}>{r.checkinMethod}</span>
+                        ) : r.preArrivalSentAt ? (
+                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>SMS Sent</span>
                         ) : (
                           <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
                         )}
@@ -1984,45 +2287,6 @@ export default function ReservationsClient({ token }: { token: string }) {
                         )}
                       </td>
 
-                      {/* Alert — lane-ready + pre-arrival notification status */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {r.laneReadySentAt ? (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: 5,
-                              fontSize: "0.6rem",
-                              fontWeight: 600,
-                              backgroundColor: "rgba(34,197,94,0.15)",
-                              color: "#22c55e",
-                              border: "1px solid rgba(34,197,94,0.3)",
-                            }}
-                            title={`Lane-ready sent ${new Date(r.laneReadySentAt).toLocaleTimeString()}`}
-                          >
-                            Ready
-                          </span>
-                        ) : r.preArrivalSentAt ? (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: 5,
-                              fontSize: "0.6rem",
-                              fontWeight: 600,
-                              backgroundColor: "rgba(59,130,246,0.15)",
-                              color: "#60a5fa",
-                              border: "1px solid rgba(59,130,246,0.3)",
-                            }}
-                            title={`Pre-arrival sent ${new Date(r.preArrivalSentAt).toLocaleTimeString()}`}
-                          >
-                            Alert
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
-                        )}
-                      </td>
-
                       {/* Payment — deposit / total merged */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         {r.depositCents > 0 ? (
@@ -2056,42 +2320,34 @@ export default function ReservationsClient({ token }: { token: string }) {
                         )}
                       </td>
 
-                      {/* Ref — QAMF ID + confirmation link */}
+                      {/* Ref — QAMF ID */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--ba-muted)" }}>
                           {r.qamfReservationId ?? `#${r.id}`}
                         </span>
-                        {confirmPath(r) && (
-                          <span style={{ marginLeft: 4 }}>
-                            <a
-                              href={confirmPath(r)!}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ color: "#60a5fa", fontSize: "0.6rem", textDecoration: "none" }}
-                            >
-                              link
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => copyLink(r)}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                color: copiedId === r.id ? "#22c55e" : "var(--ba-muted)",
-                                cursor: "pointer",
-                                fontSize: "0.6rem",
-                                padding: "0 3px",
-                              }}
-                            >
-                              {copiedId === r.id ? "ok" : "cp"}
-                            </button>
-                          </span>
-                        )}
                       </td>
 
-                      {/* Actions — reschedule + resend + cancel */}
+                      {/* Actions — check-in, resched, view, resend, cancel */}
                       <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                         <div style={{ display: "flex", gap: 4 }}>
+                          {/* Check In — always visible for actionable reservations */}
+                          {!isCancelled && r.status !== "completed" && (
+                            <button
+                              type="button"
+                              onClick={() => setCheckinTarget(r)}
+                              style={{
+                                background: "none",
+                                border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
+                                borderRadius: 5,
+                                color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
+                                cursor: "pointer", fontSize: "0.6rem", fontWeight: 600, padding: "2px 6px",
+                                textTransform: "uppercase", letterSpacing: "0.03em",
+                              }}
+                            >
+                              Check In
+                            </button>
+                          )}
+                          {/* Reschedule (was "Time") */}
                           {!isCancelled && r.status !== "completed" && r.status !== "arrived" && r.qamfReservationId && (() => {
                             const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
                             return (
@@ -2106,52 +2362,53 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   borderRadius: 5,
                                   color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
                                   cursor: hasAttr ? "not-allowed" : "pointer",
-                                  fontSize: "0.6rem",
-                                  fontWeight: 600,
-                                  padding: "2px 6px",
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.03em",
+                                  fontSize: "0.6rem", fontWeight: 600, padding: "2px 6px",
+                                  textTransform: "uppercase", letterSpacing: "0.03em",
                                 }}
                               >
-                                Time
+                                Resched
                               </button>
                             );
                           })()}
+                          {/* View — opens confirmation page */}
+                          {confirmPath(r) && (
+                            <a
+                              href={confirmPath(r)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-block", background: "none",
+                                border: "1px solid rgba(96,165,250,0.3)", borderRadius: 5,
+                                color: "#60a5fa", fontSize: "0.6rem", fontWeight: 600, padding: "2px 6px",
+                                textTransform: "uppercase", letterSpacing: "0.03em", textDecoration: "none",
+                              }}
+                            >
+                              View
+                            </a>
+                          )}
+                          {/* Resend */}
                           {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (r.guestEmail || r.guestPhone) && (
                             <button
                               type="button"
                               onClick={() => setResendTarget(r)}
                               style={{
-                                background: "none",
-                                border: "1px solid rgba(96,165,250,0.3)",
-                                borderRadius: 5,
-                                color: "#60a5fa",
-                                cursor: "pointer",
-                                fontSize: "0.6rem",
-                                fontWeight: 600,
-                                padding: "2px 6px",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.03em",
+                                background: "none", border: "1px solid rgba(96,165,250,0.3)", borderRadius: 5,
+                                color: "#60a5fa", cursor: "pointer", fontSize: "0.6rem", fontWeight: 600,
+                                padding: "2px 6px", textTransform: "uppercase", letterSpacing: "0.03em",
                               }}
                             >
                               Resend
                             </button>
                           )}
+                          {/* Cancel */}
                           {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (
                             <button
                               type="button"
                               onClick={() => setCancelTarget(r)}
                               style={{
-                                background: "none",
-                                border: "1px solid rgba(239,68,68,0.3)",
-                                borderRadius: 5,
-                                color: "#ef4444",
-                                cursor: "pointer",
-                                fontSize: "0.6rem",
-                                fontWeight: 600,
-                                padding: "2px 6px",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.03em",
+                                background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5,
+                                color: "#ef4444", cursor: "pointer", fontSize: "0.6rem", fontWeight: 600,
+                                padding: "2px 6px", textTransform: "uppercase", letterSpacing: "0.03em",
                               }}
                             >
                               Cancel
