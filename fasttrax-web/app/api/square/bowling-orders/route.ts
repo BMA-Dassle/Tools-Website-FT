@@ -124,6 +124,12 @@ export async function POST(req: NextRequest) {
       squareCustomerId?: string;
       note?: string;
       /**
+       * Custom GAN label for the deposit gift card.
+       * Must be 8-20 alphanumeric characters. Replaces the random Square GAN
+       * so staff see e.g. "Gift Card DEPX77012" in the dashboard.
+       */
+      giftCardGan?: string;
+      /**
        * Pre-created day-of order ID (from /api/square/bowling-orders/quote).
        * When provided, step 1 (creating the day-of order) is skipped.
        * Must be paired with existingDayofTotalCents.
@@ -167,6 +173,44 @@ export async function POST(req: NextRequest) {
     if (body.existingDayofOrderId && body.existingDayofTotalCents != null) {
       dayofOrderId = body.existingDayofOrderId;
       dayofTotalCents = body.existingDayofTotalCents;
+
+      // The quote now sets customer_id at creation, but if it wasn't available
+      // then, attach loyalty customer here as a fallback.
+      if (squareCustomerId) {
+        try {
+          const getRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, { headers: sqHeaders() });
+          if (getRes.ok) {
+            const getData = await getRes.json();
+            const existingCustId = getData.order?.customer_id;
+            const version = getData.order?.version;
+            // Only update if customer_id is missing (quote already set it in most cases)
+            if (!existingCustId && version != null) {
+              const putRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, {
+                method: "PUT",
+                headers: sqHeaders(),
+                body: JSON.stringify({
+                  order: {
+                    location_id: locationId,
+                    customer_id: squareCustomerId,
+                    version,
+                  },
+                }),
+              });
+              if (!putRes.ok) {
+                const putErr = await putRes.json().catch(() => ({}));
+                console.warn(
+                  `[bowling-orders] Failed to link customer_id ${squareCustomerId} to order ${dayofOrderId}:`,
+                  putErr,
+                );
+              }
+            }
+          } else {
+            console.warn(`[bowling-orders] Failed to GET order ${dayofOrderId}: ${getRes.status}`);
+          }
+        } catch (err) {
+          console.warn(`[bowling-orders] customer_id link error for ${dayofOrderId}:`, err);
+        }
+      }
     } else {
       const dayofLineItems = (lineItems ?? []).map((li) => {
         const modifiers =
@@ -193,6 +237,7 @@ export async function POST(req: NextRequest) {
           idempotency_key: `bowl-dayof-${baseKey}`,
           order: {
             location_id: locationId,
+            ...(squareCustomerId ? { customer_id: squareCustomerId } : {}),
             line_items: dayofLineItems,
             ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
           },
@@ -322,13 +367,21 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 4: Create eGift card ─────────────────────────────────────────────
+    // When giftCardGan is provided (e.g. "DEPX77012"), use it as a custom GAN
+    // so staff see "Gift Card DEPX77012" in the Square dashboard instead of a
+    // random 16-digit number.
+    const customGan = body.giftCardGan?.replace(/[^A-Za-z0-9]/g, "");
+    const useCustomGan = customGan && customGan.length >= 8 && customGan.length <= 20;
     const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
       method: "POST",
       headers: sqHeaders(),
       body: JSON.stringify({
         idempotency_key: `gc-${baseKey}`,
         location_id: locationId,
-        gift_card: { type: "DIGITAL" },
+        gift_card: {
+          type: "DIGITAL",
+          ...(useCustomGan ? { gan_source: "OTHER", gan: customGan } : {}),
+        },
       }),
     });
     const giftCardData = await giftCardRes.json();

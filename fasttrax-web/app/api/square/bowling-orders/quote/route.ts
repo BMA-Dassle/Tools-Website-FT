@@ -56,9 +56,11 @@ export async function POST(req: NextRequest) {
       locationId: string;
       lineItems: LineItemInput[];
       depositPct?: number;
+      /** Loyalty customer ID — attached to the order at creation time for point accrual. */
+      squareCustomerId?: string;
     };
 
-    const { locationId, lineItems, depositPct = 100 } = body;
+    const { locationId, lineItems, depositPct = 100, squareCustomerId } = body;
 
     if (!locationId || !lineItems?.length) {
       return NextResponse.json(
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
         idempotency_key: `bowl-quote-${randomUUID()}`,
         order: {
           location_id: locationId,
+          ...(squareCustomerId ? { customer_id: squareCustomerId } : {}),
           line_items: dayofLineItems,
           ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
         },

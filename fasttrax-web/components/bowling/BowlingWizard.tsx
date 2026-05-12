@@ -1433,6 +1433,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             locationId: center.squareCenterCode,
             lineItems: sqLineItems,
             depositPct,
+            // Attach loyalty customer so the day-of order has customer_id from creation
+            ...(loyaltyCustomer?.id ? { squareCustomerId: loyaltyCustomer.id } : {}),
           }),
         });
         const data = await res.json() as {
@@ -1994,10 +1996,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             ...(loyaltyCustomer?.id ? { squareCustomerId: loyaltyCustomer.id } : {}),
             // Track loyalty action for admin reporting
             ...(loyaltyCustomer?.id ? { loyaltyAction: loyaltyIsNewSignup ? "signup" : "existing" } : {}),
+            // Always send loyalty account ID so reserve can accrue points
+            ...(loyaltyAccount?.id ? { loyaltyAccountId: loyaltyAccount.id } : {}),
             // Loyalty reward redemption — server creates + redeems reward, charges reduced deposit
-            ...(selectedRewardTier && loyaltyAccount ? {
+            ...(selectedRewardTier ? {
               rewardTierId: selectedRewardTier.id,
-              loyaltyAccountId: loyaltyAccount.id,
               rewardDiscountCents: selectedRewardTier.discountCents,
             } : {}),
             // Attraction add-ons booked on BMI (included in Square order)

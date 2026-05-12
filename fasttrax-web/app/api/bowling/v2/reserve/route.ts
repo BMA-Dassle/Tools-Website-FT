@@ -68,6 +68,12 @@ const CENTER_CODE_TO_ID: Record<string, number> = {
   PPTR5G2N0QXF7: 3148,
 };
 
+/** Short center prefix for deposit gift card GANs (e.g. HPFMX77012). */
+const CENTER_GAN_PREFIX: Record<string, string> = {
+  TXBSQN0FEKQ11: "HPFM",
+  PPTR5G2N0QXF7: "HPN",
+};
+
 const QAMF_CENTER_ID_TO_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
@@ -710,6 +716,8 @@ export async function POST(req: NextRequest) {
           lineItems: sqLineItems,
           squareCustomerId: body.squareCustomerId,
           note: `Bowling – ${guest.name} – ${new Date(bookedAt).toLocaleDateString()}`,
+          // Custom GAN so staff see "Gift Card HPFMX77012" instead of random digits
+          giftCardGan: `${CENTER_GAN_PREFIX[centerCode] ?? "HP"}${qamfReservationId.replace(/[^A-Za-z0-9]/g, "")}`,
           // Pass pre-created day-of order if provided (avoids duplicate creation).
           // Use the reward-adjusted total/deposit when a reward was applied.
           ...(body.dayofOrderId ? {
@@ -760,6 +768,47 @@ export async function POST(req: NextRequest) {
       squareDayofOrderId = body.dayofOrderId;
       depositCents = 0;
       totalCents = authoritativeTotalCents;
+    }
+  }
+
+  // ── Accrue loyalty points on the day-of order ──────────────────
+  // Square requires an explicit AccumulateLoyaltyPoints call — customer_id
+  // on the order alone is NOT enough. We accrue at booking time using the
+  // day-of order so Square reads its catalog items and applies accrual rules.
+  if (body.loyaltyAccountId && squareDayofOrderId && SQUARE_TOKEN) {
+    try {
+      const accRes = await fetch(
+        `${SQUARE_BASE}/loyalty/accounts/${body.loyaltyAccountId}/accumulate`,
+        {
+          method: "POST",
+          headers: sqLoyaltyHeaders(),
+          body: JSON.stringify({
+            accumulate_points: { order_id: squareDayofOrderId },
+            location_id: body.locationId ?? centerCode,
+            idempotency_key: `bowl-accrue-${qamfReservationId}`,
+          }),
+        },
+      );
+      if (!accRes.ok) {
+        const accErr = await accRes.json().catch(() => ({}));
+        console.warn(
+          `[reserve] Loyalty accumulate failed for account ${body.loyaltyAccountId}, order ${squareDayofOrderId}:`,
+          accErr,
+        );
+      } else {
+        const accData = await accRes.json();
+        const events = accData.events ?? [];
+        const totalPts = events.reduce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (sum: number, e: any) => sum + (e.accumulate_points?.points ?? 0),
+          0,
+        );
+        console.log(
+          `[reserve] Loyalty: accrued ${totalPts} pts for account ${body.loyaltyAccountId} on order ${squareDayofOrderId}`,
+        );
+      }
+    } catch (err) {
+      console.warn("[reserve] Loyalty accumulate error:", err);
     }
   }
 

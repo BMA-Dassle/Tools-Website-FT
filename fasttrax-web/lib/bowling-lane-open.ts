@@ -246,7 +246,7 @@ export async function processLaneOpen(opts: {
                 order_id:        reservation.squareDayofOrderId,
                 location_id:     reservation.centerCode,
                 autocomplete:    true,
-                note:            `Deposit applied${laneLabel ? ` — ${laneLabel}` : ""}`,
+                note:            `Deposit applied — ${reservation.qamfReservationId ?? `#${reservation.id}`}${laneLabel ? ` — ${laneLabel}` : ""}`,
               }),
             });
             console.log(`[lane-open] neonId=${neonId} src=${srcTag} POST payment ${Date.now() - tPay}ms`);
