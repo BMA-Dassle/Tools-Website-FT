@@ -7,7 +7,7 @@ import type { NextRequest } from "next/server";
  * - fasttraxent.com → passes through
  * - localhost:3000/hp/... → HeadPinz pages for dev
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
   const isHeadPinz = hostname.includes("headpinz.com");
   const pathname = request.nextUrl.pathname;
@@ -34,6 +34,50 @@ export function middleware(request: NextRequest) {
   // Fail closed → 404 so the URL is indistinguishable from a typo.
   if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
     const expected = process.env.ADMIN_CAMERA_TOKEN || "";
+
+    // ── Bowling admin embed (HMAC-gated, iframe-locked) ──────────────
+    // Portal iframe loads /admin/embed/bowling?ts=...&sig=...
+    // No static admin token in the URL — portal signs a timestamp with
+    // a shared secret and FastTrax validates it here. URL expires after
+    // 15 minutes. Rotate BOWLING_EMBED_SECRET to invalidate all URLs.
+    if (pathname === "/admin/embed/bowling") {
+      const embedSecret = process.env.BOWLING_EMBED_SECRET || "";
+      if (!embedSecret) {
+        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+      }
+      const ts = request.nextUrl.searchParams.get("ts") || "";
+      const sig = request.nextUrl.searchParams.get("sig") || "";
+      if (!ts || !sig) {
+        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+      }
+      // Timestamp must be within 15 minutes
+      const age = Math.abs(Date.now() - Number(ts));
+      if (isNaN(age) || age > 15 * 60 * 1000) {
+        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+      }
+      // HMAC-SHA256 verify (Web Crypto — available in Edge runtime)
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw", enc.encode(embedSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+      );
+      const expected_sig = new Uint8Array(
+        await crypto.subtle.sign("HMAC", key, enc.encode(ts)),
+      );
+      const hex = Array.from(expected_sig).map(b => b.toString(16).padStart(2, "0")).join("");
+      if (sig !== hex) {
+        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+      }
+      // Valid — allow through with frame-ancestors lock + admin flag
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-admin-route", "1");
+      requestHeaders.set("x-admin-via", "embed-hmac");
+      const resp = NextResponse.next({ request: { headers: requestHeaders } });
+      resp.headers.set(
+        "Content-Security-Policy",
+        "frame-ancestors https://portal.headpinz.com",
+      );
+      return resp;
+    }
 
     // ── Public OpenAPI spec ───────────────────────────────────────────
     // The spec itself contains no customer data — just request/response
