@@ -18,15 +18,20 @@ info:
     | PPTR5G2N0QXF7 | 3148 | Naples |
 
     **Portal Embed:**
-    The bowling admin page can be embedded in the HeadPinz portal via
-    `/admin/embed/bowling?ts=...&sig=...`. Authentication uses HMAC-SHA256
-    signed timestamps (shared `ADMIN_EMBED_SECRET`). The iframe is locked
-    to `portal.headpinz.com` via `frame-ancestors` CSP.
+    Admin pages can be embedded in the HeadPinz portal via HMAC-signed
+    URLs. Authentication uses HMAC-SHA256 signed timestamps (shared
+    `ADMIN_EMBED_SECRET`). The iframe is locked to `portal.headpinz.com`
+    via `frame-ancestors` CSP.
 
-    Supports `&theme=dark|light` for first-paint theming and
-    `&center=fm|naples` for location pre-selection. Live theme toggle
-    via `postMessage({ type: "portal.theme", value: "light" })`.
-  version: "1.3.0"
+    Embed paths:
+    - `/admin/embed/bowling?ts=...&sig=...` — reservation management
+    - `/admin/embed/e-tickets?ts=...&sig=...` — e-ticket delivery log + resend
+    - `/admin/embed/videos?ts=...&sig=...` — video match log + resend
+
+    All paths accept `&theme=dark|light` for first-paint theming.
+    Bowling also accepts `&center=fm|naples` for location pre-selection.
+    Live theme toggle via `postMessage({ type: "portal.theme", value: "light" })`.
+  version: "1.4.0"
 
 servers:
   - url: https://headpinz.com
@@ -392,6 +397,84 @@ paths:
       responses:
         "200":
           description: HTML page (bowling admin UI)
+        "404":
+          description: Invalid/expired signature, missing ADMIN_EMBED_SECRET, or bad params
+
+  /admin/embed/e-tickets:
+    get:
+      summary: Portal iframe embed — e-ticket admin (HMAC-gated)
+      description: |
+        Serves the e-ticket delivery log and resend tool for embedding in the
+        HeadPinz portal iframe. Same HMAC auth as `/admin/embed/bowling`.
+
+        Shows all e-ticket SMS/email deliveries for a date with click tracking,
+        racer details, and one-click resend. Staff can filter by phone, name,
+        or track.
+
+        **Auth:** Identical to bowling embed — `HMAC-SHA256(ADMIN_EMBED_SECRET, ts)`.
+        See `/admin/embed/bowling` for full auth flow details.
+      parameters:
+        - name: ts
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Unix timestamp (milliseconds) of when the URL was generated
+        - name: sig
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "HMAC-SHA256(ADMIN_EMBED_SECRET, ts) as hex string"
+        - name: theme
+          in: query
+          schema:
+            type: string
+            enum: [dark, light]
+            default: dark
+          description: Initial color theme (if supported by page)
+      responses:
+        "200":
+          description: HTML page (e-ticket admin UI)
+        "404":
+          description: Invalid/expired signature, missing ADMIN_EMBED_SECRET, or bad params
+
+  /admin/embed/videos:
+    get:
+      summary: Portal iframe embed — video admin (HMAC-gated)
+      description: |
+        Serves the video match log and resend tool for embedding in the
+        HeadPinz portal iframe. Same HMAC auth as `/admin/embed/bowling`.
+
+        Shows all matched racing videos for a date with racer details,
+        thumbnails, and one-click resend via SMS/email. Staff can filter
+        by racer name, camera, or video code.
+
+        **Auth:** Identical to bowling embed — `HMAC-SHA256(ADMIN_EMBED_SECRET, ts)`.
+        See `/admin/embed/bowling` for full auth flow details.
+      parameters:
+        - name: ts
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Unix timestamp (milliseconds) of when the URL was generated
+        - name: sig
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "HMAC-SHA256(ADMIN_EMBED_SECRET, ts) as hex string"
+        - name: theme
+          in: query
+          schema:
+            type: string
+            enum: [dark, light]
+            default: dark
+          description: Initial color theme (if supported by page)
+      responses:
+        "200":
+          description: HTML page (video admin UI)
         "404":
           description: Invalid/expired signature, missing ADMIN_EMBED_SECRET, or bad params
 

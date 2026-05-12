@@ -35,13 +35,20 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) {
     const expected = process.env.ADMIN_CAMERA_TOKEN || "";
 
-    // ── Bowling admin embed (HMAC-gated, iframe-locked) ──────────────
-    // Portal iframe loads /admin/embed/bowling?ts=...&sig=...
+    // ── Admin embed pages (HMAC-gated, iframe-locked) ─────────────────
+    // Portal iframe loads /admin/embed/{tool}?ts=...&sig=...
     // No static admin token in the URL — portal signs a timestamp with
     // a shared secret and FastTrax validates it here. URL expires after
-    // 15 minutes. Rotate BOWLING_EMBED_SECRET to invalidate all URLs.
-    if (pathname === "/admin/embed/bowling") {
-      const embedSecret = process.env.BOWLING_EMBED_SECRET || "";
+    // 15 minutes. Rotate ADMIN_EMBED_SECRET to invalidate all URLs.
+    //
+    // Supported tools:
+    //   /admin/embed/bowling    — reservation management
+    //   /admin/embed/e-tickets  — e-ticket delivery log + resend
+    //   /admin/embed/videos     — video match log + resend
+    const EMBED_TOOLS = new Set(["bowling", "e-tickets", "videos"]);
+    const embedMatch = pathname.match(/^\/admin\/embed\/([a-z-]+)$/);
+    if (embedMatch && EMBED_TOOLS.has(embedMatch[1])) {
+      const embedSecret = process.env.ADMIN_EMBED_SECRET || process.env.BOWLING_EMBED_SECRET || "";
       if (!embedSecret) {
         return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
       }
