@@ -851,6 +851,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Multiplier applied to per-lane item quantities / totals
   const laneMultiplier = selectedIsPerLane ? laneCount : 1;
 
+  // Per-person experiences (Fun 4 All, Midnight Madness) charge per head
+  const playerMultiplier = selectedIsPerLane ? 1 : activePlayerCount;
+
   // VIP counterpart experience for the upgrade modal
   const vipUpgradeExperience =
     selectedTier === "regular" && selectedExperience && !selectedExperience.isVip
@@ -924,7 +927,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const basePreTaxTotal = baseItems.reduce(
     (s, item) => {
       const { priceCents } = effectiveItemPrice(item);
-      const qty = item.sortOrder === 0 ? item.quantity * laneMultiplier * durationMultiplier : item.quantity * laneMultiplier;
+      const qty = item.sortOrder === 0
+        ? item.quantity * laneMultiplier * playerMultiplier * durationMultiplier
+        : item.quantity * laneMultiplier * playerMultiplier;
       return s + priceCents * qty;
     },
     0,
@@ -932,7 +937,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const basePreTaxDeposit = baseItems.reduce(
     (s, item) => {
       const { priceCents, depositPct } = effectiveItemPrice(item);
-      const qty = item.sortOrder === 0 ? item.quantity * laneMultiplier * durationMultiplier : item.quantity * laneMultiplier;
+      const qty = item.sortOrder === 0
+        ? item.quantity * laneMultiplier * playerMultiplier * durationMultiplier
+        : item.quantity * laneMultiplier * playerMultiplier;
       return s + Math.round(priceCents * qty * (depositPct / 100));
     },
     0,
@@ -1032,7 +1039,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             squareProductId: useOverride
               ? selectedDurationOpt!.overrideSquareProductId!
               : item.squareProductId,
-            quantity: item.quantity * laneMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+            quantity: item.quantity * laneMultiplier * playerMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
           };
         })),
     ...shoeProducts
@@ -1378,7 +1385,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 ? (selectedDurationOpt!.overrideCatalogObjectId ? item.label.replace(/1\.5\s*Hr/i, "1 Hr") : item.label)
                 : item.label,
               quantity: String(
-                item.quantity * laneMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+                item.quantity * laneMultiplier * playerMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
               ),
               catalogObjectId: useOverride
                 ? selectedDurationOpt!.overrideCatalogObjectId!
@@ -3901,13 +3908,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 ) : (
                   baseItems.map((item, idx) => {
                     const { priceCents: itemPrice } = effectiveItemPrice(item);
-                    const qty = item.quantity * laneMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1);
+                    const qty = item.quantity * laneMultiplier * playerMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1);
                     return (
                       <div key={idx} className="flex justify-between text-sm">
                         <span className="font-body text-white/55">
                           {item.label}
                           {selectedIsPerLane && laneCount > 1 && (
                             <span className="text-white/35"> × {laneCount} lanes</span>
+                          )}
+                          {!selectedIsPerLane && activePlayerCount > 1 && (
+                            <span className="text-white/35"> × {activePlayerCount} people</span>
                           )}
                           {item.sortOrder === 0 && durationMultiplier > 1 && (
                             <span className="text-white/35"> × {durationMultiplier}</span>
