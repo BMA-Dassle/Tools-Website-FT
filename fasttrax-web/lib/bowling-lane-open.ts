@@ -260,6 +260,48 @@ export async function processLaneOpen(opts: {
                 `[lane-open] neonId=${neonId} gift card charged ${paymentCents}¢` +
                 ` paymentId=${paymentId} ${laneLabel}`,
               );
+
+              // Gift card payments don't auto-complete the order.
+              // If the order is now fully paid, close it explicitly.
+              try {
+                const refetchRes = await fetch(
+                  `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+                  { headers: sqHeaders(), cache: "no-store" },
+                );
+                const refetchJson = await refetchRes.json() as {
+                  order?: SquareOrder & { fulfillments?: { uid: string; type: string }[] };
+                };
+                const freshOrder = refetchJson.order;
+                const due = freshOrder?.net_amount_due_money?.amount ?? freshOrder?.total_money?.amount ?? 1;
+                if (freshOrder && due <= 0 && freshOrder.state !== "COMPLETED") {
+                  const ffUpdates = (freshOrder.fulfillments ?? []).map((ff) => ({
+                    uid: ff.uid, type: ff.type, state: "COMPLETED",
+                  }));
+                  const completeRes = await fetch(
+                    `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+                    {
+                      method: "PUT",
+                      headers: sqHeaders(),
+                      body: JSON.stringify({
+                        order: {
+                          version: freshOrder.version,
+                          location_id: reservation.centerCode,
+                          fulfillments: ffUpdates,
+                          state: "COMPLETED",
+                        },
+                      }),
+                    },
+                  );
+                  if (completeRes.ok) {
+                    console.log(`[lane-open] neonId=${neonId} order completed (fully paid by gift card)`);
+                  } else {
+                    const errBody = await completeRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
+                    console.warn(`[lane-open] neonId=${neonId} complete order failed:`, errBody.errors?.[0]?.detail ?? completeRes.status);
+                  }
+                }
+              } catch (closeErr) {
+                console.warn(`[lane-open] neonId=${neonId} order close after GC threw:`, closeErr);
+              }
             } else {
               const errBody = await payRes.json().catch(() => ({})) as {
                 errors?: { code: string; detail: string }[];
