@@ -836,11 +836,14 @@ function CheckInModal({
   const [submitting, setSubmitting] = useState(false);
   const [savingShoes, setSavingShoes] = useState(false);
 
-  // Shoe sizes: one entry per player slot
+  // Shoe sizes + optional names: one entry per player slot
   const playerCount = reservation.playerCount ?? 1;
   const [shoes, setShoes] = useState<Array<{ category: ShoeCategory | null; size: string | null }>>(
     () => Array.from({ length: playerCount }, () => ({ category: null, size: null }))
   );
+  const [names, setNames] = useState<string[]>(() => Array.from({ length: playerCount }, () => ""));
+
+  const isToday = reservation.bookedAt.slice(0, 10) === todayET();
 
   // Parse existing shoe size string like "Female 8" into category + size
   function parseShoeSize(raw: string | null): { category: ShoeCategory | null; size: string | null } {
@@ -874,11 +877,16 @@ function CheckInModal({
         }
         if (playersRes.ok) {
           const plData = await playersRes.json();
-          const existing = (plData.players || []) as Array<{ slot: number; shoeSize?: string | null }>;
+          const existing = (plData.players || []) as Array<{ slot: number; name?: string | null; shoeSize?: string | null }>;
           if (existing.length > 0) {
             setShoes(prev => prev.map((_, i) => {
               const player = existing.find(p => p.slot === i + 1);
               return parseShoeSize(player?.shoeSize ?? null);
+            }));
+            setNames(prev => prev.map((_, i) => {
+              const player = existing.find(p => p.slot === i + 1);
+              const n = player?.name ?? "";
+              return n.startsWith("Bowler ") ? "" : n;
             }));
           }
         }
@@ -911,7 +919,11 @@ function CheckInModal({
   }
 
   async function saveShoes() {
-    const payload = shoes.map((s, i) => ({ slot: i + 1, shoeSize: shoeString(s) }));
+    const payload = shoes.map((s, i) => ({
+      slot: i + 1,
+      shoeSize: shoeString(s),
+      name: names[i]?.trim() || `Bowler ${i + 1}`,
+    }));
     const res = await fetch(`/api/bowling/v2/reservations/${reservation.id}/players`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -1011,7 +1023,16 @@ function CheckInModal({
             <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Shoe Sizes</span>
             {shoes.map((shoe, idx) => (
               <div key={idx} style={{ marginBottom: 10, padding: "0.5rem", borderRadius: 8, backgroundColor: "var(--ba-bg2)", border: "1px solid var(--ba-border)" }}>
-                <div style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ba-muted)", marginBottom: 6 }}>Bowler {idx + 1}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ba-muted)", whiteSpace: "nowrap" }}>Bowler {idx + 1}</span>
+                  <input
+                    type="text"
+                    placeholder="Name (optional)"
+                    value={names[idx] ?? ""}
+                    onChange={(e) => setNames(prev => prev.map((n, i) => i === idx ? e.target.value : n))}
+                    style={{ ...INPUT_STYLE, padding: "0.2rem 0.5rem", fontSize: "0.68rem", flex: 1 }}
+                  />
+                </div>
                 {/* Category buttons */}
                 <div style={{ display: "flex", gap: 4, marginBottom: shoe.category ? 6 : 0 }}>
                   {(["Toddler", "Male", "Female"] as ShoeCategory[]).map((cat) => (
@@ -1070,7 +1091,7 @@ function CheckInModal({
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>Close</button>
-          {(phase === "not_ready" || phase === "running" || phase === "error") && (
+          {(phase === "running" || phase === "error" || (phase === "not_ready" && !isToday)) && (
             <button
               type="button"
               onClick={handleSaveShoesOnly}
@@ -1086,7 +1107,7 @@ function CheckInModal({
               {savingShoes ? "Saving…" : "Save Shoes"}
             </button>
           )}
-          {phase === "ready" && (
+          {(phase === "ready" || (phase === "not_ready" && isToday)) && (
             <button
               type="button"
               onClick={handleCheckin}
