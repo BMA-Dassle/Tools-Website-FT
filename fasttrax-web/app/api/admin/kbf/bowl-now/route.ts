@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  listLanes,
   createReservation,
   getReservation,
   setReservationCustomer,
@@ -24,9 +23,9 @@ import { sql } from "@/lib/db";
  * POST /api/admin/kbf/bowl-now
  *
  * 8-step orchestration for immediate KBF bowling:
- *   1. Validate lane + redemption cap
+ *   1. Validate redemption cap
  *   2. Load KBF experience (QAMF offer IDs)
- *   3. Create QAMF reservation (PlayNow + specific lane)
+ *   3. Create QAMF reservation (PlayNow — QAMF auto-assigns lane)
  *   4. Confirm QAMF (attach customer + set Confirmed)
  *   5. Insert Neon reservation + players
  *   6. Create Square day-of order (shoe line items for KDS)
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     centerCode,
-    laneNumber,
     bowlers,
     guestName,
     guestEmail,
@@ -62,7 +60,6 @@ export async function POST(req: NextRequest) {
     linkPhone,
   } = body as {
     centerCode: string;
-    laneNumber: number;
     bowlers: BowlerInput[];
     guestName: string;
     guestEmail: string;
@@ -75,7 +72,7 @@ export async function POST(req: NextRequest) {
   if (!centerId) {
     return NextResponse.json({ error: "Invalid centerCode" }, { status: 400 });
   }
-  if (!laneNumber || !bowlers?.length) {
+  if (!bowlers?.length) {
     return NextResponse.json(
       { error: "Missing required fields" },
       { status: 400 },
@@ -87,19 +84,8 @@ export async function POST(req: NextRequest) {
   let neonId: number | undefined;
 
   try {
-    // ── Step 1: Validate — re-check lane is Closed ──────────────────
-    const lanes = await listLanes(centerId);
-    const targetLane = lanes.find((l) => l.LaneNumber === laneNumber);
-    if (!targetLane || targetLane.Status !== "Closed") {
-      return NextResponse.json(
-        {
-          error: `Lane ${laneNumber} is no longer available (status: ${targetLane?.Status ?? "unknown"})`,
-        },
-        { status: 409 },
-      );
-    }
-
-    // Check redemption cap — only for bowlers linked to KBF passes
+    // ── Step 1: Validate redemption cap ───────────────────────────────
+    // No lane validation — QAMF auto-assigns the best available lane.
     const todayET = new Date().toLocaleDateString("en-CA", {
       timeZone: "America/New_York",
     });
@@ -138,7 +124,7 @@ export async function POST(req: NextRequest) {
     }
     steps.push("experience_loaded");
 
-    // ── Step 3: Create QAMF reservation (PlayNow + specific lane) ───
+    // ── Step 3: Create QAMF reservation (PlayNow — QAMF picks lane) ──
     const now = new Date();
     // QAMF requires minutes as multiples of 5, seconds=0, ms=0
     now.setMinutes(Math.floor(now.getMinutes() / 5) * 5, 0, 0);
@@ -168,20 +154,20 @@ export async function POST(req: NextRequest) {
         Services: ["PlayNow"],
       },
       TotalPlayers: bowlers.length,
-      Lanes: [
-        {
-          LaneNumber: laneNumber,
-          Players: bowlers.map((b) => ({
-            Name: b.name,
-            ShoeSize: b.shoeSize || null,
-            ActivateBumpers: b.bumpers ?? false,
-          })),
-        },
-      ],
+      // No Lanes — QAMF auto-assigns the best available lane
     };
 
     const qamfRes = await createReservation(centerId, qamfInput);
     qamfId = qamfRes.Id;
+
+    // Read the lane QAMF assigned from the creation response
+    const assignedLane = qamfRes.Lanes?.[0]?.LaneNumber;
+    if (!assignedLane) {
+      return NextResponse.json(
+        { error: "QAMF created the reservation but did not assign a lane" },
+        { status: 500 },
+      );
+    }
     steps.push("qamf_created");
 
     // ── Step 4: Confirm QAMF — attach customer then set Confirmed ───
@@ -243,7 +229,7 @@ export async function POST(req: NextRequest) {
       kbfPassId: b.kbfPassId || null,
       kbfMemberSlot: b.kbfMemberSlot || null,
       kbfRelation: b.kbfRelation || null,
-      laneNumber,
+      laneNumber: assignedLane,
     }));
     await insertReservationPlayers(neonId, playerInputs);
     steps.push("neon_inserted");
@@ -293,7 +279,7 @@ export async function POST(req: NextRequest) {
     };
     await processLaneOpen({
       reservation: neonRez,
-      laneNumbers: [laneNumber],
+      laneNumbers: [assignedLane],
       idempotencyBase: `admin-bowl-now-${neonId}`,
       source: "webhook", // processLaneOpen only accepts "webhook" | "cron"
     });
@@ -323,7 +309,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       neonId,
       qamfId,
-      laneLabel: `Lane ${laneNumber}`,
+      laneNumber: assignedLane,
+      laneLabel: `Lane ${assignedLane}`,
       steps,
     });
   } catch (err) {

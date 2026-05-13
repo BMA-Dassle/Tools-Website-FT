@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import CenterPicker, { CENTERS } from "@/components/admin/bowling/CenterPicker";
 import AdminBowlerList from "@/components/admin/bowling/AdminBowlerList";
-import LanePicker from "@/components/admin/bowling/LanePicker";
 import type { AdminBowlerSelection } from "@/components/admin/bowling/BowlerEditor";
-import type { Lane } from "@/lib/qamf-bowling";
 import { isKbfBookableDate } from "@/lib/kbf-schedule";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -101,14 +99,11 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // State: bowlers
   const [bowlers, setBowlers] = useState<AdminBowlerSelection[]>([]);
 
-  // State: step (1 = bowlers, 2 = mode-specific action)
+  // State: step (1 = bowlers, 2 = book-lane calendar)
   const [step, setStep] = useState<1 | 2>(1);
 
-  // State: mode + lane selection
+  // State: mode
   const [mode, setMode] = useState<Mode>("bowl-now");
-  const [lanes, setLanes] = useState<Lane[]>([]);
-  const [lanesLoading, setLanesLoading] = useState(false);
-  const [selectedLane, setSelectedLane] = useState<number | null>(null);
 
   // State: book-lane calendar
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
@@ -220,60 +215,6 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setPhase("ready");
   }
 
-  // ── Lanes ──────────────────────────────────────────────────────────
-
-  /** Full load — clears selection so LanePicker auto-picks first closed. */
-  async function loadLanes(code?: string) {
-    const cc = code || centerCode;
-    const centerId = CENTER_CODE_TO_QAMF[cc];
-    if (!centerId) return;
-    setLanesLoading(true);
-    try {
-      const res = await fetch(
-        `/api/admin/kbf/lanes?centerId=${centerId}`,
-        { headers },
-      );
-      const data = await res.json();
-      setLanes(data.lanes ?? []);
-      setSelectedLane(null); // LanePicker auto-selects first closed
-    } catch {
-      setLanes([]);
-    } finally {
-      setLanesLoading(false);
-    }
-  }
-
-  /** Silent refresh — updates lane statuses without resetting selection. */
-  async function refreshLanes() {
-    const centerId = CENTER_CODE_TO_QAMF[centerCode];
-    if (!centerId) return;
-    try {
-      const res = await fetch(
-        `/api/admin/kbf/lanes?centerId=${centerId}`,
-        { headers },
-      );
-      const data = await res.json();
-      const updated: Lane[] = data.lanes ?? [];
-      setLanes(updated);
-      // If the user's selected lane is no longer Closed, clear it
-      setSelectedLane((prev) => {
-        if (prev == null) return prev;
-        const lane = updated.find((l) => l.LaneNumber === prev);
-        return lane && lane.Status === "Closed" ? prev : null;
-      });
-    } catch {
-      // Silent — keep current lanes on error
-    }
-  }
-
-  // Refresh lanes periodically when in bowl-now step
-  useEffect(() => {
-    if (phase !== "ready" || mode !== "bowl-now" || step !== 2) return;
-    const iv = setInterval(refreshLanes, 5000);
-    return () => clearInterval(iv);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, mode, step, centerCode]);
-
   // ── Book Lane: fetch real QAMF availability for a date ────────────
 
   async function fetchAvailability(date: string) {
@@ -312,7 +253,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // ── Submit: Bowl Now ───────────────────────────────────────────────
 
   async function handleBowlNow() {
-    if (!selectedPass || !selectedLane) return;
+    if (!selectedPass) return;
     const selected = bowlers.filter((b) => b.selected);
     if (selected.length === 0) return;
     if (!selected.some((b) => b.relation === "kid")) {
@@ -320,9 +261,10 @@ export default function KbfAdminClient({ token }: { token: string }) {
       return;
     }
 
+    setMode("bowl-now");
     setPhase("submitting");
     setError(null);
-    setProgress(["Creating reservation..."]);
+    setProgress(["Creating reservation (QAMF picks lane)..."]);
     setResult(null);
 
     try {
@@ -331,7 +273,6 @@ export default function KbfAdminClient({ token }: { token: string }) {
         headers,
         body: JSON.stringify({
           centerCode,
-          laneNumber: selectedLane,
           bowlers: selected.map((b) => ({
             name: b.name,
             kbfPassId: b.kbfPassId,
@@ -350,7 +291,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
       const data = await res.json();
       if (data.ok) {
-        setProgress((prev) => [...prev, "Lane opened!", "Shoes sent to KDS!", `${data.laneLabel} is live!`]);
+        setProgress((prev) => [...prev, `Assigned ${data.laneLabel}`, "Lane opened!", "Shoes sent to KDS!", `${data.laneLabel} is live!`]);
         setResult({ ok: true, laneLabel: data.laneLabel, neonId: data.neonId });
         setPhase("done");
       } else {
@@ -437,8 +378,6 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setSelectedPass(null);
     setFutureReservations([]);
     setBowlers([]);
-    setLanes([]);
-    setSelectedLane(null);
     setSelectedDate("");
     setSelectedHour(null);
     setSelectedMinute(null);
@@ -469,12 +408,10 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const availableMinutes = selectedHour !== null
     ? [...new Set(availableSlots.filter((s) => s.hour === selectedHour).map((s) => s.minute))].sort((a, b) => a - b)
     : [];
-  const canSubmit =
+  const canSubmitBookLane =
     selectedCount > 0 &&
     hasKid &&
-    (mode === "bowl-now"
-      ? selectedLane !== null
-      : selectedDate !== "" && selectedHour !== null && selectedMinute !== null);
+    selectedDate !== "" && selectedHour !== null && selectedMinute !== null;
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
@@ -648,7 +585,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
       )}
 
       {/* ── STEP 1: Bowlers + action buttons ──────────────────────── */}
-      {step === 1 && selectedPass && bowlers.length > 0 && (phase === "ready" || phase === "error") && (
+      {step === 1 && selectedPass && bowlers.length > 0 && (phase === "ready" || phase === "error" || phase === "submitting") && (
         <>
           {/* Phone collection */}
           {!selectedPass.phone && (
@@ -713,15 +650,11 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </div>
           )}
 
-          {/* Action buttons → advance to step 2 */}
+          {/* Action buttons */}
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button
-              onClick={() => {
-                setMode("bowl-now");
-                setStep(2);
-                loadLanes();
-              }}
-              disabled={!canAdvance}
+              onClick={handleBowlNow}
+              disabled={!canAdvance || phase === "submitting"}
               style={{
                 flex: 1,
                 padding: "14px 0",
@@ -734,7 +667,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
                 cursor: canAdvance ? "pointer" : "not-allowed",
               }}
             >
-              Bowl Now →
+              {phase === "submitting" && mode === "bowl-now" ? "Opening lane..." : "🎳 Bowl Now"}
             </button>
             <button
               onClick={() => {
@@ -760,8 +693,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
         </>
       )}
 
-      {/* ── STEP 2: Mode-specific action ─────────────────────────── */}
-      {step === 2 && (phase === "ready" || phase === "error" || phase === "submitting") && (
+      {/* ── STEP 2: Book Lane calendar ────────────────────────────── */}
+      {step === 2 && mode === "book-lane" && (phase === "ready" || phase === "error" || phase === "submitting") && (
         <>
           {/* Back + summary bar */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -783,70 +716,15 @@ export default function KbfAdminClient({ token }: { token: string }) {
               ← Back
             </button>
             <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
-              {mode === "bowl-now" ? "Bowl Now" : "Book Lane"}
+              Book Lane
             </span>
             <span style={{ fontSize: 13, color: "#9ca3af" }}>
               {selectedCount} bowler{selectedCount !== 1 ? "s" : ""}
             </span>
           </div>
 
-          {/* Bowl Now: Lane picker */}
-          {mode === "bowl-now" && (
-            <>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
-                  Select Lane
-                </div>
-                <LanePicker
-                  lanes={lanes}
-                  selected={selectedLane}
-                  onChange={setSelectedLane}
-                  loading={lanesLoading}
-                />
-                <button
-                  onClick={() => loadLanes()}
-                  style={{
-                    marginTop: 8,
-                    padding: "4px 12px",
-                    fontSize: 11,
-                    color: "#6b7280",
-                    backgroundColor: "transparent",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                  }}
-                >
-                  Refresh lanes
-                </button>
-              </div>
-
-              <button
-                onClick={handleBowlNow}
-                disabled={!canSubmit || phase === "submitting"}
-                style={{
-                  width: "100%",
-                  padding: "14px 0",
-                  fontSize: 15,
-                  fontWeight: 700,
-                  backgroundColor: selectedLane ? "#22c55e" : "#d1d5db",
-                  color: selectedLane ? "#fff" : "#9ca3af",
-                  border: "none",
-                  borderRadius: 10,
-                  cursor: selectedLane ? "pointer" : "not-allowed",
-                  letterSpacing: 0.5,
-                }}
-              >
-                {phase === "submitting"
-                  ? "Opening lane..."
-                  : selectedLane
-                    ? `Open Lane ${selectedLane} & Send to KDS`
-                    : "Select a lane"}
-              </button>
-            </>
-          )}
-
           {/* Book Lane: calendar + time chips */}
-          {mode === "book-lane" && (
+          {(
             <>
               <div style={{ marginBottom: 16 }}>
                 {/* Month navigation */}
@@ -1000,17 +878,17 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
               <button
                 onClick={handleBookLane}
-                disabled={!canSubmit || phase === "submitting"}
+                disabled={!canSubmitBookLane || phase === "submitting"}
                 style={{
                   width: "100%",
                   padding: "14px 0",
                   fontSize: 15,
                   fontWeight: 700,
-                  backgroundColor: canSubmit ? BLUE : "#d1d5db",
-                  color: canSubmit ? "#fff" : "#9ca3af",
+                  backgroundColor: canSubmitBookLane ? BLUE : "#d1d5db",
+                  color: canSubmitBookLane ? "#fff" : "#9ca3af",
                   border: "none",
                   borderRadius: 10,
-                  cursor: canSubmit ? "pointer" : "not-allowed",
+                  cursor: canSubmitBookLane ? "pointer" : "not-allowed",
                   letterSpacing: 0.5,
                 }}
               >
