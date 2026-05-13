@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // QAMF requires seconds and milliseconds to be 0
+  // QAMF requires minutes as multiples of 5, seconds=0, ms=0
   const bookedAtDate = new Date(rawBookedAt);
-  bookedAtDate.setSeconds(0, 0);
+  bookedAtDate.setMinutes(Math.floor(bookedAtDate.getMinutes() / 5) * 5, 0, 0);
   const bookedAt = bookedAtDate.toISOString().replace(/\.\d{3}Z$/, "Z");
 
   const steps: string[] = [];
