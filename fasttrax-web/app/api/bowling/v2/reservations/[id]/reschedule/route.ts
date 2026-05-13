@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createReservation,
   deleteReservation,
+  patchReservation,
   setReservationStatus,
 } from "@/lib/qamf-bowling";
-import { getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
+import { buildQamfMemo, getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 
@@ -219,6 +220,16 @@ export async function PATCH(
     `;
   } catch (err) {
     console.error("[bowling/v2/reschedule] status reset failed:", err);
+  }
+
+  // ── Restore QAMF memo (shoe status, line items, deposit) ─────────
+  try {
+    const memo = await buildQamfMemo(neonId);
+    if (memo) {
+      await patchReservation(qamfCenterId, newQamfId, { Notes: memo });
+    }
+  } catch (err) {
+    console.warn("[bowling/v2/reschedule] memo patch failed:", err instanceof Error ? err.message : err);
   }
 
   // ── Resend confirmation (fire-and-forget) ────────────────────────

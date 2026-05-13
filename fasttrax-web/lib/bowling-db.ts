@@ -1216,6 +1216,77 @@ export async function updateReservationReschedule(
   `;
 }
 
+/**
+ * Build the formatted QAMF Notes memo for a reservation.
+ * Used at booking time, after reschedule, and by the backfill-memo endpoint.
+ *
+ * Format:
+ *   Line 1: shoe status | short URL
+ *   Line 2: line items with quantities and prices
+ *   Line 3: deposit amount (incl. tax)
+ *   Line 4: customer notes (if any)
+ */
+const SHOES_INCLUDED_RE = /fun\s*4\s*all|pizza\s*bowl/i;
+
+export async function buildQamfMemo(reservationId: number): Promise<string> {
+  const q = sql();
+  const resRows = await q`
+    SELECT deposit_cents, notes, short_code
+    FROM bowling_reservations WHERE id = ${reservationId}
+  `;
+  if (!resRows.length) return "";
+  const res = resRows[0] as { deposit_cents: number; notes: string | null; short_code: string | null };
+
+  const lines = (await q`
+    SELECT brl.label, brl.quantity, brl.unit_price_cents, bsp.product_kind
+    FROM bowling_reservation_lines brl
+    LEFT JOIN bowling_square_products bsp ON bsp.id = brl.square_product_id
+    WHERE brl.reservation_id = ${reservationId}
+    ORDER BY brl.id
+  `) as unknown as Array<{ label: string; quantity: number; unit_price_cents: number; product_kind: string | null }>;
+
+  const parts: string[] = [];
+
+  // Shoe status + short URL
+  const hasShoeAddOn = lines.some((l) => l.product_kind === "addon_shoe");
+  const shoesIncluded = lines.some((l) => SHOES_INCLUDED_RE.test(l.label));
+  let shoeLine: string;
+  if (hasShoeAddOn) {
+    const shoeQty = lines
+      .filter((l) => l.product_kind === "addon_shoe")
+      .reduce((s, l) => s + l.quantity, 0);
+    shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+  } else if (shoesIncluded) {
+    shoeLine = "Shoes included";
+  } else {
+    shoeLine = "SHOES NOT INCLUDED";
+  }
+  if (res.short_code) shoeLine += ` | headpinz.com/s/${res.short_code}`;
+  parts.push(shoeLine);
+
+  // Line items summary
+  if (lines.length > 0) {
+    const itemParts = lines.map((l) => {
+      const total = l.quantity * l.unit_price_cents;
+      const totalStr = `$${(total / 100).toFixed(2)}`;
+      return l.quantity > 1
+        ? `${l.quantity}x ${l.label} ${totalStr}`
+        : `${l.label} ${totalStr}`;
+    });
+    parts.push(itemParts.join(" + "));
+  }
+
+  // Tax-inclusive deposit
+  if (res.deposit_cents > 0) {
+    parts.push(`Deposit $${(res.deposit_cents / 100).toFixed(2)} paid (incl. tax)`);
+  }
+
+  // User-supplied notes
+  if (res.notes) parts.push(res.notes);
+
+  return parts.join("\n");
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Reservation player helpers
 // ─────────────────────────────────────────────────────────────────

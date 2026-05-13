@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createReservation,
   deleteReservation,
+  patchReservation,
   setReservationStatus,
 } from "@/lib/qamf-bowling";
 import {
+  buildQamfMemo,
   getBowlingReservation,
   updateReservationReschedule,
 } from "@/lib/bowling-db";
@@ -214,6 +216,16 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[admin/reschedule] status reset failed:", err);
     // Non-fatal — the core reschedule (QAMF + booked_at) succeeded
+  }
+
+  // ── Restore QAMF memo (shoe status, line items, deposit) ───────────
+  try {
+    const memo = await buildQamfMemo(neonId);
+    if (memo) {
+      await patchReservation(qamfCenterId, newQamfId, { Notes: memo });
+    }
+  } catch (err) {
+    console.warn("[admin/reschedule] memo patch failed:", err instanceof Error ? err.message : err);
   }
 
   // ── Resend confirmation (fire-and-forget) ──────────────────────────
