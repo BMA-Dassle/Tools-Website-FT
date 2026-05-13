@@ -131,9 +131,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
         return;
       }
 
-      // Auto-select first pass (or the one matching current center)
-      const match = found.find((p) => centerCodeForName(p.centerName) === centerCode) || found[0];
-      selectPass(match, redeemed);
+      // Show results list — user picks the right account
+      setPhase("idle");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
       setPhase("error");
@@ -417,70 +416,111 @@ export default function KbfAdminClient({ token }: { token: string }) {
         </div>
       )}
 
-      {/* Account info */}
+      {/* Search results list — pick an account */}
+      {passes.length > 0 && !selectedPass && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
+            {passes.length} result{passes.length !== 1 ? "s" : ""}
+          </div>
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+            {passes.map((p) => {
+              const kids = p.members.filter((m) => m.relation === "kid");
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => selectPass(p, redeemedToday)}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: "10px 14px",
+                    textAlign: "left",
+                    backgroundColor: "#fff",
+                    border: "none",
+                    borderBottom: "1px solid #e5e7eb",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>
+                      {p.firstName} {p.lastName}
+                    </span>
+                    <span style={{
+                      padding: "1px 6px",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      backgroundColor: p.fpass ? "#dbeafe" : "#f0fdf4",
+                      color: p.fpass ? "#1d4ed8" : "#166534",
+                      borderRadius: 999,
+                    }}>
+                      {p.centerName.replace("HeadPinz ", "")} {p.fpass ? "FBF" : "KBF"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    {p.email}
+                    {p.phone && <> &middot; {p.phone}</>}
+                    {" "}&middot; {kids.length} kid{kids.length !== 1 ? "s" : ""}
+                    {kids.length > 0 && (
+                      <span style={{ color: "#9ca3af" }}>
+                        {" "}({kids.map((k) => k.firstName).join(", ")})
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Selected account header */}
       {selectedPass && (
         <div style={{
-          padding: "12px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 14px",
           marginBottom: 16,
           backgroundColor: "#f9fafb",
           border: "1px solid #e5e7eb",
           borderRadius: 8,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontWeight: 700, fontSize: 15, color: "#1a1a1a" }}>
-              {selectedPass.firstName} {selectedPass.lastName}
-            </span>
-            {selectedPass.fpass && (
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+              <span style={{ fontWeight: 700, fontSize: 15, color: "#1a1a1a" }}>
+                {selectedPass.firstName} {selectedPass.lastName}
+              </span>
               <span style={{
-                padding: "2px 8px",
-                fontSize: 11,
+                padding: "1px 6px",
+                fontSize: 10,
                 fontWeight: 700,
-                backgroundColor: "#dbeafe",
-                color: "#1d4ed8",
+                backgroundColor: selectedPass.fpass ? "#dbeafe" : "#f0fdf4",
+                color: selectedPass.fpass ? "#1d4ed8" : "#166534",
                 borderRadius: 999,
               }}>
-                Family Pass
+                {selectedPass.centerName.replace("HeadPinz ", "")} {selectedPass.fpass ? "FBF" : "KBF"}
               </span>
-            )}
-            <span style={{
-              padding: "2px 8px",
-              fontSize: 11,
-              fontWeight: 600,
-              backgroundColor: "#f0fdf4",
-              color: "#166534",
-              borderRadius: 999,
-            }}>
-              {selectedPass.centerName.replace("HeadPinz ", "")}
-            </span>
-          </div>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>
-            {selectedPass.email}
-            {selectedPass.phone && <> &middot; {selectedPass.phone}</>}
-            {" "}&middot; {selectedPass.members.length} member{selectedPass.members.length !== 1 ? "s" : ""}
-          </div>
-          {/* If multiple passes found, show switcher */}
-          {passes.length > 1 && (
-            <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
-              {passes.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => selectPass(p, redeemedToday)}
-                  style={{
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    fontWeight: p.id === selectedPass.id ? 700 : 400,
-                    backgroundColor: p.id === selectedPass.id ? "#004AAD" : "#fff",
-                    color: p.id === selectedPass.id ? "#fff" : "#374151",
-                    border: "1px solid #d1d5db",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                  }}
-                >
-                  {p.centerName.replace("HeadPinz ", "")} {p.fpass ? "(FBF)" : "(KBF)"}
-                </button>
-              ))}
             </div>
-          )}
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              {selectedPass.email}
+              {selectedPass.phone && <> &middot; {selectedPass.phone}</>}
+            </div>
+          </div>
+          <button
+            onClick={() => { setSelectedPass(null); setBowlers([]); setPhase("idle"); }}
+            style={{
+              padding: "4px 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              backgroundColor: "#fff",
+              color: "#6b7280",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            Change
+          </button>
         </div>
       )}
 
