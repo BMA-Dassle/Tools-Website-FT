@@ -1048,6 +1048,30 @@ export default function KbfAdminClient({ token }: { token: string }) {
         </div>
       )}
 
+      {/* Bowl Now done: shoe charge warning */}
+      {phase === "done" && mode === "bowl-now" && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: "16px 20px",
+            backgroundColor: "#dc2626",
+            border: "3px solid #fca5a5",
+            borderRadius: 10,
+            textAlign: "center",
+            animation: "shoeWarn 1s ease-in-out 3",
+          }}
+        >
+          <style>{`@keyframes shoeWarn { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); box-shadow: 0 0 24px rgba(220,38,38,.6); } }`}</style>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 6 }}>
+            👟 CHARGE FOR SHOES 👟
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#fee2e2", lineHeight: 1.4 }}>
+            Return to Conqueror and ring up shoe rentals now.<br />
+            KBF does NOT include shoes — they must be paid for.
+          </div>
+        </div>
+      )}
+
       {/* Done: reset */}
       {phase === "done" && (
         <button
