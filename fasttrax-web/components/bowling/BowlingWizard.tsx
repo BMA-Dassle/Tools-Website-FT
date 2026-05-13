@@ -960,19 +960,32 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // KBF adult game charges: $5/game Mon–Thu, $6/game Fri, 2 games/session, 100% deposit.
   // Server re-derives pricing independently — this drives deposit display + payment step gating.
   const kbfPaidAdultCount = kind === "kbf" ? kbfBowlers.filter((b) => b.isPaid).length : 0;
+  // KBF VIP detection — must be computed before pricing so VIP premium applies
+  const kbfIsVip = kind === "kbf" && (selectedExperience?.isVip ?? false);
+
+  // KBF adult game pricing: VIP adults pay $1 more per game (baked into rate)
   const kbfAdultPerGameCents = (() => {
     if (!selectedDate || kbfPaidAdultCount === 0) return 0;
     const dow = new Date(`${selectedDate}T12:00:00`).getDay();
-    return dow === 5 ? 600 : 500;
+    const isFri = dow === 5;
+    return kbfIsVip ? (isFri ? 700 : 600) : (isFri ? 600 : 500);
   })();
   const kbfAdultGameCents = kbfPaidAdultCount * kbfAdultPerGameCents * 2; // 2 games/session
 
+  // KBF VIP lane upcharge: $1/person/game × 2 games × FREE bowlers only.
+  // Paid adults already have VIP baked into their per-game rate above.
+  const kbfFreeBowlerCount = kbfIsVip ? (kbfBowlers.length - kbfPaidAdultCount) : 0;
+  const kbfVipUpchargeCents = kbfFreeBowlerCount * 100 * 2; // $1/game × 2 games
+
+  // Combined KBF extra charges (adult games + VIP upcharge), both 100% deposit
+  const kbfExtraCents = kbfAdultGameCents + kbfVipUpchargeCents;
+
   // Booking fee: $2.99 on every non-$0 reservation (100% deposit)
-  const hasBookingFee = (basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + kbfAdultGameCents) > 0;
+  const hasBookingFee = (basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + kbfExtraCents) > 0;
   const bookingFeeCents = hasBookingFee ? BOOKING_FEE_CENTS : 0;
 
-  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + kbfAdultGameCents + bookingFeeCents;
-  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents + kbfAdultGameCents + bookingFeeCents;
+  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + kbfExtraCents + bookingFeeCents;
+  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents + kbfExtraCents + bookingFeeCents;
 
   // Use Square's tax-inclusive quote once loaded.
   // Extra toppings are added to the quote (Square doesn't know about them).
@@ -2705,16 +2718,32 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             const bowlerCount = kbfBowlers.length;
 
             // Day-dependent adult game pricing: $5/game Mon–Thu, $6/game Fri
+            // VIP lanes: adults pay $1 more/game ($6/$7), baked into per-game rate
             const selectedDow = selectedDate ? new Date(`${selectedDate}T12:00:00`).getDay() : 1;
-            const perGameRate = selectedDow === 5 ? 6 : 5;
+            const isFriday = selectedDow === 5;
+            const isVipLane = selectedExperience?.isVip ?? false;
+            const perGameRate = isFriday ? (isVipLane ? 7 : 6) : (isVipLane ? 6 : 5);
+            const basePerGameRate = isFriday ? 6 : 5; // non-VIP rate for display
             const gamesPerSession = 2;
             const adultSessionPrice = perGameRate * gamesPerSession;
 
             const paidAdults = bowlerSelections.filter((b) => b.isPaid && b.selected);
             const adultGameTotal = paidAdults.length * adultSessionPrice;
 
+            // VIP lane upcharge: $1/person/game × 2 games = $2/bowler for FREE bowlers only
+            // (paid adults already have VIP baked into their per-game rate above)
+            const vipPerBowler = isVipLane ? 2 : 0; // $1/game × 2 games
+            const freeBowlerCount = bowlerCount - paidAdults.length;
+            const vipTotal = freeBowlerCount * vipPerBowler;
+            const bowlerStepTotal = adultGameTotal + vipTotal;
+
             const relationLabel = (b: BowlerSelection) => {
-              if (b.isPaid) return `$${perGameRate}/game × 2 games`;
+              if (b.isPaid) {
+                return isVipLane
+                  ? `$${perGameRate}/game × 2 games (incl. VIP)`
+                  : `$${perGameRate}/game × 2 games`;
+              }
+              if (isVipLane) return `$${vipPerBowler} · VIP upcharge`;
               if (b.relation === "kid") return "Free";
               if (hasFamilyPass) return "Free · Families Bowl Free";
               return "Account holder";
@@ -2737,10 +2766,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
             return (
               <div className="space-y-3">
-                <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ backgroundColor: `${KBF_BLUE}14`, border: `1.78px solid ${KBF_BLUE}55` }}>
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center font-heading font-black shrink-0" style={{ backgroundColor: `${KBF_BLUE}26`, color: KBF_BLUE }}>★</div>
+                <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ backgroundColor: `${isVipLane ? GOLD : KBF_BLUE}14`, border: `1.78px solid ${isVipLane ? GOLD : KBF_BLUE}55` }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center font-heading font-black shrink-0" style={{ backgroundColor: `${isVipLane ? GOLD : KBF_BLUE}26`, color: isVipLane ? GOLD : KBF_BLUE }}>★</div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-heading uppercase tracking-[3px] text-[10px] mb-0.5" style={{ color: KBF_BLUE }}>{hasFamilyPass ? "Families Bowl Free" : "Kids Bowl Free"}</div>
+                    <div className="font-heading uppercase tracking-[3px] text-[10px] mb-0.5" style={{ color: isVipLane ? GOLD : KBF_BLUE }}>
+                      {hasFamilyPass ? "Families Bowl Free" : "Kids Bowl Free"}{isVipLane ? " · VIP" : ""}
+                    </div>
                     <div className="text-white/85 text-sm font-semibold truncate">{pass ? `${pass.firstName} ${pass.lastName}` : ""}</div>
                   </div>
                 </div>
@@ -2748,7 +2779,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <p className="font-body text-white/65 text-sm leading-relaxed">
                   {hasFamilyPass
                     ? "Everyone on your Families Bowl Free pass bowls free! Select who’s coming."
-                    : "Registered kids bowl free. Adults can be added for " + (perGameRate === 6 ? "$6" : "$5") + "/game (2 games)."}
+                    : `Registered kids bowl free. Adults can be added for $${basePerGameRate}/game (2 games).`}
+                  {isVipLane && " VIP lanes are $1/game extra per person."}
                   {" "}At least one kid is required.
                 </p>
 
@@ -2797,7 +2829,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 {bowlerSelections.filter((b) => b.isPaid).length > 0 && (
                   <div className="pt-2">
                     <div className="font-body text-white/40 text-[10px] uppercase tracking-[2px] mb-2">
-                      Adult games · ${perGameRate}/game × {gamesPerSession} games
+                      Adult games · ${perGameRate}/game × {gamesPerSession} games{isVipLane ? " (incl. VIP)" : ""}
                     </div>
                     {bowlerSelections.filter((b) => b.isPaid).map((b) => {
                       const idx = bowlerSelections.indexOf(b);
@@ -2830,7 +2862,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                               <div className="text-white font-semibold text-sm truncate">{b.displayName}</div>
                             )}
                             <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full mt-0.5" style={{ backgroundColor: `${AMBER}22`, color: AMBER }}>
-                              ${adultSessionPrice} · {gamesPerSession} games
+                              ${adultSessionPrice} · {gamesPerSession} games{isVipLane ? " (VIP)" : ""}
                             </span>
                           </div>
                           <button
@@ -2899,7 +2931,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   className="w-full rounded-full px-4 sm:px-6 py-3.5 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white whitespace-nowrap"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
-                  Continue — {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}{adultGameTotal > 0 ? ` · $${adultGameTotal}` : ""}
+                  Continue — {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}{bowlerStepTotal > 0 ? ` · $${bowlerStepTotal}` : ""}
                 </button>
                 <button type="button" onClick={() => setStep("verify")} className="w-full font-body text-white/35 text-sm">← Back</button>
               </div>
@@ -4085,9 +4117,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 {/* Base experience line items */}
                 {baseItems.length === 0 ? (
                   <div className="flex justify-between text-sm">
-                    <span className="font-body text-white/55">Bowling</span>
+                    <span className="font-body text-white/55">
+                      Bowling{kbfIsVip ? " · VIP" : ""}
+                    </span>
                     <span className="font-body text-white font-bold">
-                      {kind === "kbf" ? "Free (KBF)" : "—"}
+                      {kind === "kbf" ? (kbfIsVip ? "2 free games" : "Free (KBF)") : "—"}
                     </span>
                   </div>
                 ) : (
@@ -4155,11 +4189,24 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 {kbfAdultGameCents > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="font-body text-white/55">
-                      Adult games
-                      <span className="text-white/35"> × {kbfPaidAdultCount} · {kbfAdultPerGameCents === 600 ? "$6" : "$5"}/game</span>
+                      Adult games{kbfIsVip ? " (VIP)" : ""}
+                      <span className="text-white/35"> × {kbfPaidAdultCount} · ${(kbfAdultPerGameCents / 100).toFixed(0)}/game</span>
                     </span>
                     <span className="font-body font-bold" style={{ color: "#f59e0b" }}>
                       {centsToDollars(kbfAdultGameCents)}
+                    </span>
+                  </div>
+                )}
+
+                {/* KBF VIP lane upcharge ($1/person/game × 2 games, free bowlers only) */}
+                {kbfVipUpchargeCents > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="font-body text-white/55">
+                      VIP lane upcharge
+                      <span className="text-white/35"> × {kbfFreeBowlerCount} · $1/game</span>
+                    </span>
+                    <span className="font-body font-bold" style={{ color: GOLD }}>
+                      {centsToDollars(kbfVipUpchargeCents)}
                     </span>
                   </div>
                 )}

@@ -243,7 +243,7 @@ export async function GET(req: NextRequest) {
     const adultGamePrice = dow === 5 ? 6 : 5;
 
     return NextResponse.json(
-      { offers: kbfOffers, date, adultGamePrice, gamesPerSession: 2 },
+      { offers: kbfOffers, date, adultGamePrice, gamesPerSession: 2, vipUpchargePerGame: 1 },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

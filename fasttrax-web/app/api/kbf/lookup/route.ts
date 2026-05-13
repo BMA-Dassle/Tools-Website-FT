@@ -138,15 +138,15 @@ export async function POST(req: NextRequest) {
       : await findPassesByPhone(normalizedPhone);
 
     if (passes.length === 0) {
-      // Don't disclose whether the contact is registered or not;
-      // give a friendly hint that points at sign-up. The verify
-      // route will hard-fail if no Redis key exists, so we don't
-      // need to fake an OTP send here.
+      // Different help messages for email vs. phone lookups.
+      // Phone lookups can fail for benign reasons (typo, or KBF didn't
+      // collect the number) — steer them toward email which is the
+      // reliable identifier.
+      const hint = useEmail
+        ? "We don't see a Kids Bowl Free account for that email. If you just registered at kidsbowlfree.com, it can take up to 15 minutes to sync. Please try again shortly."
+        : "We couldn't find an account with that phone number. Phone numbers sometimes don't sync from Kids Bowl Free — please try signing in with your email address instead.";
       return NextResponse.json(
-        {
-          ok: false,
-          error: "We don't see a Kids Bowl Free account for that. Sign up at kidsbowlfree.com — new accounts take ~24h to show up here.",
-        },
+        { ok: false, error: hint, lookupMethod: useEmail ? "email" : "phone" },
         { status: 404 },
       );
     }

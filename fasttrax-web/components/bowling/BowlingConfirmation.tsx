@@ -189,6 +189,7 @@ function BowlerModal({
   players,
   shoePairsAllowed,
   laneNumbers,
+  kind,
   playersSaving,
   playersSaved,
   playersError,
@@ -199,6 +200,7 @@ function BowlerModal({
   players: BowlingReservationPlayer[];
   shoePairsAllowed: number;
   laneNumbers: number[];
+  kind: BowlingConfirmationKind;
   playersSaving: boolean;
   playersSaved: boolean;
   playersError: string | null;
@@ -294,6 +296,7 @@ function BowlerModal({
                                   player={player}
                                   shoePairsAllowed={shoePairsAllowed}
                                   shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                                  kind={kind}
                                   onUpdate={(patch) => onUpdate(player.slot, patch)}
                                 />
                               </div>
@@ -359,6 +362,7 @@ function BowlerModal({
                         player={player}
                         shoePairsAllowed={shoePairsAllowed}
                         shoeSizesAssigned={players.filter((p) => p.shoeSize).length}
+                        kind={kind}
                         onUpdate={(patch) => onUpdate(player.slot, patch)}
                       />
                     </div>
@@ -437,13 +441,17 @@ function BowlerCard({
   player,
   shoePairsAllowed,
   shoeSizesAssigned,
+  kind,
   onUpdate,
 }: {
   player: BowlingReservationPlayer;
   shoePairsAllowed: number;
   shoeSizesAssigned: number;
+  kind: BowlingConfirmationKind;
   onUpdate: (patch: Partial<BowlingReservationPlayer>) => void;
 }) {
+  // KBF names are locked — they come from the KidsBowlFree.com registration
+  const nameReadOnly = kind === "kbf";
   // Derive active category from saved shoeSize; persists while user browses sizes
   // Support legacy formats: "Adult X" / "Men X" → Male, "Women X" → Female, "Kids X" → Toddler
   const savedCat: ShoeCategory | null = player.shoeSize?.startsWith("Toddler")
@@ -490,14 +498,18 @@ function BowlerCard({
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
-      {/* Name */}
+      {/* Name — read-only for KBF (names come from registration) */}
       <input
         type="text"
         value={player.name ?? ""}
-        onChange={(e) => onUpdate({ name: e.target.value || null })}
+        onChange={nameReadOnly ? undefined : (e) => onUpdate({ name: e.target.value || null })}
+        readOnly={nameReadOnly}
         placeholder={`Bowler ${player.slot}`}
-        className="w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35"
+        className={`w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-white text-sm font-body placeholder:text-white/25 focus:outline-none focus:border-white/35${nameReadOnly ? " opacity-60 cursor-not-allowed" : ""}`}
       />
+      {nameReadOnly && (
+        <p className="text-white/30 text-[10px] font-body -mt-1">Names are set from your Kids Bowl Free registration</p>
+      )}
 
       {/* Bumpers */}
       <div className="flex items-center gap-3">
@@ -1144,6 +1156,36 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
             {playerCount != null && <Row label="Bowlers" value={String(playerCount)} />}
             {guestName && <Row label="Guest" value={guestName} />}
 
+            {/* KBF program info banner */}
+            {kind === "kbf" && players.length > 0 && (() => {
+              const kidCount = players.filter((p) => p.kbfRelation === "kid").length;
+              const freeAdultCount = players.filter((p) => p.kbfRelation === "family").length;
+              const paidAdultCount = players.filter((p) => p.kbfRelation === null).length;
+              const isVip = lines.some((l) => /vip/i.test(l.label));
+              return (
+                <>
+                  <DividerLine />
+                  <div
+                    className="rounded-xl px-4 py-3 space-y-1"
+                    style={{ backgroundColor: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.18)" }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">🎳</span>
+                      <span className="font-body font-bold text-sm" style={{ color: "#4ade80" }}>
+                        Kids Bowl Free{isVip ? " · VIP" : ""} Reservation
+                      </span>
+                    </div>
+                    <p className="text-white/60 text-xs font-body leading-relaxed">
+                      {kidCount} {kidCount === 1 ? "kid" : "kids"} bowl free
+                      {freeAdultCount > 0 && ` · ${freeAdultCount} ${freeAdultCount === 1 ? "adult" : "adults"} free (Family Pass)`}
+                      {paidAdultCount > 0 && ` · ${paidAdultCount} paid ${paidAdultCount === 1 ? "adult" : "adults"}`}
+                      {" · 2 games per bowler"}
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
+
             {/* Line items */}
             {lines.length > 0 && (() => {
               const linesSubtotal = lines.reduce(
@@ -1398,6 +1440,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               players={players}
               shoePairsAllowed={shoePairsAllowed}
               laneNumbers={laneNumbers}
+              kind={kind}
               playersSaving={playersSaving}
               playersSaved={playersSaved}
               playersError={playersError}

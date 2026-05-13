@@ -8,6 +8,7 @@ import {
   patchReservation,
 } from "@/lib/qamf-bowling";
 import {
+  getBowlingExperienceByOffer,
   getBowlingSquareProduct,
   getKbfRedeemedMembers,
   insertBowlingReservation,
@@ -16,6 +17,7 @@ import {
   type BowlingSquareProduct,
   type ReservationLine,
 } from "@/lib/bowling-db";
+import { setLanePlayers } from "@/lib/qamf-bowling";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
 
@@ -76,13 +78,25 @@ const CENTER_GAN_PREFIX: Record<string, string> = {
 };
 
 /**
- * KBF adult game Square catalog variation tokens.
- * Mon–Thu = $5/game, Fri = $6/game. 2 games per session.
- * Source: Game Bowling.xlsx
+ * KBF Square catalog variation tokens.
+ * Source: Game Bowling.xlsx + VIP.xlsx
+ *
+ * Regular lanes:
+ *   Adult Game Mon-Thur  $5/game    Adult Game Fri-Sun  $6/game
+ * VIP lanes (+$1/person/game for ALL bowlers):
+ *   Adult Game Mon-Thur VIP $6/game   Adult Game Fri-Sun VIP $7/game
+ *   Kids Bowl Free VIP (2) $2/session  Families Bowl Free VIP (2) $2/session
  */
-const ADULT_GAME_CATALOG_MON_THU = "55HD24QD6W2D5566EATRXIO4";
-const ADULT_GAME_CATALOG_FRI     = "PS37ALSQJQTTK7FSWFTROQ36";
-const KBF_GAMES_PER_SESSION      = 2;
+const ADULT_GAME_CATALOG_MON_THU     = "55HD24QD6W2D5566EATRXIO4";
+const ADULT_GAME_CATALOG_FRI         = "PS37ALSQJQTTK7FSWFTROQ36";
+const ADULT_GAME_VIP_CATALOG_MON_THU = "FN2JBP462OGS7ABTOL42VIK4";
+const ADULT_GAME_VIP_CATALOG_FRI     = "G67DSSE3MUARHUMMVP632Q6R";
+const KBF_VIP_CATALOG               = "VOTDI26ES5J7TCHDEZ24JNEN"; // Kids Bowl Free VIP (2)
+const FBF_VIP_CATALOG               = "KGFEKTF57JT5SE55JVVV2NEJ"; // Families Bowl Free VIP (2)
+const KBF_GAMES_PER_SESSION          = 2;
+
+/** VIP lane upcharge: $1 per person per game for ALL bowlers (kids included). */
+const KBF_VIP_PER_GAME_CENTS         = 100;
 
 const QAMF_CENTER_ID_TO_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
@@ -288,27 +302,71 @@ export async function POST(req: NextRequest) {
     : players.some((p) => p.kbfPassId) ? "kbf"
     : "open";
 
+  // ── KBF: VIP detection (server-side — never trust client) ────────
+  // Look up the experience to determine VIP status from the webOfferId.
+  // This must run before pricing so VIP upcharges are included.
+  let kbfIsVip = false;
+  if (productKind === "kbf") {
+    const experience = await getBowlingExperienceByOffer(centerCode, webOfferId);
+    kbfIsVip = experience?.isVip ?? false;
+  }
+
   // ── KBF: adult game pricing (server-side — never trust client) ───
   // Kids Bowl Free = kids bowl free, adults pay per game.
   // Families Bowl Free = everyone bowls free (no paid adults).
+  // VIP = $1/game extra for ALL bowlers (adults pay $6/$7 instead of $5/$6).
   const paidAdultCount = productKind === "kbf"
     ? players.filter((p) => p.isPaidAdult).length
     : 0;
   const bookedDateYmd = bookedAt.slice(0, 10); // YYYY-MM-DD
   const bookedDow = new Date(`${bookedDateYmd}T12:00:00`).getDay();
-  const adultPerGameCents = bookedDow === 5 ? 600 : 500;        // $6 Fri, $5 Mon–Thu
+  const isFriday = bookedDow === 5;
+  // VIP adults pay $1 more per game ($6/$7 vs $5/$6)
+  const adultPerGameCents = isFriday ? (kbfIsVip ? 700 : 600) : (kbfIsVip ? 600 : 500);
   const adultGameTotalCents = paidAdultCount * adultPerGameCents * KBF_GAMES_PER_SESSION;
-  const adultGameCatalogId = bookedDow === 5 ? ADULT_GAME_CATALOG_FRI : ADULT_GAME_CATALOG_MON_THU;
-  const adultGameLabel = bookedDow === 5 ? "Adult Game Fri-Sun" : "Adult Game Mon-Thur";
+  const adultGameCatalogId = kbfIsVip
+    ? (isFriday ? ADULT_GAME_VIP_CATALOG_FRI : ADULT_GAME_VIP_CATALOG_MON_THU)
+    : (isFriday ? ADULT_GAME_CATALOG_FRI : ADULT_GAME_CATALOG_MON_THU);
+  const adultGameLabel = kbfIsVip
+    ? (isFriday ? "Adult Game Fri-Sun VIP" : "Adult Game Mon-Thur VIP")
+    : (isFriday ? "Adult Game Fri-Sun" : "Adult Game Mon-Thur");
 
   if (adultGameTotalCents > 0) {
-    // Track in reservation lines for Neon reporting.
     reservationLines.push({
-      squareProductId: 0, // ad-hoc — not from bowling_square_products table
       label: adultGameLabel,
       quantity: paidAdultCount * KBF_GAMES_PER_SESSION,
       unitPriceCents: adultPerGameCents,
     });
+  }
+
+  // ── KBF: VIP upcharge for free bowlers ($1/game × 2 games) ─────
+  // VIP lanes cost $1 extra per game per person — applies to free kids
+  // and FBF adults. Paid adults already have VIP baked into their rate above.
+  let kbfVipUpchargeCents = 0;
+  if (kbfIsVip) {
+    const freeBowlerCount = players.filter((p) => !p.isPaidAdult).length;
+    kbfVipUpchargeCents = freeBowlerCount * KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION;
+    if (kbfVipUpchargeCents > 0) {
+      // Separate VIP upcharge by bowler type for catalog-linked Square reporting
+      const kbfKidCount = players.filter((p) => !p.isPaidAdult && p.kbfRelation === "kid").length;
+      const fbfAdultCount = freeBowlerCount - kbfKidCount;
+      // Kids Bowl Free VIP line
+      if (kbfKidCount > 0) {
+        reservationLines.push({
+          label: "Kids Bowl Free VIP",
+          quantity: kbfKidCount, // 1 unit = 2 games at $1/game = $2
+          unitPriceCents: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION, // $2 per bowler
+        });
+      }
+      // Families Bowl Free VIP line (FBF adults)
+      if (fbfAdultCount > 0) {
+        reservationLines.push({
+          label: "Families Bowl Free VIP",
+          quantity: fbfAdultCount,
+          unitPriceCents: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION, // $2 per bowler
+        });
+      }
+    }
   }
 
   // Booking fee: $2.99, 100% deposit, catalog item 7VKAFU3HDPRSKY7ZB6CKXTRW
@@ -321,14 +379,15 @@ export async function POST(req: NextRequest) {
     (s, { product, quantity }) => s + product.priceCents * quantity,
     0,
   );
-  // Adult game charges are 100% deposit (pay upfront, no day-of split).
-  const preTaxTotalCents = productTotal + adultGameTotalCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
+  // Adult game + VIP upcharge are 100% deposit (pay upfront, no day-of split).
+  const kbfExtraCents = adultGameTotalCents + kbfVipUpchargeCents;
+  const preTaxTotalCents = productTotal + kbfExtraCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
   const productDeposit = productItems.reduce(
     (s, { product, quantity }) =>
       s + Math.round(product.priceCents * quantity * (product.depositPct / 100)),
     0,
   );
-  const preTaxDepositCents = productDeposit + adultGameTotalCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
+  const preTaxDepositCents = productDeposit + kbfExtraCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
 
   // Weighted-average deposit % across all line items — passed to bowling-orders
   // so it can apply the same proportion to the tax-inclusive total.
@@ -406,7 +465,7 @@ export async function POST(req: NextRequest) {
   // 'confirm_pending' and queued for automatic retry by the cron.
   let qamfReservationId: string;
   let qamfConfirmed = false;
-  let qamfLanes: Array<{ LaneNumber: number }> = [];
+  let qamfLanes: Array<{ Id?: string; LaneNumber: number }> = [];
 
   // ── Build Conqueror notes with payment summary ──────────────────
   // Staff see these in the Conqueror reservation panel.
@@ -581,6 +640,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Push player names to QAMF (KBF has names from registration) ──
+  // For KBF bookings we know every player name from the pass. Push them
+  // to QAMF so Conqueror shows real names instead of "Player 1".
+  // For open bowling, names default to "Bowler N" and get updated later
+  // via the confirmation page's "Enter Names" flow.
+  if (qamfLanes.length > 0 && players.some((p) => p.name)) {
+    const lane = qamfLanes[0];
+    const laneId = lane.Id ?? String(lane.LaneNumber);
+    setLanePlayers(centerId, qamfReservationId, laneId,
+      players.map((p) => ({
+        Name: p.name || "Bowler",
+        ActivateBumpers: p.bumpers ?? false,
+      })),
+    ).catch((err) =>
+      console.warn("[bowling/v2/reserve] setLanePlayers failed (non-fatal):", err),
+    );
+  }
+
   // ── Square payment (gift card deposit + day-of order) ──────────
   let squareDepositOrderId: string | undefined;
   let squareDepositPaymentId: string | undefined;
@@ -600,7 +677,7 @@ export async function POST(req: NextRequest) {
     // lineItems (from the request body) carry modifier arrays keyed by squareProductId.
     const sqLineItems = [
       // Product-backed lines (from bowling_square_products table)
-      ...reservationLines.filter((l) => l.squareProductId !== 0).map((l) => {
+      ...reservationLines.filter((l) => l.squareProductId != null).map((l) => {
         const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
         const reqItem  = lineItems.find((li) => li.squareProductId === l.squareProductId);
         return {
@@ -628,6 +705,29 @@ export async function POST(req: NextRequest) {
             catalogObjectId: adultGameCatalogId,
           }]
         : []),
+      // KBF VIP upcharge for free bowlers — catalog-linked per bowler type
+      ...(kbfIsVip ? (() => {
+        const kbfKidCount = players.filter((p) => !p.isPaidAdult && p.kbfRelation === "kid").length;
+        const fbfAdultCount = players.filter((p) => !p.isPaidAdult).length - kbfKidCount;
+        const items: Array<{ name: string; quantity: string; basePriceMoney: { amount: number; currency: "USD" }; catalogObjectId: string }> = [];
+        if (kbfKidCount > 0) {
+          items.push({
+            name: "Kids Bowl Free VIP",
+            quantity: String(kbfKidCount),
+            basePriceMoney: { amount: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION, currency: "USD" },
+            catalogObjectId: KBF_VIP_CATALOG,
+          });
+        }
+        if (fbfAdultCount > 0) {
+          items.push({
+            name: "Families Bowl Free VIP",
+            quantity: String(fbfAdultCount),
+            basePriceMoney: { amount: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION, currency: "USD" },
+            catalogObjectId: FBF_VIP_CATALOG,
+          });
+        }
+        return items;
+      })() : []),
       // $0 pass-through items (Pizza Bowl Pizza, Soda Pitcher) — not in Neon but
       // must appear as separate Square order line items with modifier selections.
       // Only used in the fallback path; primary path uses the pre-created dayofOrderId.
@@ -1000,6 +1100,18 @@ export async function POST(req: NextRequest) {
       shoeLine += ` | headpinz.com/s/${shortCode}`;
     }
     finalParts.push(shoeLine);
+
+    // KBF bowler breakdown — right after shoe/URL so staff see it immediately
+    if (productKind === "kbf") {
+      const kidCount = players.filter((p) => p.kbfRelation === "kid").length;
+      const freeAdultCount = players.filter((p) => !p.isPaidAdult && p.kbfRelation !== "kid").length;
+      const breakdownParts: string[] = [];
+      if (kidCount > 0) breakdownParts.push(`${kidCount} kid${kidCount !== 1 ? "s" : ""} free`);
+      if (freeAdultCount > 0) breakdownParts.push(`${freeAdultCount} adult${freeAdultCount !== 1 ? "s" : ""} free (FBF)`);
+      if (paidAdultCount > 0) breakdownParts.push(`${paidAdultCount} adult${paidAdultCount !== 1 ? "s" : ""} paid`);
+      const vipTag = kbfIsVip ? " [VIP]" : "";
+      finalParts.push(`KBF: ${breakdownParts.join(", ")}${vipTag}`);
+    }
 
     // Line items summary
     if (reservationLines.length > 0) {
