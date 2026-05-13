@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
 
     // ── Step 3: Create QAMF reservation (PlayNow + specific lane) ───
     const now = new Date();
-    // QAMF rejects any millisecond portion — strip ".000Z" → "Z"
+    now.setSeconds(0, 0); // QAMF requires both seconds and ms to be 0
     const bookedAt = now.toISOString().replace(/\.\d{3}Z$/, "Z");
 
     const optionsBlock: NewReservationInput["WebOffer"]["Options"] =

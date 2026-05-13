@@ -75,8 +75,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // QAMF rejects any millisecond portion — strip ".xxxZ" → "Z"
-  const bookedAt = new Date(rawBookedAt).toISOString().replace(/\.\d{3}Z$/, "Z");
+  // QAMF requires seconds and milliseconds to be 0
+  const bookedAtDate = new Date(rawBookedAt);
+  bookedAtDate.setSeconds(0, 0);
+  const bookedAt = bookedAtDate.toISOString().replace(/\.\d{3}Z$/, "Z");
 
   const steps: string[] = [];
   let qamfId: string | undefined;

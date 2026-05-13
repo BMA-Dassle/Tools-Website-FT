@@ -179,6 +179,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
   // ── Lanes ──────────────────────────────────────────────────────────
 
+  /** Full load — clears selection so LanePicker auto-picks first closed. */
   async function loadLanes(code?: string) {
     const cc = code || centerCode;
     const centerId = CENTER_CODE_TO_QAMF[cc];
@@ -199,10 +200,33 @@ export default function KbfAdminClient({ token }: { token: string }) {
     }
   }
 
+  /** Silent refresh — updates lane statuses without resetting selection. */
+  async function refreshLanes() {
+    const centerId = CENTER_CODE_TO_QAMF[centerCode];
+    if (!centerId) return;
+    try {
+      const res = await fetch(
+        `/api/admin/kbf/lanes?centerId=${centerId}`,
+        { headers },
+      );
+      const data = await res.json();
+      const updated: Lane[] = data.lanes ?? [];
+      setLanes(updated);
+      // If the user's selected lane is no longer Closed, clear it
+      setSelectedLane((prev) => {
+        if (prev == null) return prev;
+        const lane = updated.find((l) => l.LaneNumber === prev);
+        return lane && lane.Status === "Closed" ? prev : null;
+      });
+    } catch {
+      // Silent — keep current lanes on error
+    }
+  }
+
   // Refresh lanes periodically when in bowl-now mode
   useEffect(() => {
     if (phase !== "ready" || mode !== "bowl-now") return;
-    const iv = setInterval(() => loadLanes(), 5000);
+    const iv = setInterval(refreshLanes, 5000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, mode, centerCode]);
@@ -357,7 +381,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#1a1a1a" }}>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#fff" }}>
           KBF Admin
         </h1>
         <CenterPicker value={centerCode} onChange={setCenterCode} />
@@ -549,6 +573,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
               borderRadius: 6,
               outline: "none",
               boxSizing: "border-box",
+              backgroundColor: "#fff",
+              color: "#1a1a1a",
             }}
           />
         </div>
