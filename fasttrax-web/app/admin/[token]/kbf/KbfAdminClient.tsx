@@ -6,6 +6,11 @@ import AdminBowlerList from "@/components/admin/bowling/AdminBowlerList";
 import LanePicker from "@/components/admin/bowling/LanePicker";
 import type { AdminBowlerSelection } from "@/components/admin/bowling/BowlerEditor";
 import type { Lane } from "@/lib/qamf-bowling";
+import {
+  isKbfBookableDate,
+  kbfLatestStartHour,
+  dayOfWeekET,
+} from "@/lib/kbf-schedule";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -53,6 +58,58 @@ function centerCodeForName(name: string): string {
   return "TXBSQN0FEKQ11";
 }
 
+const BLUE = "#004AAD";
+
+/** "3 PM", "11 AM" */
+function formatHour(h: number): string {
+  const ampm = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12} ${ampm}`;
+}
+
+/** "3:30 PM" */
+function formatHourMinute(h: number, m: number): string {
+  const ampm = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+/** Current ET time as minutes from midnight. */
+function etNowMinutes(): number {
+  const now = new Date();
+  const etStr = now.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" });
+  const [hh, mm] = etStr.split(":").map(Number);
+  return hh * 60 + mm;
+}
+
+function todayYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+/** Available hours for a KBF booking date (11 AM start, cap by day & time). */
+function getKbfHours(dateStr: string): number[] {
+  if (!dateStr) return [];
+  const cap = kbfLatestStartHour(dateStr); // Fri=17, Mon-Thu=null, Sat/Sun=-1
+  if (cap === -1) return [];
+  const endHour = cap ?? 21; // Mon-Thu: up to 9 PM, Fri: up to 4 PM
+  const hours: number[] = [];
+  const today = todayYmd();
+  const cutoff = dateStr === today ? Math.ceil(etNowMinutes() / 60) : 0;
+  for (let h = 11; h < endHour; h++) {
+    if (h >= cutoff) hours.push(h);
+  }
+  return hours;
+}
+
+/** Build calendar grid cells — null for empty leading/trailing slots. */
+function buildCalCells(year: number, month: number): (number | null)[] {
+  const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 export default function KbfAdminClient({ token }: { token: string }) {
@@ -76,9 +133,12 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const [lanesLoading, setLanesLoading] = useState(false);
   const [selectedLane, setSelectedLane] = useState<number | null>(null);
 
-  // State: book-lane date/time
-  const [bookDate, setBookDate] = useState("");
-  const [bookTime, setBookTime] = useState("");
+  // State: book-lane calendar
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear());
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
 
   // State: phone collection (when account has no phone)
   const [enteredPhone, setEnteredPhone] = useState("");
@@ -291,7 +351,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // ── Submit: Book Lane ──────────────────────────────────────────────
 
   async function handleBookLane() {
-    if (!selectedPass || !bookDate || !bookTime) return;
+    if (!selectedPass || !selectedDate || selectedHour === null || selectedMinute === null) return;
     const selected = bowlers.filter((b) => b.selected);
     if (selected.length === 0) return;
     if (!selected.some((b) => b.relation === "kid")) {
@@ -299,8 +359,10 @@ export default function KbfAdminClient({ token }: { token: string }) {
       return;
     }
 
-    // Build ISO datetime from date + time in ET
-    const bookedAt = new Date(`${bookDate}T${bookTime}:00`).toISOString();
+    // Build ISO datetime from selected date + hour + minute in ET
+    const hh = String(selectedHour).padStart(2, "0");
+    const mm = String(selectedMinute).padStart(2, "0");
+    const bookedAt = new Date(`${selectedDate}T${hh}:${mm}:00`).toISOString();
 
     setPhase("submitting");
     setError(null);
@@ -331,7 +393,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
       const data = await res.json();
       if (data.ok) {
-        setProgress((prev) => [...prev, `Booked for ${bookDate} at ${bookTime}!`]);
+        setProgress((prev) => [...prev, `Booked for ${selectedDate} at ${formatHourMinute(selectedHour!, selectedMinute!)}!`]);
         setResult({ ok: true, neonId: data.neonId });
         setPhase("done");
       } else {
@@ -357,8 +419,9 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setBowlers([]);
     setLanes([]);
     setSelectedLane(null);
-    setBookDate("");
-    setBookTime("");
+    setSelectedDate("");
+    setSelectedHour(null);
+    setSelectedMinute(null);
     setEnteredPhone("");
     setProgress([]);
     setResult(null);
@@ -370,12 +433,15 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
   const selectedCount = bowlers.filter((b) => b.selected).length;
   const hasKid = bowlers.some((b) => b.selected && b.relation === "kid");
+  const calCells = buildCalCells(calYear, calMonth);
+  const calToday = todayYmd();
+  const availableHours = selectedDate ? getKbfHours(selectedDate) : [];
   const canSubmit =
     selectedCount > 0 &&
     hasKid &&
     (mode === "bowl-now"
       ? selectedLane !== null
-      : bookDate !== "" && bookTime !== "");
+      : selectedDate !== "" && selectedHour !== null && selectedMinute !== null);
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
@@ -644,41 +710,155 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </div>
           )}
 
-          {/* Book Lane: date + time picker */}
+          {/* Book Lane: calendar + time chips */}
           {mode === "book-lane" && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
-                Date &amp; Time
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="date"
-                  value={bookDate}
-                  onChange={(e) => setBookDate(e.target.value)}
-                  min={new Date().toLocaleDateString("en-CA")}
-                  style={{
-                    flex: 1,
-                    padding: "10px 12px",
-                    fontSize: 14,
-                    border: "1px solid #d1d5db",
-                    borderRadius: 8,
-                    outline: "none",
+              {/* Month navigation */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <button
+                  onClick={() => {
+                    if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1); }
+                    else setCalMonth((m) => m - 1);
                   }}
-                />
-                <input
-                  type="time"
-                  value={bookTime}
-                  onChange={(e) => setBookTime(e.target.value)}
                   style={{
-                    flex: 1,
-                    padding: "10px 12px",
-                    fontSize: 14,
-                    border: "1px solid #d1d5db",
-                    borderRadius: 8,
-                    outline: "none",
+                    width: 32, height: 32, fontSize: 18, fontWeight: 700,
+                    backgroundColor: "transparent", color: "#fff",
+                    border: "1px solid #6b7280", borderRadius: 6,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                   }}
-                />
+                >
+                  ‹
+                </button>
+                <span style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>
+                  {new Date(calYear, calMonth).toLocaleString("default", { month: "long", year: "numeric" })}
+                </span>
+                <button
+                  onClick={() => {
+                    if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1); }
+                    else setCalMonth((m) => m + 1);
+                  }}
+                  style={{
+                    width: 32, height: 32, fontSize: 18, fontWeight: 700,
+                    backgroundColor: "transparent", color: "#fff",
+                    border: "1px solid #6b7280", borderRadius: 6,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  ›
+                </button>
               </div>
+
+              {/* Day-of-week headers */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center", marginBottom: 2 }}>
+                {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                  <div key={i} style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", padding: "4px 0" }}>{d}</div>
+                ))}
+              </div>
+
+              {/* Calendar grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                {calCells.map((day, i) => {
+                  if (day == null) return <div key={i} />;
+                  const ymd = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const bookable = isKbfBookableDate(ymd);
+                  const isPast = ymd < calToday;
+                  const isSelected = ymd === selectedDate;
+                  const isTodayCell = ymd === calToday;
+
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        if (!bookable || isPast) return;
+                        setSelectedDate(ymd);
+                        setSelectedHour(null);
+                        setSelectedMinute(null);
+                      }}
+                      disabled={!bookable || isPast}
+                      style={{
+                        padding: "8px 0",
+                        fontSize: 13,
+                        fontWeight: isSelected ? 700 : isTodayCell ? 600 : 400,
+                        backgroundColor: isSelected ? BLUE : "transparent",
+                        color: isSelected ? "#fff" : !bookable || isPast ? "#6b728050" : "#fff",
+                        border: isTodayCell && !isSelected ? `1px solid ${BLUE}` : "1px solid transparent",
+                        borderRadius: 6,
+                        cursor: bookable && !isPast ? "pointer" : "default",
+                      }}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* No available times */}
+              {selectedDate && availableHours.length === 0 && (
+                <div style={{ marginTop: 10, fontSize: 13, color: "#f87171" }}>
+                  No available start times for this date.
+                </div>
+              )}
+
+              {/* Hour chips */}
+              {selectedDate && availableHours.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
+                    Start Time
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {availableHours.map((h) => (
+                      <button
+                        key={h}
+                        onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
+                        style={{
+                          minWidth: 60, padding: "8px 12px", fontSize: 13,
+                          fontWeight: selectedHour === h ? 700 : 400,
+                          backgroundColor: selectedHour === h ? BLUE : "#fff",
+                          color: selectedHour === h ? "#fff" : "#374151",
+                          border: `1px solid ${selectedHour === h ? BLUE : "#d1d5db"}`,
+                          borderRadius: 8, cursor: "pointer",
+                        }}
+                      >
+                        {formatHour(h)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Minute chips */}
+              {selectedHour !== null && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
+                    Minutes
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {[0, 15, 30, 45].map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setSelectedMinute(m)}
+                        style={{
+                          minWidth: 52, padding: "8px 12px", fontSize: 13,
+                          fontWeight: selectedMinute === m ? 700 : 400,
+                          backgroundColor: selectedMinute === m ? BLUE : "#fff",
+                          color: selectedMinute === m ? "#fff" : "#374151",
+                          border: `1px solid ${selectedMinute === m ? BLUE : "#d1d5db"}`,
+                          borderRadius: 8, cursor: "pointer",
+                        }}
+                      >
+                        :{String(m).padStart(2, "0")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Selected summary */}
+              {selectedDate && selectedHour !== null && selectedMinute !== null && (
+                <div style={{ marginTop: 10, fontSize: 13, color: "#d1d5db" }}>
+                  ✓ {formatHourMinute(selectedHour, selectedMinute)} on {selectedDate}
+                </div>
+              )}
             </div>
           )}
 
@@ -707,8 +887,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
                   : "Select a lane"
               : phase === "submitting"
                 ? "Booking..."
-                : bookDate && bookTime
-                  ? `Book for ${bookDate} at ${bookTime}`
+                : selectedDate && selectedHour !== null && selectedMinute !== null
+                  ? `Book for ${selectedDate} at ${formatHourMinute(selectedHour, selectedMinute)}`
                   : "Select date & time"}
           </button>
 
