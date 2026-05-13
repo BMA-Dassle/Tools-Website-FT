@@ -3,7 +3,7 @@ import {
   searchPasses,
   loadPassesWithMembers,
 } from "@/lib/kbf-prefs";
-import { getKbfRedeemedMembers } from "@/lib/bowling-db";
+import { getKbfRedeemedMembers, getKbfFutureReservationsByPass } from "@/lib/bowling-db";
 
 /**
  * POST /api/admin/kbf/search
@@ -42,5 +42,8 @@ export async function POST(req: NextRequest) {
       ? await getKbfRedeemedMembers(todayET, allPairs)
       : [];
 
-  return NextResponse.json({ passes: full, redeemedToday: redeemed });
+  // Check for future KBF reservations — blocks Book Lane for passes that already have one
+  const futureRez = await getKbfFutureReservationsByPass(passIds);
+
+  return NextResponse.json({ passes: full, redeemedToday: redeemed, futureReservations: futureRez });
 }

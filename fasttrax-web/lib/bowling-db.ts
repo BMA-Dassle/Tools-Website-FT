@@ -1266,6 +1266,39 @@ export async function getKbfRedeemedMembers(
 }
 
 /**
+ * Check whether any KBF pass already has a confirmed/pending future reservation.
+ * Used by admin to prevent double-booking Book Lane when a reservation exists.
+ */
+export async function getKbfFutureReservationsByPass(
+  passIds: number[],
+): Promise<{ passId: number; reservationId: number; bookedAt: string }[]> {
+  if (!isDbConfigured()) return [];
+  if (passIds.length === 0) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+
+  const rows = await q`
+    SELECT DISTINCT ON (brp.kbf_pass_id)
+      brp.kbf_pass_id AS pass_id,
+      br.id AS reservation_id,
+      br.booked_at
+    FROM bowling_reservations br
+    JOIN bowling_reservation_players brp ON brp.reservation_id = br.id
+    WHERE brp.kbf_pass_id = ANY(${passIds}::int[])
+      AND br.product_kind = 'kbf'
+      AND br.status IN ('confirmed', 'pending')
+      AND br.booked_at > now()
+    ORDER BY brp.kbf_pass_id, br.booked_at ASC
+  `;
+
+  return (rows as { pass_id: number; reservation_id: number; booked_at: string }[]).map((r) => ({
+    passId: r.pass_id,
+    reservationId: r.reservation_id,
+    bookedAt: r.booked_at,
+  }));
+}
+
+/**
  * Update booked_at + qamf_reservation_id on an existing reservation after a
  * successful reschedule (old QAMF slot deleted, new one created).
  */

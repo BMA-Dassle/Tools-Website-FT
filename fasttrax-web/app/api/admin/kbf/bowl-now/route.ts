@@ -153,8 +153,8 @@ export async function POST(req: NextRequest) {
 
     const qamfInput: NewReservationInput = {
       BookedAt: bookedAt,
-      Title: `KBF Admin - ${guestName}`,
-      Notes: "Admin walk-in",
+      Title: `${guestName} (${bowlers.length}p)`,
+      Notes: `KBF: ${bowlers.filter((b) => b.kbfRelation === "kid").length} kids free${bowlers.some((b) => b.kbfRelation === "family") ? `, ${bowlers.filter((b) => b.kbfRelation === "family").length} family free (FBF)` : ""} | Admin walk-in`,
       Customer: {
         Guest: {
           Name: guestName,
@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
         guestName,
         guestEmail,
         guestPhone: guestPhone || undefined,
-        notes: "Admin walk-in",
+        notes: `KBF: ${bowlers.filter((b) => b.kbfRelation === "kid").length} kids free | Admin walk-in`,
         bookingSource: "admin",
         squareCustomerId: undefined,
         squareLoyaltyRewardId: undefined,
