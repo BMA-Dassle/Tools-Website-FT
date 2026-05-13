@@ -194,6 +194,7 @@ export async function searchPasses(query: string): Promise<KbfPassRow[]> {
         WHERE lower(email) LIKE ${like}
            OR lower(first_name) LIKE ${like}
            OR lower(last_name) LIKE ${like}
+           OR lower(first_name || ' ' || last_name) LIKE ${like}
            OR phone LIKE ${`%${digits}%`}
         ORDER BY id ASC
         LIMIT 25
@@ -204,6 +205,7 @@ export async function searchPasses(query: string): Promise<KbfPassRow[]> {
         WHERE lower(email) LIKE ${like}
            OR lower(first_name) LIKE ${like}
            OR lower(last_name) LIKE ${like}
+           OR lower(first_name || ' ' || last_name) LIKE ${like}
         ORDER BY id ASC
         LIMIT 25
       `) as PassQueryRow[]);
