@@ -918,6 +918,17 @@ export async function updateBowlingReservationStatus(
   await q`UPDATE bowling_reservations SET status = ${status} WHERE id = ${id}`;
 }
 
+/** Sync booked_at when QAMF sends a different time (e.g. manual reschedule in Conqueror). */
+export async function updateBowlingReservationBookedAt(
+  id: number,
+  bookedAt: string,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`UPDATE bowling_reservations SET booked_at = ${bookedAt} WHERE id = ${id}`;
+}
+
 /** Set check-in method on a reservation (admin action). */
 export async function updateBowlingCheckinMethod(
   id: number,

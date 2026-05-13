@@ -4,6 +4,7 @@ import redis from "@/lib/redis";
 import {
   getBowlingReservationByQamfId,
   insertBowlingReservation,
+  updateBowlingReservationBookedAt,
   updateBowlingReservationStatus,
   updateBowlingReservationCancelled,
   updateSquareDayofOrderId,
@@ -306,6 +307,27 @@ export async function GET(req: NextRequest) {
             }
           } catch (err) {
             console.warn(`[bowling-events] guest sync failed neonId=${reservation.id}:`, err);
+          }
+        }
+
+        // ── Sync BookedAt if QAMF time changed (manual Conqueror edit) ──
+        const webhookBookedAt = (data as Record<string, unknown>)?.BookedAt as string | undefined;
+        if (webhookBookedAt && reservation.bookedAt) {
+          const incomingMs = new Date(webhookBookedAt).getTime();
+          const storedMs = new Date(reservation.bookedAt).getTime();
+          if (!isNaN(incomingMs) && Math.abs(incomingMs - storedMs) > 60_000) {
+            try {
+              await updateBowlingReservationBookedAt(reservation.id, webhookBookedAt);
+              reservation = { ...reservation, bookedAt: webhookBookedAt };
+              console.log(
+                `[bowling-events] synced BookedAt neonId=${reservation.id} from=${new Date(storedMs).toISOString()} to=${webhookBookedAt}`,
+              );
+            } catch (err) {
+              console.warn(
+                `[bowling-events] BookedAt sync failed neonId=${reservation.id}:`,
+                err instanceof Error ? err.message : err,
+              );
+            }
           }
         }
 
