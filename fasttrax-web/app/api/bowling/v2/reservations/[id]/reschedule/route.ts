@@ -120,11 +120,26 @@ export async function PATCH(
     }
 
     // ── Delete old QAMF reservation (best-effort) ──────────────────
+    // Revert to Temporary first — QAMF may ignore DELETE on Confirmed
+    // reservations. Temporary releases the lane assignment.
+    try {
+      await setReservationStatus(qamfCenterId, existing.qamfReservationId, "Temporary");
+    } catch (err) {
+      console.warn(
+        `[reschedule] neonId=${neonId} revert old QAMF ${existing.qamfReservationId} to Temporary failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
     try {
       await deleteReservation(qamfCenterId, existing.qamfReservationId);
-    } catch {
+      console.log(`[reschedule] neonId=${neonId} deleted old QAMF ${existing.qamfReservationId}`);
+    } catch (err) {
       // Non-fatal: QAMF reservation may have expired or already been cancelled.
       // We continue regardless so the new slot is claimed.
+      console.warn(
+        `[reschedule] neonId=${neonId} delete old QAMF ${existing.qamfReservationId} failed:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

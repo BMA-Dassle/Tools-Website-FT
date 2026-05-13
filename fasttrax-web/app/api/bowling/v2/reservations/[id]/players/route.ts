@@ -234,7 +234,7 @@ export async function PATCH(
           };
         };
         const sqOrder = sqOrderJson.order;
-        if (sqOrder && sqOrder.state !== "CANCELED" && sqOrder.state !== "COMPLETED") {
+        if (sqOrder && sqOrder.state !== "CANCELED") {
           // Remove existing shoe-size KDS items, then add current set
           const existingShoeUids = (sqOrder.line_items ?? [])
             .filter((li) => li.catalog_object_id === SHOE_KDS_CATALOG_ID)

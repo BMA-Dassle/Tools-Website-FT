@@ -261,47 +261,14 @@ export async function processLaneOpen(opts: {
                 ` paymentId=${paymentId} ${laneLabel}`,
               );
 
-              // Gift card payments don't auto-complete the order.
-              // If the order is now fully paid, close it explicitly.
-              try {
-                const refetchRes = await fetch(
-                  `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-                  { headers: sqHeaders(), cache: "no-store" },
-                );
-                const refetchJson = await refetchRes.json() as {
-                  order?: SquareOrder & { fulfillments?: { uid: string; type: string }[] };
-                };
-                const freshOrder = refetchJson.order;
-                const due = freshOrder?.net_amount_due_money?.amount ?? freshOrder?.total_money?.amount ?? 1;
-                if (freshOrder && due <= 0 && freshOrder.state !== "COMPLETED") {
-                  const ffUpdates = (freshOrder.fulfillments ?? []).map((ff) => ({
-                    uid: ff.uid, type: ff.type, state: "COMPLETED",
-                  }));
-                  const completeRes = await fetch(
-                    `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-                    {
-                      method: "PUT",
-                      headers: sqHeaders(),
-                      body: JSON.stringify({
-                        order: {
-                          version: freshOrder.version,
-                          location_id: reservation.centerCode,
-                          fulfillments: ffUpdates,
-                          state: "COMPLETED",
-                        },
-                      }),
-                    },
-                  );
-                  if (completeRes.ok) {
-                    console.log(`[lane-open] neonId=${neonId} order completed (fully paid by gift card)`);
-                  } else {
-                    const errBody = await completeRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
-                    console.warn(`[lane-open] neonId=${neonId} complete order failed:`, errBody.errors?.[0]?.detail ?? completeRes.status);
-                  }
-                }
-              } catch (closeErr) {
-                console.warn(`[lane-open] neonId=${neonId} order close after GC threw:`, closeErr);
-              }
+              // NOTE: We intentionally do NOT complete the order here.
+              // Square requires all fulfillments to be COMPLETED before the
+              // order can transition to COMPLETED. Completing the SHIPMENT
+              // fulfillment removes it from KDS within milliseconds — before
+              // staff can see shoe sizes and items. Instead we leave the order
+              // OPEN (fully paid, $0 due). Loyalty accrual works on paid OPEN
+              // orders. Staff complete the order on the POS when the session ends,
+              // which also dismisses it from KDS at the right time.
             } else {
               const errBody = await payRes.json().catch(() => ({})) as {
                 errors?: { code: string; detail: string }[];
@@ -321,17 +288,15 @@ export async function processLaneOpen(opts: {
         }
       }
 
-      // ── 3b. Close $0 walkin orders for KDS visibility ─────────
-      // Square won't auto-transition $0 orders to COMPLETED via PayOrder.
-      // Instead: create a $0 EXTERNAL payment (adds a tender), then
-      // UpdateOrder to set fulfillment + order state to COMPLETED.
+      // ── 3b. $0 walk-in orders: add external tender so loyalty accrual works ──
+      // KBF and walk-in orders have $0 due. A $0 EXTERNAL payment marks the
+      // order as "paid" so AccumulateLoyaltyPoints succeeds. We do NOT
+      // complete the order — same KDS reasoning as gift-card orders above.
       if (!paymentId && !reservation.squareGiftCardId) {
         const due = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
         if (due <= 0) {
           try {
             const tClose = Date.now();
-
-            // 1. $0 external payment → creates a tender on the order
             await fetch(`${SQUARE_BASE}/payments`, {
               method: "POST",
               headers: sqHeaders(),
@@ -345,48 +310,9 @@ export async function processLaneOpen(opts: {
                 autocomplete: true,
               }),
             });
-
-            // 2. Re-fetch order for current version + fulfillment uid
-            const refetchRes = await fetch(
-              `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-              { headers: sqHeaders(), cache: "no-store" },
-            );
-            const refetchJson = await refetchRes.json() as { order?: SquareOrder & { fulfillments?: { uid: string; type: string }[] } };
-            const freshOrder = refetchJson.order;
-
-            if (freshOrder && freshOrder.state !== "COMPLETED") {
-              // 3. Complete fulfillment + order state
-              const ffUpdates = (freshOrder.fulfillments ?? []).map((ff) => ({
-                uid: ff.uid,
-                type: ff.type,
-                state: "COMPLETED",
-              }));
-              const completeRes = await fetch(
-                `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-                {
-                  method: "PUT",
-                  headers: sqHeaders(),
-                  body: JSON.stringify({
-                    order: {
-                      version: freshOrder.version,
-                      location_id: reservation.centerCode,
-                      fulfillments: ffUpdates,
-                      state: "COMPLETED",
-                    },
-                  }),
-                },
-              );
-              if (completeRes.ok) {
-                console.log(`[lane-open] neonId=${neonId} closed $0 walkin order for KDS ${Date.now() - tClose}ms`);
-              } else {
-                const errBody = await completeRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
-                console.warn(`[lane-open] neonId=${neonId} complete order failed:`, errBody.errors?.[0]?.detail ?? completeRes.status);
-              }
-            } else {
-              console.log(`[lane-open] neonId=${neonId} order already COMPLETED`);
-            }
+            console.log(`[lane-open] neonId=${neonId} $0 external payment added ${Date.now() - tClose}ms`);
           } catch (err) {
-            console.warn(`[lane-open] neonId=${neonId} close $0 order threw:`, err);
+            console.warn(`[lane-open] neonId=${neonId} $0 external payment threw:`, err);
           }
         }
       }
@@ -398,8 +324,8 @@ export async function processLaneOpen(opts: {
   }
 
   // ── 3c. Accrue loyalty points ─────────────────────────────────────
-  // Square requires the order to be paid/completed before AccumulateLoyaltyPoints
-  // succeeds, so this runs after the gift card / $0-close step.
+  // Square requires the order to be paid (net_amount_due = 0) before
+  // AccumulateLoyaltyPoints succeeds. Order does NOT need to be COMPLETED.
   // Best-effort: look up loyalty account from customer_id, then accrue.
   if (reservation.squareCustomerId && reservation.squareDayofOrderId && !processingError) {
     try {
