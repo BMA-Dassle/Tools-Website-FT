@@ -140,6 +140,11 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
 
+  // State: book-lane availability (fetched from QAMF)
+  const [availableSlots, setAvailableSlots] = useState<{ hour: number; minute: number }[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const fetchDateRef = useRef("");
+
   // State: phone collection (when account has no phone)
   const [enteredPhone, setEnteredPhone] = useState("");
 
@@ -291,6 +296,41 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, mode, centerCode]);
 
+  // ── Book Lane: fetch real QAMF availability for a date ────────────
+
+  async function fetchAvailability(date: string) {
+    fetchDateRef.current = date;
+    const centerId = CENTER_CODE_TO_QAMF[centerCode];
+    if (!centerId) return;
+    const playerCount = bowlers.filter((b) => b.selected).length || 1;
+    setSlotsLoading(true);
+    setAvailableSlots([]);
+    try {
+      const res = await fetch(
+        `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${date}&kind=kbf`,
+      );
+      const data = await res.json();
+      if (fetchDateRef.current !== date) return; // stale response — user picked another date
+      const slots: { hour: number; minute: number }[] = [];
+      for (const a of (data.Availabilities ?? []) as { BookedAt: string }[]) {
+        const d = new Date(a.BookedAt);
+        const etStr = d.toLocaleString("en-US", {
+          timeZone: "America/New_York",
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const [hh, mm] = etStr.split(":").map(Number);
+        slots.push({ hour: hh, minute: mm });
+      }
+      setAvailableSlots(slots);
+    } catch {
+      if (fetchDateRef.current === date) setAvailableSlots([]);
+    } finally {
+      if (fetchDateRef.current === date) setSlotsLoading(false);
+    }
+  }
+
   // ── Submit: Bowl Now ───────────────────────────────────────────────
 
   async function handleBowlNow() {
@@ -422,6 +462,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setSelectedDate("");
     setSelectedHour(null);
     setSelectedMinute(null);
+    setAvailableSlots([]);
+    setSlotsLoading(false);
     setEnteredPhone("");
     setProgress([]);
     setResult(null);
@@ -435,7 +477,11 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const hasKid = bowlers.some((b) => b.selected && b.relation === "kid");
   const calCells = buildCalCells(calYear, calMonth);
   const calToday = todayYmd();
-  const availableHours = selectedDate ? getKbfHours(selectedDate) : [];
+  // Derive unique hours + minutes from real QAMF availability
+  const availableHours = [...new Set(availableSlots.map((s) => s.hour))].sort((a, b) => a - b);
+  const availableMinutes = selectedHour !== null
+    ? [...new Set(availableSlots.filter((s) => s.hour === selectedHour).map((s) => s.minute))].sort((a, b) => a - b)
+    : [];
   const canSubmit =
     selectedCount > 0 &&
     hasKid &&
@@ -773,6 +819,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
                         setSelectedDate(ymd);
                         setSelectedHour(null);
                         setSelectedMinute(null);
+                        fetchAvailability(ymd);
                       }}
                       disabled={!bookable || isPast}
                       style={{
@@ -792,15 +839,22 @@ export default function KbfAdminClient({ token }: { token: string }) {
                 })}
               </div>
 
+              {/* Loading availability */}
+              {selectedDate && slotsLoading && (
+                <div style={{ marginTop: 10, fontSize: 13, color: "#9ca3af" }}>
+                  Loading available times…
+                </div>
+              )}
+
               {/* No available times */}
-              {selectedDate && availableHours.length === 0 && (
+              {selectedDate && !slotsLoading && availableHours.length === 0 && (
                 <div style={{ marginTop: 10, fontSize: 13, color: "#f87171" }}>
                   No available start times for this date.
                 </div>
               )}
 
               {/* Hour chips */}
-              {selectedDate && availableHours.length > 0 && (
+              {selectedDate && !slotsLoading && availableHours.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
                     Start Time
@@ -826,14 +880,14 @@ export default function KbfAdminClient({ token }: { token: string }) {
                 </div>
               )}
 
-              {/* Minute chips */}
-              {selectedHour !== null && (
+              {/* Minute chips — only minutes QAMF has availability for */}
+              {selectedHour !== null && availableMinutes.length > 0 && (
                 <div style={{ marginTop: 10 }}>
                   <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
                     Minutes
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
-                    {[0, 15, 30, 45].map((m) => (
+                    {availableMinutes.map((m) => (
                       <button
                         key={m}
                         onClick={() => setSelectedMinute(m)}
