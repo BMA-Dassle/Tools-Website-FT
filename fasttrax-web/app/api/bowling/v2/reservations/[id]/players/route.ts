@@ -135,6 +135,14 @@ export async function PATCH(
     return NextResponse.json({ error: "reservation not found" }, { status: 404 });
   }
 
+  // ── Block modifications after lanes are open ──────────────────────────────
+  if (reservation.dayofOrderLane) {
+    return NextResponse.json(
+      { error: "Shoes cannot be changed after lanes have been opened." },
+      { status: 409 },
+    );
+  }
+
   // ── Validate shoe sizes ≤ shoe pairs purchased ────────────────────────────
   const { players: currentPlayers, shoePairsAllowed } =
     await getReservationPlayersWithShoeAllowance(id);
@@ -234,7 +242,7 @@ export async function PATCH(
           };
         };
         const sqOrder = sqOrderJson.order;
-        if (sqOrder && sqOrder.state !== "CANCELED") {
+        if (sqOrder && sqOrder.state !== "CANCELED" && sqOrder.state !== "COMPLETED") {
           // Remove existing shoe-size KDS items, then add current set
           const existingShoeUids = (sqOrder.line_items ?? [])
             .filter((li) => li.catalog_object_id === SHOE_KDS_CATALOG_ID)
