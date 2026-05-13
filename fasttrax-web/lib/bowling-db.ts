@@ -1222,6 +1222,50 @@ export async function getFutureKbfReservationByEmail(
 }
 
 /**
+ * Returns KBF pass-member pairs that already have a non-cancelled KBF
+ * reservation on the given date (ET local). Used to enforce the
+ * "2 free games per person per day" cap at booking time.
+ *
+ * @param date  YYYY-MM-DD in America/New_York
+ * @param pairs Array of { passId, slot } from the selected bowlers
+ * @param excludeReservationId  Optional — exclude this reservation
+ *        (used by reschedule so moving from Mon→Tue doesn't block Mon)
+ * @returns Subset of pairs that have already redeemed on that date
+ */
+export async function getKbfRedeemedMembers(
+  date: string,
+  pairs: { passId: number; slot: number }[],
+  excludeReservationId?: number,
+): Promise<{ passId: number; slot: number }[]> {
+  if (!isDbConfigured()) return [];
+  if (pairs.length === 0) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+
+  // Build pairs array for SQL ANY match
+  const passIds = pairs.map((p) => p.passId);
+  const slots = pairs.map((p) => p.slot);
+
+  const rows = await q`
+    SELECT DISTINCT brp.kbf_pass_id AS pass_id, brp.kbf_member_slot AS slot
+    FROM bowling_reservation_players brp
+    JOIN bowling_reservations br ON br.id = brp.reservation_id
+    WHERE br.product_kind = 'kbf'
+      AND br.status NOT IN ('cancelled')
+      AND (br.booked_at AT TIME ZONE 'America/New_York')::date = ${date}::date
+      AND brp.kbf_pass_id = ANY(${passIds}::int[])
+      AND brp.kbf_member_slot = ANY(${slots}::int[])
+      ${excludeReservationId ? q`AND br.id != ${excludeReservationId}` : q``}
+  `;
+
+  // Filter to exact passId+slot pairs (the ANY match is per-column, not paired)
+  const pairSet = new Set(pairs.map((p) => `${p.passId}|${p.slot}`));
+  return (rows as { pass_id: number; slot: number }[]).filter((r) =>
+    pairSet.has(`${r.pass_id}|${r.slot}`),
+  ).map((r) => ({ passId: r.pass_id, slot: r.slot }));
+}
+
+/**
  * Update booked_at + qamf_reservation_id on an existing reservation after a
  * successful reschedule (old QAMF slot deleted, new one created).
  */

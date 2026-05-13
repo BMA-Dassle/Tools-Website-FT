@@ -9,7 +9,6 @@ import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import {
   bookableDateRange,
   isKbfBookableDate,
-  isKbfPreLaunchPeriod,
   KBF_PROGRAM_START_YMD,
 } from "@/lib/kbf-schedule";
 import {
@@ -611,7 +610,7 @@ export default function KidsBowlFreePage() {
   const [guestPhone, setGuestPhone] = useState("");
 
   // ── Derived ────────────────────────────────────────────────────
-  const preLaunch = useMemo(() => isKbfPreLaunchPeriod(), []);
+  const preLaunch = false; // Program is live — pre-launch period ended
   const dateOptions = useMemo(() => bookableDateRange(), []);
 
   // Does any pass have family-pass status? Drives whether the

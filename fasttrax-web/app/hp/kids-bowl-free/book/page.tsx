@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { isKbfPreLaunchPeriod, KBF_PROGRAM_START_YMD } from "@/lib/kbf-schedule";
+
 
 export const metadata: Metadata = {
   title: "Book Kids Bowl Free Lane | HeadPinz",
@@ -60,41 +60,12 @@ const steps = [
 ];
 
 export default function KBFBookPage() {
-  const preLaunch = isKbfPreLaunchPeriod();
   return (
     <div className="bg-[#0a1628]">
-      {preLaunch && (
-        <section className="px-4 pt-32 sm:pt-36">
-          <div className="max-w-3xl mx-auto">
-            <div
-              className="rounded-xl px-5 py-4 text-center"
-              style={{
-                backgroundColor: "rgba(255,215,0,0.08)",
-                border: "1.78px solid rgba(255,215,0,0.45)",
-              }}
-            >
-              <div
-                className="font-heading uppercase text-[11px] tracking-[3px] mb-1"
-                style={{ color: "#FFD700" }}
-              >
-                Special — Opening Day
-              </div>
-              <p className="font-body text-white/85 text-sm">
-                Reserve your spot for{" "}
-                <strong className="text-white">{KBF_PROGRAM_START_YMD}</strong>{" "}
-                right now. Normally Kids Bowl Free reservations open 48 hours in
-                advance — for opening day, we&apos;re lifting the cap so families
-                can lock in their lane today.
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* ====== HERO ====== */}
       <section
         className="relative flex flex-col items-center justify-center text-center px-4"
-        style={{ paddingTop: preLaunch ? "clamp(20px, 3vw, 40px)" : "clamp(120px, 18vw, 180px)", paddingBottom: "clamp(40px, 6vw, 60px)" }}
+        style={{ paddingTop: "clamp(120px, 18vw, 180px)", paddingBottom: "clamp(40px, 6vw, 60px)" }}
       >
         <div className="relative mb-4" style={{ width: "80px", height: "80px" }}>
           <Image src={`https://www.kidsbowlfree.com/img/kbf-logo-23.png`} alt="Kids Bowl Free" fill className="object-contain" sizes="80px" unoptimized />

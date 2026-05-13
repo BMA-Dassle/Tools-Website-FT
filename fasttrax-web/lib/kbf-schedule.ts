@@ -2,12 +2,9 @@
  * Kids Bowl Free schedule gate.
  *
  * KBF web offers are only bookable when ALL of these hold:
- *   - Day of week is Mon–Thu (open-to-close) or Fri (until 5pm)
+ *   - Day of week is Mon–Thu (11 AM – close) or Fri (11 AM – 5 PM)
  *   - Date is on or after the program start (`KBF_PROGRAM_START_YMD`)
- *   - Date is within the rolling booking window — today through
- *     today + `KBF_MAX_DAYS_AHEAD` days (inclusive). Booking any
- *     further out is blocked so families don't snipe slots weeks
- *     in advance.
+ *   - Date is Mon–Fri (no Sat/Sun)
  *
  * Both the date picker and the offers proxy import this so the gate
  * can't be bypassed by hand-crafting query params on /api/kbf/offers.
@@ -22,10 +19,12 @@ const ET_TIMEZONE = "America/New_York";
 /** First day the KBF program is bookable through this flow. */
 export const KBF_PROGRAM_START_YMD = "2026-05-14";
 
-/** Max number of days ahead a parent can book. 2 means today, +1, +2
- *  are all bookable. Centralized here so we can tune it without
- *  hunting through routes. */
-export const KBF_MAX_DAYS_AHEAD = 2;
+/** Last day of the KBF program (inclusive). */
+export const KBF_PROGRAM_END_YMD = "2026-08-28";
+
+/** How many calendar days of bookable dates to generate for the date
+ *  picker. 90 days gives ~65 weekdays. */
+const KBF_DATE_PICKER_HORIZON = 90;
 
 /** 0 = Sunday, 1 = Monday, ..., 6 = Saturday — the JS getDay()
  *  numbering used everywhere in the app. */
@@ -35,7 +34,7 @@ type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
  * Resolve the day-of-week (in ET) for a YYYY-MM-DD date string.
  * Anchor at noon UTC so DST rollovers can't bump the date by a day.
  */
-function dayOfWeekET(ymd: string): DayOfWeek {
+export function dayOfWeekET(ymd: string): DayOfWeek {
   // Build a canonical ET-local timestamp for the noon-of-day, then
   // ask Intl what weekday that lands on. Using `weekday: "short"` +
   // a hand-rolled map avoids any locale weirdness from `getDay()`
@@ -83,51 +82,11 @@ export function addDaysYmd(ymd: string, days: number): string {
 }
 
 /**
- * Pre-launch carve-out — while we're still before opening day, parents
- * can book the **opening week** (the first two bookable program days)
- * even though those dates are outside the normal 2-day rolling window.
- * One-time accommodation so the program isn't starved of reservations
- * during week one. The UI surfaces a banner that makes it clear this
- * is special and the regular rule is "48 hours in advance."
- *
- * Returns the list of YMD strings inside the opening-week window —
- * the program start day plus the next bookable (Mon–Fri) day. Sat/Sun
- * are skipped automatically so the second day is always actually
- * bookable.
- */
-export function kbfOpeningWeekDates(): string[] {
-  const days: string[] = [KBF_PROGRAM_START_YMD];
-  // Walk forward until we find the next Mon–Fri day, max 4 hops to
-  // guard against an infinite loop if the program-start date were
-  // ever set to a weekend.
-  let cursor = KBF_PROGRAM_START_YMD;
-  for (let i = 0; i < 4 && days.length < 2; i++) {
-    cursor = addDaysYmd(cursor, 1);
-    const dow = dayOfWeekET(cursor);
-    if (dow >= 1 && dow <= 5) days.push(cursor);
-  }
-  return days;
-}
-
-export function isKbfOpeningDayPreview(ymd: string, now: Date = new Date()): boolean {
-  if (todayKbfYmd(now) >= KBF_PROGRAM_START_YMD) return false;
-  return kbfOpeningWeekDates().includes(ymd);
-}
-
-/**
- * Is the parent currently in the pre-launch preview period (so the
- * UI should show "book opening day now" banner)?
- */
-export function isKbfPreLaunchPeriod(now: Date = new Date()): boolean {
-  return todayKbfYmd(now) < KBF_PROGRAM_START_YMD;
-}
-
-/**
  * Is this date eligible for any KBF booking at all?
  *
- * Combines the day-of-week filter, the program-start floor, the
- * rolling 2-day-ahead cap, and the pre-launch opening-day carve-out
- * into one check.
+ * Checks: valid YYYY-MM-DD, Mon–Fri, on/after program start, not
+ * in the past. No upper booking window — parents can book any
+ * future weekday.
  */
 export function isKbfBookableDate(ymd: string, now: Date = new Date()): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
@@ -136,42 +95,29 @@ export function isKbfBookableDate(ymd: string, now: Date = new Date()): boolean 
   const dow = dayOfWeekET(ymd);
   if (dow < 1 || dow > 5) return false;
 
-  // On or after program start
+  // On or after program start, on or before program end
   if (ymd < KBF_PROGRAM_START_YMD) return false;
+  if (ymd > KBF_PROGRAM_END_YMD) return false;
 
-  // Inside the rolling window [today, today + MAX_DAYS_AHEAD]
+  // Not in the past
   const today = todayKbfYmd(now);
   if (ymd < today) return false;
-
-  // Pre-launch carve-out — opening day is bookable even if it's
-  // further out than MAX_DAYS_AHEAD. Bypasses the upper cap.
-  if (isKbfOpeningDayPreview(ymd, now)) return true;
-
-  const lastBookable = addDaysYmd(today, KBF_MAX_DAYS_AHEAD);
-  if (ymd > lastBookable) return false;
 
   return true;
 }
 
 /**
  * The list of YMD strings a parent can pick today, in display
- * order. Filters out program-pre-start days, weekends, and
- * anything outside the rolling window — but always includes the
- * opening-week preview days if we're still before launch.
+ * order. Generates Mon–Fri dates from today through
+ * `KBF_DATE_PICKER_HORIZON` days out (skips weekends and
+ * pre-program dates automatically).
  */
 export function bookableDateRange(now: Date = new Date()): string[] {
   const today = todayKbfYmd(now);
   const result: string[] = [];
-  for (let i = 0; i <= KBF_MAX_DAYS_AHEAD; i++) {
+  for (let i = 0; i <= KBF_DATE_PICKER_HORIZON; i++) {
     const ymd = addDaysYmd(today, i);
     if (isKbfBookableDate(ymd, now)) result.push(ymd);
-  }
-  // Pre-launch: surface the entire opening-week window so parents can
-  // pick day 1 or day 2. Dedupe against the rolling-window output.
-  if (isKbfPreLaunchPeriod(now)) {
-    for (const ymd of kbfOpeningWeekDates()) {
-      if (!result.includes(ymd)) result.push(ymd);
-    }
   }
   return result;
 }
@@ -180,8 +126,8 @@ export function bookableDateRange(now: Date = new Date()): string[] {
  * Is this exact slot start time (ISO `YYYY-MM-DDTHH:mm`, ET local)
  * within the KBF window for that day?
  *
- *   Mon–Thu — any slot allowed (center hours enforced by QAMF).
- *   Fri     — slot must start strictly before 17:00 ET.
+ *   Mon–Thu — 11:00 AM to close (center close enforced by QAMF).
+ *   Fri     — 11:00 AM to 5:00 PM (must start before 17:00 ET).
  *   Sat/Sun — blocked.
  */
 export function isKbfBookableTime(isoLocal: string): boolean {
@@ -190,9 +136,10 @@ export function isKbfBookableTime(isoLocal: string): boolean {
   const ymd = ymdMatch[1];
   const hour = parseInt(ymdMatch[2], 10);
   const dow = dayOfWeekET(ymd);
-  if (dow === 0 || dow === 6) return false; // Sat/Sun
+  if (dow === 0 || dow === 6) return false;   // Sat/Sun
+  if (hour < 11) return false;                // Before 11 AM — all weekdays
   if (dow === 5) return hour < 17;            // Friday — last bookable hour is 16:xx
-  return true;                                // Mon–Thu
+  return true;                                // Mon–Thu 11 AM+
 }
 
 /**
@@ -205,15 +152,21 @@ export function kbfBookableReason(ymd: string, now: Date = new Date()): string |
   const dow = dayOfWeekET(ymd);
   if (dow === 0 || dow === 6) return "Kids Bowl Free is Mon–Fri only";
   if (ymd < KBF_PROGRAM_START_YMD) return `Kids Bowl Free starts ${KBF_PROGRAM_START_YMD}`;
+  if (ymd > KBF_PROGRAM_END_YMD) return `Kids Bowl Free ended ${KBF_PROGRAM_END_YMD}`;
   const today = todayKbfYmd(now);
   if (ymd < today) return "That date has already passed";
-  // Opening-day preview never fails the rolling-window check.
-  if (isKbfOpeningDayPreview(ymd, now)) return null;
-  const lastBookable = addDaysYmd(today, KBF_MAX_DAYS_AHEAD);
-  if (ymd > lastBookable) {
-    return `You can only book up to ${KBF_MAX_DAYS_AHEAD} days ahead`;
-  }
   return null;
+}
+
+/**
+ * The earliest hour-of-day a KBF reservation may start (11 AM ET).
+ * Returns 11 for Mon–Fri, -1 for Sat/Sun (no slots).
+ */
+export function kbfEarliestStartHour(ymd: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return -1;
+  const dow = dayOfWeekET(ymd);
+  if (dow === 0 || dow === 6) return -1;
+  return 11;
 }
 
 /**

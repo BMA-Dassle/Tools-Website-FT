@@ -5,7 +5,13 @@ import {
   patchReservation,
   setReservationStatus,
 } from "@/lib/qamf-bowling";
-import { buildQamfMemo, getBowlingReservation, updateReservationReschedule } from "@/lib/bowling-db";
+import {
+  buildQamfMemo,
+  getBowlingReservation,
+  getKbfRedeemedMembers,
+  getReservationPlayersWithShoeAllowance,
+  updateReservationReschedule,
+} from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 
@@ -93,6 +99,34 @@ export async function PATCH(
       { error: `unknown centerCode: ${existing.centerCode}` },
       { status: 400 },
     );
+  }
+
+  // ── KBF: per-day redemption check (exclude this reservation) ──────
+  if (existing.productKind === "kbf") {
+    const newDate = bookedAt.slice(0, 10);
+    try {
+      const { players: existingPlayers } = await getReservationPlayersWithShoeAllowance(neonId);
+      const kbfPairs = existingPlayers
+        .filter((p) => p.kbfPassId && p.kbfMemberSlot != null)
+        .map((p) => ({ passId: p.kbfPassId!, slot: p.kbfMemberSlot! }));
+      if (kbfPairs.length > 0) {
+        const redeemed = await getKbfRedeemedMembers(newDate, kbfPairs, neonId);
+        if (redeemed.length > 0) {
+          const names = redeemed.map((r) => {
+            const p = existingPlayers.find(
+              (pl) => pl.kbfPassId === r.passId && pl.kbfMemberSlot === r.slot,
+            );
+            return p?.name ?? "a bowler";
+          });
+          return NextResponse.json(
+            { error: `${names.join(", ")} already used their free games for ${newDate}.` },
+            { status: 409 },
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[bowling/v2/reschedule] redemption check failed (non-fatal):", err);
+    }
   }
 
   // ── Cancel BMI attraction bookings (best-effort) ──────────────────

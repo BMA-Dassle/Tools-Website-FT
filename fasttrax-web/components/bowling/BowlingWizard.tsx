@@ -315,6 +315,10 @@ interface BowlerSelection {
   kbfPassId?: number;
   kbfMemberSlot?: number;
   kbfRelation?: "kid" | "family";
+  /** True for paid adults (non-FBF account holder, non-FBF family, guest adults). */
+  isPaid?: boolean;
+  /** Editable name for manually-added guest adults. */
+  isGuestAdult?: boolean;
 }
 
 interface AvailabilitySlot {
@@ -953,12 +957,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     (s, a) => s + Math.round(a.totalPrice * 100), 0,
   );
 
+  // KBF adult game charges: $5/game Mon–Thu, $6/game Fri, 2 games/session, 100% deposit.
+  // Server re-derives pricing independently — this drives deposit display + payment step gating.
+  const kbfPaidAdultCount = kind === "kbf" ? kbfBowlers.filter((b) => b.isPaid).length : 0;
+  const kbfAdultPerGameCents = (() => {
+    if (!selectedDate || kbfPaidAdultCount === 0) return 0;
+    const dow = new Date(`${selectedDate}T12:00:00`).getDay();
+    return dow === 5 ? 600 : 500;
+  })();
+  const kbfAdultGameCents = kbfPaidAdultCount * kbfAdultPerGameCents * 2; // 2 games/session
+
   // Booking fee: $2.99 on every non-$0 reservation (100% deposit)
-  const hasBookingFee = (basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents) > 0;
+  const hasBookingFee = (basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + kbfAdultGameCents) > 0;
   const bookingFeeCents = hasBookingFee ? BOOKING_FEE_CENTS : 0;
 
-  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + bookingFeeCents;
-  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents + bookingFeeCents;
+  const preTaxTotalCents   = basePreTaxTotal + shoePreTaxTotal + extraToppingsCents + attractionPreTaxCents + kbfAdultGameCents + bookingFeeCents;
+  const preTaxDepositCents = basePreTaxDeposit + shoePreTaxDeposit + extraToppingsCents + attractionPreTaxCents + kbfAdultGameCents + bookingFeeCents;
 
   // Use Square's tax-inclusive quote once loaded.
   // Extra toppings are added to the quote (Square doesn't know about them).
@@ -1518,23 +1532,35 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       if (!p) throw new Error("No pass found for this account.");
       setPass(p);
 
-      const selections: BowlerSelection[] = (p.members ?? []).map((m) => ({
-        key: `${m.relation}:${m.passId}:${m.slot}`,
-        displayName: `${m.firstName} ${m.lastName}`,
-        relation: m.relation,
-        selected: true,
-        wantBumpers: m.prefs?.wantBumpers ?? true,
-        kbfPassId: m.passId,
-        kbfMemberSlot: m.slot,
-        kbfRelation: m.relation,
-      }));
-      selections.unshift({
-        key: "parent",
-        displayName: `${p.firstName} ${p.lastName}`,
-        relation: "parent",
-        selected: false,
-        wantBumpers: false,
-      });
+      // Build bowler list: kids are always free. Adults are free only
+      // when the account has Families Bowl Free (fpass). Non-FBF adults
+      // are excluded from the free list — they can be added as paid
+      // adults ($5/$6 per game) via the "Add Adult" button.
+      const hasFbf = p.fpass === true;
+      const selections: BowlerSelection[] = (p.members ?? [])
+        .filter((m) => m.relation === "kid" || hasFbf)
+        .map((m) => ({
+          key: `${m.relation}:${m.passId}:${m.slot}`,
+          displayName: `${m.firstName} ${m.lastName}`,
+          relation: m.relation,
+          selected: m.relation === "kid", // auto-select kids, not adults
+          wantBumpers: m.prefs?.wantBumpers ?? true,
+          kbfPassId: m.passId,
+          kbfMemberSlot: m.slot,
+          kbfRelation: m.relation,
+          isPaid: false,
+        }));
+      // Account holder: free if FBF, otherwise not in the free list
+      if (hasFbf) {
+        selections.unshift({
+          key: "parent",
+          displayName: `${p.firstName} ${p.lastName}`,
+          relation: "parent",
+          selected: false,
+          wantBumpers: false,
+          isPaid: false,
+        });
+      }
       setBowlerSelections(selections);
       setGuestName(`${p.firstName} ${p.lastName}`);
       setGuestEmail(p.email);
@@ -1965,12 +1991,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 kbfPassId: b.kbfPassId ?? null,
                 kbfMemberSlot: b.kbfMemberSlot ?? null,
                 kbfRelation: b.kbfRelation ?? null,
+                isPaidAdult: b.isPaid === true,
               }))
             : Array.from({ length: playerCount }, (_, i) => ({ name: `Bowler ${i + 1}` }));
 
+        const kbfPaidCount = kind === "kbf" ? kbfBowlers.filter((b) => b.isPaid).length : 0;
         const notes =
           kind === "kbf"
-            ? `${pass?.fpass ? "Families Bowl Free" : "Kids Bowl Free"} - ${kbfBowlers.map((b) => b.displayName).join(" - ")}. Coupons verified online.`
+            ? `${pass?.fpass ? "Families Bowl Free" : "Kids Bowl Free"} - ${kbfBowlers.map((b) => b.displayName).join(" - ")}${kbfPaidCount > 0 ? `. ${kbfPaidCount} paid adult(s)` : ""}. Coupons verified online.`
             : undefined;
 
         const res = await fetch("/api/bowling/v2/reserve", {
@@ -2463,8 +2491,19 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </div>
 
                 <p className="font-body text-white/45 text-xs text-center leading-relaxed">
-                  Kids Bowl Free allows one active reservation at a time. Change the date &amp; time, or cancel to start a new booking.
+                  Kids Bowl Free allows one active reservation at a time. View your booking details, change the date &amp; time, or cancel to start fresh.
                 </p>
+
+                {ex.shortCode && (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`${confirmationBase}?code=${ex.shortCode}`)}
+                    className="w-full rounded-full px-6 py-3.5 font-body font-bold text-sm uppercase tracking-wider"
+                    style={{ backgroundColor: "transparent", border: `1.78px solid ${CORAL}80`, color: CORAL }}
+                  >
+                    View My Reservation
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -2660,14 +2699,40 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           ═══════════════════════════════════════════════════════ */}
           {step === "bowlers" && kind === "kbf" && (() => {
             const KBF_BLUE = "#4fa3e0";
+            const AMBER = "#f59e0b";
             const hasFamilyPass = pass?.fpass ?? false;
             const anyKidSelected = bowlerSelections.some((b) => b.relation === "kid" && b.selected);
             const bowlerCount = kbfBowlers.length;
 
-            const relationLabel = (rel: BowlerSelection["relation"]) => {
-              if (rel === "parent") return hasFamilyPass ? "Family Pass Adult" : "Account holder";
-              if (rel === "kid") return "Kids Bowl Free";
-              return "Family Pass Adult";
+            // Day-dependent adult game pricing: $5/game Mon–Thu, $6/game Fri
+            const selectedDow = selectedDate ? new Date(`${selectedDate}T12:00:00`).getDay() : 1;
+            const perGameRate = selectedDow === 5 ? 6 : 5;
+            const gamesPerSession = 2;
+            const adultSessionPrice = perGameRate * gamesPerSession;
+
+            const paidAdults = bowlerSelections.filter((b) => b.isPaid && b.selected);
+            const adultGameTotal = paidAdults.length * adultSessionPrice;
+
+            const relationLabel = (b: BowlerSelection) => {
+              if (b.isPaid) return `$${perGameRate}/game × 2 games`;
+              if (b.relation === "kid") return "Free";
+              if (hasFamilyPass) return "Free · Families Bowl Free";
+              return "Account holder";
+            };
+
+            // Helper to add a guest adult
+            const addGuestAdult = (name?: string) => {
+              const idx = bowlerSelections.filter((b) => b.isGuestAdult).length + 1;
+              const newAdult: BowlerSelection = {
+                key: `guest-adult-${Date.now()}-${idx}`,
+                displayName: name || "",
+                relation: "parent",
+                selected: true,
+                wantBumpers: false,
+                isPaid: true,
+                isGuestAdult: true,
+              };
+              setBowlerSelections((prev) => [...prev, newAdult]);
             };
 
             return (
@@ -2681,10 +2746,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </div>
 
                 <p className="font-body text-white/65 text-sm leading-relaxed">
-                  Check who&apos;s bowling today. At least one registered kid is required.
+                  {hasFamilyPass
+                    ? "Everyone on your Families Bowl Free pass bowls free! Select who’s coming."
+                    : "Registered kids bowl free. Adults can be added for " + (perGameRate === 6 ? "$6" : "$5") + "/game (2 games)."}
+                  {" "}At least one kid is required.
                 </p>
 
-                {bowlerSelections.map((b, i) => {
+                {/* ── Free bowlers (kids + FBF adults) ── */}
+                {bowlerSelections.filter((b) => !b.isPaid).map((b, _i) => {
+                  const idx = bowlerSelections.indexOf(b);
                   const isAdult = b.relation !== "kid";
                   const adultLocked = isAdult && !anyKidSelected;
                   const accent = isAdult ? KBF_BLUE : CORAL;
@@ -2696,7 +2766,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       onClick={() => {
                         if (adultLocked) return;
                         const updated = [...bowlerSelections];
-                        updated[i] = { ...b, selected: !b.selected };
+                        updated[idx] = { ...b, selected: !b.selected };
                         setBowlerSelections(updated);
                       }}
                       className="w-full rounded-xl text-left flex items-center gap-3 px-4 py-3.5 transition-all disabled:cursor-not-allowed"
@@ -2713,7 +2783,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       <div className="flex-1 min-w-0">
                         <div className="text-white font-semibold text-sm truncate">{b.displayName}</div>
                         <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full mt-0.5" style={{ backgroundColor: `${accent}22`, color: accent }}>
-                          {relationLabel(b.relation)}
+                          {relationLabel(b)}
                         </span>
                       </div>
                       <div className="text-[10px] uppercase tracking-[2px] font-bold px-3 py-1.5 rounded-full shrink-0" style={{ backgroundColor: b.selected ? `${accent}26` : "rgba(255,255,255,0.06)", color: b.selected ? accent : "rgba(255,255,255,0.45)", border: b.selected ? `1px solid ${accent}80` : "1px solid rgba(255,255,255,0.10)" }}>
@@ -2723,18 +2793,113 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   );
                 })}
 
+                {/* ── Adult game section (paid adults) ── */}
+                {bowlerSelections.filter((b) => b.isPaid).length > 0 && (
+                  <div className="pt-2">
+                    <div className="font-body text-white/40 text-[10px] uppercase tracking-[2px] mb-2">
+                      Adult games · ${perGameRate}/game × {gamesPerSession} games
+                    </div>
+                    {bowlerSelections.filter((b) => b.isPaid).map((b) => {
+                      const idx = bowlerSelections.indexOf(b);
+                      return (
+                        <div
+                          key={b.key}
+                          className="w-full rounded-xl flex items-center gap-3 px-4 py-3.5 mb-2 transition-all"
+                          style={{
+                            backgroundColor: b.selected ? `${AMBER}12` : "rgba(255,255,255,0.025)",
+                            border: `1.78px solid ${b.selected ? `${AMBER}60` : "rgba(255,255,255,0.10)"}`,
+                          }}
+                        >
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center font-heading font-black text-sm shrink-0" style={{ backgroundColor: `${AMBER}22`, color: AMBER, border: `1.78px solid ${AMBER}55` }}>
+                            {b.displayName ? b.displayName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "+"}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            {b.isGuestAdult ? (
+                              <input
+                                type="text"
+                                placeholder="Adult name"
+                                value={b.displayName}
+                                onChange={(e) => {
+                                  const updated = [...bowlerSelections];
+                                  updated[idx] = { ...b, displayName: e.target.value };
+                                  setBowlerSelections(updated);
+                                }}
+                                className="w-full bg-transparent text-white font-semibold text-sm border-none outline-none placeholder:text-white/30"
+                              />
+                            ) : (
+                              <div className="text-white font-semibold text-sm truncate">{b.displayName}</div>
+                            )}
+                            <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full mt-0.5" style={{ backgroundColor: `${AMBER}22`, color: AMBER }}>
+                              ${adultSessionPrice} · {gamesPerSession} games
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setBowlerSelections((prev) => prev.filter((_, j) => j !== idx))}
+                            className="text-white/30 hover:text-white/60 text-lg font-bold px-1 shrink-0"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* ── Add Adult buttons ── */}
+                <div className="flex gap-2">
+                  {!hasFamilyPass && pass && !bowlerSelections.some((b) => b.isPaid && !b.isGuestAdult && b.displayName === `${pass.firstName} ${pass.lastName}`) && (
+                    <button
+                      type="button"
+                      disabled={!anyKidSelected}
+                      onClick={() => {
+                        if (!anyKidSelected) return;
+                        const parentName = `${pass.firstName} ${pass.lastName}`;
+                        setBowlerSelections((prev) => [...prev, {
+                          key: `paid-parent-${Date.now()}`,
+                          displayName: parentName,
+                          relation: "parent",
+                          selected: true,
+                          wantBumpers: false,
+                          isPaid: true,
+                          isGuestAdult: false,
+                        }]);
+                      }}
+                      className="flex-1 rounded-xl px-3 py-3 font-body text-xs uppercase tracking-wider text-center transition-all disabled:opacity-40"
+                      style={{ backgroundColor: `${AMBER}10`, border: `1.5px dashed ${AMBER}50`, color: AMBER }}
+                    >
+                      Add yourself · ${adultSessionPrice}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!anyKidSelected}
+                    onClick={() => {
+                      if (!anyKidSelected) return;
+                      addGuestAdult();
+                    }}
+                    className="flex-1 rounded-xl px-3 py-3 font-body text-xs uppercase tracking-wider text-center transition-all disabled:opacity-40"
+                    style={{ backgroundColor: "rgba(255,255,255,0.03)", border: "1.5px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.55)" }}
+                  >
+                    + Add adult · ${adultSessionPrice}
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
                     if (bowlerCount === 0) { setError("Select at least one bowler"); return; }
                     if (!anyKidSelected) { setError("At least one kid must be bowling"); return; }
+                    // Validate paid adult names
+                    const unnamed = bowlerSelections.filter((b) => b.isPaid && b.selected && !b.displayName.trim());
+                    if (unnamed.length > 0) { setError("Please enter a name for each adult"); return; }
                     setError(null);
                     setStep("slots");
                   }}
                   className="w-full rounded-full px-4 sm:px-6 py-3.5 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white whitespace-nowrap"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
-                  Continue — {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}
+                  Continue — {bowlerCount} bowler{bowlerCount === 1 ? "" : "s"}{adultGameTotal > 0 ? ` · $${adultGameTotal}` : ""}
                 </button>
                 <button type="button" onClick={() => setStep("verify")} className="w-full font-body text-white/35 text-sm">← Back</button>
               </div>
@@ -3985,6 +4150,19 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     )}
                   </div>
                 ))}
+
+                {/* KBF adult game charges (non-FBF adults pay per game) */}
+                {kbfAdultGameCents > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="font-body text-white/55">
+                      Adult games
+                      <span className="text-white/35"> × {kbfPaidAdultCount} · {kbfAdultPerGameCents === 600 ? "$6" : "$5"}/game</span>
+                    </span>
+                    <span className="font-body font-bold" style={{ color: "#f59e0b" }}>
+                      {centsToDollars(kbfAdultGameCents)}
+                    </span>
+                  </div>
+                )}
 
                 {/* Booking fee line */}
                 {hasBookingFee && (

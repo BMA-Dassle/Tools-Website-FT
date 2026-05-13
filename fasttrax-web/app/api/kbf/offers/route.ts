@@ -237,8 +237,13 @@ export async function GET(req: NextRequest) {
       })
       .filter((o) => (o.Items?.length ?? 0) > 0);
 
+    // Adult game pricing: $5/game Mon–Thu, $6/game Fri. 2 games per session.
+    // The wizard uses these to display the per-game rate for paid adults.
+    const dow = new Date(`${date}T12:00:00`).getDay();
+    const adultGamePrice = dow === 5 ? 6 : 5;
+
     return NextResponse.json(
-      { offers: kbfOffers, date },
+      { offers: kbfOffers, date, adultGamePrice, gamesPerSession: 2 },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

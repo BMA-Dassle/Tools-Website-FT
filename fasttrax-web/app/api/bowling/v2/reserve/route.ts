@@ -9,6 +9,7 @@ import {
 } from "@/lib/qamf-bowling";
 import {
   getBowlingSquareProduct,
+  getKbfRedeemedMembers,
   insertBowlingReservation,
   insertReservationPlayers,
   updateBowlingReservationShortCode,
@@ -74,6 +75,15 @@ const CENTER_GAN_PREFIX: Record<string, string> = {
   PPTR5G2N0QXF7: "HPN",
 };
 
+/**
+ * KBF adult game Square catalog variation tokens.
+ * Mon–Thu = $5/game, Fri = $6/game. 2 games per session.
+ * Source: Game Bowling.xlsx
+ */
+const ADULT_GAME_CATALOG_MON_THU = "55HD24QD6W2D5566EATRXIO4";
+const ADULT_GAME_CATALOG_FRI     = "PS37ALSQJQTTK7FSWFTROQ36";
+const KBF_GAMES_PER_SESSION      = 2;
+
 const QAMF_CENTER_ID_TO_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
@@ -87,6 +97,8 @@ interface Player {
   kbfPassId?: number | null;
   kbfMemberSlot?: number | null;
   kbfRelation?: "kid" | "family" | null;
+  /** True for paid adults in KBF bookings (non-FBF adults / guest adults). */
+  isPaidAdult?: boolean;
 }
 
 interface LineItemRequest {
@@ -268,6 +280,37 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Determine product kind ──────────────────────────────────────
+  // Moved above totals so adult game charges are included in payment validation.
+  const productKind: "kbf" | "open" =
+    body.kind === "kbf" ? "kbf"
+    : body.kind === "open" ? "open"
+    : players.some((p) => p.kbfPassId) ? "kbf"
+    : "open";
+
+  // ── KBF: adult game pricing (server-side — never trust client) ───
+  // Kids Bowl Free = kids bowl free, adults pay per game.
+  // Families Bowl Free = everyone bowls free (no paid adults).
+  const paidAdultCount = productKind === "kbf"
+    ? players.filter((p) => p.isPaidAdult).length
+    : 0;
+  const bookedDateYmd = bookedAt.slice(0, 10); // YYYY-MM-DD
+  const bookedDow = new Date(`${bookedDateYmd}T12:00:00`).getDay();
+  const adultPerGameCents = bookedDow === 5 ? 600 : 500;        // $6 Fri, $5 Mon–Thu
+  const adultGameTotalCents = paidAdultCount * adultPerGameCents * KBF_GAMES_PER_SESSION;
+  const adultGameCatalogId = bookedDow === 5 ? ADULT_GAME_CATALOG_FRI : ADULT_GAME_CATALOG_MON_THU;
+  const adultGameLabel = bookedDow === 5 ? "Adult Game Fri-Sun" : "Adult Game Mon-Thur";
+
+  if (adultGameTotalCents > 0) {
+    // Track in reservation lines for Neon reporting.
+    reservationLines.push({
+      squareProductId: 0, // ad-hoc — not from bowling_square_products table
+      label: adultGameLabel,
+      quantity: paidAdultCount * KBF_GAMES_PER_SESSION,
+      unitPriceCents: adultPerGameCents,
+    });
+  }
+
   // Booking fee: $2.99, 100% deposit, catalog item 7VKAFU3HDPRSKY7ZB6CKXTRW
   const BOOKING_FEE_CENTS = 299;
   const BOOKING_FEE_CATALOG_ID = "7VKAFU3HDPRSKY7ZB6CKXTRW";
@@ -278,13 +321,14 @@ export async function POST(req: NextRequest) {
     (s, { product, quantity }) => s + product.priceCents * quantity,
     0,
   );
-  const preTaxTotalCents = productTotal + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
+  // Adult game charges are 100% deposit (pay upfront, no day-of split).
+  const preTaxTotalCents = productTotal + adultGameTotalCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
   const productDeposit = productItems.reduce(
     (s, { product, quantity }) =>
       s + Math.round(product.priceCents * quantity * (product.depositPct / 100)),
     0,
   );
-  const preTaxDepositCents = productDeposit + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
+  const preTaxDepositCents = productDeposit + adultGameTotalCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
 
   // Weighted-average deposit % across all line items — passed to bowling-orders
   // so it can apply the same proportion to the tax-inclusive total.
@@ -304,14 +348,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Determine product kind ──────────────────────────────────────
-  // Prefer the explicit kind from the request body. Fall back to inferring
-  // from players (KBF players carry kbfPassId). Default to 'open'.
-  const productKind: "kbf" | "open" =
-    body.kind === "kbf" ? "kbf"
-    : body.kind === "open" ? "open"
-    : players.some((p) => p.kbfPassId) ? "kbf"
-    : "open";
+  // ── KBF: per-day redemption cap (2 free games = 1 session/day) ──
+  if (productKind === "kbf") {
+    const kbfPairs = players
+      .filter((p) => p.kbfPassId && p.kbfMemberSlot != null && !p.isPaidAdult)
+      .map((p) => ({ passId: p.kbfPassId!, slot: p.kbfMemberSlot! }));
+    if (kbfPairs.length > 0) {
+      const bookedDate = body.bookedAt.slice(0, 10); // YYYY-MM-DD
+      try {
+        const alreadyRedeemed = await getKbfRedeemedMembers(bookedDate, kbfPairs);
+        if (alreadyRedeemed.length > 0) {
+          const names = alreadyRedeemed.map((r) => {
+            const p = players.find(
+              (pl) => pl.kbfPassId === r.passId && pl.kbfMemberSlot === r.slot,
+            );
+            return p?.name ?? "a bowler";
+          });
+          return NextResponse.json(
+            {
+              error: `${names.join(", ")} already used their free games for ${bookedDate}. Remove them or add them as paid adults.`,
+            },
+            { status: 409 },
+          );
+        }
+      } catch (err) {
+        console.error("[bowling/v2/reserve] redemption check failed (non-fatal):", err);
+        // Continue — don't block booking on a failed check
+      }
+    }
+  }
 
   // ── Build QAMF option object ────────────────────────────────────
   const optionType = body.optionType ?? "Game";
@@ -534,7 +599,8 @@ export async function POST(req: NextRequest) {
     // Build Square line items, passing through catalog IDs, modifier selections, and notes.
     // lineItems (from the request body) carry modifier arrays keyed by squareProductId.
     const sqLineItems = [
-      ...reservationLines.map((l) => {
+      // Product-backed lines (from bowling_square_products table)
+      ...reservationLines.filter((l) => l.squareProductId !== 0).map((l) => {
         const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
         const reqItem  = lineItems.find((li) => li.squareProductId === l.squareProductId);
         return {
@@ -553,6 +619,15 @@ export async function POST(req: NextRequest) {
           ...(reqItem?.note ? { note: reqItem.note } : {}),
         };
       }),
+      // KBF paid adult game charges — catalog-linked for Square reporting
+      ...(adultGameTotalCents > 0
+        ? [{
+            name: adultGameLabel,
+            quantity: String(paidAdultCount * KBF_GAMES_PER_SESSION),
+            basePriceMoney: { amount: adultPerGameCents, currency: "USD" as const },
+            catalogObjectId: adultGameCatalogId,
+          }]
+        : []),
       // $0 pass-through items (Pizza Bowl Pizza, Soda Pitcher) — not in Neon but
       // must appear as separate Square order line items with modifier selections.
       // Only used in the fallback path; primary path uses the pre-created dayofOrderId.
