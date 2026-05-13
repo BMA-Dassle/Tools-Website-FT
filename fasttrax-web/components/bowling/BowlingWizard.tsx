@@ -3363,6 +3363,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 )}
                               </div>
                               <p className="font-body text-white/55 text-sm mb-3">{tier.subtitle}</p>
+                              {kind === "kbf" && tier.id === "vip" && (
+                                <p className="font-body text-xs mb-3 -mt-1" style={{ color: GOLD }}>
+                                  +$1/game per person VIP upcharge · bowling is still free
+                                </p>
+                              )}
                               <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4">
                                 {tier.features.map((f) => (
                                   <span key={f} className="flex items-center gap-1.5">
@@ -3539,8 +3544,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     const baseItemCents = (baseItem?.priceCents ?? 0) * (baseItem?.quantity ?? 1);
                     const baseTotalCents = exp.items.reduce((s, i) => s + i.priceCents * i.quantity, 0);
 
-                    // For KBF with no items it's free
-                    const isFree = exp.items.length === 0 && kind === "kbf";
+                    // KBF base bowling is free, but VIP adds $1/person/game upcharge
+                    const isKbfFree = exp.items.length === 0 && kind === "kbf";
+                    const isFree = isKbfFree && !exp.isVip;
+                    const isKbfVip = isKbfFree && exp.isVip;
+                    // VIP upcharge: $1/game × 2 games × all bowlers
+                    const kbfVipPerBowlerCents = 200; // $1/game × 2 games
+                    const kbfVipTotalCents = isKbfVip ? activePlayerCount * kbfVipPerBowlerCents : 0;
                     // Specials (open kind) = Fun 4 All, Pizza Bowl, Midnight Madness
                     const isSpecial = exp.kind === "open";
 
@@ -3662,23 +3672,29 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 </div>
                               ) : null
                             ) : (
-                              /* 'open' kind (Fun 4 All / Pizza Bowl) */
+                              /* 'open' kind (Fun 4 All / Pizza Bowl / KBF) */
                               hasSlots && (
                                 <div>
                                   {/* Price row */}
                                   <div className="flex items-baseline gap-2 mb-3">
                                     <span className="font-heading text-2xl font-bold" style={{ color: accent }}>
-                                      {isFree
-                                        ? "Free"
-                                        : centsToDollars(isPerLane ? baseTotalCents : baseTotalCents * activePlayerCount)}
+                                      {isKbfVip
+                                        ? centsToDollars(kbfVipTotalCents)
+                                        : isFree
+                                          ? "Free"
+                                          : centsToDollars(isPerLane ? baseTotalCents : baseTotalCents * activePlayerCount)}
                                     </span>
-                                    {!isFree && (
+                                    {isKbfVip ? (
+                                      <span className="font-body text-white/40 text-sm">
+                                        $1/game × 2 games × {activePlayerCount} {activePlayerCount === 1 ? "bowler" : "bowlers"}
+                                      </span>
+                                    ) : !isFree ? (
                                       <span className="font-body text-white/40 text-sm">
                                         {isPerLane
                                           ? "per lane"
                                           : `${centsToDollars(baseTotalCents)}/person`}
                                       </span>
-                                    )}
+                                    ) : null}
                                   </div>
                                   {/* Time chips */}
                                   <div className="flex flex-wrap gap-2">
