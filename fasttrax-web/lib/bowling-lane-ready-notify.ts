@@ -95,27 +95,75 @@ function buildEmailHtml(
   checkinLink: string,
 ): string {
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;padding:24px;">
-<tr><td style="text-align:center;padding-bottom:20px;">
-  <img src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/headpinz-logo-white-CgWYpNqb4lmSJrfHdvXQPMa1WNUjqU.png" alt="HeadPinz" width="160" style="display:inline-block;">
-</td></tr>
-<tr><td style="background:#141414;border-radius:12px;padding:28px 24px;border:1px solid rgba(255,255,255,0.06);">
-  <h1 style="margin:0 0 8px;font-size:22px;color:#ffffff;text-align:center;">Your Lane is Ready!</h1>
-  <p style="margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:14px;text-align:center;line-height:1.5;">
-    Hey ${guestName}! Your lane at <strong style="color:#ffffff;">${centerName}</strong> is set up and waiting for you.
-  </p>
-  <p style="margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:14px;text-align:center;line-height:1.5;">
-    Check in from your phone to skip the line, or head to Guest Services when you arrive.
-  </p>
-  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-    <a href="${checkinLink}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#ffffff;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:0.5px;">Check In Now</a>
-  </td></tr></table>
-</td></tr>
-<tr><td style="text-align:center;padding-top:16px;">
-  <p style="margin:0;color:rgba(255,255,255,0.2);font-size:11px;">HeadPinz Entertainment — Part of FastTrax Entertainment</p>
-</td></tr>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+  <style type="text/css">
+    :root { color-scheme: light; supported-color-schemes: light; }
+    body { margin: 0; padding: 0; background-color: #F2F3F5; -webkit-text-size-adjust: 100%; }
+  </style>
+</head>
+<body style="margin:0; padding:0; background-color:#F2F3F5;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F3F5;">
+<tr>
+<td align="center" style="padding: 20px 10px;">
+
+<table width="600" cellpadding="0" cellspacing="0" style="background-color:#FFFFFF; border-radius:8px; overflow:hidden; border: 1px solid #E0E0E0;">
+
+<!-- HEADER LOGOS -->
+<tr>
+<td style="padding: 24px 40px; background-color: #000418;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="left" width="50%">
+  <img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/hp_logo%201.png" width="130" alt="HeadPinz" style="height:auto;" />
+</td>
+<td align="right" width="50%">
+  <img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png" width="130" alt="FastTrax" style="height:auto;" />
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- HEADLINE -->
+<tr>
+<td align="center" style="padding: 28px 40px 12px 40px; font-family: Arial, sans-serif;">
+<h1 style="margin: 0 0 8px 0; font-size: 24px; color: #1A1A1A; letter-spacing: 1px; text-transform: uppercase;">
+  Your Lane is Ready!
+</h1>
+</td>
+</tr>
+
+<!-- BODY -->
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<p style="margin: 0 0 16px; font-size: 15px; color: #333333; line-height: 1.6; text-align: center;">
+  Hey ${guestName}! Your lane at <strong>${centerName}</strong> is set up and waiting for you.
+</p>
+<p style="margin: 0 0 24px; font-size: 15px; color: #333333; line-height: 1.6; text-align: center;">
+  Check in and open your lane right from your phone — no need to wait in line!
+</p>
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+  <a href="${checkinLink}" style="display:inline-block;padding:14px 32px;background-color:#004AAD;color:#FFFFFF;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase;">Check In Now</a>
+</td></tr></table>
+</td>
+</tr>
+
+<!-- FOOTER -->
+<tr>
+<td style="padding: 16px 40px; border-top: 1px solid #E0E0E0;">
+<p style="margin:0;color:#999999;font-size:11px;text-align:center;font-family:Arial,sans-serif;">HeadPinz Entertainment &mdash; Part of FastTrax Entertainment</p>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
 </table>
 </body></html>`;
 }
@@ -147,7 +195,7 @@ export async function sendLaneReadyNotification(
   const shortCode = await shortenUrl(rawPath);
   const checkinLink = `${SITE_URL}/s/${shortCode}`;
   // Don't include lane number — guests will walk to it before staff is ready
-  const lanePart = " Your lane is ready!";
+  const lanePart = " Your lane is ready! Check in and open your lane right from your phone!";
 
   let emailOk = false;
   let smsOk = false;
@@ -170,7 +218,7 @@ export async function sendLaneReadyNotification(
     try {
       const normalized = normalizePhone(reservation.guestPhone);
       if (normalized.length >= 10) {
-        const smsBody = `HeadPinz:${lanePart} Check in now: ${checkinLink}`;
+        const smsBody = `HeadPinz:${lanePart} ${checkinLink}`;
         smsOk = await sendSms(normalized, smsBody, center.smsFrom);
       }
     } catch (err) {
