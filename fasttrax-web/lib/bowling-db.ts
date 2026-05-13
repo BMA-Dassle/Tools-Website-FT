@@ -510,8 +510,8 @@ export interface BowlingReservation {
   preArrivalSentAt?: string;
   /** ISO timestamp when the lane-ready SMS/email was sent (lanes physically ready). */
   laneReadySentAt?: string;
-  /** Booking origin: "web" (headpinz.com), "kiosk" (K-prefix), "conqueror" (C-prefix staff POS). Defaults to "web". */
-  bookingSource?: "web" | "kiosk" | "conqueror";
+  /** Booking origin: "web" (headpinz.com), "kiosk" (K-prefix), "conqueror" (C-prefix staff POS), "admin" (staff KBF admin). Defaults to "web". */
+  bookingSource?: "web" | "kiosk" | "conqueror" | "admin";
   /** Square customer ID — links to loyalty account for point accrual on day-of order. */
   squareCustomerId?: string;
   /** Square Loyalty reward ID — stored for cancellation cleanup (DELETE returns points). */

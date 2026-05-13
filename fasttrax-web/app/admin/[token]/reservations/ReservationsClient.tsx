@@ -97,12 +97,14 @@ const SOURCE_LABELS: Record<string, string> = {
   web: "Web",
   kiosk: "Kiosk",
   conqueror: "Conq",
+  admin: "Admin",
 };
 
 const SOURCE_COLORS: Record<string, string> = {
   web: "#22c55e",
   kiosk: "#f59e0b",
   conqueror: "#ec4899",
+  admin: "#8b5cf6",
 };
 
 type ShoeCategory = "Toddler" | "Male" | "Female";
