@@ -43,3 +43,7 @@ blob-mapping.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Temp email previews (generated from real DB data, not for repo)
+emails/_preview-real-*.html
+_preview-welcome.ts

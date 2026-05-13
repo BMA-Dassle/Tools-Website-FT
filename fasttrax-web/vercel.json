@@ -29,6 +29,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/kbf-welcome-emails",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/deposit-retry-sweep",
       "schedule": "*/5 * * * *"
     },

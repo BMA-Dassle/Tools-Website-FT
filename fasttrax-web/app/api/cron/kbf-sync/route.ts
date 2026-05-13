@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { downloadKbfCsv, parseKbfCsv, syncKbfFromCsv } from "@/lib/kbf-sync";
+import { sendWelcomeEmailBatch } from "@/lib/kbf-welcome-email";
 
 /**
  * Hourly Kids Bowl Free center-report sync.
@@ -59,11 +60,36 @@ export async function GET(req: NextRequest) {
     }
 
     const result = await syncKbfFromCsv(csv);
+
+    // ── Welcome emails (dual-mode) ─────────────────────────────────
+    // 1. Immediate: send to passes imported within the last 20 minutes
+    //    (i.e. likely from this sync cycle or the previous one).
+    // 2. Backfill: handled by the separate /api/cron/kbf-welcome-emails
+    //    cron running every minute at ~20/min pace.
+    let welcomeEmails = { sent: 0, failed: 0, total: 0 };
+    try {
+      welcomeEmails = await sendWelcomeEmailBatch(50, 20);
+      if (welcomeEmails.sent > 0 || welcomeEmails.failed > 0) {
+        console.log(
+          `[kbf-sync] Welcome emails (new): ${welcomeEmails.sent} sent, ${welcomeEmails.failed} failed`,
+        );
+      }
+    } catch (emailErr) {
+      // Don't fail the whole sync if emails break — the sync data is
+      // already committed. Emails will retry on the next run.
+      console.error("[kbf-sync] Welcome email batch error:", emailErr);
+    }
+
     return NextResponse.json({
       ok: true,
       invoker,
       csvSize,
       ...result,
+      welcomeEmails: {
+        sent: welcomeEmails.sent,
+        failed: welcomeEmails.failed,
+        pending: welcomeEmails.total,
+      },
       durationMs: Date.now() - started,
     });
   } catch (err) {
