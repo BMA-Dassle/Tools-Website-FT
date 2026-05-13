@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import type { BowlingReservation, BowlingReservationPlayer, ReservationLine } from "@/lib/bowling-db";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -598,11 +598,19 @@ function BowlerCard({
 
 function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const sp = useSearchParams();
-  const neonIdStr = sp.get("neonId") ?? "0";
+  const router = useRouter();
+
+  // Prefer ?code= (short code, non-guessable). Fall back to legacy ?neonId=
+  // for backward compat — but immediately redirect to ?code= once resolved.
+  const codeParam = sp.get("code") ?? "";
+  const legacyNeonIdStr = sp.get("neonId") ?? "0";
   const autoOpenNames = sp.get("names") === "1";
 
-  const neonId = parseInt(neonIdStr, 10);
-  const hasNeonRecord = !isNaN(neonId) && neonId > 0;
+  const legacyNeonId = parseInt(legacyNeonIdStr, 10);
+
+  // neonId is resolved from the API response, NOT from the URL.
+  const [neonId, setNeonId] = useState(0);
+  const hasNeonRecord = neonId > 0;
 
   const [reservation, setReservation] = useState<ReservationWithLines | null>(null);
   const [fetchError, setFetchError] = useState(false);
@@ -830,32 +838,48 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   }
 
   // Derive center info + QAMF ID from the fetched reservation object.
-  // URL carries only neonId; everything else comes from Neon.
+  // URL carries only the short code; everything else comes from Neon.
   const centerCode = reservation?.centerCode ?? "";
   const centerName = CENTER_NAME[centerCode] ?? "HeadPinz";
   const centerAddress = CENTER_ADDRESS[centerCode] ?? "";
   const qamfId = reservation?.qamfReservationId ?? "";
 
+  // ── Initial fetch: resolve code → reservation (or legacy neonId) ──
   useEffect(() => {
-    if (!hasNeonRecord) return;
+    if (!codeParam && !(legacyNeonId > 0)) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/bowling/v2/reservations/${neonId}`, {
-          cache: "no-store",
-        });
+        // Prefer shortCode lookup; fall back to legacy neonId
+        const url = codeParam
+          ? `/api/bowling/v2/reservations/by-code/${encodeURIComponent(codeParam)}`
+          : `/api/bowling/v2/reservations/${legacyNeonId}`;
+        const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) {
           if (!cancelled) setFetchError(true);
           return;
         }
         const json = (await res.json()) as ReservationWithLines;
-        if (!cancelled) setReservation(json);
+        if (cancelled) return;
+        setReservation(json);
+        setNeonId(json.id);
+
+        // Legacy URL redirect: if user arrived via ?neonId=, swap to ?code=
+        // so the sequential ID disappears from the browser bar.
+        if (!codeParam && json.shortCode) {
+          const params = new URLSearchParams(window.location.search);
+          params.delete("neonId");
+          params.set("code", json.shortCode);
+          const newUrl = `${window.location.pathname}?${params.toString()}`;
+          router.replace(newUrl);
+        }
       } catch {
         if (!cancelled) setFetchError(true);
       }
     })();
     return () => { cancelled = true; };
-  }, [neonId, hasNeonRecord]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeParam, legacyNeonId]);
 
   // Fetch player rows after the reservation loads
   useEffect(() => {

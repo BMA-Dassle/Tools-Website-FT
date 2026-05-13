@@ -874,22 +874,27 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Shorten confirmation URL ────────────────────────────────────
-  // Store only neonId — the confirmation page fetches everything else from Neon.
+  // URL uses ?code= (the short code) so the sequential neonId never
+  // appears in the browser bar. The confirmation page resolves the
+  // code server-side via /api/bowling/v2/reservations/by-code/[code].
   const confirmBase =
     productKind === "kbf"
       ? "/hp/book/kids-bowl-free/confirmation"
       : "/hp/book/bowling/confirmation";
   let shortCode: string | undefined;
   try {
-    shortCode = await shortenUrl(`${confirmBase}?neonId=${neonId}`);
+    // Generate the code, then store the code-based destination URL
+    shortCode = await shortenUrl(`${confirmBase}?code=_TMP_`);
+    // Re-store with the real code baked into the destination
+    await shortenUrl(`${confirmBase}?code=${shortCode}`, shortCode);
     // Persist to Neon for stable reuse (admin board, emails, SMS)
-    if (shortCode && neonId) {
+    if (neonId) {
       updateBowlingReservationShortCode(neonId, shortCode).catch((err) =>
         console.error("[bowling/v2/reserve] failed to store short_code (non-fatal):", err),
       );
     }
   } catch (err) {
-    // Non-fatal — wizard falls back to navigating with neonId param directly
+    // Non-fatal — wizard falls back to navigating with code param directly
     console.error("[bowling/v2/reserve] shortenUrl failed (non-fatal):", err);
   }
 
@@ -982,6 +987,6 @@ export async function POST(req: NextRequest) {
     totalCents,
     remainingCents: totalCents - depositCents,
     shortCode,
-    confirmationPath: `${confirmBase}?neonId=${neonId}`,
+    confirmationPath: shortCode ? `${confirmBase}?code=${shortCode}` : `${confirmBase}?neonId=${neonId}`,
   });
 }

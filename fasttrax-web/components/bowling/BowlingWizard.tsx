@@ -330,6 +330,7 @@ interface ExistingReservation {
   id: number;
   centerCode: string;
   qamfReservationId?: string;
+  shortCode?: string;
   depositCents: number;
   totalCents: number;
   status: string;
@@ -1616,7 +1617,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       // Clear hold ref before navigation to prevent unmount DELETE
       if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
       holdRef.current = null;
-      router.push(`${confirmationBase}?neonId=${existingReservation.id}`);
+      router.push(
+        existingReservation.shortCode
+          ? `${confirmationBase}?code=${existingReservation.shortCode}`
+          : `${confirmationBase}?neonId=${existingReservation.id}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reschedule failed");
       setStep("reschedule");
@@ -2061,7 +2066,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         // Navigate via short URL if the reserve route returned one;
         // fall back to a plain neonId param (confirmation page fetches everything else).
         const dest = data.shortCode
-          ? `/s/${data.shortCode}`
+          ? `${confirmationBase}?code=${data.shortCode}`
           : `${confirmationBase}?neonId=${data.neonId}`;
         router.push(dest);
       } catch (err) {

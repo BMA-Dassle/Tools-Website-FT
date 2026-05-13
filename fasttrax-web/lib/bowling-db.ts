@@ -849,6 +849,32 @@ export async function getBowlingReservationByQamfId(
   };
 }
 
+/**
+ * Look up a reservation by short_code (the 6-char random code in /s/{code} URLs).
+ * Used by the confirmation page so neonId never appears in the browser URL.
+ */
+export async function getBowlingReservationByShortCode(
+  shortCode: string,
+): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE short_code = ${shortCode}
+    LIMIT 1
+  `;
+  if (!rows.length) return null;
+  const reservation = rowToReservation(rows[0] as Record<string, unknown>);
+  const lineRows = await q`
+    SELECT * FROM bowling_reservation_lines WHERE reservation_id = ${reservation.id} ORDER BY id
+  `;
+  return {
+    ...reservation,
+    lines: lineRows.map((r) => rowToLine(r as Record<string, unknown>)),
+  };
+}
+
 export type BowlingReservationWithLines = BowlingReservation & {
   lines: (ReservationLine & { id: number; reservationId: number })[];
 };
