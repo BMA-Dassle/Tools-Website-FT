@@ -414,7 +414,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
     selectedDate !== "" && selectedHour !== null && selectedMinute !== null;
 
   return (
-    <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#fff" }}>
@@ -723,159 +723,171 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </span>
           </div>
 
-          {/* Book Lane: calendar + time chips */}
-          {(
-            <>
-              <div style={{ marginBottom: 16 }}>
-                {/* Month navigation */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <button
-                    onClick={() => {
-                      if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1); }
-                      else setCalMonth((m) => m - 1);
-                    }}
-                    style={{
-                      width: 32, height: 32, fontSize: 18, fontWeight: 700,
-                      backgroundColor: "transparent", color: "#fff",
-                      border: "1px solid #6b7280", borderRadius: 6,
-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  >
-                    ‹
-                  </button>
-                  <span style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>
-                    {new Date(calYear, calMonth).toLocaleString("default", { month: "long", year: "numeric" })}
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1); }
-                      else setCalMonth((m) => m + 1);
-                    }}
-                    style={{
-                      width: 32, height: 32, fontSize: 18, fontWeight: 700,
-                      backgroundColor: "transparent", color: "#fff",
-                      border: "1px solid #6b7280", borderRadius: 6,
-                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  >
-                    ›
-                  </button>
-                </div>
-
-                {/* Day-of-week headers */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center", marginBottom: 2 }}>
-                  {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                    <div key={i} style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", padding: "4px 0" }}>{d}</div>
-                  ))}
-                </div>
-
-                {/* Calendar grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
-                  {calCells.map((day, i) => {
-                    if (day == null) return <div key={i} />;
-                    const ymd = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                    const bookable = isKbfBookableDate(ymd);
-                    const isPast = ymd < calToday;
-                    const isSelected = ymd === selectedDate;
-                    const isTodayCell = ymd === calToday;
-
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => {
-                          if (!bookable || isPast) return;
-                          setSelectedDate(ymd);
-                          setSelectedHour(null);
-                          setSelectedMinute(null);
-                          fetchAvailability(ymd);
-                        }}
-                        disabled={!bookable || isPast}
-                        style={{
-                          padding: "8px 0",
-                          fontSize: 13,
-                          fontWeight: isSelected ? 700 : isTodayCell ? 600 : 400,
-                          backgroundColor: isSelected ? BLUE : "transparent",
-                          color: isSelected ? "#fff" : !bookable || isPast ? "#6b728050" : "#fff",
-                          border: isTodayCell && !isSelected ? `1px solid ${BLUE}` : "1px solid transparent",
-                          borderRadius: 6,
-                          cursor: bookable && !isPast ? "pointer" : "default",
-                        }}
-                      >
-                        {day}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Loading availability */}
-                {selectedDate && slotsLoading && (
-                  <div style={{ marginTop: 10, fontSize: 13, color: "#9ca3af" }}>
-                    Loading available times…
-                  </div>
-                )}
-
-                {/* No available times */}
-                {selectedDate && !slotsLoading && availableHours.length === 0 && (
-                  <div style={{ marginTop: 10, fontSize: 13, color: "#f87171" }}>
-                    No available start times for this date.
-                  </div>
-                )}
-
-                {/* Hour chips */}
-                {selectedDate && !slotsLoading && availableHours.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
-                      Start Time
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {availableHours.map((h) => (
-                        <button
-                          key={h}
-                          onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
-                          style={{
-                            minWidth: 60, padding: "8px 12px", fontSize: 13,
-                            fontWeight: selectedHour === h ? 700 : 400,
-                            backgroundColor: selectedHour === h ? BLUE : "#fff",
-                            color: selectedHour === h ? "#fff" : "#374151",
-                            border: `1px solid ${selectedHour === h ? BLUE : "#d1d5db"}`,
-                            borderRadius: 8, cursor: "pointer",
-                          }}
-                        >
-                          {formatHour(h)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Minute chips */}
-                {selectedHour !== null && availableMinutes.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
-                      Minutes
-                    </div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {availableMinutes.map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => setSelectedMinute(m)}
-                          style={{
-                            minWidth: 52, padding: "8px 12px", fontSize: 13,
-                            fontWeight: selectedMinute === m ? 700 : 400,
-                            backgroundColor: selectedMinute === m ? BLUE : "#fff",
-                            color: selectedMinute === m ? "#fff" : "#374151",
-                            border: `1px solid ${selectedMinute === m ? BLUE : "#d1d5db"}`,
-                            borderRadius: 8, cursor: "pointer",
-                          }}
-                        >
-                          :{String(m).padStart(2, "0")}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+          {/* Book Lane: two-column layout — calendar left, times right */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 16 }}>
+            {/* Left column: calendar */}
+            <div>
+              {/* Month navigation */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <button
+                  onClick={() => {
+                    if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1); }
+                    else setCalMonth((m) => m - 1);
+                  }}
+                  style={{
+                    width: 32, height: 32, fontSize: 18, fontWeight: 700,
+                    backgroundColor: "transparent", color: "#fff",
+                    border: "1px solid #6b7280", borderRadius: 6,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  ‹
+                </button>
+                <span style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>
+                  {new Date(calYear, calMonth).toLocaleString("default", { month: "long", year: "numeric" })}
+                </span>
+                <button
+                  onClick={() => {
+                    if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1); }
+                    else setCalMonth((m) => m + 1);
+                  }}
+                  style={{
+                    width: 32, height: 32, fontSize: 18, fontWeight: 700,
+                    backgroundColor: "transparent", color: "#fff",
+                    border: "1px solid #6b7280", borderRadius: 6,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  ›
+                </button>
               </div>
 
+              {/* Day-of-week headers */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center", marginBottom: 2 }}>
+                {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                  <div key={i} style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", padding: "4px 0" }}>{d}</div>
+                ))}
+              </div>
+
+              {/* Calendar grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                {calCells.map((day, i) => {
+                  if (day == null) return <div key={i} />;
+                  const ymd = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const bookable = isKbfBookableDate(ymd);
+                  const isPast = ymd < calToday;
+                  const isSelected = ymd === selectedDate;
+                  const isTodayCell = ymd === calToday;
+
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        if (!bookable || isPast) return;
+                        setSelectedDate(ymd);
+                        setSelectedHour(null);
+                        setSelectedMinute(null);
+                        fetchAvailability(ymd);
+                      }}
+                      disabled={!bookable || isPast}
+                      style={{
+                        padding: "8px 0",
+                        fontSize: 13,
+                        fontWeight: isSelected ? 700 : isTodayCell ? 600 : 400,
+                        backgroundColor: isSelected ? BLUE : "transparent",
+                        color: isSelected ? "#fff" : !bookable || isPast ? "#6b728050" : "#fff",
+                        border: isTodayCell && !isSelected ? `1px solid ${BLUE}` : "1px solid transparent",
+                        borderRadius: 6,
+                        cursor: bookable && !isPast ? "pointer" : "default",
+                      }}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right column: time selection */}
+            <div>
+              {!selectedDate && (
+                <div style={{ fontSize: 14, color: "#6b7280", paddingTop: 40, textAlign: "center" }}>
+                  Select a date to see available times
+                </div>
+              )}
+
+              {/* Loading availability */}
+              {selectedDate && slotsLoading && (
+                <div style={{ fontSize: 13, color: "#9ca3af", paddingTop: 8 }}>
+                  Loading available times…
+                </div>
+              )}
+
+              {/* No available times */}
+              {selectedDate && !slotsLoading && availableHours.length === 0 && (
+                <div style={{ fontSize: 13, color: "#f87171", paddingTop: 8 }}>
+                  No available start times for this date.
+                </div>
+              )}
+
+              {/* Hour chips */}
+              {selectedDate && !slotsLoading && availableHours.length > 0 && (
+                <div>
+                  <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
+                    Start Time
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {availableHours.map((h) => (
+                      <button
+                        key={h}
+                        onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
+                        style={{
+                          minWidth: 60, padding: "8px 12px", fontSize: 13,
+                          fontWeight: selectedHour === h ? 700 : 400,
+                          backgroundColor: selectedHour === h ? BLUE : "#fff",
+                          color: selectedHour === h ? "#fff" : "#374151",
+                          border: `1px solid ${selectedHour === h ? BLUE : "#d1d5db"}`,
+                          borderRadius: 8, cursor: "pointer",
+                        }}
+                      >
+                        {formatHour(h)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Minute chips */}
+              {selectedHour !== null && availableMinutes.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
+                    Minutes
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {availableMinutes.map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setSelectedMinute(m)}
+                        style={{
+                          minWidth: 52, padding: "8px 12px", fontSize: 13,
+                          fontWeight: selectedMinute === m ? 700 : 400,
+                          backgroundColor: selectedMinute === m ? BLUE : "#fff",
+                          color: selectedMinute === m ? "#fff" : "#374151",
+                          border: `1px solid ${selectedMinute === m ? BLUE : "#d1d5db"}`,
+                          borderRadius: 8, cursor: "pointer",
+                        }}
+                      >
+                        :{String(m).padStart(2, "0")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(
+            <>
               <button
                 onClick={handleBookLane}
                 disabled={!canSubmitBookLane || phase === "submitting"}
