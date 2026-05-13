@@ -5,7 +5,7 @@ import {
   insertReservationPlayers,
   upsertReservationPlayer,
 } from "@/lib/bowling-db";
-import { upsertMemberPref } from "@/lib/kbf-prefs";
+import { upsertMemberPref, getPrefsForPlayers } from "@/lib/kbf-prefs";
 import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
 
 // ── Square helpers (shoe-size KDS sync) ─────────────────────────────
@@ -86,6 +86,31 @@ export async function GET(
           })),
         );
         ({ players, shoePairsAllowed } = await getReservationPlayersWithShoeAllowance(id));
+      }
+    }
+
+    // ── Backfill shoe sizes + bumpers from KBF prefs ──────────────
+    // KBF reservations insert players with null shoe sizes (the wizard
+    // doesn't collect them). If the member has prefs from a previous
+    // visit, inject them so the confirmation page shows them pre-filled.
+    const kbfPlayersNeedingPrefs = players.filter(
+      (p) => p.kbfPassId != null && p.kbfMemberSlot != null && !p.shoeSize,
+    );
+    if (kbfPlayersNeedingPrefs.length > 0) {
+      const prefsMap = await getPrefsForPlayers(
+        kbfPlayersNeedingPrefs.map((p) => ({
+          passId: p.kbfPassId!,
+          memberSlot: p.kbfMemberSlot!,
+        })),
+      );
+      for (const p of kbfPlayersNeedingPrefs) {
+        const pref = prefsMap.get(`${p.kbfPassId}|${p.kbfMemberSlot}`);
+        if (pref?.shoeSizeLabel) {
+          p.shoeSize = pref.shoeSizeLabel;
+        }
+        if (pref?.wantBumpers != null && p.bumpers == null) {
+          p.bumpers = pref.wantBumpers;
+        }
       }
     }
 

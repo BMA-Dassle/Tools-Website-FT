@@ -1448,6 +1448,14 @@ export async function getReservationPlayersWithShoeAllowance(
     );
     if (includesShoes) {
       shoePairsAllowed = playerRows.length;
+    } else {
+      // KBF includes shoes for all bowlers — no add-on line items exist
+      const kindRows = await q`
+        SELECT product_kind FROM bowling_reservations WHERE id = ${reservationId}
+      `;
+      if ((kindRows[0] as Record<string, unknown>)?.product_kind === "kbf") {
+        shoePairsAllowed = playerRows.length;
+      }
     }
   }
 

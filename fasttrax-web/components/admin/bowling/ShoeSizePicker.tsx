@@ -231,7 +231,7 @@ export default function ShoeSizePicker({ value, onChange, compact = false }: Sho
           style={{
             position: "absolute",
             top: "100%",
-            left: 0,
+            right: 0,
             zIndex: 50,
             marginTop: 4,
             width: 260,

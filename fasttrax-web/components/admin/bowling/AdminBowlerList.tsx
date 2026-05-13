@@ -10,13 +10,15 @@ import type { AdminBowlerSelection } from "./BowlerEditor";
 interface AdminBowlerListProps {
   bowlers: AdminBowlerSelection[];
   onChange: (bowlers: AdminBowlerSelection[]) => void;
+  /** Show "+ Add Guest Adult" button. Default false. */
+  showAddGuest?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function AdminBowlerList({ bowlers, onChange }: AdminBowlerListProps) {
+export default function AdminBowlerList({ bowlers, onChange, showAddGuest = false }: AdminBowlerListProps) {
   function updateBowler(idx: number, updated: AdminBowlerSelection) {
     const next = [...bowlers];
     next[idx] = updated;
@@ -48,7 +50,7 @@ export default function AdminBowlerList({ bowlers, onChange }: AdminBowlerListPr
         style={{
           border: "1px solid #e5e7eb",
           borderRadius: 8,
-          overflow: "hidden",
+          overflow: "visible",
           backgroundColor: "#fff",
         }}
       >
@@ -68,24 +70,26 @@ export default function AdminBowlerList({ bowlers, onChange }: AdminBowlerListPr
         )}
       </div>
 
-      {/* Add guest button */}
-      <button
-        type="button"
-        onClick={addGuest}
-        style={{
-          marginTop: 8,
-          fontSize: 12,
-          fontWeight: 600,
-          padding: "4px 12px",
-          border: "1px solid #d1d5db",
-          borderRadius: 6,
-          backgroundColor: "#fff",
-          color: "#374151",
-          cursor: "pointer",
-        }}
-      >
-        + Add Guest Adult
-      </button>
+      {/* Add guest button (opt-in, used by regular bowling admin) */}
+      {showAddGuest && (
+        <button
+          type="button"
+          onClick={addGuest}
+          style={{
+            marginTop: 8,
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "4px 12px",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            backgroundColor: "#fff",
+            color: "#374151",
+            cursor: "pointer",
+          }}
+        >
+          + Add Guest Adult
+        </button>
+      )}
     </div>
   );
 }

@@ -167,6 +167,50 @@ export async function findPassesByPhone(phone: string): Promise<KbfPassRow[]> {
   return rows.map(rowToPass);
 }
 
+/**
+ * Broad search: matches name, partial email, or phone fragment.
+ * Used by the admin KBF page so staff can type "jacob", "jacob@",
+ * "239776", or "smith" and find the account.
+ *
+ * Strategy:
+ *   - Text with digits → also try phone LIKE %digits%
+ *   - Always does ILIKE on first_name, last_name, and email
+ *   - Capped at 25 results to keep it snappy
+ */
+export async function searchPasses(query: string): Promise<KbfPassRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureKbfBookingSchema();
+  const q = sql();
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return [];
+
+  const like = `%${trimmed}%`;
+  const digits = trimmed.replace(/\D/g, "");
+
+  const rows = digits.length >= 4
+    ? ((await q`
+        SELECT id, email, center_name, first_name, last_name, phone, preferred_2fa, is_test, fpass
+        FROM kbf_passes
+        WHERE lower(email) LIKE ${like}
+           OR lower(first_name) LIKE ${like}
+           OR lower(last_name) LIKE ${like}
+           OR phone LIKE ${`%${digits}%`}
+        ORDER BY id ASC
+        LIMIT 25
+      `) as PassQueryRow[])
+    : ((await q`
+        SELECT id, email, center_name, first_name, last_name, phone, preferred_2fa, is_test, fpass
+        FROM kbf_passes
+        WHERE lower(email) LIKE ${like}
+           OR lower(first_name) LIKE ${like}
+           OR lower(last_name) LIKE ${like}
+        ORDER BY id ASC
+        LIMIT 25
+      `) as PassQueryRow[]);
+
+  return rows.map(rowToPass);
+}
+
 // ── Member loading ──────────────────────────────────────────────────────────
 
 interface MemberQueryRow {
@@ -276,6 +320,38 @@ export async function loadPassesWithMembers(passIds: number[]): Promise<KbfPassW
   return passes;
 }
 
+// ── Pref lookup (lightweight) ───────────────────────────────────────────────
+
+/**
+ * Load saved shoe-size + bumper prefs for specific KBF member slots.
+ * Used by the confirmation-page players API to backfill shoe sizes
+ * from previous visits when the current reservation row has null.
+ * Returns a map keyed by "passId|memberSlot" for O(1) lookup.
+ */
+export async function getPrefsForPlayers(
+  pairs: { passId: number; memberSlot: number }[],
+): Promise<Map<string, KbfMemberPref>> {
+  if (pairs.length === 0) return new Map();
+  if (!isDbConfigured()) return new Map();
+  await ensureKbfBookingSchema();
+  const q = sql();
+
+  const passIds = [...new Set(pairs.map((p) => p.passId))];
+  const prefRows = (await q`
+    SELECT pass_id, member_slot, relation, shoe_size_id, shoe_size_label,
+           want_shoes, want_bumpers, last_used_center,
+           updated_at::text AS updated_at
+    FROM kbf_member_prefs
+    WHERE pass_id = ANY(${passIds}::int[])
+  `) as PrefQueryRow[];
+
+  const map = new Map<string, KbfMemberPref>();
+  for (const r of prefRows) {
+    map.set(`${r.pass_id}|${r.member_slot}`, rowToPref(r));
+  }
+  return map;
+}
+
 // ── Pref upsert ─────────────────────────────────────────────────────────────
 
 export interface UpsertPrefInput {
@@ -353,5 +429,30 @@ export async function optInPhoneSmsTwoFactor(
     SET phone = ${digits},
         preferred_2fa = 'sms'
     WHERE id = ANY(${passIds}::int[])
+  `;
+}
+
+/**
+ * Link a phone number to ALL passes sharing the same email.
+ * Called by the admin KBF flow when a phone is collected at the desk.
+ * Updates every pass (FM + Naples) so SMS OTP works at both locations.
+ * Only touches rows that don't already have a phone — won't overwrite
+ * an existing number.
+ */
+export async function linkPhoneByEmail(
+  email: string,
+  phone: string,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  const digits = phone.replace(/\D/g, "").replace(/^1/, "");
+  if (digits.length !== 10) return;
+  await ensureKbfBookingSchema();
+  const q = sql();
+  await q`
+    UPDATE kbf_passes
+    SET phone = ${digits},
+        preferred_2fa = 'sms'
+    WHERE lower(email) = ${email.trim().toLowerCase()}
+      AND (phone IS NULL OR phone = '')
   `;
 }

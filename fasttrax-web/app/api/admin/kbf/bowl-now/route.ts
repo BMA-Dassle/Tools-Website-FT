@@ -17,7 +17,7 @@ import {
 } from "@/lib/bowling-db";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
-import { upsertMemberPref } from "@/lib/kbf-prefs";
+import { upsertMemberPref, linkPhoneByEmail } from "@/lib/kbf-prefs";
 import { sql } from "@/lib/db";
 
 /**
@@ -59,14 +59,16 @@ export async function POST(req: NextRequest) {
     guestName,
     guestEmail,
     guestPhone,
+    linkPhone,
   } = body as {
     centerCode: string;
-    passId: number;
     laneNumber: number;
     bowlers: BowlerInput[];
     guestName: string;
     guestEmail: string;
     guestPhone?: string;
+    /** Phone collected at desk — link to KBF account for online booking */
+    linkPhone?: string;
   };
 
   const centerId = CENTER_CODE_TO_QAMF[centerCode];
@@ -138,7 +140,8 @@ export async function POST(req: NextRequest) {
 
     // ── Step 3: Create QAMF reservation (PlayNow + specific lane) ───
     const now = new Date();
-    const bookedAt = now.toISOString();
+    // QAMF rejects any millisecond portion — strip ".000Z" → "Z"
+    const bookedAt = now.toISOString().replace(/\.\d{3}Z$/, "Z");
 
     const optionsBlock: NewReservationInput["WebOffer"]["Options"] =
       kbfExp.qamfOptionType === "Game"
@@ -154,7 +157,7 @@ export async function POST(req: NextRequest) {
       Customer: {
         Guest: {
           Name: guestName,
-          PhoneNumber: guestPhone || "",
+          PhoneNumber: guestPhone || "0000000000",
           Email: guestEmail,
         },
       },
@@ -184,7 +187,7 @@ export async function POST(req: NextRequest) {
     await setReservationCustomer(centerId, qamfId, {
       Guest: {
         Name: guestName,
-        PhoneNumber: guestPhone || "",
+        PhoneNumber: guestPhone || "0000000000",
         Email: guestEmail,
       },
     });
@@ -308,6 +311,11 @@ export async function POST(req: NextRequest) {
             centerCode === "TXBSQN0FEKQ11" ? "fortmyers" : "naples",
         }).catch(() => void 0); // Best-effort
       }
+    }
+
+    // ── Link phone to KBF account (enables SMS OTP for online booking)
+    if (linkPhone) {
+      await linkPhoneByEmail(guestEmail, linkPhone).catch(() => void 0);
     }
 
     return NextResponse.json({

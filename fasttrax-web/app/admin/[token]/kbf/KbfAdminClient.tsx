@@ -76,6 +76,13 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const [lanesLoading, setLanesLoading] = useState(false);
   const [selectedLane, setSelectedLane] = useState<number | null>(null);
 
+  // State: book-lane date/time
+  const [bookDate, setBookDate] = useState("");
+  const [bookTime, setBookTime] = useState("");
+
+  // State: phone collection (when account has no phone)
+  const [enteredPhone, setEnteredPhone] = useState("");
+
   // State: submission progress
   const [progress, setProgress] = useState<string[]>([]);
   const [result, setResult] = useState<{ ok: boolean; laneLabel?: string; neonId?: number; error?: string } | null>(null);
@@ -141,23 +148,14 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setCenterCode(passCenter);
 
     // Build bowler selections from members
+    // KBF-only: show kids only. Family Pass: show kids + family members.
+    // No parent entry or guest adults — staff adds paying adults directly to the lane.
     const selections: AdminBowlerSelection[] = [];
 
-    // Add account holder as "parent"
-    selections.push({
-      key: `parent:${pass.id}:0`,
-      name: `${pass.firstName} ${pass.lastName}`.trim() || "Account Holder",
-      relation: "parent",
-      selected: false, // Adults off by default
-      shoeSize: null,
-      wantBumpers: false,
-      kbfPassId: pass.id,
-      kbfMemberSlot: 0,
-      redeemedToday: false,
-    });
-
-    // Add members
     for (const m of pass.members) {
+      // Skip family members on non-fpass accounts
+      if (m.relation === "family" && !pass.fpass) continue;
+
       const isRedeemed = redeemed.some(
         (r) => r.passId === m.passId && r.slot === m.slot,
       );
@@ -165,7 +163,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
         key: `${m.relation}:${m.passId}:${m.slot}`,
         name: `${m.firstName} ${m.lastName}`.trim() || "Unnamed",
         relation: m.relation === "kid" ? "kid" : "family",
-        selected: m.relation === "kid" && !isRedeemed, // Auto-select kids not already redeemed
+        selected: m.relation === "kid" ? !isRedeemed : false, // Auto-select kids, family off by default
         shoeSize: m.prefs?.shoeSize ?? null,
         wantBumpers: m.prefs?.wantBumpers ?? false,
         kbfPassId: m.passId,
@@ -205,7 +203,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // Refresh lanes periodically when in bowl-now mode
   useEffect(() => {
     if (phase !== "ready" || mode !== "bowl-now") return;
-    const iv = setInterval(() => loadLanes(), 15000);
+    const iv = setInterval(() => loadLanes(), 5000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, mode, centerCode]);
@@ -232,7 +230,6 @@ export default function KbfAdminClient({ token }: { token: string }) {
         headers,
         body: JSON.stringify({
           centerCode,
-          passId: selectedPass.id,
           laneNumber: selectedLane,
           bowlers: selected.map((b) => ({
             name: b.name,
@@ -244,7 +241,9 @@ export default function KbfAdminClient({ token }: { token: string }) {
           })),
           guestName: `${selectedPass.firstName} ${selectedPass.lastName}`.trim(),
           guestEmail: selectedPass.email,
-          guestPhone: selectedPass.phone,
+          guestPhone: selectedPass.phone || enteredPhone || undefined,
+          // Link phone to KBF account if collected at desk
+          ...(enteredPhone && !selectedPass.phone ? { linkPhone: enteredPhone } : {}),
         }),
       });
 
@@ -267,8 +266,63 @@ export default function KbfAdminClient({ token }: { token: string }) {
   }
 
   // ── Submit: Book Lane ──────────────────────────────────────────────
-  // TODO: Phase 2 — date picker + time slot selection
-  // For now, just show a placeholder
+
+  async function handleBookLane() {
+    if (!selectedPass || !bookDate || !bookTime) return;
+    const selected = bowlers.filter((b) => b.selected);
+    if (selected.length === 0) return;
+    if (!selected.some((b) => b.relation === "kid")) {
+      setError("At least one kid must be selected");
+      return;
+    }
+
+    // Build ISO datetime from date + time in ET
+    const bookedAt = new Date(`${bookDate}T${bookTime}:00`).toISOString();
+
+    setPhase("submitting");
+    setError(null);
+    setProgress(["Creating reservation..."]);
+    setResult(null);
+
+    try {
+      const res = await fetch("/api/admin/kbf/book-lane", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          centerCode,
+          bookedAt,
+          bowlers: selected.map((b) => ({
+            name: b.name,
+            kbfPassId: b.kbfPassId,
+            kbfMemberSlot: b.kbfMemberSlot,
+            kbfRelation: b.relation === "kid" ? "kid" : b.relation === "family" ? "family" : undefined,
+            shoeSize: b.shoeSize,
+            bumpers: b.wantBumpers,
+          })),
+          guestName: `${selectedPass.firstName} ${selectedPass.lastName}`.trim(),
+          guestEmail: selectedPass.email,
+          guestPhone: selectedPass.phone || enteredPhone || undefined,
+          ...(enteredPhone && !selectedPass.phone ? { linkPhone: enteredPhone } : {}),
+        }),
+      });
+
+      const data = await res.json();
+      if (data.ok) {
+        setProgress((prev) => [...prev, `Booked for ${bookDate} at ${bookTime}!`]);
+        setResult({ ok: true, neonId: data.neonId });
+        setPhase("done");
+      } else {
+        setProgress((prev) => [...prev, `Failed: ${data.error}`]);
+        setResult({ ok: false, error: data.error });
+        setPhase("error");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Request failed";
+      setProgress((prev) => [...prev, `Error: ${msg}`]);
+      setResult({ ok: false, error: msg });
+      setPhase("error");
+    }
+  }
 
   // ── Reset ──────────────────────────────────────────────────────────
 
@@ -280,6 +334,9 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setBowlers([]);
     setLanes([]);
     setSelectedLane(null);
+    setBookDate("");
+    setBookTime("");
+    setEnteredPhone("");
     setProgress([]);
     setResult(null);
     setError(null);
@@ -293,7 +350,9 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const canSubmit =
     selectedCount > 0 &&
     hasKid &&
-    (mode === "bowl-now" ? selectedLane !== null : false); // book-lane disabled for now
+    (mode === "bowl-now"
+      ? selectedLane !== null
+      : bookDate !== "" && bookTime !== "");
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
@@ -310,7 +369,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
         <input
           ref={searchRef}
           type="text"
-          placeholder="Phone or email..."
+          placeholder="Name, email, or phone..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && doSearch()}
@@ -425,6 +484,36 @@ export default function KbfAdminClient({ token }: { token: string }) {
         </div>
       )}
 
+      {/* Phone collection — shown when account has no phone */}
+      {selectedPass && !selectedPass.phone && (phase === "ready" || phase === "error" || phase === "submitting") && (
+        <div style={{
+          padding: "10px 14px",
+          marginBottom: 16,
+          backgroundColor: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: 8,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>
+            No phone on file — add one so they can book online via text
+          </div>
+          <input
+            type="tel"
+            placeholder="(239) 555-1234"
+            value={enteredPhone}
+            onChange={(e) => setEnteredPhone(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+      )}
+
       {/* Bowler selection */}
       {selectedPass && bowlers.length > 0 && (phase === "ready" || phase === "error" || phase === "submitting") && (
         <>
@@ -489,46 +578,73 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </div>
           )}
 
-          {/* Book Lane: placeholder */}
+          {/* Book Lane: date + time picker */}
           {mode === "book-lane" && (
-            <div style={{
-              padding: 20,
-              textAlign: "center",
-              color: "#9ca3af",
-              fontSize: 13,
-              border: "1px dashed #d1d5db",
-              borderRadius: 8,
-              marginBottom: 16,
-            }}>
-              Date &amp; time picker coming soon. Use Bowl Now for walk-ins.
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
+                Date &amp; Time
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="date"
+                  value={bookDate}
+                  onChange={(e) => setBookDate(e.target.value)}
+                  min={new Date().toLocaleDateString("en-CA")}
+                  style={{
+                    flex: 1,
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 8,
+                    outline: "none",
+                  }}
+                />
+                <input
+                  type="time"
+                  value={bookTime}
+                  onChange={(e) => setBookTime(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 8,
+                    outline: "none",
+                  }}
+                />
+              </div>
             </div>
           )}
 
           {/* Confirm button */}
-          {mode === "bowl-now" && (
-            <button
-              onClick={handleBowlNow}
-              disabled={!canSubmit || phase === "submitting"}
-              style={{
-                width: "100%",
-                padding: "14px 0",
-                fontSize: 15,
-                fontWeight: 700,
-                backgroundColor: canSubmit ? "#22c55e" : "#d1d5db",
-                color: canSubmit ? "#fff" : "#9ca3af",
-                border: "none",
-                borderRadius: 10,
-                cursor: canSubmit ? "pointer" : "not-allowed",
-                letterSpacing: 0.5,
-              }}
-            >
-              {phase === "submitting"
+          <button
+            onClick={mode === "bowl-now" ? handleBowlNow : handleBookLane}
+            disabled={!canSubmit || phase === "submitting"}
+            style={{
+              width: "100%",
+              padding: "14px 0",
+              fontSize: 15,
+              fontWeight: 700,
+              backgroundColor: canSubmit ? (mode === "bowl-now" ? "#22c55e" : "#004AAD") : "#d1d5db",
+              color: canSubmit ? "#fff" : "#9ca3af",
+              border: "none",
+              borderRadius: 10,
+              cursor: canSubmit ? "pointer" : "not-allowed",
+              letterSpacing: 0.5,
+            }}
+          >
+            {mode === "bowl-now"
+              ? phase === "submitting"
                 ? "Opening lane..."
                 : selectedLane
                   ? `Open Lane ${selectedLane} & Send to KDS`
-                  : "Select a lane"}
-            </button>
-          )}
+                  : "Select a lane"
+              : phase === "submitting"
+                ? "Booking..."
+                : bookDate && bookTime
+                  ? `Book for ${bookDate} at ${bookTime}`
+                  : "Select date & time"}
+          </button>
 
           {!hasKid && selectedCount > 0 && (
             <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>

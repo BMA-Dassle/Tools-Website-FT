@@ -12,7 +12,7 @@ import {
   getKbfRedeemedMembers,
   type PlayerInput,
 } from "@/lib/bowling-db";
-import { upsertMemberPref } from "@/lib/kbf-prefs";
+import { upsertMemberPref, linkPhoneByEmail } from "@/lib/kbf-prefs";
 
 /**
  * POST /api/admin/kbf/book-lane
@@ -47,35 +47,36 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     centerCode,
-    bookedAt,
-    webOfferId,
-    webOfferOptionId,
+    bookedAt: rawBookedAt,
     bowlers,
     guestName,
     guestEmail,
     guestPhone,
+    linkPhone,
   } = body as {
     centerCode: string;
-    passId: number;
     bookedAt: string;
-    webOfferId: number;
-    webOfferOptionId: number;
     bowlers: BowlerInput[];
     guestName: string;
     guestEmail: string;
     guestPhone?: string;
+    /** Phone collected at desk — link to KBF account for online booking */
+    linkPhone?: string;
   };
 
   const centerId = CENTER_CODE_TO_QAMF[centerCode];
   if (!centerId) {
     return NextResponse.json({ error: "Invalid centerCode" }, { status: 400 });
   }
-  if (!bowlers?.length || !bookedAt || !webOfferId || !webOfferOptionId) {
+  if (!bowlers?.length || !rawBookedAt) {
     return NextResponse.json(
       { error: "Missing required fields" },
       { status: 400 },
     );
   }
+
+  // QAMF rejects any millisecond portion — strip ".xxxZ" → "Z"
+  const bookedAt = new Date(rawBookedAt).toISOString().replace(/\.\d{3}Z$/, "Z");
 
   const steps: string[] = [];
   let qamfId: string | undefined;
@@ -124,10 +125,10 @@ export async function POST(req: NextRequest) {
     // ── Step 3: Create QAMF reservation (BookForLater, no lane) ─────
     const optionsBlock: NewReservationInput["WebOffer"]["Options"] =
       kbfExp.qamfOptionType === "Game"
-        ? { Game: [{ Id: webOfferOptionId }] }
+        ? { Game: [{ Id: kbfExp.qamfOptionId! }] }
         : kbfExp.qamfOptionType === "Unlimited"
-          ? { Unlimited: [{ Id: webOfferOptionId }] }
-          : { Time: [{ Id: webOfferOptionId }] };
+          ? { Unlimited: [{ Id: kbfExp.qamfOptionId! }] }
+          : { Time: [{ Id: kbfExp.qamfOptionId! }] };
 
     const qamfInput: NewReservationInput = {
       BookedAt: bookedAt,
@@ -136,12 +137,12 @@ export async function POST(req: NextRequest) {
       Customer: {
         Guest: {
           Name: guestName,
-          PhoneNumber: guestPhone || "",
+          PhoneNumber: guestPhone || "0000000000",
           Email: guestEmail,
         },
       },
       WebOffer: {
-        Id: webOfferId,
+        Id: kbfExp.qamfWebOfferId,
         Options: optionsBlock,
         Services: ["BookForLater"],
       },
@@ -157,7 +158,7 @@ export async function POST(req: NextRequest) {
     await setReservationCustomer(centerId, qamfId, {
       Guest: {
         Name: guestName,
-        PhoneNumber: guestPhone || "",
+        PhoneNumber: guestPhone || "0000000000",
         Email: guestEmail,
       },
     });
@@ -230,6 +231,11 @@ export async function POST(req: NextRequest) {
             centerCode === "TXBSQN0FEKQ11" ? "fortmyers" : "naples",
         }).catch(() => void 0); // Best-effort
       }
+    }
+
+    // ── Link phone to KBF account (enables SMS OTP for online booking)
+    if (linkPhone) {
+      await linkPhoneByEmail(guestEmail, linkPhone).catch(() => void 0);
     }
 
     return NextResponse.json({
