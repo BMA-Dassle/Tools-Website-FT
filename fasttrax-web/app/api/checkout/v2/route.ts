@@ -209,6 +209,17 @@ interface CheckoutBody {
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const isPreview = req.nextUrl.hostname.endsWith(".vercel.app") || req.nextUrl.hostname === "localhost";
+  const debugSteps: Array<{ step: string; status: "ok" | "fail" | "skip"; ms?: number; detail?: string }> = [];
+  const t = (label: string) => {
+    const start = Date.now();
+    return {
+      ok: (detail?: string) => debugSteps.push({ step: label, status: "ok", ms: Date.now() - start, detail }),
+      fail: (detail?: string) => debugSteps.push({ step: label, status: "fail", ms: Date.now() - start, detail }),
+      skip: (detail?: string) => debugSteps.push({ step: label, status: "skip", detail }),
+    };
+  };
+
   try {
     const body = (await req.json()) as CheckoutBody;
 
@@ -265,6 +276,7 @@ export async function POST(req: NextRequest) {
     let authoritativeTotalCents = body.existingDayofTotalCents ?? totalCents;
 
     if (body.rewardTierId && body.loyaltyAccountId && body.existingDayofOrderId && SQUARE_TOKEN) {
+      const _loyaltyReward = t("loyalty_reward_create");
       try {
         const createRes = await fetch(`${SQUARE_BASE}/loyalty/rewards`, {
           method: "POST",
@@ -282,15 +294,21 @@ export async function POST(req: NextRequest) {
         if (createRes.ok && createData.reward?.id) {
           loyaltyRewardId = createData.reward.id;
           console.log(`[checkout/v2] Loyalty reward created: ${loyaltyRewardId}`);
+          _loyaltyReward.ok(loyaltyRewardId);
         } else {
           const err = createData.errors?.[0];
           rewardFailReason = `create_failed: ${createRes.status} ${err?.code}`;
+          _loyaltyReward.fail(rewardFailReason);
         }
       } catch (err) {
         rewardFailReason = `exception: ${err instanceof Error ? err.message : String(err)}`;
+        _loyaltyReward.fail(rewardFailReason);
       }
     } else if (rewardDiscountCents > 0) {
       rewardFailReason = "condition_false: missing fields";
+      t("loyalty_reward_create").skip(rewardFailReason);
+    } else {
+      t("loyalty_reward_create").skip("no reward requested");
     }
 
     // Guard: discount requires valid reward
@@ -304,14 +322,22 @@ export async function POST(req: NextRequest) {
 
     // Re-fetch order total after reward
     if (loyaltyRewardId && body.existingDayofOrderId) {
+      const _orderRefetch = t("loyalty_order_refetch");
       try {
         const orderRes = await fetch(`${SQUARE_BASE}/orders/${body.existingDayofOrderId}`, { headers: sqHeaders() });
         if (orderRes.ok) {
           const orderData = await orderRes.json();
           const ot = orderData.order?.total_money?.amount as number | undefined;
           if (ot !== undefined) authoritativeTotalCents = ot;
+          _orderRefetch.ok(`totalCents=${authoritativeTotalCents}`);
+        } else {
+          _orderRefetch.fail(`status=${orderRes.status}`);
         }
-      } catch { /* non-fatal */ }
+      } catch (err) {
+        _orderRefetch.fail(err instanceof Error ? err.message : String(err));
+      }
+    } else {
+      t("loyalty_order_refetch").skip("no reward or no existing order");
     }
 
     const adjustedDepositCents = loyaltyRewardId
@@ -332,6 +358,7 @@ export async function POST(req: NextRequest) {
       body.squareToken;
 
     if (needsPayment) {
+      const _sqDeposit = t("square_deposit_order");
       // Merge line items: bowling first, then BMI.
       // Use squareLineItems (catalog-backed, string qty) — NOT lineItems (internal DB IDs).
       const bowlingLineItems = hasBowling ? (bowlingHold!.squareLineItems ?? []) : [];
@@ -381,13 +408,18 @@ export async function POST(req: NextRequest) {
       squareGiftCardGan = result.giftCardGan ?? undefined;
       depositCents = result.depositPaidCents;
       finalTotalCents = result.dayofTotalCents;
+      _sqDeposit.ok(`deposit=${depositCents}c order=${squareDayofOrderId}`);
     } else if (loyaltyRewardId && adjustedDepositCents === 0 && body.existingDayofOrderId) {
       squareDayofOrderId = body.existingDayofOrderId;
       depositCents = 0;
       finalTotalCents = authoritativeTotalCents;
+      t("square_deposit_order").skip("reward covers full amount");
     } else if (body.existingDayofOrderId) {
       squareDayofOrderId = body.existingDayofOrderId;
       finalTotalCents = body.existingDayofTotalCents ?? totalCents;
+      t("square_deposit_order").skip("existing day-of order, no payment needed");
+    } else {
+      t("square_deposit_order").skip("no payment token or zero total");
     }
 
     // Clean up loyalty reward on payment failure
@@ -403,6 +435,7 @@ export async function POST(req: NextRequest) {
     let bmiReservationNumber: string | undefined;
 
     if (hasBmi) {
+      const _bmiConfirm = t("bmi_confirm");
       try {
         const bmiToken = await getBmiToken(bmiClientKey);
         const confirmUrl = `${BMI_API_URL}/public-booking/${bmiClientKey}/payment/confirm`;
@@ -428,12 +461,17 @@ export async function POST(req: NextRequest) {
         if (confirmRes.ok) {
           const rnMatch = confirmRaw.match(/"reservationNumber"\s*:\s*"([^"]+)"/);
           if (rnMatch) bmiReservationNumber = rnMatch[1];
+          _bmiConfirm.ok(`resNum=${bmiReservationNumber}`);
         } else {
           console.error(`[checkout/v2] BMI confirm failed: ${confirmRes.status} ${confirmRaw.substring(0, 300)}`);
+          _bmiConfirm.fail(`status=${confirmRes.status}`);
         }
       } catch (err) {
         console.error("[checkout/v2] BMI confirm error:", err);
+        _bmiConfirm.fail(err instanceof Error ? err.message : String(err));
       }
+    } else {
+      t("bmi_confirm").skip("no BMI items");
     }
 
     const bmiConfirmed = hasBmi ? !!bmiReservationNumber : true;
@@ -443,8 +481,9 @@ export async function POST(req: NextRequest) {
 
     if (hasBowling) {
       const bh = bowlingHold!;
+      // 1. Attach customer — MUST be done before setReservationStatus
+      const _qamfCustomer = t("qamf_customer");
       try {
-        // 1. Attach customer — MUST be done before setReservationStatus
         await setReservationCustomer(bh.centerId, bh.qamfReservationId, {
           Guest: {
             Name: guest.name,
@@ -452,23 +491,43 @@ export async function POST(req: NextRequest) {
             Email: guest.email,
           },
         });
+        _qamfCustomer.ok();
+      } catch (err) {
+        _qamfCustomer.fail(err instanceof Error ? err.message : String(err));
+        console.error("[checkout/v2] QAMF setCustomer error:", err);
+      }
 
-        // 2. Patch title + notes
+      // 2. Patch title + notes
+      const _qamfPatch = t("qamf_patch");
+      try {
         await patchReservation(bh.centerId, bh.qamfReservationId, {
           Title: `${guest.name} (${bh.players?.length || 1}p)`,
           Notes: bh.notes || `Unified checkout – ${productNames}`,
         });
+        _qamfPatch.ok();
+      } catch (err) {
+        _qamfPatch.fail(err instanceof Error ? err.message : String(err));
+        console.error("[checkout/v2] QAMF patchReservation error:", err);
+      }
 
-        // 3. Transition Temporary → Confirmed
+      // 3. Transition Temporary → Confirmed
+      const _qamfStatus = t("qamf_status");
+      try {
         qamfConfirmed = await setReservationStatus(
           bh.centerId,
           bh.qamfReservationId,
           "Confirmed",
         );
+        _qamfStatus.ok(`confirmed=${qamfConfirmed}`);
         console.log(`[checkout/v2] QAMF confirm: ${bh.qamfReservationId} → ${qamfConfirmed}`);
       } catch (err) {
+        _qamfStatus.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] QAMF confirm error:", err);
       }
+    } else {
+      t("qamf_customer").skip("no bowling");
+      t("qamf_patch").skip("no bowling");
+      t("qamf_status").skip("no bowling");
     }
 
     // ── Persist Neon rows ───────────────────────────────────────────
@@ -493,6 +552,7 @@ export async function POST(req: NextRequest) {
 
     // ── Bowling Neon row ──────────────────────────────────────────
     if (hasBowling) {
+      const _neonBowling = t("neon_bowling");
       try {
         const bh = bowlingHold!;
         const bowlingStatus: BowlingReservation["status"] =
@@ -519,14 +579,19 @@ export async function POST(req: NextRequest) {
         );
         neonIds.push(row.id);
         if (!neonId) neonId = row.id;
+        _neonBowling.ok(`id=${row.id}`);
         console.log(`[checkout/v2] Bowling Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})`);
       } catch (err) {
+        _neonBowling.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] Bowling Neon insert failed:", err);
       }
+    } else {
+      t("neon_bowling").skip("no bowling");
     }
 
     // ── BMI attraction Neon row ────────────────────────────────────
     if (hasBmi) {
+      const _neonBmi = t("neon_bmi");
       try {
         const bmiStatus: BowlingReservation["status"] =
           !bmiConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
@@ -567,10 +632,14 @@ export async function POST(req: NextRequest) {
         );
         neonIds.push(row.id);
         if (!neonId) neonId = row.id;
+        _neonBmi.ok(`id=${row.id}`);
         console.log(`[checkout/v2] BMI Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})`);
       } catch (err) {
+        _neonBmi.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] BMI Neon insert failed:", err);
       }
+    } else {
+      t("neon_bmi").skip("no BMI items");
     }
 
     // ── Fire confirmation notifications (server-side, non-blocking) ──
@@ -591,6 +660,7 @@ export async function POST(req: NextRequest) {
     // preview auth issues and ensure the notification actually fires).
     if (hasBowling && neonIds.length > 0) {
       const bowlingNeonId = neonIds[0]; // Bowling row is inserted first
+      const _notifBowling = t("notif_bowling");
       try {
         const notifRes = await fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
           method: "POST",
@@ -598,10 +668,14 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({ neonId: bowlingNeonId, smsOptIn }),
           signal: AbortSignal.timeout(8000),
         });
+        _notifBowling.ok(`status=${notifRes.status}`);
         console.log(`[checkout/v2] bowling notification: ${notifRes.status}`);
       } catch (err) {
+        _notifBowling.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] bowling notification failed:", err);
       }
+    } else {
+      t("notif_bowling").skip(hasBowling ? "no neon rows" : "no bowling");
     }
 
     // Attraction / racing confirmation email + SMS
@@ -610,6 +684,7 @@ export async function POST(req: NextRequest) {
     // The dedup key (notif:{billId}) means only one fires per bill.
     if (hasBmi && bmiReservationNumber && !isRacingCart) {
       const firstName = guest.name.split(/\s+/)[0] || guest.name;
+      const _notifBooking = t("notif_booking");
       try {
         const bookNotifRes = await fetch(`${notifOrigin}/api/notifications/booking-confirmation`, {
           method: "POST",
@@ -633,10 +708,14 @@ export async function POST(req: NextRequest) {
           }),
           signal: AbortSignal.timeout(8000),
         });
+        _notifBooking.ok(`status=${bookNotifRes.status}`);
         console.log(`[checkout/v2] booking notification: ${bookNotifRes.status}`);
       } catch (err) {
+        _notifBooking.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] booking notification failed:", err);
       }
+    } else {
+      t("notif_booking").skip(!hasBmi ? "no BMI items" : !bmiReservationNumber ? "no reservation number" : "racing cart — uses post-confirm");
     }
 
     // ── Write metadata to Square day-of order (backbone for post-confirm) ──
@@ -691,15 +770,21 @@ export async function POST(req: NextRequest) {
       if (povQty > 0) metadata.pov_qty = String(povQty);
 
       // Fire-and-forget — metadata is best-effort, booking is already confirmed
+      const _sqMetadata = t("square_metadata");
       updateOrderMetadata(squareDayofOrderId, metadata).then((ok) => {
         if (ok) {
+          _sqMetadata.ok(`keys=${Object.keys(metadata).length}`);
           console.log(`[checkout/v2] Square metadata written to ${squareDayofOrderId}`);
         } else {
+          _sqMetadata.fail("updateOrderMetadata returned false");
           console.error(`[checkout/v2] Square metadata write failed for ${squareDayofOrderId}`);
         }
       }).catch((err) => {
+        _sqMetadata.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] Square metadata write error:", err);
       });
+    } else {
+      t("square_metadata").skip("no day-of order");
     }
 
     // ── Fire post-confirm pipeline (racing orchestration — non-blocking) ──
@@ -708,6 +793,7 @@ export async function POST(req: NextRequest) {
     // Square metadata (fallback). Credit-only returning racers are exactly
     // the ones who need Express Lane detection + Pandora linking.
     if (isRacingCart) {
+      const _notifRacing = t("notif_racing");
       try {
         const pcRes = await fetch(`${notifOrigin}/api/checkout/v2/post-confirm`, {
           method: "POST",
@@ -728,10 +814,14 @@ export async function POST(req: NextRequest) {
           }),
           signal: AbortSignal.timeout(12000),
         });
+        _notifRacing.ok(`status=${pcRes.status}`);
         console.log(`[checkout/v2] post-confirm: ${pcRes.status}`);
       } catch (err) {
+        _notifRacing.fail(err instanceof Error ? err.message : String(err));
         console.error("[checkout/v2] post-confirm failed:", err);
       }
+    } else {
+      t("notif_racing").skip("not a racing cart");
     }
 
     // ── Short code (for admin links / email) ───────────────────────
@@ -771,16 +861,21 @@ export async function POST(req: NextRequest) {
         : neonId
           ? `${confirmBase}?neonId=${neonId}`
           : null,
+      bookingType: hasBowling && hasBmi ? "mixed" : hasBowling ? "bowling" : isRacingCart ? "racing" : "attractions",
+      ...(isPreview ? { _debug: debugSteps } : {}),
     });
   } catch (err) {
     if (err instanceof DepositOrderError) {
       const response: Record<string, unknown> = { error: err.userMessage };
       if (err.code) response.code = err.code;
       if (err.detail) response.detail = err.detail;
+      if (isPreview) response._debug = debugSteps;
       return NextResponse.json(response, { status: err.statusCode });
     }
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error("[checkout/v2] unexpected error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const response: Record<string, unknown> = { error: msg };
+    if (isPreview) response._debug = debugSteps;
+    return NextResponse.json(response, { status: 500 });
   }
 }

@@ -18,6 +18,13 @@ import BrandNav from "@/components/BrandNav";
  * at this point — the customer just loses the detailed summary.
  */
 
+interface DebugStep {
+  name: string;
+  status: "ok" | "fail" | "skip";
+  ms?: number;
+  detail?: string;
+}
+
 interface ConfirmationData {
   neonId?: number;
   neonIds?: number[];
@@ -48,6 +55,7 @@ interface ConfirmationData {
   }[];
   guestName?: string | null;
   guestEmail?: string | null;
+  _debug?: DebugStep[];
 }
 
 const LOCATION_DISPLAY: Record<string, { name: string; address: string }> = {
@@ -81,6 +89,8 @@ function formatDate(iso: string) {
 export default function CheckoutConfirmation() {
   const [data, setData] = useState<ConfirmationData | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [isPreview, setIsPreview] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -91,6 +101,10 @@ export default function CheckoutConfirmation() {
         sessionStorage.removeItem("checkoutConfirmation");
       }
     } catch { /* fallback to generic */ }
+    setIsPreview(
+      window.location.hostname.endsWith(".vercel.app") ||
+      window.location.hostname === "localhost"
+    );
     setLoaded(true);
 
     // Strip query params from URL
@@ -301,6 +315,41 @@ export default function CheckoutConfirmation() {
                 </div>
               );
             })()
+          )}
+
+          {/* ── Debug panel (preview / localhost only) ─────────── */}
+          {isPreview && data?._debug && data._debug.length > 0 && (
+            <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/5 p-4 text-left">
+              <button
+                onClick={() => setDebugOpen((o) => !o)}
+                className="w-full flex items-center justify-between text-amber-400 text-xs font-bold uppercase tracking-wider"
+              >
+                <span>Debug: {data._debug.length} checkout steps</span>
+                <span className="text-amber-400/60">{debugOpen ? "▲ collapse" : "▼ expand"}</span>
+              </button>
+              {debugOpen && (
+                <div className="mt-3 space-y-2">
+                  {data._debug.map((step, i) => {
+                    const icon = step.status === "ok" ? "✓" : step.status === "fail" ? "✗" : "⊘";
+                    const color = step.status === "ok" ? "text-green-400" : step.status === "fail" ? "text-red-400" : "text-white/30";
+                    return (
+                      <div key={i} className="flex items-start gap-2 text-xs">
+                        <span className={`font-mono font-bold ${color} shrink-0`}>{icon}</span>
+                        <div className="min-w-0">
+                          <span className="text-white/70">{step.name}</span>
+                          {step.ms != null && (
+                            <span className="text-white/30 ml-1">({step.ms}ms)</span>
+                          )}
+                          {step.status === "fail" && step.detail && (
+                            <p className="text-red-400/70 mt-0.5 break-words">{step.detail}</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
 
           {/* ── Actions ──────────────────────────────────────── */}
