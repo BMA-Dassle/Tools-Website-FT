@@ -85,7 +85,9 @@ export async function POST(req: NextRequest) {
   let neonId: number | undefined;
 
   try {
-    // ── Step 1: Confirm QAMF — attach customer then set Confirmed ───
+    // ── Step 1: Confirm QAMF + set player names ─────────────────────
+    // Players can only be set while lane status is Confirmed (not
+    // Arrived or Running), so we do it right after confirming.
     await setReservationCustomer(centerId, qamfId, {
       Guest: {
         Name: guestName,
@@ -94,6 +96,24 @@ export async function POST(req: NextRequest) {
       },
     });
     await setReservationStatus(centerId, qamfId, "Confirmed");
+
+    const confirmedRez = await getReservation(centerId, qamfId);
+    const confirmedLanes = confirmedRez?.Lanes ?? [];
+    for (const lane of confirmedLanes) {
+      try {
+        const qamfPlayers = bowlers.map((b) => {
+          const p: { Name: string; ShoeSize?: string; ActivateBumpers: boolean } = {
+            Name: b.name,
+            ActivateBumpers: b.bumpers ?? false,
+          };
+          if (b.shoeSize) p.ShoeSize = b.shoeSize;
+          return p;
+        });
+        await setLanePlayers(centerId, qamfId, lane.Id, qamfPlayers);
+      } catch (e) {
+        console.error(`[admin/kbf/bowl-now] setLanePlayers failed:`, e instanceof Error ? e.message : e);
+      }
+    }
     steps.push("qamf_confirmed");
 
     // ── Step 2: Insert Neon reservation + players ───────────────────
@@ -167,30 +187,10 @@ export async function POST(req: NextRequest) {
     await q`UPDATE bowling_reservations SET square_dayof_order_id = ${dayofOrderId} WHERE id = ${neonId}`;
     steps.push("square_order_created");
 
-    // ── Step 4: Open lane — Arrive + set players + Ready → Running ────
+    // ── Step 4: Open lane — Arrive → Ready → Running ──────────────────
     await setReservationStatus(centerId, qamfId, "Arrived");
-    const fullRez = await getReservation(centerId, qamfId);
-    const bookedLanes = fullRez?.Lanes ?? [];
 
-    // Set player names BEFORE changing lane status
-    for (const lane of bookedLanes) {
-      try {
-        const qamfPlayers = bowlers.map((b) => {
-            const p: { Name: string; ShoeSize?: string; ActivateBumpers: boolean } = {
-              Name: b.name,
-              ActivateBumpers: b.bumpers ?? false,
-            };
-            if (b.shoeSize) p.ShoeSize = b.shoeSize;
-            return p;
-          });
-        console.log(`[admin/kbf/bowl-now] setLanePlayers lane=${lane.Id}`, JSON.stringify(qamfPlayers));
-        await setLanePlayers(centerId, qamfId, lane.Id, qamfPlayers);
-      } catch (e) {
-        console.error(`[admin/kbf/bowl-now] setLanePlayers failed:`, e instanceof Error ? e.message : e);
-      }
-    }
-
-    for (const lane of bookedLanes) {
+    for (const lane of confirmedLanes) {
       try {
         await setLaneStatus(centerId, qamfId, lane.Id, "Ready");
       } catch {
