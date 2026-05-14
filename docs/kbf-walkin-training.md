@@ -138,17 +138,106 @@ Click **New Lookup** to reset and help the next guest.
 
 ---
 
-## Book Lane (Future Reservation)
+## Step-by-Step: Book Lane (Future Reservation)
 
-If the guest wants to **book for a future date** instead of bowling right now:
+Use this flow when a guest walks in (or calls) and wants to **reserve a lane for a future date** rather than bowling right now.
 
-1. Search and select bowlers (same as above)
-2. Click **Book Lane** instead of Bowl Now
-3. Pick a date from the calendar (only KBF-eligible weekdays are selectable)
-4. Pick a start time (hour, then minute)
-5. The system automatically holds the time slot (10-minute expiry)
-6. Click **Confirm** to finalize the booking
+### 1. Search for the Guest
 
-The guest will receive confirmation and can check in normally when they arrive. No lane is assigned until arrival — the system handles that at check-in time.
+Same as Bowl Now — type the guest's **name**, **email**, or **phone number** into the search bar and select their account.
 
-**Note:** Book Lane is disabled if the family already has an upcoming reservation.
+### 2. Select Bowlers
+
+Same as Bowl Now — check off the kids (and family members for FBF accounts) who will be bowling. Set shoe sizes and bumpers if the guest knows them — these are saved for next time.
+
+**Phone number is required** just like Bowl Now.
+
+### 3. Click "Book Lane"
+
+The blue **Book Lane** button takes you to the booking calendar (step 2 of the UI).
+
+**Book Lane is disabled if:**
+- The family already has an upcoming KBF reservation (yellow warning box shows the existing date/time)
+- No kids are selected
+- No phone number on file
+
+### 4. Pick a Date
+
+A calendar appears on the left side. Only **KBF-eligible weekdays** (Monday–Friday during the season) are clickable — weekends, past dates, and off-season dates are greyed out.
+
+- **Today's date** has a blue outline
+- **Selected date** fills solid blue
+- Click a date to load available times on the right
+
+### 5. Pick a Start Time
+
+After selecting a date, available times load on the right side:
+
+1. **Pick an hour** — click a time chip (e.g., "3 PM", "4 PM")
+2. **Pick a minute** — click a minute chip (e.g., ":00", ":15", ":30", ":45")
+
+Available times come directly from Conqueror (QAMF). If no times show up for a date, that day is fully booked or the KBF offer isn't configured for those hours.
+
+### 6. Time Slot Held Automatically
+
+As soon as you pick a minute, the system **automatically creates a temporary hold** on that time slot. You'll see:
+
+> **Time slot held — 10 min expiry**
+
+This means:
+- The slot is reserved for **10 minutes** while you confirm
+- No one else (online or at the desk) can take that slot
+- If you don't confirm within 10 minutes, the hold expires and the slot opens back up
+
+**If you change your mind:**
+- Click a **different minute** — the old hold is cancelled, a new one is created
+- Click a **different hour** — the old hold is cancelled
+- Click a **different date** — the old hold is cancelled
+- Click **Back** — the hold is cancelled and you return to the bowler selection
+
+### 7. Confirm the Booking
+
+The confirm button at the bottom shows the selected date and time:
+
+> **Confirm: 2026-05-15 at 3:30 PM**
+
+Click it to finalize. The system will:
+
+1. Lock in the QAMF reservation (no longer temporary)
+2. Create the internal reservation record with all bowler details
+3. Save shoe size and bumper preferences for next time
+
+A progress indicator shows each step completing.
+
+### 8. Done
+
+Once confirmed, the booking is final. The guest shows up on the selected date and checks in through the normal process — the lane is assigned at arrival, not at booking time.
+
+Click **New Lookup** to help the next guest.
+
+---
+
+## Book Lane: What Can Go Wrong
+
+| Situation | What You'll See | What to Do |
+|---|---|---|
+| No times available for a date | "No available start times for this date" | That day may be fully booked, or the KBF offer hours are restricted. Try a different date. |
+| Already has a reservation | Yellow warning, Book Lane button disabled | They can only have one upcoming KBF reservation at a time. They need to use or cancel the existing one first. |
+| Hold expired before confirming | Confirm may fail with an error | Pick the time again — a new hold will be created. If the slot was taken, pick a different time. |
+| Guest changes their mind on date/time | Calendar and time chips still active | Just pick a new date or time. The old hold is automatically cancelled. |
+| Guest wants to cancel after confirming | Booking is finalized | Contact management — confirmed bookings need to be cancelled in the reservations admin. |
+| Only late-night times showing | Times like "9 PM", "9:45 PM" only | This is a Conqueror configuration issue — the KBF offer may be restricted to certain hours at that center. Contact management. |
+
+---
+
+## Key Differences: Bowl Now vs. Book Lane
+
+| | Bowl Now | Book Lane |
+|---|---|---|
+| **When** | Right now — guest is at the desk | Future date — guest wants to reserve ahead |
+| **Lane assignment** | Immediate — system picks and opens a lane | At arrival — no lane assigned until check-in |
+| **Shoes to KDS** | Yes — sent immediately | No — handled at check-in |
+| **Charge for shoes** | Yes — immediately after confirming | At check-in, not at booking time |
+| **Hold expiry** | No expiry (PlayNow) | 10 minutes (BookForLater) |
+| **Square order** | Created (shoe line items for KDS) | Not created until check-in |
+| **Lane in Conqueror** | Opens to Running immediately | Created as future reservation |
