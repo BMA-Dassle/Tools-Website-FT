@@ -142,6 +142,8 @@ interface BowlingHoldInput {
 interface CheckoutBody {
   /** Single BMI bill ID — ALWAYS string. Optional for bowling-only. */
   bmiBillId?: string;
+  /** True when returning-racer credits cover the entire BMI portion (depositKind:2). */
+  bmiCreditOnly?: boolean;
   /** Location key (fasttrax, headpinz, naples). */
   locationKey: string;
   /** Cart items — one per booked attraction. Optional for bowling-only. */
@@ -210,6 +212,9 @@ export async function POST(req: NextRequest) {
     }
     if (!guest?.name || !guest?.email) {
       return NextResponse.json({ error: "guest.name and guest.email required" }, { status: 400 });
+    }
+    if (hasBowling && (!bowlingHold!.lineItems?.length) && (bowlingHold!.totalCents > 0)) {
+      return NextResponse.json({ error: "bowlingHold.lineItems required when totalCents > 0" }, { status: 400 });
     }
 
     const squareLocationId = LOCATION_TO_SQUARE[locationKey];
@@ -383,8 +388,11 @@ export async function POST(req: NextRequest) {
         const confirmId = randomUUID();
         const confirmTime = new Date().toISOString();
 
+        // depositKind: 0 = cash payment, 2 = credit-only (returning racers)
+        const depositKind: 0 | 2 = body.bmiCreditOnly ? 2 : 0;
+
         // Raw JSON — orderId injected as raw string for 18-digit precision
-        const confirmBody = `{"id":"${confirmId}","paymentTime":"${confirmTime}","amount":0,"orderId":${bmiBillId},"depositKind":0}`;
+        const confirmBody = `{"id":"${confirmId}","paymentTime":"${confirmTime}","amount":0,"orderId":${bmiBillId},"depositKind":${depositKind}}`;
 
         console.log(`[checkout/v2] BMI payment/confirm: ${confirmBody.substring(0, 200)}`);
 

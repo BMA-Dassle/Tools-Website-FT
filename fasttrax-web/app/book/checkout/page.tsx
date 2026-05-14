@@ -315,6 +315,7 @@ export default function CheckoutPage() {
       // BMI fields — optional for bowling-only
       ...(orderId ? {
         bmiBillId: orderId,
+        bmiCreditOnly: bmiTotalCents === 0, // true when credits cover entire BMI portion
         items: cartItems.map((item) => ({
           attractionSlug: item.attraction,
           name: item.attractionName || item.product.name,
@@ -367,11 +368,11 @@ export default function CheckoutPage() {
     try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
   }
 
-  function handlePaymentSuccess(result: PaymentResult) {
+  function handlePaymentSuccess(_result: PaymentResult) {
     cleanupCart();
-    if (v2ConfirmPathRef.current) {
-      window.location.href = v2ConfirmPathRef.current;
-    }
+    // v2ConfirmPathRef is set by customPaymentHandler before onSuccess fires.
+    // Fallback to /book in the unlikely case it's empty (shouldn't happen).
+    window.location.href = v2ConfirmPathRef.current || "/book";
   }
 
   function handlePaymentError(error: string) {
