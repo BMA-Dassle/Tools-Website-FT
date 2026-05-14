@@ -218,16 +218,28 @@ function buildRacingPreResolved(
       .map((g) => ({ ...g, resNumber, resCode, billId }))
       .sort((a, b) => a.heatStart.localeCompare(b.heatStart));
   } else {
-    // Fallback: build groups from the attractions cart items
+    // Fallback: build groups from the attractions cart items.
+    // Multiple cart items can share the same heat (one per racer),
+    // so group by time to avoid duplicates.
     const racingItems = (data.attractions || []).filter(
       (a) => /racing|race|kart/i.test(a.name),
     );
-    raceGroups = racingItems.map((item) => ({
-      product: item.name,
+    const groupByTime = new Map<string, { product: string; qty: number }>();
+    for (const item of racingItems) {
+      const key = item.time || item.date || "";
+      const existing = groupByTime.get(key);
+      if (existing) {
+        existing.qty += item.quantity;
+      } else {
+        groupByTime.set(key, { product: item.name, qty: item.quantity });
+      }
+    }
+    raceGroups = [...groupByTime.entries()].map(([time, g]) => ({
+      product: g.product,
       track: null, // not available from cart data
-      heatStart: item.time || "",
-      heatName: item.name,
-      racers: Array.from({ length: item.quantity }, (_, i) =>
+      heatStart: time,
+      heatName: g.product,
+      racers: Array.from({ length: g.qty }, (_, i) =>
         i === 0 && data.guestName ? data.guestName : `Racer ${i + 1}`,
       ),
       resNumber,
