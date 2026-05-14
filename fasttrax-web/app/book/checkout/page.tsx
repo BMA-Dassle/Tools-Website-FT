@@ -279,9 +279,9 @@ export default function CheckoutPage() {
         const res = await callCheckoutV2(undefined);
         if (!res.ok) throw new Error((await res.json()).error || "Checkout failed");
         const data = await res.json();
+        saveConfirmationData(data);
         cleanupCart();
-        const freeSlug = cartItems[0]?.attraction || (hasBowling ? "bowling" : "laser-tag");
-        window.location.href = data.confirmationPath || `/book/${freeSlug}/confirmation?neonId=${data.neonId}`;
+        window.location.href = "/book/checkout/confirmation";
       } catch (err) {
         setStep("error");
         setErrorMsg(err instanceof Error ? err.message : "Checkout failed");
@@ -366,6 +366,31 @@ export default function CheckoutPage() {
     sessionStorage.removeItem("bowlingHold");
     sessionStorage.removeItem("checkoutReturnPath");
     try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
+  }
+
+  /** Save confirmation data so the confirmation page can display it without another API call. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function saveConfirmationData(apiResponse: any) {
+    try {
+      sessionStorage.setItem("checkoutConfirmation", JSON.stringify({
+        ...apiResponse,
+        // Add display data from cart (cart is about to be cleared)
+        bowling: bowlingHold ? {
+          experienceName: bowlingHold.experienceName,
+          timeLabel: bowlingHold.timeLabel,
+          players: bowlingHold.players?.length || 1,
+          totalCents: bowlingHold.totalCents,
+        } : null,
+        attractions: cartItems.map((item) => ({
+          name: item.attractionName || item.product.name,
+          quantity: item.quantity,
+          date: item.date,
+          time: item.time?.block?.start || null,
+        })),
+        guestName: contact?.firstName ? `${contact.firstName} ${contact.lastName}` : null,
+        guestEmail: contact?.email || null,
+      }));
+    } catch { /* non-fatal — confirmation page has fallback */ }
   }
 
   function handlePaymentSuccess(_result: PaymentResult) {
@@ -597,8 +622,8 @@ export default function CheckoutPage() {
               const res = await callCheckoutV2(isSavedCard ? undefined : token);
               const data = await res.json();
               if (!res.ok || data.error) throw new Error(data.error || "Checkout failed");
-              const fallbackSlug = cartItems[0]?.attraction || (hasBowling ? "bowling" : "laser-tag");
-              v2ConfirmPathRef.current = data.confirmationPath || `/book/${fallbackSlug}/confirmation?neonId=${data.neonId}`;
+              saveConfirmationData(data);
+              v2ConfirmPathRef.current = "/book/checkout/confirmation";
               return {
                 paymentId: data.squareDepositPaymentId || "",
                 orderId: data.squareDayofOrderId || orderId || "",

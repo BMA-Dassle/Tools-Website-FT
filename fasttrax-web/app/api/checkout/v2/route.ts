@@ -552,10 +552,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Short code ──────────────────────────────────────────────────
-    const confirmBase = hasBmi
-      ? `/book/${bmiItems[0].attractionSlug}/confirmation`
-      : "/book/bowling/confirmation";
+    // ── Short code (for admin links / email) ───────────────────────
+    const confirmBase = "/book/checkout/confirmation";
     let shortCode: string | undefined;
     try {
       shortCode = await shortenUrl(`${confirmBase}?code=_TMP_`);
@@ -581,6 +579,7 @@ export async function POST(req: NextRequest) {
       squareDayofOrderId: squareDayofOrderId ?? null,
       squareDepositOrderId: squareDepositOrderId ?? null,
       squareDepositPaymentId: squareDepositPaymentId ?? null,
+      squareGiftCardGan: squareGiftCardGan ?? null,
       squareGiftCardId: squareGiftCardId ?? null,
       depositPaidCents: depositCents,
       totalCents: finalTotalCents,
@@ -589,9 +588,7 @@ export async function POST(req: NextRequest) {
         ? `${confirmBase}?code=${shortCode}`
         : neonId
           ? `${confirmBase}?neonId=${neonId}`
-          : hasBmi
-            ? `${confirmBase}?billId=${bmiBillId}`
-            : `${confirmBase}?qamfId=${bowlingHold?.qamfReservationId}`,
+          : null,
     });
   } catch (err) {
     if (err instanceof DepositOrderError) {
