@@ -473,9 +473,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Block /hp/ on fasttraxent.com — redirect to headpinz.com (allow on localhost for dev)
+  // Block /hp/ on fasttraxent.com — redirect to headpinz.com
+  // (allow on localhost and Vercel preview deployments for dev/QA)
   const isLocalhost = hostname.includes("localhost") || hostname.includes("127.0.0.1");
-  if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost) {
+  const isVercelPreview = hostname.endsWith(".vercel.app");
+  if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost && !isVercelPreview) {
     const hpPath = pathname.replace(/^\/hp/, "") || "/";
     return NextResponse.redirect(`https://headpinz.com${hpPath}`);
   }
