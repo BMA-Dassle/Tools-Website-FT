@@ -486,6 +486,97 @@ export async function createDepositOrder(opts: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// updateOrderMetadata — write metadata to an existing Square order
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Update metadata on an existing Square order. Square orders support up to
+ * 60 key-value pairs (40-char keys, 500-char values).
+ *
+ * This is the backbone for the post-confirm pipeline: checkout/v2 writes
+ * all racer data, package info, and booking references to the day-of
+ * Square order. The post-confirm route reads it back by orderId.
+ *
+ * Non-fatal: returns false on failure (logs the error). The caller should
+ * treat this as best-effort — the booking is already confirmed at this point.
+ */
+export async function updateOrderMetadata(
+  orderId: string,
+  metadata: Record<string, string>,
+): Promise<boolean> {
+  try {
+    // GET current order version
+    const getRes = await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+      headers: sqHeaders(),
+    });
+    if (!getRes.ok) {
+      console.error(`[square-deposit] metadata GET failed: ${getRes.status}`);
+      return false;
+    }
+    const getData = await getRes.json();
+    const version = getData.order?.version;
+    const locationId = getData.order?.location_id;
+    if (version == null || !locationId) {
+      console.error("[square-deposit] metadata: no version/location on order");
+      return false;
+    }
+
+    // Merge new metadata with any existing metadata
+    const existing = getData.order?.metadata ?? {};
+    const merged = { ...existing, ...metadata };
+
+    const putRes = await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+      method: "PUT",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        order: {
+          location_id: locationId,
+          version,
+          metadata: merged,
+        },
+      }),
+    });
+    if (!putRes.ok) {
+      const putData = await putRes.json().catch(() => ({}));
+      const sqErr = putData.errors?.[0];
+      console.error(
+        `[square-deposit] metadata PUT failed: ${putRes.status}`,
+        sqErr ? `${sqErr.code}: ${sqErr.detail}` : "",
+      );
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[square-deposit] metadata update error:", err);
+    return false;
+  }
+}
+
+/**
+ * Read metadata from an existing Square order. Returns the metadata
+ * object (key-value pairs) or null on failure.
+ */
+export async function readOrderMetadata(
+  orderId: string,
+): Promise<Record<string, string> | null> {
+  try {
+    const res = await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+      headers: sqHeaders(),
+    });
+    if (!res.ok) {
+      console.error(`[square-deposit] metadata read failed: ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    return data.order?.metadata ?? null;
+  } catch (err) {
+    console.error("[square-deposit] metadata read error:", err);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // syncBmiToSquareOrder — BMI-as-pricing-authority helper for racing
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import {
   createDepositOrder,
   DepositOrderError,
+  updateOrderMetadata,
   type LineItemInput,
 } from "@/lib/square-deposit-order";
 import {
@@ -186,6 +187,20 @@ interface CheckoutBody {
   // ── Bowling (QAMF) ──────────────────────────────────────────────
   /** When present, checkout also confirms a QAMF bowling hold. */
   bowlingHold?: BowlingHoldInput;
+
+  // ── Racing data (for post-confirm pipeline) ───────────────────
+  /** Compact racer assignments from the racing wizard (sessionStorage). */
+  racerData?: Array<{
+    name: string;
+    personId?: string;
+    product?: string;
+    track?: string;
+    heatStart?: string;
+  }>;
+  /** Primary returning racer's BMI personId. */
+  primaryPersonId?: string;
+  /** Package ID ("rookie-pack", "ultimate-qualifier-mega", etc.). */
+  packageId?: string;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -560,6 +575,14 @@ export async function POST(req: NextRequest) {
     const notifOrigin = req.nextUrl.origin;
     const smsOptIn = body.smsOptIn ?? true;
 
+    // Detect racing in the BMI cart — drives notification routing.
+    // Racing carts get their notification from the post-confirm pipeline
+    // (enriched with Express Lane, POV, waiver URL, package info).
+    const isRacingCart = hasBmi && bmiItems.some((item) => {
+      const n = item.name.toLowerCase();
+      return n.includes("race") || n.includes("kart") || /(blue|red|mega).*track/i.test(n);
+    });
+
     // Bowling confirmation email + SMS
     if (hasBowling && neonIds.length > 0) {
       const bowlingNeonId = neonIds[0]; // Bowling row is inserted first
@@ -573,7 +596,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Attraction / racing confirmation email + SMS
-    if (hasBmi && bmiReservationNumber) {
+    // Skip for racing carts — the post-confirm pipeline fires an enriched
+    // notification with Express Lane, POV codes, waiver URL, and package info.
+    // The dedup key (notif:{billId}) means only one fires per bill.
+    if (hasBmi && bmiReservationNumber && !isRacingCart) {
       const firstName = guest.name.split(/\s+/)[0] || guest.name;
       fetch(`${notifOrigin}/api/notifications/booking-confirmation`, {
         method: "POST",
@@ -597,6 +623,97 @@ export async function POST(req: NextRequest) {
         }),
       }).catch((err) => {
         console.error("[checkout/v2] booking notification fire-and-forget failed:", err);
+      });
+    }
+
+    // ── Write metadata to Square day-of order (backbone for post-confirm) ──
+    // After all confirms + Neon inserts, we have everything we need.
+    // Square metadata: 60 keys max, 40-char keys, 500-char values.
+    if (squareDayofOrderId) {
+      // Build compact racer JSON: [{"n":"name","p":"pid","t":"track","h":"14:30"}]
+      // ~70 chars/racer → fits ~6 in 500 chars
+      let racerJson = "";
+      if (body.racerData?.length) {
+        const compact = body.racerData.map((r) => {
+          const obj: Record<string, string> = { n: r.name };
+          if (r.personId) obj.p = r.personId;
+          if (r.track) obj.t = r.track;
+          if (r.heatStart) {
+            // Compress to HH:MM for space
+            const tm = r.heatStart.match(/T(\d{2}:\d{2})/);
+            if (tm) obj.h = tm[1];
+          }
+          return obj;
+        });
+        racerJson = JSON.stringify(compact);
+        // Truncate to 500 chars if needed (unlikely for ≤6 racers)
+        if (racerJson.length > 500) racerJson = racerJson.slice(0, 497) + "...]";
+      }
+
+      const metadata: Record<string, string> = {
+        checkout_version: "v2",
+        booking_type: hasBowling && hasBmi ? "mixed" : hasBowling ? "bowling" : isRacingCart ? "racing" : "attractions",
+        location_key: locationKey,
+        has_bowling: String(hasBowling),
+        has_bmi: String(hasBmi),
+        guest_name: guest.name.slice(0, 500),
+        guest_email: guest.email.slice(0, 500),
+        guest_phone: guest.phone.slice(0, 500),
+        sms_opt_in: String(smsOptIn),
+      };
+
+      if (bmiBillId) metadata.bmi_bill_id = bmiBillId.slice(0, 500);
+      if (bmiReservationNumber) metadata.reservation_number = bmiReservationNumber;
+      if (bowlingHold?.qamfReservationId) metadata.qamf_id = bowlingHold.qamfReservationId;
+      if (body.primaryPersonId) metadata.primary_person_id = body.primaryPersonId;
+      if (body.packageId) metadata.package_id = body.packageId;
+      if (racerJson) metadata.racers = racerJson;
+      if (neonIds.length) metadata.neon_ids = neonIds.join(",");
+      if (checkoutGroupId) metadata.checkout_group_id = checkoutGroupId;
+      if (body.squareCustomerId) metadata.sq_customer_id = body.squareCustomerId;
+
+      // Detect POV from BMI line items (productId 43746981)
+      // The cart items don't carry productId, but the product name is stable enough
+      const povQty = bmiItems.filter((item) => /pov/i.test(item.name)).reduce((s, i) => s + i.quantity, 0);
+      if (povQty > 0) metadata.pov_qty = String(povQty);
+
+      // Fire-and-forget — metadata is best-effort, booking is already confirmed
+      updateOrderMetadata(squareDayofOrderId, metadata).then((ok) => {
+        if (ok) {
+          console.log(`[checkout/v2] Square metadata written to ${squareDayofOrderId}`);
+        } else {
+          console.error(`[checkout/v2] Square metadata write failed for ${squareDayofOrderId}`);
+        }
+      }).catch((err) => {
+        console.error("[checkout/v2] Square metadata write error:", err);
+      });
+    }
+
+    // ── Fire post-confirm pipeline (racing orchestration — non-blocking) ──
+    // Fires for ALL racing carts — including credit-only ($0) where no Square
+    // order exists. The pipeline reads data from direct params (primary) and
+    // Square metadata (fallback). Credit-only returning racers are exactly
+    // the ones who need Express Lane detection + Pandora linking.
+    if (isRacingCart) {
+      fetch(`${notifOrigin}/api/checkout/v2/post-confirm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          squareDayofOrderId: squareDayofOrderId || null,
+          bmiBillId: bmiBillId || null,
+          bmiReservationNumber: bmiReservationNumber || null,
+          locationKey,
+          clientKey: bmiClientKey,
+          guest: { name: guest.name, email: guest.email, phone: guest.phone },
+          smsOptIn,
+          racerData: body.racerData || null,
+          primaryPersonId: body.primaryPersonId || null,
+          packageId: body.packageId || null,
+          neonIds,
+          checkoutGroupId: checkoutGroupId || null,
+        }),
+      }).catch((err) => {
+        console.error("[checkout/v2] post-confirm fire-and-forget failed:", err);
       });
     }
 

@@ -36,6 +36,20 @@ interface CartItem {
   color: string;
 }
 
+/** Shape of racerAssignments sessionStorage blob (saved by racing wizard). */
+interface RacerAssignment {
+  racerName: string;
+  personId: string | null;
+  product: string;
+  productId: string;
+  tier: string;
+  track: string;
+  category: string;
+  heatName: string;
+  heatStart: string;
+  heatStop: string | null;
+}
+
 /** Shape of the bowlingHold sessionStorage blob (saved by BowlingWizard). */
 interface BowlingHoldData {
   qamfReservationId: string;
@@ -78,6 +92,8 @@ export default function CheckoutPage() {
   const [orderId, setOrderId] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [bowlingHold, setBowlingHold] = useState<BowlingHoldData | null>(null);
+  const [racerAssignments, setRacerAssignments] = useState<RacerAssignment[]>([]);
+  const [primaryPersonId, setPrimaryPersonId] = useState<string | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
   const [step, setStep] = useState<PageStep>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -117,6 +133,15 @@ export default function CheckoutPage() {
       const items = JSON.parse(sessionStorage.getItem("attractionCart") || "[]");
       setCartItems(items);
     } catch { /* empty cart */ }
+    // Read racer data (racing wizard stores these for the post-confirm pipeline)
+    try {
+      const ra = sessionStorage.getItem("racerAssignments");
+      if (ra) setRacerAssignments(JSON.parse(ra));
+    } catch { /* no racer data */ }
+    try {
+      const pid = sessionStorage.getItem("primaryPersonId");
+      if (pid) setPrimaryPersonId(pid);
+    } catch { /* ignore */ }
 
     // Pre-fill contact from bowling hold guest data
     if (bowlingRaw?.guest) {
@@ -341,6 +366,19 @@ export default function CheckoutPage() {
       smsOptIn: contact.smsOptIn,
       // Bowling hold — optional for attractions-only
       ...(bowlingHold ? { bowlingHold } : {}),
+      // Racing data — racer assignments + primary person ID for post-confirm pipeline
+      ...(racerAssignments.length > 0
+        ? {
+            racerData: racerAssignments.map((r) => ({
+              name: r.racerName,
+              personId: r.personId || undefined,
+              product: r.product,
+              track: r.track || undefined,
+              heatStart: r.heatStart || undefined,
+            })),
+          }
+        : {}),
+      ...(primaryPersonId ? { primaryPersonId } : {}),
       // Loyalty
       ...(loyalty.selectedRewardTier && loyalty.account
         ? {
@@ -365,6 +403,8 @@ export default function CheckoutPage() {
     sessionStorage.removeItem("attractionCart");
     sessionStorage.removeItem("attractionOrderId");
     sessionStorage.removeItem("bowlingHold");
+    sessionStorage.removeItem("racerAssignments");
+    sessionStorage.removeItem("primaryPersonId");
     sessionStorage.removeItem("checkoutReturnPath");
     try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
   }
