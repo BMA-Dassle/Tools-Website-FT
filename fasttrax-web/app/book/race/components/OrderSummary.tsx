@@ -55,7 +55,7 @@ interface OrderSummaryProps {
   /** All bookings (already booked — races held at heat selection) */
   bookings: BookingItem[];
   date: string;
-  contact: ContactInfo;
+  contact: ContactInfo | null;
   onBack: () => void;
   /** Primary bill ID (first bill — used for add-ons/POV) */
   billId: string;
@@ -192,29 +192,8 @@ export default function OrderSummary({
     console.log("[runBookingFlow] STARTED — bills:", JSON.stringify(bills.map(b => ({ billId: b.billId, personId: b.personId, racer: b.racerName }))));
     setState({ status: "booking" });
     try {
-      // Register contact on bill — MUST include personId if available
-      // to avoid wiping credit linkages set during booking/book
+      // Contact registration moved to unified checkout (/book/checkout)
       const ck = getBookingClientKey();
-      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson", ...(ck ? { clientKey: ck } : {}) });
-      for (const bill of bills) {
-        try {
-          const regBody: Record<string, unknown> = {
-            firstName: contact.firstName,
-            lastName: contact.lastName,
-            email: contact.email,
-            phone: contact.phone.replace(/\D/g, ""),
-          };
-          // Inject orderId and personId as raw numbers to avoid JS precision loss on large BMI IDs
-          const pid = bill.personId || personId;
-          let regJson = `{"orderId":${bill.billId},` + JSON.stringify(regBody).slice(1);
-          if (pid) regJson = regJson.slice(0, -1) + `,"personId":${pid}}`;
-          await fetch(`/api/bmi?${regQs.toString()}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: regJson,
-          });
-        } catch { /* non-fatal */ }
-      }
 
       // Get overview for each bill and combine totals
       let bmiTotal = 0;
@@ -411,10 +390,16 @@ export default function OrderSummary({
             </div>
             <div>
               <p className="text-white/40 text-xs mb-1">Contact</p>
-              <p className="text-white text-sm">
-                {contact.firstName} {contact.lastName}
-              </p>
-              <p className="text-white/50 text-xs">{contact.email}</p>
+              {contact ? (
+                <>
+                  <p className="text-white text-sm">
+                    {contact.firstName} {contact.lastName}
+                  </p>
+                  <p className="text-white/50 text-xs">{contact.email}</p>
+                </>
+              ) : (
+                <p className="text-white/50 text-xs">Collected at checkout</p>
+              )}
             </div>
           </div>
         </div>
@@ -424,9 +409,15 @@ export default function OrderSummary({
       {!isPack && (
         <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between text-sm">
           <div>
-            <span className="text-white font-semibold">{contact.firstName} {contact.lastName}</span>
-            <span className="text-white/30 mx-2">&middot;</span>
-            <span className="text-white/50">{contact.email}</span>
+            {contact ? (
+              <>
+                <span className="text-white font-semibold">{contact.firstName} {contact.lastName}</span>
+                <span className="text-white/30 mx-2">&middot;</span>
+                <span className="text-white/50">{contact.email}</span>
+              </>
+            ) : (
+              <span className="text-white/50">Contact info collected at checkout</span>
+            )}
           </div>
           {date && <span className="text-white/40 text-xs">{formatDate(date)}</span>}
         </div>

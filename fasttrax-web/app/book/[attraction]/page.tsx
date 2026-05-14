@@ -6,15 +6,7 @@ import { setBookingLocation, getBookingLocation, clearBookingLocation, getBookin
 import Image from "next/image";
 import Link from "next/link";
 import BrandNav from "@/components/BrandNav";
-import PaymentForm from "@/components/square/PaymentForm";
-import type { PaymentResult } from "@/components/square/PaymentForm";
-import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
-import LoyaltySection from "@/components/booking/LoyaltySection";
-import { useLoyalty } from "@/hooks/useLoyalty";
-import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 // MiniCart is rendered globally in root layout
-import ContactForm from "@/app/book/race/components/ContactForm";
-import type { ContactInfo } from "@/app/book/race/components/ContactForm";
 import {
   ATTRACTIONS,
   ATTRACTION_LIST,
@@ -36,7 +28,7 @@ import { getGroupEventForDate } from "@/lib/group-events";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type Step = "location" | "product" | "date" | "time" | "quantity" | "cart" | "contact" | "review";
+type Step = "location" | "product" | "date" | "time" | "quantity" | "cart";
 
 interface CartItem {
   attraction: AttractionSlug;
@@ -55,7 +47,6 @@ interface BookingState {
   date: string | null; // YYYY-MM-DD
   time: { proposal: BmiProposal; block: BmiBlock } | null;
   quantity: number;
-  contact: ContactInfo | null;
   orderId: string | null;
   billLineId: string | null;
 }
@@ -696,487 +687,10 @@ function QuantityPicker({
   );
 }
 
-// ── Review & Pay ────────────────────────────────────────────────────────────
-
-type ReviewState =
-  | { status: "idle" }
-  | { status: "booking" }
-  | { status: "booked"; orderId: string; total: number; subtotal: number; tax: number; lines: { name: string; quantity: number; amount: number; credit?: number; time?: string | null }[]; creditsApplied?: number }
-  | { status: "card-form"; orderId: string; total: number; subtotal: number; tax: number; lines: { name: string; quantity: number; amount: number; credit?: number; time?: string | null }[]; creditsApplied?: number }
-  | { status: "error"; message: string };
-
-function ReviewStep({
-  booking,
-  config,
-  contact,
-  onBack,
-  color,
-  loyaltyData,
-}: {
-  booking: BookingState;
-  config: AttractionConfig;
-  contact: ContactInfo;
-  onBack: () => void;
-  color: string;
-  /** Loyalty reward data from the contact step. */
-  loyaltyData?: {
-    rewardTierId: string;
-    loyaltyAccountId: string;
-    rewardDiscountCents: number;
-    squareCustomerId: string;
-    loyaltyAction: "signup" | "existing";
-  };
-}) {
-  const [state, setState] = useState<ReviewState>({ status: "idle" });
-  const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
-  const effectRan = useRef(false);
-
-  // ── v2 deposit flow (Phase 3 — laser-tag only for now) ────────
-  // v2 deposit flow for all non-racing attractions (Phase 4)
-  const useV2Flow = config.slug !== "racing";
-  // Set by v2 customPaymentHandler so handlePaymentSuccess knows where to redirect
-  const v2ConfirmPathRef = useRef("");
-
-  useEffect(() => {
-    if (effectRan.current) return;
-    effectRan.current = true;
-    runBooking();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function runBooking() {
-    if (!booking.orderId) {
-      setState({ status: "error", message: "No booking found" });
-      return;
-    }
-    setState({ status: "booking" });
-
-    try {
-      const orderId = booking.orderId;
-
-      // Resolve clientKey for Naples
-      const ck = getBookingClientKey();
-
-      // 1. Register contact person on the bill
-      const regQs = new URLSearchParams({ endpoint: "person/registerContactPerson", ...(ck ? { clientKey: ck } : {}) });
-      const regBody = JSON.stringify({
-        firstName: contact.firstName,
-        lastName: contact.lastName,
-        email: contact.email,
-        phone: contact.phone.replace(/\D/g, ""),
-      });
-      const rawRegJson = `{"orderId":${orderId},` + regBody.slice(1);
-      await fetch(`/api/bmi?${regQs.toString()}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: rawRegJson,
-      });
-
-      // 2. Get bill overview — shows ALL items on the bill (attractions + races)
-      const smsOverviewQs = ck ? `endpoint=bill%2Foverview&billId=${orderId}&clientKey=${ck}` : `endpoint=bill%2Foverview&billId=${orderId}`;
-      const overviewRes = await fetch(`/api/sms?${smsOverviewQs}`);
-      const overview = await overviewRes.json();
-
-      const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-      const creditTotals = (overview.total || []).filter((t: { depositKind: number }) => t.depositKind === 2);
-      const totalCredits = creditTotals.reduce((s: number, t: { amount: number }) => s + Math.abs(t.amount), 0);
-      const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
-      const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lines = (overview.lines || []).map((l: any) => {
-        const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
-        const creditPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 2);
-        const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
-        return {
-          name: l.name,
-          quantity: l.quantity,
-          amount: cashPrice?.amount ?? 0,
-          credit: creditPrice ? Math.abs(creditPrice.amount) : 0,
-          time: lineTime || null,
-        };
-      });
-
-      setState({
-        status: "booked",
-        orderId,
-        total: cashTotal?.amount ?? 0,
-        subtotal: cashSub?.amount ?? 0,
-        tax: cashTax?.amount ?? 0,
-        lines,
-        creditsApplied: totalCredits,
-      });
-    } catch (err) {
-      setState({ status: "error", message: err instanceof Error ? err.message : "Failed to load order" });
-    }
-  }
-
-  async function handlePay() {
-    if (state.status !== "booked") return;
-
-    // Log clickwrap acceptance (non-fatal)
-    void fetch("/api/clickwrap/record", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ts: new Date().toISOString(),
-        billId: state.orderId,
-        email: contact.email,
-        phone: contact.phone,
-        firstName: contact.firstName,
-        amountCents: Math.round(state.total * 100),
-        bookingType: "attractions",
-        policyVersion: CURRENT_POLICY_VERSION,
-      }),
-    }).catch(() => {});
-
-    try {
-      const { orderId, total, subtotal, tax, lines, creditsApplied } = state;
-
-      // v2 flow with $0 total — skip Square entirely, go straight to reserve
-      if (useV2Flow && total === 0) {
-        setState({ status: "booking" }); // Show spinner
-        try {
-          const locationKey = getBookingLocation() || booking.location || "fasttrax";
-          const ck = getBookingClientKey();
-          const res = await fetch("/api/attractions/v2/reserve", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              attractionSlug: config.slug,
-              locationKey,
-              bmiBillId: orderId,
-              bookedAt: booking.date && booking.time?.block.start
-                ? booking.time.block.start
-                : booking.date || new Date().toISOString(),
-              participantCount: booking.quantity || 1,
-              guest: {
-                name: `${contact.firstName} ${contact.lastName}`,
-                email: contact.email,
-                phone: contact.phone,
-              },
-              totalCents: 0,
-              productName: config.name,
-              notes: `${config.name} – ${contact.firstName} ${contact.lastName}`,
-              clientKey: ck || undefined,
-              // Loyalty (Phase 5)
-              ...(loyaltyData ? {
-                rewardTierId: loyaltyData.rewardTierId,
-                loyaltyAccountId: loyaltyData.loyaltyAccountId,
-                rewardDiscountCents: loyaltyData.rewardDiscountCents,
-                squareCustomerId: loyaltyData.squareCustomerId,
-                loyaltyAction: loyaltyData.loyaltyAction,
-              } : {}),
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok || data.error) throw new Error(data.error || "Reservation failed");
-          const confirmPath = data.confirmationPath || `/book/${config.slug}/confirmation?neonId=${data.neonId}`;
-          window.location.href = confirmPath;
-          return;
-        } catch (err) {
-          setState({ status: "error", message: err instanceof Error ? err.message : "Reservation failed" });
-          return;
-        }
-      }
-
-      if (!useV2Flow) {
-        // Old flow: Store booking details in Redis for confirmation page.
-        //
-        // `location` rides along so the confirmation email picks the
-        // right venue + address (HP Naples vs HP Fort Myers vs FT) —
-        // the email render path used to fall back on a product-name
-        // heuristic that couldn't tell Naples apart from Fort Myers.
-        //
-        // `overviews` stashes the line data in the same shape the
-        // confirmation page already understands (mirrors the racing
-        // OrderSummary pattern). Without this, BMI's order overview
-        // is unreachable post-payment-confirm, so the email's
-        // Date/Time/Schedule fields ended up blank for attractions.
-        const overviewsForStore = [{
-          lines: lines.map((l) => ({
-            name: l.name,
-            quantity: l.quantity,
-            scheduledTime: l.time ? { start: l.time, stop: "" } : undefined,
-            productGroup: "Attractions",
-          })),
-        }];
-        const bookingDetails = {
-          billId: orderId,
-          amount: total.toFixed(2),
-          attraction: config.slug,
-          location: booking.location || "fasttrax",
-          name: `${contact.firstName} ${contact.lastName}`,
-          email: contact.email,
-          phone: contact.phone,
-          date: booking.date,
-          isCreditOrder: "false",
-          smsOptIn: contact.smsOptIn ? "true" : "false",
-          overviews: JSON.stringify(overviewsForStore),
-        };
-        await fetch("/api/booking-store", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(bookingDetails),
-        });
-        localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
-      }
-      // v2 flow: skip Redis — Neon + Square deposit handled server-side by /api/attractions/v2/reserve
-
-      // Transition to card form
-      setState({ status: "card-form", orderId, total, subtotal, tax, lines, creditsApplied });
-    } catch (err) {
-      setState({ status: "error", message: err instanceof Error ? err.message : "Payment failed" });
-    }
-  }
-
-  function handlePaymentSuccess(result: PaymentResult) {
-    const orderId = state.status === "card-form" ? state.orderId : "";
-    // v2 flow — confirmation path is set by the custom handler via v2ConfirmPathRef
-    if (v2ConfirmPathRef.current) {
-      sessionStorage.setItem(`payment_${orderId}`, JSON.stringify({
-        cardBrand: result.cardBrand,
-        cardLast4: result.cardLast4,
-        amount: result.amount,
-        paymentId: result.paymentId,
-      }));
-      window.location.href = v2ConfirmPathRef.current;
-      return;
-    }
-    // Old flow — store payment details and redirect to generic confirmation
-    sessionStorage.setItem(`payment_${orderId}`, JSON.stringify({
-      cardBrand: result.cardBrand,
-      cardLast4: result.cardLast4,
-      amount: result.amount,
-      paymentId: result.paymentId,
-    }));
-    window.location.href = `/book/confirmation?billId=${orderId}`;
-  }
-
-  function handlePaymentError(error: string) {
-    setState({ status: "error", message: error });
-  }
-
-  function handlePaymentCancel() {
-    if (state.status === "card-form") {
-      const { orderId, total, subtotal, tax, lines, creditsApplied } = state;
-      setState({ status: "booked", orderId, total, subtotal, tax, lines, creditsApplied });
-    }
-  }
-
-  // Loading
-  if (state.status === "idle" || state.status === "booking") {
-    return (
-      <div className="min-h-[400px] flex flex-col items-center justify-center gap-4">
-        <div className="w-10 h-10 border-2 border-white/20 rounded-full animate-spin" style={{ borderTopColor: color }} />
-        <p className="text-white/60 text-sm">Reserving your spot...</p>
-      </div>
-    );
-  }
-
-  if (state.status === "error") {
-    return (
-      <div className="min-h-[300px] flex flex-col items-center justify-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
-          <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </div>
-        <p className="text-red-400 text-sm text-center">{state.message}</p>
-        <button onClick={onBack} className="text-xs text-white/50 hover:text-white underline">Go back</button>
-      </div>
-    );
-  }
-
-  if (state.status === "card-form") {
-    // v2 custom handler: tokenize card → call /api/attractions/v2/reserve → return result
-    const v2Handler = useV2Flow
-      ? async (token: string, isSavedCard: boolean): Promise<PaymentResult> => {
-          const locationKey = getBookingLocation() || booking.location || "fasttrax";
-          const ck = getBookingClientKey();
-          const res = await fetch("/api/attractions/v2/reserve", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              attractionSlug: config.slug,
-              locationKey,
-              bmiBillId: state.orderId,
-              bookedAt: booking.date && booking.time?.block.start
-                ? booking.time.block.start
-                : booking.date || new Date().toISOString(),
-              participantCount: booking.quantity || 1,
-              guest: {
-                name: `${contact.firstName} ${contact.lastName}`,
-                email: contact.email,
-                phone: contact.phone,
-              },
-              squareToken: isSavedCard ? undefined : token,
-              totalCents: Math.round(state.total * 100),
-              lineItems: state.lines
-                .filter((l) => l.amount > 0)
-                .map((l) => ({
-                  name: l.name,
-                  quantity: String(l.quantity),
-                  basePriceMoney: {
-                    amount: Math.round((l.amount / l.quantity) * 100),
-                    currency: "USD" as const,
-                  },
-                })),
-              productName: config.name,
-              notes: `${config.name} – ${contact.firstName} ${contact.lastName}`,
-              clientKey: ck || undefined,
-              // Loyalty (Phase 5)
-              ...(loyaltyData ? {
-                rewardTierId: loyaltyData.rewardTierId,
-                loyaltyAccountId: loyaltyData.loyaltyAccountId,
-                rewardDiscountCents: loyaltyData.rewardDiscountCents,
-                squareCustomerId: loyaltyData.squareCustomerId,
-                loyaltyAction: loyaltyData.loyaltyAction,
-              } : {}),
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok || data.error) throw new Error(data.error || "Reservation failed");
-
-          // Set the confirmation path for handlePaymentSuccess
-          v2ConfirmPathRef.current = data.confirmationPath || `/book/${config.slug}/confirmation?neonId=${data.neonId}`;
-
-          return {
-            paymentId: data.squareDepositPaymentId || "",
-            orderId: data.squareDayofOrderId || state.orderId,
-            cardBrand: null,
-            cardLast4: null,
-            amount: data.depositPaidCents / 100,
-            receiptUrl: null,
-            savedCardId: null,
-          };
-        }
-      : undefined;
-
-    return (
-      <PaymentForm
-        amount={state.total}
-        itemName={config.name}
-        billId={state.orderId}
-        contact={{
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          phone: contact.phone,
-        }}
-        locationId={getBookingLocation() || booking.location || undefined}
-        onSuccess={handlePaymentSuccess}
-        onError={handlePaymentError}
-        onCancel={handlePaymentCancel}
-        customPaymentHandler={v2Handler}
-      />
-    );
-  }
-
-  // Booked — show summary + pay button
-  const { orderId: bookedOrderId, total: bmiTotal, subtotal: bmiSubtotal, tax: bmiTax, lines } = state;
-
-  return (
-    <div className="space-y-6 max-w-md mx-auto">
-      <div className="text-center">
-        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">Review & Pay</h2>
-        <p className="text-white/50 text-sm">Confirm your booking details below.</p>
-      </div>
-
-      {/* Line items */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
-        <div className="p-4 sm:p-5 space-y-3">
-          {/* Date & time */}
-          <div className="flex items-center gap-3 pb-3 border-b border-white/8">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${color}15` }}>
-              <svg className="w-5 h-5" style={{ color }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <rect x="3" y="4" width="18" height="18" rx="2" />
-                <path d="M16 2v4M8 2v4M3 10h18" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-white text-sm font-medium">{booking.date ? formatDate(booking.date) : ""}</p>
-              <p className="text-white/40 text-xs">
-                {booking.time?.block.start ? formatTime(booking.time.block.start) : ""}
-                {booking.time?.block.stop ? ` — ${formatTime(booking.time.block.stop)}` : ""}
-              </p>
-            </div>
-          </div>
-
-          {/* Items — all items from the bill (attractions + races if shared) */}
-          {lines.map((line, i) => (
-            <div key={i} className="flex items-center justify-between py-1.5">
-              <div>
-                <p className="text-white text-sm">{line.name}{line.quantity > 1 ? ` x${line.quantity}` : ""}</p>
-                {line.time && <p className="text-white/30 text-xs">{formatTime(line.time)}</p>}
-              </div>
-              <p className="text-white font-semibold text-sm">
-                {line.credit && line.credit > 0 ? <span className="text-green-400">Credit</span> : `$${line.amount.toFixed(2)}`}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Totals */}
-        <div className="border-t border-white/8 p-4 sm:p-5 space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-white/50">Subtotal</span>
-            <span className="text-white">${bmiSubtotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-white/50">Tax</span>
-            <span className="text-white">${bmiTax.toFixed(2)}</span>
-          </div>
-          {state.creditsApplied && state.creditsApplied > 0 ? (
-            <>
-              <div className="flex justify-between text-sm">
-                <span className="text-green-400">Credits Applied</span>
-                <span className="text-green-400">-{state.creditsApplied} credit{state.creditsApplied !== 1 ? "s" : ""}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold pt-2 border-t border-white/8">
-                <span className="text-white">Amount Due</span>
-                <span style={{ color }}>${bmiTotal.toFixed(2)}</span>
-              </div>
-            </>
-          ) : (
-            <div className="flex justify-between text-base font-bold pt-2 border-t border-white/8">
-              <span className="text-white">Total</span>
-              <span style={{ color }}>${bmiTotal.toFixed(2)}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Contact summary */}
-      <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 leading-relaxed">
-        Confirmation will be sent to <span className="text-white/70">{contact.email}</span>.
-        {bmiTotal > 0 && " Payment handled securely by Square."}
-      </div>
-
-      {/* Clickwrap agreement */}
-      <ClickwrapCheckbox
-        checked={clickwrapAccepted}
-        onChange={setClickwrapAccepted}
-      />
-
-      {/* Actions */}
-      <div className="flex items-center justify-between gap-4">
-        <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
-          ← Back
-        </button>
-        <button
-          onClick={handlePay}
-          disabled={!clickwrapAccepted}
-          title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
-          className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-sm text-[#000418] hover:brightness-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: color, boxShadow: `0 10px 25px ${color}40` }}
-        >
-          {useV2Flow && bmiTotal === 0 ? "Confirm Free Booking →" : `Pay $${bmiTotal.toFixed(2)} →`}
-        </button>
-      </div>
-    </div>
-  );
-}
+// ── Review & Pay — REMOVED (handled by unified checkout /book/checkout) ──────
+// ReviewStep function deleted (~473 lines) — inline payment flow replaced by
+// unified checkout at /book/checkout. The cart step's "Continue to Checkout"
+// button is now the only forward path after adding to cart.
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
@@ -1213,7 +727,6 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
     date: null,
     time: null,
     quantity: 1,
-    contact: null,
     orderId: null,
     billLineId: null,
   });
@@ -1222,13 +735,6 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
     try { return JSON.parse(sessionStorage.getItem("attractionCart") || "[]"); } catch { return []; }
   });
   const contentRef = useRef<HTMLDivElement>(null);
-
-  // ── HeadPinz Rewards / Loyalty (Phase 5) ──────────────────────────
-  const loyaltyLocationKey = (booking.location || getBookingLocation() || "fasttrax") as string;
-  const loyalty = useLoyalty({ locationKey: loyaltyLocationKey });
-
-  // Track the phone value so LoyaltySection can display it
-  const [loyaltyPhone, setLoyaltyPhone] = useState("");
 
   // Persist cart + orderId to sessionStorage. Broadcast a `cart:changed`
   // event so MiniCart updates instantly instead of waiting on its
@@ -1343,8 +849,6 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
   stepList.push({ key: "date", label: "Date" });
   stepList.push({ key: "time", label: "Time" });
   stepList.push({ key: "cart", label: "Cart" });
-  stepList.push({ key: "contact", label: "Details" });
-  stepList.push({ key: "review", label: "Pay" });
 
   // Navigation helpers
   function goBack() {
@@ -1427,18 +931,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
     }
   }
 
-  async function handleContactSubmit(contact: ContactInfo) {
-    // If user checked "Sign me up for free" but hasn't been enrolled yet
-    if (loyalty.rewardsSignup && !loyalty.account) {
-      await loyalty.enroll(
-        contact.phone,
-        `${contact.firstName} ${contact.lastName}`,
-        contact.email,
-      );
-    }
-    setBooking(prev => ({ ...prev, contact }));
-    setStep("review");
-  }
+  // Contact collection removed — handled by unified checkout (/book/checkout)
 
   return (
     <div className="min-h-screen bg-[#000418]">
@@ -1631,62 +1124,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
             </div>
           )}
 
-          {/* Contact step */}
-          {step === "contact" && (
-            <ContactForm
-              initial={booking.contact}
-              onSubmit={handleContactSubmit}
-              onBack={goBack}
-              onPhoneChange={(phone) => {
-                const digits = phone.replace(/\D/g, "").slice(0, 10);
-                setLoyaltyPhone(phone);
-                loyalty.handlePhoneChange(digits);
-              }}
-              afterPhone={
-                <LoyaltySection
-                  loyalty={loyalty}
-                  phone={loyaltyPhone}
-                  depositCents={0}
-                  accentColor={color}
-                />
-              }
-              prefill={loyalty.customer ? {
-                firstName: loyalty.customer.firstName || undefined,
-                lastName: loyalty.customer.lastName || undefined,
-                email: loyalty.customer.email || undefined,
-              } : undefined}
-            />
-          )}
-
-          {/* Review & Pay step */}
-          {step === "review" && booking.contact && (
-            <ReviewStep
-              booking={booking}
-              config={config}
-              contact={booking.contact}
-              onBack={goBack}
-              color={color}
-              loyaltyData={
-                loyalty.selectedRewardTier && loyalty.account
-                  ? {
-                      rewardTierId: loyalty.selectedRewardTier.id,
-                      loyaltyAccountId: loyalty.account.id,
-                      rewardDiscountCents: loyalty.selectedRewardTier.discountCents,
-                      squareCustomerId: loyalty.account.customerId,
-                      loyaltyAction: loyalty.isNewSignup ? "signup" : "existing",
-                    }
-                  : loyalty.account
-                    ? {
-                        rewardTierId: "",
-                        loyaltyAccountId: loyalty.account.id,
-                        rewardDiscountCents: 0,
-                        squareCustomerId: loyalty.account.customerId,
-                        loyaltyAction: loyalty.isNewSignup ? "signup" : "existing",
-                      }
-                    : undefined
-              }
-            />
-          )}
+          {/* Contact + Review steps removed — handled by unified checkout (/book/checkout) */}
         </div>
       </section>
     </div>

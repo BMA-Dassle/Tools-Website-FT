@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import type { RacerType, RaceCategory, ClassifiedProduct, BmiProposal, BmiBlock } from "./data";
 import { getStaticProducts, filterProducts, bmiGet, bmiDelete, bookRaceHeat, removeBookingLine, isRelevantMembership, getRacerTier } from "./data";
-import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingContact, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
+import { trackBookingExperience, trackBookingParty, trackBookingDate, trackBookingProduct, trackBookingHeat, trackBookingPov, trackBookingAddOns, trackBookingReview, trackBookingPayment } from "@/lib/analytics";
 import type { PackBookingResult } from "./components/OrderSummary";
 import BrandNav from "@/components/BrandNav";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -56,7 +56,6 @@ import type { PackagePick } from "./components/PackageHeatPicker";
 import PriorBookingsBanner from "./components/PriorBookingsBanner";
 import type { PackageDefinition } from "@/lib/packages";
 import { eligiblePackages, scheduleForDate, packagePerRacerPrice, getPackageIgnoreFlag, LICENSE_PRICE, POV_PRICE } from "@/lib/packages";
-import ContactForm from "./components/ContactForm";
 import AddOnsPage from "./components/AddOnsPage";
 import type { AddOnItem } from "./components/AddOnsPage";
 import PovUpsell from "./components/PovUpsell";
@@ -65,9 +64,9 @@ import RacerSelector from "./components/RacerSelector";
 import OrderSummary from "./components/OrderSummary";
 import MiniCart from "@/components/booking/MiniCart";
 
-type Step = "experience" | "party" | "date" | "product" | "heat" | "addons" | "pov" | "contact" | "summary";
+type Step = "experience" | "party" | "date" | "product" | "heat" | "addons" | "pov" | "summary";
 
-const STEPS: Step[] = ["experience", "party", "date", "product", "heat", "pov", "addons", "contact", "summary"];
+const STEPS: Step[] = ["experience", "party", "date", "product", "heat", "pov", "addons", "summary"];
 const STEP_LABELS: Record<Step, string> = {
   experience: "Type",
   party: "Party",
@@ -76,7 +75,6 @@ const STEP_LABELS: Record<Step, string> = {
   heat: "Heat",
   pov: "POV",
   addons: "Extras",
-  contact: "Details",
   summary: "Pay",
 };
 
@@ -210,7 +208,7 @@ export default function BookRacePage() {
   useEffect(() => {
     function handleMiniCartCheckout() {
       if (bookings.length > 0 || packResult) {
-        changeStep("contact");
+        changeStep("summary");
       }
     }
     window.addEventListener("miniCartCheckout", handleMiniCartCheckout);
@@ -1263,12 +1261,6 @@ export default function BookRacePage() {
     }
   }
 
-  function handleContactSubmit(info: ContactInfo) {
-    trackBookingContact();
-    setContact(info);
-    changeStep("summary");
-  }
-
   function cancelActiveOrder() {
     for (const bill of activeBills) {
       bmiDelete(`bill/${bill.billId}/cancel`).catch(() => {});
@@ -2256,38 +2248,21 @@ export default function BookRacePage() {
                 bookedAddOns.push(addon);
               }
               setSelectedAddOns(bookedAddOns);
-              if (verifiedPerson && contact && contact.email && contact.phone) {
-                changeStep("summary");
-              } else {
-                changeStep("contact");
-              }
+              changeStep("summary");
             }}
             onBack={() => changeStep("pov")}
           />
         )}
 
-        {/* STEP 7: Contact info */}
-        {step === "contact" && (
-          <ContactForm
-            initial={contact}
-            onSubmit={handleContactSubmit}
-            onBack={() => changeStep("addons")}
-            lockedFields={[
-              ...(verifiedPerson?.phone ? ["phone" as const] : []),
-              ...(verifiedPerson?.email ? ["email" as const] : []),
-            ]}
-          />
-        )}
-
         {/* STEP 7: Order summary + payment */}
-        {step === "summary" && selectedDate && contact && activeOrderId && (packResult || bookings.length > 0) && (
+        {step === "summary" && selectedDate && activeOrderId && (packResult || bookings.length > 0) && (
           <OrderSummary
             bookings={bookings}
             date={selectedDate}
             contact={contact}
             billId={activeOrderId}
             bills={activeBills}
-            onBack={() => changeStep("contact")}
+            onBack={() => changeStep("addons")}
             confirmationPath="/book/confirmation"
             packResult={packResult ?? undefined}
             packProduct={packResult ? selectedProduct ?? undefined : undefined}
