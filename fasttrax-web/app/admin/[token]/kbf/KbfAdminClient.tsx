@@ -495,7 +495,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
   const selectedCount = bowlers.filter((b) => b.selected).length;
   const hasKid = bowlers.some((b) => b.selected && b.relation === "kid");
-  const canAdvance = selectedCount > 0 && hasKid;
+  const hasPhone = !!(selectedPass?.phone || enteredPhone.replace(/\D/g, "").length >= 10);
+  const canAdvance = selectedCount > 0 && hasKid && hasPhone;
 
   // Future reservation check — blocks Book Lane
   const passFutureRez = selectedPass
@@ -714,7 +715,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
               borderRadius: 8,
             }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>
-                No phone on file — add one so they can book online via text
+                Phone number required
               </div>
               <input
                 type="tel"
@@ -744,6 +745,12 @@ export default function KbfAdminClient({ token }: { token: string }) {
           {!hasKid && selectedCount > 0 && (
             <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>
               At least one kid must be selected for KBF.
+            </div>
+          )}
+
+          {!hasPhone && selectedCount > 0 && hasKid && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>
+              Enter a phone number above to continue.
             </div>
           )}
 
