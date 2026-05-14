@@ -297,7 +297,7 @@ function RacingSection({ data }: { data: ConfirmationData }) {
               </p>
             )}
           </div>
-          {data.attractions && data.attractions.filter(a => /race|kart/i.test(a.name)).map((item, i) => (
+          {data.attractions && data.attractions.filter(a => /racing|race|kart/i.test(a.name)).map((item, i) => (
             <div key={i} className="flex justify-between items-start px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <div>
                 <p className="text-white text-sm font-semibold">{item.name}</p>
@@ -604,9 +604,10 @@ function AttractionsSection({
 }) {
   if (!attractions || attractions.length === 0) return null;
 
-  // Filter out racing items (those are handled by RacingSection)
+  // Filter out racing items (those are handled by RacingSection).
+  // "Racing" doesn't contain "race" (r-a-c-i vs r-a-c-e), so match both.
   const nonRacingItems = attractions.filter(
-    (a) => !/race|kart/i.test(a.name),
+    (a) => !/racing|race|kart/i.test(a.name),
   );
   if (nonRacingItems.length === 0) return null;
 

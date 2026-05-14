@@ -699,8 +699,11 @@ export async function POST(req: NextRequest) {
     // Racing carts get their notification from the post-confirm pipeline
     // (enriched with Express Lane, POV, waiver URL, package info).
     const isRacingCart = hasBmi && bmiItems.some((item) => {
+      // Primary: attractionSlug is "racing" (set by racing wizard)
+      if (item.attractionSlug === "racing") return true;
+      // Fallback: name-based detection (catches "Racing", "Race", "Kart", etc.)
       const n = item.name.toLowerCase();
-      return n.includes("race") || n.includes("kart") || /(blue|red|mega).*track/i.test(n);
+      return n.includes("racing") || n.includes("race") || n.includes("kart") || /(blue|red|mega).*track/i.test(n);
     });
 
     // Bowling confirmation email + SMS (awaited with 8s timeout to avoid Vercel
