@@ -79,7 +79,8 @@ export interface LineItemInput {
   name: string;
   quantity: string;
   catalogObjectId?: string;
-  basePriceMoney: { amount: number; currency: "USD" };
+  /** Required when catalogObjectId is absent — Square resolves price from catalog otherwise. */
+  basePriceMoney?: { amount: number; currency: "USD" };
   /** Free-text note attached to this line item in Square. */
   note?: string;
   /** Square catalog modifier option IDs. */
@@ -141,7 +142,7 @@ function buildSquareLineItems(lineItems: LineItemInput[]) {
     return {
       name: li.name,
       quantity: li.quantity,
-      base_price_money: li.basePriceMoney,
+      ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
       ...modifiers,
       ...noteField,
     };

@@ -65,6 +65,8 @@ interface BowlingHoldData {
   guest: { name: string; email: string; phone: string };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   lineItems: any[];
+  /** Square-format line items (name + string qty + catalogObjectId) for checkout. */
+  squareLineItems?: Array<{ name: string; quantity: string; catalogObjectId: string }>;
   totalCents: number;
   depositCents: number;
   notes?: string;
@@ -72,6 +74,10 @@ interface BowlingHoldData {
   experienceName: string;
   timeLabel: string;
   expiresAt: string;
+  /** Pre-created day-of order from the bowling wizard's quote step. */
+  dayofOrderId?: string;
+  dayofTotalCents?: number;
+  quoteDepositCents?: number;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   loyaltyAction?: "signup" | "existing";
@@ -228,9 +234,9 @@ export default function CheckoutPage() {
       }
 
       // ── Build merged line items for Square quote ───────────────
-      // Bowling items come pre-priced from bowlingHold.lineItems.
-      // BMI items use the just-fetched freshBmiLines (NOT stale React state).
-      const bowlingQuoteItems = bowlingHold?.lineItems ?? [];
+      // Use squareLineItems (Square-format: name + string qty + catalogObjectId).
+      // Falls back to lineItems for older holds, though those will fail at Square.
+      const bowlingQuoteItems = bowlingHold?.squareLineItems ?? [];
       const bmiQuoteItems = freshBmiLines
         .filter((l) => l.amount > 0)
         .map((l) => ({
@@ -241,11 +247,21 @@ export default function CheckoutPage() {
             currency: "USD",
           },
         }));
-      const mergedQuoteItems = [...bowlingQuoteItems, ...bmiQuoteItems];
 
-      // ── Create Square quote order (day-of order with tax) ──────
+      // ── Reuse existing day-of order or create a new quote ─────
+      // Bowling-only: the wizard already created a quote with dayofOrderId.
+      // Mixed carts: need a merged quote with all items from both sources.
+      const hasBmiQuoteItems = bmiQuoteItems.length > 0;
       const mergedPreTaxCents = (bowlingHold?.totalCents ?? 0) + Math.round(bmiCashTotalAmount * 100);
-      if (mergedPreTaxCents > 0 && mergedQuoteItems.length > 0) {
+
+      if (!hasBmiQuoteItems && bowlingHold?.dayofOrderId) {
+        // Bowling-only: reuse the wizard's existing quote order
+        setQuoteOrderId(bowlingHold.dayofOrderId);
+        setQuoteTotalCents(bowlingHold.dayofTotalCents ?? bowlingHold.totalCents);
+        setQuoteDepositCents(bowlingHold.quoteDepositCents ?? bowlingHold.depositCents);
+      } else if (mergedPreTaxCents > 0 && (bowlingQuoteItems.length > 0 || hasBmiQuoteItems)) {
+        // Mixed cart or BMI-only: create a merged quote
+        const mergedQuoteItems = [...bowlingQuoteItems, ...bmiQuoteItems];
         const quoteRes = await fetch("/api/attractions/v2/reserve/quote", {
           method: "POST",
           headers: { "content-type": "application/json" },

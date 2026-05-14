@@ -854,8 +854,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
        selectedExperience.kind === "hourly")
     : false;
 
-  // 1 lane per 6 bowlers (round up), minimum 1.  Only counts when per-lane.
-  const laneCount = selectedIsPerLane ? Math.max(1, Math.ceil(activePlayerCount / 6)) : 1;
+  // 1 lane per 6 bowlers (round up), minimum 1.  Computed unconditionally so
+  // add-on items (e.g. VIP Chips & Salsa) always scale per-lane, even on
+  // per-person experiences like Fun 4 All VIP.
+  const laneCount = Math.max(1, Math.ceil(activePlayerCount / 6));
 
   // Per-lane → scale by lanes.  Per-person → scale by player count.
   // These are mutually exclusive — never both.
@@ -934,9 +936,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const basePreTaxTotal = baseItems.reduce(
     (s, item) => {
       const { priceCents } = effectiveItemPrice(item);
+      // Primary item (sortOrder 0): scale by qtyMultiplier (lanes or players) × duration.
+      // Add-ons (sortOrder > 0, e.g. chips & salsa): always 1 per lane, not per person.
       const qty = item.sortOrder === 0
         ? item.quantity * qtyMultiplier * durationMultiplier
-        : item.quantity * qtyMultiplier;
+        : item.quantity * laneCount;
       return s + priceCents * qty;
     },
     0,
@@ -946,7 +950,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       const { priceCents, depositPct } = effectiveItemPrice(item);
       const qty = item.sortOrder === 0
         ? item.quantity * qtyMultiplier * durationMultiplier
-        : item.quantity * qtyMultiplier;
+        : item.quantity * laneCount;
       return s + Math.round(priceCents * qty * (depositPct / 100));
     },
     0,
@@ -1073,7 +1077,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             squareProductId: useOverride
               ? selectedDurationOpt!.overrideSquareProductId!
               : item.squareProductId,
-            quantity: item.quantity * qtyMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+            // Primary item: scale by qtyMultiplier × duration.
+            // Add-ons (chips & salsa): always per-lane, not per-person.
+            quantity: item.sortOrder === 0
+              ? item.quantity * qtyMultiplier * durationMultiplier
+              : item.quantity * laneCount,
           };
         })),
     ...shoeProducts
@@ -1419,7 +1427,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 ? (selectedDurationOpt!.overrideCatalogObjectId ? item.label.replace(/1\.5\s*Hr/i, "1 Hr") : item.label)
                 : item.label,
               quantity: String(
-                item.quantity * qtyMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+                item.sortOrder === 0
+                  ? item.quantity * qtyMultiplier * durationMultiplier
+                  : item.quantity * laneCount,
               ),
               catalogObjectId: useOverride
                 ? selectedDurationOpt!.overrideCatalogObjectId!
@@ -4118,15 +4128,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 ) : (
                   baseItems.map((item, idx) => {
                     const { priceCents: itemPrice } = effectiveItemPrice(item);
-                    const qty = item.quantity * qtyMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1);
+                    const qty = item.sortOrder === 0
+                      ? item.quantity * qtyMultiplier * durationMultiplier
+                      : item.quantity * laneCount;
                     return (
                       <div key={idx} className="flex justify-between text-sm">
                         <span className="font-body text-white/55">
                           {item.label}
-                          {selectedIsPerLane && laneCount > 1 && (
-                            <span className="text-white/35"> × {laneCount} lanes</span>
-                          )}
-                          {!selectedIsPerLane && activePlayerCount > 1 && (
+                          {/* Add-ons always scale per-lane; primary item scales per-lane or per-person */}
+                          {item.sortOrder > 0 || selectedIsPerLane ? (
+                            laneCount > 1 && <span className="text-white/35"> × {laneCount} lanes</span>
+                          ) : activePlayerCount > 1 && (
                             <span className="text-white/35"> × {activePlayerCount} people</span>
                           )}
                           {item.sortOrder === 0 && durationMultiplier > 1 && (
@@ -4586,6 +4598,37 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         ? `${pass?.fpass ? "Families Bowl Free" : "Kids Bowl Free"} - ${kbfBowlers.map((b) => b.displayName).join(" - ")}${kbfPaidCount > 0 ? `. ${kbfPaidCount} paid adult(s)` : ""}. Coupons verified online.`
                         : undefined;
 
+                    // Square-format line items for checkout (name + string qty + catalogObjectId).
+                    // Internal lineItems (squareProductId + numeric qty) are for /api/bowling/v2/reserve only.
+                    const squareLineItems = [
+                      ...baseItems.map((item) => {
+                        const useOverride = item.sortOrder === 0 && selectedDurationOpt?.overrideCatalogObjectId != null;
+                        return {
+                          name: useOverride
+                            ? (selectedDurationOpt!.overrideCatalogObjectId ? item.label.replace(/1\.5\s*Hr/i, "1 Hr") : item.label)
+                            : item.label,
+                          quantity: String(
+                            item.sortOrder === 0
+                              ? item.quantity * qtyMultiplier * durationMultiplier
+                              : item.quantity * laneCount,
+                          ),
+                          catalogObjectId: useOverride
+                            ? selectedDurationOpt!.overrideCatalogObjectId!
+                            : item.squareCatalogObjectId,
+                        };
+                      }),
+                      ...shoeProducts
+                        .filter((p) => (shoeQty[p.id] ?? 0) > 0)
+                        .map((p) => ({
+                          name: p.label,
+                          quantity: String(shoeQty[p.id]),
+                          catalogObjectId: p.squareCatalogObjectId,
+                        })),
+                      ...(hasBookingFee
+                        ? [{ name: "Booking Fee", quantity: "1", catalogObjectId: BOOKING_FEE_CATALOG_ID }]
+                        : []),
+                    ];
+
                     const bowlingHoldData = {
                       qamfReservationId: holdRef.current?.qamfId ?? "",
                       centerId: center.qamfId,
@@ -4599,6 +4642,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       players,
                       guest: { name: guestName, email: guestEmail, phone: guestPhone },
                       lineItems,
+                      squareLineItems,
                       totalCents: effectiveDisplayTotal,
                       depositCents: effectiveDepositCents,
                       notes: holdNotes,

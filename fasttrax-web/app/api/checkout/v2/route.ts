@@ -127,6 +127,8 @@ interface BowlingHoldInput {
   players: Array<{ name?: string; shoeSize?: string | null }>;
   guest: { name: string; email: string; phone: string };
   lineItems: LineItemInput[];
+  /** Square-format line items (catalog-backed) for the deposit order. */
+  squareLineItems?: LineItemInput[];
   totalCents: number;
   depositCents: number;
   notes?: string;
@@ -329,8 +331,9 @@ export async function POST(req: NextRequest) {
       body.squareToken;
 
     if (needsPayment) {
-      // Merge line items: bowling first, then BMI
-      const bowlingLineItems = hasBowling ? bowlingHold!.lineItems : [];
+      // Merge line items: bowling first, then BMI.
+      // Use squareLineItems (catalog-backed, string qty) — NOT lineItems (internal DB IDs).
+      const bowlingLineItems = hasBowling ? (bowlingHold!.squareLineItems ?? []) : [];
       const bmiLineItems = body.lineItems?.length
         ? body.lineItems
         : bmiItems.map((item) => ({
