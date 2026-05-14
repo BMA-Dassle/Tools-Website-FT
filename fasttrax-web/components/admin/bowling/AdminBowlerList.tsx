@@ -12,13 +12,15 @@ interface AdminBowlerListProps {
   onChange: (bowlers: AdminBowlerSelection[]) => void;
   /** Show "+ Add Guest Adult" button. Default false. */
   showAddGuest?: boolean;
+  /** Lock all interactions (used when a hold is active) */
+  disabled?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function AdminBowlerList({ bowlers, onChange, showAddGuest = false }: AdminBowlerListProps) {
+export default function AdminBowlerList({ bowlers, onChange, showAddGuest = false, disabled = false }: AdminBowlerListProps) {
   function updateBowler(idx: number, updated: AdminBowlerSelection) {
     const next = [...bowlers];
     next[idx] = updated;
@@ -61,6 +63,7 @@ export default function AdminBowlerList({ bowlers, onChange, showAddGuest = fals
             onChange={(updated) => updateBowler(i, updated)}
             editableName={b.relation === "guest"}
             onRemove={b.relation === "guest" ? () => removeBowler(i) : undefined}
+            disabled={disabled}
           />
         ))}
         {bowlers.length === 0 && (

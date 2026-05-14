@@ -739,7 +739,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
           <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
             Bowlers ({selectedCount} selected)
           </div>
-          <AdminBowlerList bowlers={bowlers} onChange={setBowlers} />
+          <AdminBowlerList bowlers={bowlers} onChange={setBowlers} disabled={phase === "hold" || phase === "submitting"} />
 
           {!hasKid && selectedCount > 0 && (
             <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>

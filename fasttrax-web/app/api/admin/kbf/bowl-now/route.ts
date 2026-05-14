@@ -4,6 +4,7 @@ import {
   setReservationCustomer,
   setReservationStatus,
   setLaneStatus,
+  setLanePlayers,
 } from "@/lib/qamf-bowling";
 import {
   insertBowlingReservation,
@@ -166,12 +167,28 @@ export async function POST(req: NextRequest) {
     await q`UPDATE bowling_reservations SET square_dayof_order_id = ${dayofOrderId} WHERE id = ${neonId}`;
     steps.push("square_order_created");
 
-    // ── Step 4: Open lane — Arrive + get lane GUIDs + Ready → Running
+    // ── Step 4: Open lane — Arrive + set players + Ready → Running ────
     await setReservationStatus(centerId, qamfId, "Arrived");
     const fullRez = await getReservation(centerId, qamfId);
     const bookedLanes = fullRez?.Lanes ?? [];
 
     for (const lane of bookedLanes) {
+      // Set player names in QAMF so they show in Conqueror
+      try {
+        await setLanePlayers(
+          centerId,
+          qamfId,
+          lane.Id,
+          bowlers.map((b) => ({
+            Name: b.name,
+            ShoeSize: b.shoeSize || undefined,
+            ActivateBumpers: b.bumpers ?? false,
+          })),
+        );
+      } catch {
+        /* best-effort — lane still opens without names */
+      }
+
       try {
         await setLaneStatus(centerId, qamfId, lane.Id, "Ready");
       } catch {

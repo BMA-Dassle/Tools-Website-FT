@@ -25,6 +25,8 @@ interface BowlerEditorProps {
   editableName?: boolean;
   /** Called when guest remove button is clicked */
   onRemove?: () => void;
+  /** Lock all interactions (used when a hold is active) */
+  disabled?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -42,7 +44,7 @@ const RELATION_BADGE: Record<string, { label: string; bg: string; color: string 
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function BowlerEditor({ bowler, onChange, editableName, onRemove }: BowlerEditorProps) {
+export default function BowlerEditor({ bowler, onChange, editableName, onRemove, disabled }: BowlerEditorProps) {
   const badge = RELATION_BADGE[bowler.relation] ?? RELATION_BADGE.guest;
 
   return (
@@ -54,15 +56,17 @@ export default function BowlerEditor({ bowler, onChange, editableName, onRemove 
         height: 44,
         padding: "0 8px",
         borderBottom: "1px solid #e5e7eb",
-        opacity: bowler.selected ? 1 : 0.5,
+        opacity: disabled ? 0.6 : bowler.selected ? 1 : 0.5,
+        pointerEvents: disabled ? "none" : undefined,
       }}
     >
       {/* Checkbox */}
       <input
         type="checkbox"
         checked={bowler.selected}
+        disabled={disabled}
         onChange={(e) => onChange({ ...bowler, selected: e.target.checked })}
-        style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#004AAD", flexShrink: 0 }}
+        style={{ width: 16, height: 16, cursor: disabled ? "default" : "pointer", accentColor: "#004AAD", flexShrink: 0 }}
       />
 
       {/* Name */}
