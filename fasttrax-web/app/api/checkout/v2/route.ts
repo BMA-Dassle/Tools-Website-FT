@@ -174,6 +174,8 @@ interface CheckoutBody {
 
   notes?: string;
   clientKey?: string;
+  /** SMS opt-in — controls whether confirmation SMS is sent. */
+  smsOptIn?: boolean;
 
   // ── Loyalty ──────────────────────────────────────────────────────
   rewardTierId?: string;
@@ -550,6 +552,52 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error("[checkout/v2] BMI Neon insert failed:", err);
       }
+    }
+
+    // ── Fire confirmation notifications (server-side, non-blocking) ──
+    // Same pattern as bowling/v2/reserve — fire from the server to avoid
+    // browser abort during redirect.
+    const notifOrigin = req.nextUrl.origin;
+    const smsOptIn = body.smsOptIn ?? true;
+
+    // Bowling confirmation email + SMS
+    if (hasBowling && neonIds.length > 0) {
+      const bowlingNeonId = neonIds[0]; // Bowling row is inserted first
+      fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ neonId: bowlingNeonId, smsOptIn }),
+      }).catch((err) => {
+        console.error("[checkout/v2] bowling notification fire-and-forget failed:", err);
+      });
+    }
+
+    // Attraction / racing confirmation email + SMS
+    if (hasBmi && bmiReservationNumber) {
+      const firstName = guest.name.split(/\s+/)[0] || guest.name;
+      fetch(`${notifOrigin}/api/notifications/booking-confirmation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: guest.email,
+          phone: guest.phone,
+          firstName,
+          smsOptIn,
+          reservationNumber: bmiReservationNumber,
+          reservationName: guest.name,
+          billId: bmiBillId,
+          productNames: bmiNames,
+          scheduledItems: bmiItems.map((item) => ({
+            name: item.name,
+            start: item.bookedAt,
+            quantity: item.quantity,
+          })),
+          brand: locationKey === "fasttrax" ? "fasttrax" : "headpinz",
+          location: locationKey,
+        }),
+      }).catch((err) => {
+        console.error("[checkout/v2] booking notification fire-and-forget failed:", err);
+      });
     }
 
     // ── Short code (for admin links / email) ───────────────────────

@@ -338,6 +338,7 @@ export default function CheckoutPage() {
       existingDayofTotalCents: quoteTotalCents || undefined,
       existingDepositCents: quoteDepositCents || undefined,
       clientKey: ck || undefined,
+      smsOptIn: contact.smsOptIn,
       // Bowling hold — optional for attractions-only
       ...(bowlingHold ? { bowlingHold } : {}),
       // Loyalty
