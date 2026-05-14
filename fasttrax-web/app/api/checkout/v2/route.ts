@@ -210,17 +210,29 @@ interface CheckoutBody {
 
 export async function POST(req: NextRequest) {
   const isPreview = req.nextUrl.hostname.endsWith(".vercel.app") || req.nextUrl.hostname === "localhost";
-  const debugSteps: Array<{ step: string; status: "ok" | "fail" | "skip"; ms?: number; detail?: string }> = [];
+  const debugSteps: Array<{ name: string; status: "ok" | "fail" | "skip"; ms?: number; detail?: string }> = [];
   const t = (label: string) => {
     const start = Date.now();
     return {
-      ok: (detail?: string) => debugSteps.push({ step: label, status: "ok", ms: Date.now() - start, detail }),
-      fail: (detail?: string) => debugSteps.push({ step: label, status: "fail", ms: Date.now() - start, detail }),
-      skip: (detail?: string) => debugSteps.push({ step: label, status: "skip", detail }),
+      ok: (detail?: string) => debugSteps.push({ name: label, status: "ok", ms: Date.now() - start, detail }),
+      fail: (detail?: string) => debugSteps.push({ name: label, status: "fail", ms: Date.now() - start, detail }),
+      skip: (detail?: string) => debugSteps.push({ name: label, status: "skip", detail }),
     };
   };
 
   try {
+    // ── Infrastructure check (preview diagnostics) ────────────────
+    const _infra = t("infra_check");
+    const hasNeonDb = !!process.env.DATABASE_URL;
+    const hasRedis = !!process.env.REDIS_URL;
+    if (hasNeonDb && hasRedis) {
+      _infra.ok("DATABASE_URL + REDIS_URL configured");
+    } else {
+      const missing = [!hasNeonDb && "DATABASE_URL", !hasRedis && "REDIS_URL"].filter(Boolean).join(", ");
+      _infra.fail(`Missing env: ${missing}`);
+      console.error(`[checkout/v2] INFRASTRUCTURE WARNING: Missing ${missing}. Neon inserts and/or shortcodes will fail.`);
+    }
+
     const body = (await req.json()) as CheckoutBody;
 
     const { bmiBillId, locationKey, items, guest, totalCents, bowlingHold } = body;
@@ -550,93 +562,128 @@ export async function POST(req: NextRequest) {
       bookingSource: "web" as const,
     };
 
-    // ── Bowling Neon row ──────────────────────────────────────────
+    // ── Bowling Neon row (with 1 retry for transient failures) ─────
     if (hasBowling) {
       const _neonBowling = t("neon_bowling");
-      try {
-        const bh = bowlingHold!;
-        const bowlingStatus: BowlingReservation["status"] =
-          !qamfConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
+      const bh = bowlingHold!;
+      const bowlingStatus: BowlingReservation["status"] =
+        !qamfConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
 
-        const row = await insertBowlingReservation(
-          {
-            centerCode: squareLocationId,
-            productKind: (bh.kind === "kbf" ? "kbf" : "open") as BowlingReservation["productKind"],
-            qamfReservationId: bh.qamfReservationId,
-            depositCents: hasBmi ? bh.depositCents : depositCents,
-            totalCents: bh.totalCents,
-            status: bowlingStatus,
-            bookedAt: bh.bookedAt,
-            playerCount: bh.players?.length || 1,
-            guestName: guest.name,
-            guestEmail: guest.email,
-            guestPhone: guest.phone,
-            notes: bh.notes || `Bowling: ${bh.experienceName}`,
-            ...sharedSquareFields,
-            checkoutGroupId: checkoutGroupId,
-          },
-          [],
+      const bowlingInsertPayload = {
+        centerCode: squareLocationId,
+        productKind: (bh.kind === "kbf" ? "kbf" : "open") as BowlingReservation["productKind"],
+        qamfReservationId: bh.qamfReservationId,
+        depositCents: hasBmi ? bh.depositCents : depositCents,
+        totalCents: bh.totalCents,
+        status: bowlingStatus,
+        bookedAt: bh.bookedAt,
+        playerCount: bh.players?.length || 1,
+        guestName: guest.name,
+        guestEmail: guest.email,
+        guestPhone: guest.phone,
+        notes: bh.notes || `Bowling: ${bh.experienceName}`,
+        ...sharedSquareFields,
+        checkoutGroupId: checkoutGroupId,
+      };
+
+      let bowlingInsertError: string | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 500)); // brief backoff
+          const row = await insertBowlingReservation(bowlingInsertPayload, []);
+          neonIds.push(row.id);
+          if (!neonId) neonId = row.id;
+          _neonBowling.ok(`id=${row.id}${attempt > 0 ? " (retry)" : ""}`);
+          console.log(`[checkout/v2] Bowling Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})${attempt > 0 ? " [retry succeeded]" : ""}`);
+          bowlingInsertError = null;
+          break;
+        } catch (err) {
+          bowlingInsertError = err instanceof Error ? err.message : String(err);
+          if (attempt === 0) {
+            console.warn(`[checkout/v2] Bowling Neon insert attempt 1 failed: ${bowlingInsertError} — retrying`);
+          }
+        }
+      }
+      if (bowlingInsertError) {
+        _neonBowling.fail(bowlingInsertError);
+        console.error(
+          "[checkout/v2] Bowling Neon insert FAILED (all attempts):",
+          bowlingInsertError,
+          "| guest:", guest.email,
+          "| qamfId:", bh.qamfReservationId,
+          "| squareDepositOrderId:", squareDepositOrderId,
+          "| squarePaymentId:", squareDepositPaymentId,
         );
-        neonIds.push(row.id);
-        if (!neonId) neonId = row.id;
-        _neonBowling.ok(`id=${row.id}`);
-        console.log(`[checkout/v2] Bowling Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})`);
-      } catch (err) {
-        _neonBowling.fail(err instanceof Error ? err.message : String(err));
-        console.error("[checkout/v2] Bowling Neon insert failed:", err);
       }
     } else {
       t("neon_bowling").skip("no bowling");
     }
 
-    // ── BMI attraction Neon row ────────────────────────────────────
+    // ── BMI attraction Neon row (with 1 retry) ──────────────────────
     if (hasBmi) {
       const _neonBmi = t("neon_bmi");
-      try {
-        const bmiStatus: BowlingReservation["status"] =
-          !bmiConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
+      const bmiStatus: BowlingReservation["status"] =
+        !bmiConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
 
-        const attractionBookings = bmiItems.map((item) => ({
-          slug: item.attractionSlug,
-          name: item.name,
-          bmiOrderId: bmiBillId!,
-          bmiBillLineId: item.billLineId ?? null,
-          squareCatalogObjectId: null,
-          quantity: item.quantity,
-          totalPriceDollars: 0,
-          timeSlot: item.bookedAt,
-          timeLabel: "",
-        }));
+      const attractionBookings = bmiItems.map((item) => ({
+        slug: item.attractionSlug,
+        name: item.name,
+        bmiOrderId: bmiBillId!,
+        bmiBillLineId: item.billLineId ?? null,
+        squareCatalogObjectId: null,
+        quantity: item.quantity,
+        totalPriceDollars: 0,
+        timeSlot: item.bookedAt,
+        timeLabel: "",
+      }));
 
-        const row = await insertBowlingReservation(
-          {
-            centerCode: squareLocationId,
-            productKind: bmiItems[0].attractionSlug as BowlingReservation["productKind"],
-            bmiBillId: bmiBillId!,
-            bmiReservationNumber,
-            depositCents: hasBowling ? Math.max(0, depositCents - bowlingHold!.depositCents) : depositCents,
-            totalCents: hasBowling ? Math.max(0, finalTotalCents - bowlingHold!.totalCents) : finalTotalCents,
-            status: bmiStatus,
-            bookedAt: bmiItems[0].bookedAt,
-            playerCount: bmiItems.reduce((s, i) => s + i.quantity, 0),
-            guestName: guest.name,
-            guestEmail: guest.email,
-            guestPhone: guest.phone,
-            notes: body.notes || `Cart: ${bmiNames.join(" + ")}`,
-            ...sharedSquareFields,
-            attractionSlug: bmiItems[0].attractionSlug as BowlingReservation["attractionSlug"],
-            attractionBookings,
-            checkoutGroupId: checkoutGroupId,
-          },
-          [],
+      const bmiInsertPayload = {
+        centerCode: squareLocationId,
+        productKind: bmiItems[0].attractionSlug as BowlingReservation["productKind"],
+        bmiBillId: bmiBillId!,
+        bmiReservationNumber,
+        depositCents: hasBowling ? Math.max(0, depositCents - bowlingHold!.depositCents) : depositCents,
+        totalCents: hasBowling ? Math.max(0, finalTotalCents - bowlingHold!.totalCents) : finalTotalCents,
+        status: bmiStatus,
+        bookedAt: bmiItems[0].bookedAt,
+        playerCount: bmiItems.reduce((s, i) => s + i.quantity, 0),
+        guestName: guest.name,
+        guestEmail: guest.email,
+        guestPhone: guest.phone,
+        notes: body.notes || `Cart: ${bmiNames.join(" + ")}`,
+        ...sharedSquareFields,
+        attractionSlug: bmiItems[0].attractionSlug as BowlingReservation["attractionSlug"],
+        attractionBookings,
+        checkoutGroupId: checkoutGroupId,
+      };
+
+      let bmiInsertError: string | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+          const row = await insertBowlingReservation(bmiInsertPayload, []);
+          neonIds.push(row.id);
+          if (!neonId) neonId = row.id;
+          _neonBmi.ok(`id=${row.id}${attempt > 0 ? " (retry)" : ""}`);
+          console.log(`[checkout/v2] BMI Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})${attempt > 0 ? " [retry succeeded]" : ""}`);
+          bmiInsertError = null;
+          break;
+        } catch (err) {
+          bmiInsertError = err instanceof Error ? err.message : String(err);
+          if (attempt === 0) {
+            console.warn(`[checkout/v2] BMI Neon insert attempt 1 failed: ${bmiInsertError} — retrying`);
+          }
+        }
+      }
+      if (bmiInsertError) {
+        _neonBmi.fail(bmiInsertError);
+        console.error(
+          "[checkout/v2] BMI Neon insert FAILED (all attempts):",
+          bmiInsertError,
+          "| guest:", guest.email,
+          "| bmiBillId:", bmiBillId,
+          "| squareDepositOrderId:", squareDepositOrderId,
         );
-        neonIds.push(row.id);
-        if (!neonId) neonId = row.id;
-        _neonBmi.ok(`id=${row.id}`);
-        console.log(`[checkout/v2] BMI Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})`);
-      } catch (err) {
-        _neonBmi.fail(err instanceof Error ? err.message : String(err));
-        console.error("[checkout/v2] BMI Neon insert failed:", err);
       }
     } else {
       t("neon_bmi").skip("no BMI items");

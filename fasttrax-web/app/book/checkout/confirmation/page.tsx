@@ -438,6 +438,114 @@ function BowlingSection({
   );
 }
 
+// ── Bowling Fallback (when Neon insert failed — no shortCode/neonId) ──────
+
+/**
+ * When the Neon insert fails during checkout, we have no shortCode or neonId
+ * to feed the full BowlingSection hook. This fallback renders the booking
+ * details from sessionStorage so the customer still sees what they booked.
+ *
+ * They won't get player editing, lane-ready polling, or reschedule — but
+ * the booking IS confirmed (QAMF + Square both succeeded). The notification
+ * pipeline also failed (depends on Neon ID), so we tell them to watch for
+ * a follow-up or contact Guest Services.
+ */
+function BowlingFallbackSection({ data }: { data: ConfirmationData }) {
+  const b = data.bowling;
+  if (!b) return null;
+
+  const playerCount = typeof b.players === "number" ? b.players : b.players?.length ?? 0;
+  const depositDollars = (b.depositCents ?? data.depositPaidCents ?? 0) / 100;
+  const totalDollars = b.totalCents / 100;
+  const remainingDollars = Math.max(0, totalDollars - depositDollars);
+  const bookingDate = b.bookedAt ? formatDate(b.bookedAt.split("T")[0]) : "";
+  const bookingTime = b.bookedAt ? formatTime(b.bookedAt) : b.timeLabel || "";
+
+  return (
+    <div className="space-y-4">
+      {/* Warning: degraded mode */}
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+        <p className="text-amber-400 text-sm font-semibold mb-1">Booking details are limited</p>
+        <p className="text-white/60 text-xs leading-relaxed">
+          Your bowling lane is reserved and your payment has been processed, but we
+          couldn&apos;t save the full booking record. You may not receive a confirmation
+          email — please check in at the front desk when you arrive or contact Guest
+          Services if you have questions.
+        </p>
+        {data.qamfReservationId && (
+          <p className="text-white/40 text-xs mt-2">
+            QAMF Ref: <span className="font-mono text-amber-400/80">{data.qamfReservationId}</span>
+          </p>
+        )}
+      </div>
+
+      {/* Static booking card */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
+        <div>
+          <p className="text-white text-lg font-bold">{b.experienceName}</p>
+          {bookingDate && (
+            <p className="text-white/50 text-sm mt-1">
+              {bookingDate}{bookingTime ? ` · ${bookingTime}` : ""}
+            </p>
+          )}
+          {playerCount > 0 && (
+            <p className="text-white/40 text-xs mt-1">
+              {playerCount} {playerCount === 1 ? "player" : "players"}
+            </p>
+          )}
+        </div>
+
+        {/* Line items */}
+        {b.lineItems && b.lineItems.length > 0 && (
+          <div className="border-t border-white/8 pt-3 space-y-1.5">
+            {b.lineItems.map((li, i) => (
+              <div key={i} className="flex justify-between text-xs">
+                <span className="text-white/60">{li.name}</span>
+                <span className="text-white/40">×{li.quantity}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Payment */}
+        <div className="border-t border-white/8 pt-3 space-y-1.5">
+          {depositDollars > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-white/50">Deposit paid</span>
+              <span className="text-[#00E2E5] font-bold">${depositDollars.toFixed(2)}</span>
+            </div>
+          )}
+          {remainingDollars > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-white/30">Remaining</span>
+              <span className="text-white/40">${remainingDollars.toFixed(2)} due day-of</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Arrival instructions */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <p className="text-white/30 text-xs font-bold uppercase tracking-wider mb-3">When You Arrive</p>
+        <ul className="space-y-2 text-white/60 text-sm">
+          <li className="flex items-start gap-2">
+            <span className="text-[#00E2E5] shrink-0">✓</span>
+            Check in at the front desk with your name
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-[#00E2E5] shrink-0">✓</span>
+            Arrive 10-15 minutes early to get settled
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-[#00E2E5] shrink-0">✓</span>
+            Shoe rentals available at the desk
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // ── Attractions Section (non-racing BMI items) ─────────────────────────────
 
 function AttractionsSection({
@@ -536,16 +644,33 @@ function PaymentSummary({ data }: { data: ConfirmationData }) {
 
 function ConfirmationWarnings({ data }: { data: ConfirmationData }) {
   const issues: string[] = [];
-  if (data.bmiConfirmed === false) issues.push("attraction reservation");
+  if (data.bmiConfirmed === false && data.bmiBillId) issues.push("attraction reservation");
   if (data.qamfConfirmed === false && data.qamfReservationId) issues.push("bowling reservation");
-  if (issues.length === 0) return null;
+
+  // Detect Neon insert failure: bowling data exists but no Neon ID was returned
+  const bowlingNeonFailed = !!data.bowling && !data.bowlingNeonId && !data.bowlingShortCode;
+
+  if (issues.length === 0 && !bowlingNeonFailed) return null;
 
   return (
-    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-left">
-      <p className="text-amber-400 text-xs">
-        ⚠️ Your {issues.join(" and ")} confirmation is still processing.
-        Your payment has been received — our team will follow up if any action is needed.
-      </p>
+    <div className="space-y-2">
+      {issues.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-left">
+          <p className="text-amber-400 text-xs">
+            ⚠️ Your {issues.join(" and ")} confirmation is still processing.
+            Your payment has been received — our team will follow up if any action is needed.
+          </p>
+        </div>
+      )}
+      {bowlingNeonFailed && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-left">
+          <p className="text-red-400 text-xs">
+            ⚠️ Your lane is reserved and payment is confirmed, but we couldn&apos;t save the
+            booking record. You may not receive a confirmation email. Please check in at the
+            front desk with your name when you arrive.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -725,7 +850,7 @@ function ConfirmationContent() {
           {/* ══════════════════════════════════════════════════════
                BOWLING SECTION
              ══════════════════════════════════════════════════════ */}
-          {hasBowling && (bowlingShortCode || bowlingNeonId) && (
+          {hasBowling && (
             <section>
               {isMultiType && (
                 <div className="flex items-center gap-3 mb-4">
@@ -734,11 +859,16 @@ function ConfirmationContent() {
                   <div className="h-px flex-1 bg-white/10" />
                 </div>
               )}
-              <BowlingSection
-                shortCode={bowlingShortCode as string | undefined}
-                neonId={bowlingNeonId as number | undefined}
-                kind={bowlingKind}
-              />
+              {(bowlingShortCode || bowlingNeonId) ? (
+                <BowlingSection
+                  shortCode={bowlingShortCode as string | undefined}
+                  neonId={bowlingNeonId as number | undefined}
+                  kind={bowlingKind}
+                />
+              ) : (
+                /* Neon insert failed — show static fallback from sessionStorage */
+                data && <BowlingFallbackSection data={data} />
+              )}
             </section>
           )}
 

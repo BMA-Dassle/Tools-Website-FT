@@ -100,14 +100,14 @@ export function useBowlingConfirmation(input: UseBowlingConfirmationInput) {
     : false;
 
   // ── Initial fetch: resolve code → reservation (or legacy neonId) ──
-  const fetchStarted = useRef(false);
+  // NOTE: No fetchStarted ref guard — React Strict Mode double-mounts and
+  // cancels the first effect, so a ref guard would permanently block the
+  // second mount from fetching. The `cancelled` flag is sufficient dedup.
   useEffect(() => {
-    if (fetchStarted.current) return;
     if (!shortCode && !(inputNeonId && inputNeonId > 0)) {
       setLoading(false);
       return;
     }
-    fetchStarted.current = true;
     let cancelled = false;
     (async () => {
       try {
