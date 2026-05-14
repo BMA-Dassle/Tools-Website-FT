@@ -63,6 +63,7 @@ function parseLocal(iso: string): Date {
 }
 
 function formatTime(iso: string) {
+  if (!iso || !iso.includes("T")) return "";
   return parseLocal(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
@@ -1050,8 +1051,8 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
                           <span className="text-white font-semibold text-sm">{item.attractionName}</span>
                         </div>
                         <p className="text-white/40 text-xs mt-1">
-                          {item.product.name} &middot; {formatTime(item.time.block.start)}
-                          {item.quantity > 1 && ` &middot; ${item.quantity} ${item.product.bookingMode === "per-person" ? "people" : "tables"}`}
+                          {item.product.name}{item.time.block.start ? ` · ${formatTime(item.time.block.start)}` : ""}
+                          {item.quantity > 1 && ` · ${item.quantity} ${item.product.bookingMode === "per-person" ? "people" : "tables"}`}
                         </p>
                         <p className="text-white/30 text-xs">{formatDate(item.date)}</p>
                       </div>

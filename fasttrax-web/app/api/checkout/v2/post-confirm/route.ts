@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readOrderMetadata } from "@/lib/square-deposit-order";
 
+// Vercel default is 15s — this pipeline needs ~20s for returning racers
+// (8s Pandora delay + sequential fetches). Without this, the function is
+// killed before the notification step (Step 9) ever runs.
+export const maxDuration = 60;
+
 /**
  * POST /api/checkout/v2/post-confirm
  *
