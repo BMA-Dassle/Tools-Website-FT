@@ -116,6 +116,8 @@ export default function CheckoutPage() {
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const v2ConfirmPathRef = useRef("");
+  /** Set in the initial useEffect when bowlingHold.guest is complete → second useEffect auto-submits. */
+  const autoAdvanceContactRef = useRef(false);
 
   const locationKey = getBookingLocation() || "fasttrax";
   const loyalty = useLoyalty({ locationKey: locationKey as string });
@@ -153,16 +155,36 @@ export default function CheckoutPage() {
     if (bowlingRaw?.guest) {
       const g = bowlingRaw.guest;
       const nameParts = g.name.trim().split(/\s+/);
+      const first = nameParts[0] || "";
+      const last = nameParts.slice(1).join(" ") || "";
       setContact({
-        firstName: nameParts[0] || "",
-        lastName: nameParts.slice(1).join(" ") || "",
+        firstName: first,
+        lastName: last,
         email: g.email || "",
         phone: g.phone || "",
         smsOptIn: true,
       });
+
+      // If bowling wizard already collected complete contact info, auto-advance
+      // past the contact form (no need to ask again).
+      const hasName = first.trim().length > 0 && last.trim().length > 0;
+      const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email || "");
+      const hasPhone = (g.phone || "").replace(/\D/g, "").length >= 10;
+      if (hasName && hasEmail && hasPhone) {
+        autoAdvanceContactRef.current = true;
+      }
     }
     setStep("contact");
   }, []);
+
+  // Auto-advance past contact step when bowling wizard already collected info
+  useEffect(() => {
+    if (autoAdvanceContactRef.current && step === "contact" && contact) {
+      autoAdvanceContactRef.current = false;
+      handleContactSubmit(contact);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, contact]);
 
   async function handleContactSubmit(c: ContactInfo) {
     // Enroll in rewards if checkbox was checked
@@ -429,14 +451,26 @@ export default function CheckoutPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function saveConfirmationData(apiResponse: any) {
     try {
+      // Strip internal gift card info — customers should never see the GAN.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { squareGiftCardGan: _gan, squareGiftCardId: _gid, ...safeResponse } = apiResponse;
+
       sessionStorage.setItem("checkoutConfirmation", JSON.stringify({
-        ...apiResponse,
+        ...safeResponse,
         // Add display data from cart (cart is about to be cleared)
         bowling: bowlingHold ? {
           experienceName: bowlingHold.experienceName,
           timeLabel: bowlingHold.timeLabel,
-          players: bowlingHold.players?.length || 1,
+          bookedAt: bowlingHold.bookedAt,
+          locationKey: bowlingHold.locationKey,
+          kind: bowlingHold.kind,
+          players: bowlingHold.players || [],
           totalCents: bowlingHold.totalCents,
+          depositCents: bowlingHold.depositCents,
+          lineItems: (bowlingHold.squareLineItems || []).map((li) => ({
+            name: li.name,
+            quantity: li.quantity,
+          })),
         } : null,
         attractions: cartItems.map((item) => ({
           name: item.attractionName || item.product.name,

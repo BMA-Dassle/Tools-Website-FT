@@ -27,14 +27,18 @@ interface ConfirmationData {
   bmiConfirmed?: boolean;
   qamfReservationId?: string | null;
   qamfConfirmed?: boolean;
-  squareGiftCardGan?: string | null;
   depositPaidCents?: number;
   totalCents?: number;
   bowling?: {
     experienceName: string;
     timeLabel: string;
-    players: number;
+    bookedAt?: string;
+    locationKey?: string;
+    kind?: string;
+    players: Array<{ name?: string; shoeSize?: string | null }> | number;
     totalCents: number;
+    depositCents?: number;
+    lineItems?: Array<{ name: string; quantity: string }>;
   } | null;
   attractions?: {
     name: string;
@@ -45,6 +49,12 @@ interface ConfirmationData {
   guestName?: string | null;
   guestEmail?: string | null;
 }
+
+const LOCATION_DISPLAY: Record<string, { name: string; address: string }> = {
+  fasttrax: { name: "FastTrax Indoor Karting", address: "1255 Piper Blvd, Naples, FL 34110" },
+  headpinz: { name: "HeadPinz Entertainment", address: "14513 Global Pkwy, Fort Myers, FL 33913" },
+  naples: { name: "HeadPinz Naples", address: "4 Naples Blvd, Naples, FL 34104" },
+};
 
 function formatTime(iso: string) {
   const clean = iso.replace(/Z$/, "");
@@ -104,7 +114,17 @@ export default function CheckoutConfirmation() {
   const hasAttractions = !!data?.attractions?.length;
   const depositDollars = data?.depositPaidCents ? (data.depositPaidCents / 100).toFixed(2) : null;
   const totalDollars = data?.totalCents ? (data.totalCents / 100).toFixed(2) : null;
-  const hasGiftCard = !!data?.squareGiftCardGan;
+
+  // Resolve bowling details
+  const bowlingPlayerCount = data?.bowling
+    ? (Array.isArray(data.bowling.players) ? data.bowling.players.length : (data.bowling.players || 1))
+    : 0;
+  const bowlingPlayerNames = data?.bowling && Array.isArray(data.bowling.players)
+    ? data.bowling.players.filter((p) => p.name).map((p) => p.name!)
+    : [];
+  const bowlingLocation = data?.bowling?.locationKey
+    ? LOCATION_DISPLAY[data.bowling.locationKey]
+    : null;
 
   return (
     <div className="min-h-screen bg-[#000418]">
@@ -134,7 +154,7 @@ export default function CheckoutConfirmation() {
 
               {/* Bowling */}
               {hasBowling && data.bowling && (
-                <div>
+                <div className="space-y-2">
                   {hasAttractions && (
                     <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider mb-2">
                       🎳 Bowling
@@ -143,15 +163,51 @@ export default function CheckoutConfirmation() {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-white text-sm font-semibold">{data.bowling.experienceName}</p>
-                      <p className="text-white/40 text-xs">{data.bowling.timeLabel}</p>
+                      {data.bowling.bookedAt && (
+                        <p className="text-white/40 text-xs">
+                          {formatDate(data.bowling.bookedAt.split("T")[0])} · {data.bowling.timeLabel}
+                        </p>
+                      )}
+                      {!data.bowling.bookedAt && (
+                        <p className="text-white/40 text-xs">{data.bowling.timeLabel}</p>
+                      )}
                       <p className="text-white/30 text-xs">
-                        {data.bowling.players} player{data.bowling.players !== 1 ? "s" : ""}
+                        {bowlingPlayerCount} player{bowlingPlayerCount !== 1 ? "s" : ""}
                       </p>
                     </div>
                     <span className="text-white/50 text-sm">
                       ${(data.bowling.totalCents / 100).toFixed(2)}
                     </span>
                   </div>
+
+                  {/* Player names */}
+                  {bowlingPlayerNames.length > 0 && (
+                    <div className="pl-2 border-l-2 border-white/8">
+                      {bowlingPlayerNames.map((name, i) => (
+                        <p key={i} className="text-white/30 text-xs">{name}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Line items (shoes, add-ons, etc.) */}
+                  {data.bowling.lineItems && data.bowling.lineItems.length > 1 && (
+                    <div className="mt-1 space-y-0.5">
+                      {data.bowling.lineItems.map((li, i) => (
+                        <div key={i} className="flex justify-between text-xs text-white/25">
+                          <span>{li.name}</span>
+                          {parseInt(li.quantity) > 1 && <span>x{li.quantity}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Location */}
+                  {bowlingLocation && (
+                    <div className="mt-1">
+                      <p className="text-white/30 text-xs">{bowlingLocation.name}</p>
+                      <p className="text-white/20 text-[10px]">{bowlingLocation.address}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -206,21 +262,6 @@ export default function CheckoutConfirmation() {
                   </div>
                 </>
               )}
-            </div>
-          )}
-
-          {/* ── Gift Card / Day-of info ──────────────────────── */}
-          {hasGiftCard && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-left">
-              <p className="text-amber-400 text-xs font-bold uppercase tracking-wider mb-1">
-                🎁 Your Day-of Gift Card
-              </p>
-              <p className="text-white/60 text-xs">
-                Card number: <span className="font-mono text-white/80">{data!.squareGiftCardGan}</span>
-              </p>
-              <p className="text-white/40 text-xs mt-1">
-                Present this at the front desk on your visit. Your remaining balance will be loaded on this card.
-              </p>
             </div>
           )}
 
