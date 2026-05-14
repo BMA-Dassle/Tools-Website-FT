@@ -311,7 +311,9 @@ export default function CheckoutPage() {
         const data = await res.json();
         saveConfirmationData(data);
         cleanupCart();
-        window.location.href = "/book/checkout/confirmation";
+        window.location.href = data.shortCode
+          ? `/book/checkout/confirmation?code=${data.shortCode}`
+          : "/book/checkout/confirmation";
       } catch (err) {
         setStep("error");
         setErrorMsg(err instanceof Error ? err.message : "Checkout failed");
@@ -422,19 +424,23 @@ export default function CheckoutPage() {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { squareGiftCardGan: _gan, squareGiftCardId: _gid, ...safeResponse } = apiResponse;
 
+      // Determine what's in the cart for the confirmation page sections
+      const isRacingCart = racerAssignments.length > 0;
+      const hasBowling = !!bowlingHold;
+
       sessionStorage.setItem("checkoutConfirmation", JSON.stringify({
         ...safeResponse,
         // Add display data from cart (cart is about to be cleared)
-        bowling: bowlingHold ? {
-          experienceName: bowlingHold.experienceName,
-          timeLabel: bowlingHold.timeLabel,
-          bookedAt: bowlingHold.bookedAt,
-          locationKey: bowlingHold.locationKey,
-          kind: bowlingHold.kind,
-          players: bowlingHold.players || [],
-          totalCents: bowlingHold.totalCents,
-          depositCents: bowlingHold.depositCents,
-          lineItems: (bowlingHold.squareLineItems || []).map((li) => ({
+        bowling: hasBowling ? {
+          experienceName: bowlingHold!.experienceName,
+          timeLabel: bowlingHold!.timeLabel,
+          bookedAt: bowlingHold!.bookedAt,
+          locationKey: bowlingHold!.locationKey,
+          kind: bowlingHold!.kind,
+          players: bowlingHold!.players || [],
+          totalCents: bowlingHold!.totalCents,
+          depositCents: bowlingHold!.depositCents,
+          lineItems: (bowlingHold!.squareLineItems || []).map((li) => ({
             name: li.name,
             quantity: li.quantity,
           })),
@@ -447,6 +453,16 @@ export default function CheckoutPage() {
         })),
         guestName: contact?.firstName ? `${contact.firstName} ${contact.lastName}` : null,
         guestEmail: contact?.email || null,
+        // ── Phase 3 additions for dynamic confirmation page ──
+        // Bowling: first Neon ID + short code for useBowlingConfirmation hook
+        bowlingNeonId: hasBowling && safeResponse.neonIds?.[0] ? safeResponse.neonIds[0] : null,
+        bowlingShortCode: safeResponse.shortCode ?? null,
+        bowlingKind: hasBowling ? bowlingHold!.kind : null,
+        // Racing: bill ID + racer assignments for useRacingConfirmation hook
+        bmiBillId: orderId ?? null,
+        racerAssignments: isRacingCart ? racerAssignments : null,
+        primaryPersonId: primaryPersonId ?? null,
+        isRacingCart,
       }));
     } catch { /* non-fatal — confirmation page has fallback */ }
   }
@@ -681,7 +697,9 @@ export default function CheckoutPage() {
               const data = await res.json();
               if (!res.ok || data.error) throw new Error(data.error || "Checkout failed");
               saveConfirmationData(data);
-              v2ConfirmPathRef.current = "/book/checkout/confirmation";
+              v2ConfirmPathRef.current = data.shortCode
+                ? `/book/checkout/confirmation?code=${data.shortCode}`
+                : "/book/checkout/confirmation";
               return {
                 paymentId: data.squareDepositPaymentId || "",
                 orderId: data.squareDayofOrderId || orderId || "",

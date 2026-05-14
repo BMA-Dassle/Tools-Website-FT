@@ -904,6 +904,25 @@ export type BowlingReservationWithLines = BowlingReservation & {
 };
 
 /**
+ * Fetch all reservations that share the same checkoutGroupId.
+ * Returns an empty array if the group ID is null/undefined or not found.
+ * Used by the unified confirmation page to reconstruct mixed carts on refresh.
+ */
+export async function getReservationsByCheckoutGroup(
+  groupId: string,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured() || !groupId) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE checkout_group_id = ${groupId}
+    ORDER BY id
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * List bowling reservations filtered by booked_at date range.
  * Used by the admin reservations board. Includes order lines.
  */

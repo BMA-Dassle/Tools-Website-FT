@@ -180,6 +180,37 @@ export function useRacingConfirmation(input: UseRacingConfirmationInput) {
     return () => { cancelled = true; };
   }, [billId, preResolved]);
 
+  // ── Enrichment fetch when preResolved was provided ────────────────
+  // post-confirm runs async after checkout. By the time the customer
+  // reads the confirmation page (~3-5s), it's usually done. This fetch
+  // picks up Express Lane, waiver URL, POV codes, and rookie pack —
+  // data that only exists once post-confirm writes the booking record.
+  const enrichStarted = useRef(false);
+  useEffect(() => {
+    if (!preResolved || enrichStarted.current || !billId) return;
+    enrichStarted.current = true;
+    let cancelled = false;
+
+    const delay = 3000; // give post-confirm time to finish
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/booking-record?billId=${billId}`, {
+          headers: { "x-api-key": BOOKING_API_KEY },
+        });
+        if (!res.ok || cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rec: Record<string, any> = await res.json();
+
+        // Only update enrichment fields — do NOT overwrite confirmations/raceGroups
+        if (rec.fastLane === true && !cancelled) setExpressLane(true);
+        if (rec.rookiePack === true && !cancelled) setRookiePack(true);
+        // waiverUrl and povCodes are set by the notification pipeline,
+        // not stored on the booking record. They come via email/SMS.
+      } catch { /* non-fatal — enrichment is nice-to-have */ }
+    }, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [billId, preResolved]);
+
   return {
     loading,
     billId,
