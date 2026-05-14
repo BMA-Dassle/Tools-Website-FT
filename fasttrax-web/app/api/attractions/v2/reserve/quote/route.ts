@@ -6,36 +6,42 @@ import {
 } from "@/lib/square-deposit-order";
 
 /**
- * POST /api/square/bowling-orders/quote
+ * POST /api/attractions/v2/reserve/quote
  *
- * Thin wrapper around the shared deposit layer (lib/square-deposit-order.ts).
  * Creates a Square day-of order (no payment) and returns the tax-inclusive
- * total + computed deposit amount.
+ * total + computed deposit amount for an attraction booking.
  *
- * Used by the booking review step so the UI can show the exact charge
- * (including county sales tax) before the customer enters their card.
+ * Used by the review step so the UI shows the exact charge (including
+ * county sales tax) before the customer enters their card.
  */
+
+const LOCATION_TO_SQUARE: Record<string, string> = {
+  fasttrax: "LAB52GY480CJF",
+  headpinz: "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
-      locationId: string;
+      locationKey: string;
       lineItems: LineItemInput[];
       depositPct?: number;
       squareCustomerId?: string;
     };
 
-    const { locationId, lineItems } = body;
+    const { locationKey, lineItems } = body;
+    const squareLocationId = LOCATION_TO_SQUARE[locationKey];
 
-    if (!locationId || !lineItems?.length) {
+    if (!squareLocationId || !lineItems?.length) {
       return NextResponse.json(
-        { error: "locationId and lineItems required" },
+        { error: "locationKey and lineItems required" },
         { status: 400 },
       );
     }
 
     const result = await createQuoteOrder({
-      locationId: body.locationId,
+      locationId: squareLocationId,
       lineItems: body.lineItems,
       depositPct: body.depositPct,
       squareCustomerId: body.squareCustomerId,

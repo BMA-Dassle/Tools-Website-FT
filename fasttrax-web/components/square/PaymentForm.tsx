@@ -93,6 +93,16 @@ interface PaymentFormProps {
   lineItem?: PaymentLineItem;
   /** Optional server-side hook fired AFTER Square charges. */
   postPaymentAction?: PostPaymentAction;
+  /**
+   * Custom payment handler — replaces the default /api/square/pay call.
+   * Receives the Square token (nonce or saved card ID) and whether it's
+   * a saved card. Must return a PaymentResult or throw on failure.
+   *
+   * Used by the v2 attraction reserve flow: the caller tokenizes via
+   * PaymentForm, then calls /api/attractions/v2/reserve server-side
+   * which does Square + Neon + BMI atomically.
+   */
+  customPaymentHandler?: (token: string, isSavedCard: boolean) => Promise<PaymentResult>;
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -145,6 +155,7 @@ export default function PaymentForm({
   allowSaveCard = false,
   lineItem,
   postPaymentAction,
+  customPaymentHandler,
 }: PaymentFormProps) {
   const squareLocationId = detectSquareLocationId(locationIdProp);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">("loading");
@@ -262,6 +273,15 @@ export default function PaymentForm({
   }
 
   async function processPayment(token: string, usingSavedCard: boolean) {
+    // Custom handler path — caller handles the payment server call
+    if (customPaymentHandler) {
+      const result = await customPaymentHandler(token, usingSavedCard);
+      setStatus("success");
+      setTimeout(() => onSuccess(result), 1500);
+      return;
+    }
+
+    // Default path — call /api/square/pay
     const res = await fetch("/api/square/pay", {
       method: "POST",
       headers: { "content-type": "application/json" },

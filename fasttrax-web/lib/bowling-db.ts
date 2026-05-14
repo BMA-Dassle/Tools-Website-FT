@@ -295,6 +295,17 @@ export async function ensureBowlingSchema(): Promise<void> {
   // square_loyalty_reward_id + reward_discount_cents.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS loyalty_action TEXT`;
 
+  // ── Unified checkout (Phase 0) ──────────────────────────────────
+  // Attraction type slug: "laser-tag", "gel-blaster", "shuffly", "duck-pin", "racing".
+  // NULL for bowling-only rows.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS attraction_slug TEXT`;
+  // Links multiple reservations from one unified cart (Phase 6).
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checkout_group_id TEXT`;
+  // Set when the attraction arrival processor runs (analogous to dayof_order_sent_at for bowling).
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS arrival_processed_at TIMESTAMPTZ`;
+  // Index for fast lookup of all items in one checkout group.
+  await q`CREATE INDEX IF NOT EXISTS idx_br_checkout_group ON bowling_reservations (checkout_group_id) WHERE checkout_group_id IS NOT NULL`;
+
   schemaReady = true;
 }
 
@@ -458,7 +469,7 @@ export type PlayerInput = {
 export interface BowlingReservation {
   id: number;
   centerCode: string;
-  productKind: "kbf" | "open";
+  productKind: "kbf" | "open" | "laser-tag" | "gel-blaster" | "shuffly" | "duck-pin" | "racing";
   qamfReservationId?: string;
   /** BMI bill ID — always a raw string; never coerce to Number. */
   bmiBillId?: string;
@@ -522,6 +533,12 @@ export interface BowlingReservation {
   checkinMethod?: "self" | "desk";
   /** Loyalty action during booking: 'signup' (new account created), 'existing' (logged in with existing). */
   loyaltyAction?: "signup" | "existing";
+  /** Attraction type slug (NULL for bowling-only rows). */
+  attractionSlug?: "laser-tag" | "gel-blaster" | "shuffly" | "duck-pin" | "racing";
+  /** Links multiple reservations from one unified cart checkout. */
+  checkoutGroupId?: string;
+  /** ISO timestamp when the attraction arrival processor ran (analogous to dayofOrderSentAt). */
+  arrivalProcessedAt?: string;
   /** Attraction add-ons booked via BMI during the bowling wizard (laser tag, gel blaster, etc.). */
   attractionBookings: Array<{
     slug: string;
@@ -669,7 +686,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
   return {
     id: row.id as number,
     centerCode: row.center_code as string,
-    productKind: row.product_kind as "kbf" | "open",
+    productKind: row.product_kind as BowlingReservation["productKind"],
     qamfReservationId: (row.qamf_reservation_id as string) ?? undefined,
     bmiBillId: (row.bmi_bill_id as string) ?? undefined,
     bmiReservationNumber: (row.bmi_reservation_number as string) ?? undefined,
@@ -713,6 +730,11 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     rewardDiscountCents: (row.reward_discount_cents as number) ?? 0,
     checkinMethod: (row.checkin_method as BowlingReservation["checkinMethod"]) ?? undefined,
     loyaltyAction: (row.loyalty_action as BowlingReservation["loyaltyAction"]) ?? undefined,
+    attractionSlug: (row.attraction_slug as BowlingReservation["attractionSlug"]) ?? undefined,
+    checkoutGroupId: (row.checkout_group_id as string) ?? undefined,
+    arrivalProcessedAt: row.arrival_processed_at
+      ? (row.arrival_processed_at as Date).toISOString()
+      : undefined,
     attractionBookings: (() => {
       const raw = row.attraction_bookings;
       if (!raw) return [];
@@ -747,7 +769,7 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents" | "attractionBookings" | "checkinMethod"> & { rewardDiscountCents?: number; attractionBookings?: BowlingReservation["attractionBookings"] },
+  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents" | "attractionBookings" | "checkinMethod" | "attractionSlug" | "checkoutGroupId" | "arrivalProcessedAt"> & { rewardDiscountCents?: number; attractionBookings?: BowlingReservation["attractionBookings"]; attractionSlug?: BowlingReservation["attractionSlug"]; checkoutGroupId?: string },
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -765,7 +787,8 @@ export async function insertBowlingReservation(
       guest_name, guest_email, guest_phone, notes,
       booking_source, square_customer_id,
       square_loyalty_reward_id, reward_discount_cents,
-      loyalty_action, attraction_bookings
+      loyalty_action, attraction_bookings,
+      attraction_slug, checkout_group_id
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -776,7 +799,8 @@ export async function insertBowlingReservation(
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
       ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
       ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0},
-      ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb
+      ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb,
+      ${r.attractionSlug ?? null}, ${r.checkoutGroupId ?? null}
     )
     RETURNING *
   `;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 
 export interface ContactInfo {
   firstName: string;
@@ -16,6 +16,15 @@ interface ContactFormProps {
   onBack: () => void;
   /** Fields that are OTP-verified and cannot be changed */
   lockedFields?: ("phone" | "email")[];
+  /** Called when the phone value changes (raw input, not just digits). */
+  onPhoneChange?: (phone: string) => void;
+  /** Optional content rendered between the phone field and the SMS opt-in. Use for loyalty UI. */
+  afterPhone?: ReactNode;
+  /**
+   * When loyalty verification fills in guest info, the parent can push
+   * overrides here. The form will adopt them (one-time, per-value).
+   */
+  prefill?: { firstName?: string; lastName?: string; email?: string };
 }
 
 function Field({ label, value, onChange, type = "text", placeholder, locked }: {
@@ -51,13 +60,21 @@ function Field({ label, value, onChange, type = "text", placeholder, locked }: {
   );
 }
 
-export default function ContactForm({ initial, onSubmit, onBack, lockedFields = [] }: ContactFormProps) {
+export default function ContactForm({ initial, onSubmit, onBack, lockedFields = [], onPhoneChange, afterPhone, prefill }: ContactFormProps) {
   const [firstName, setFirstName] = useState(initial?.firstName ?? "");
   const [lastName, setLastName] = useState(initial?.lastName ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [smsOptIn, setSmsOptIn] = useState(initial?.smsOptIn ?? true);
   const [errors, setErrors] = useState<Partial<Record<keyof ContactInfo, string>>>({});
+
+  // Accept prefill overrides from loyalty verification (one-time per value)
+  useEffect(() => {
+    if (prefill?.firstName && prefill.firstName !== firstName) setFirstName(prefill.firstName);
+    if (prefill?.lastName && prefill.lastName !== lastName) setLastName(prefill.lastName);
+    if (prefill?.email && prefill.email !== email) setEmail(prefill.email);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.firstName, prefill?.lastName, prefill?.email]);
 
   function validate() {
     const e: typeof errors = {};
@@ -100,9 +117,22 @@ export default function ContactForm({ initial, onSubmit, onBack, lockedFields = 
         </div>
 
         <div>
-          <Field label="Phone Number" value={phone} onChange={setPhone} type="tel" placeholder="(239) 555-0100" locked={lockedFields.includes("phone")} />
+          <Field
+            label="Phone Number"
+            value={phone}
+            onChange={(v) => {
+              setPhone(v);
+              onPhoneChange?.(v);
+            }}
+            type="tel"
+            placeholder="(239) 555-0100"
+            locked={lockedFields.includes("phone")}
+          />
           {errors.phone && <p className="text-red-400 text-xs mt-1">{errors.phone}</p>}
         </div>
+
+        {/* Loyalty section slot — rendered between phone and SMS opt-in */}
+        {afterPhone}
 
         <label className="flex items-center gap-3 cursor-pointer group">
           <input
