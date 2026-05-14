@@ -94,7 +94,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
   const [passes, setPasses] = useState<KbfPass[]>([]);
   const [selectedPass, setSelectedPass] = useState<KbfPass | null>(null);
   const [redeemedToday, setRedeemedToday] = useState<RedeemedPair[]>([]);
-  const [futureReservations, setFutureReservations] = useState<{ passId: number; bookedAt: string }[]>([]);
+  const [futureReservations, setFutureReservations] = useState<{ passId: number; reservationId: number; bookedAt: string }[]>([]);
 
   // State: bowlers
   const [bowlers, setBowlers] = useState<AdminBowlerSelection[]>([]);
@@ -124,6 +124,9 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
   // State: phone collection (when account has no phone)
   const [enteredPhone, setEnteredPhone] = useState("");
+
+  // State: cancel/reschedule
+  const [cancellingRez, setCancellingRez] = useState(false);
 
   // State: submission progress
   const [progress, setProgress] = useState<string[]>([]);
@@ -184,7 +187,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
       const found: KbfPass[] = data.passes ?? [];
       const redeemed: RedeemedPair[] = data.redeemedToday ?? [];
-      const futureRez: { passId: number; bookedAt: string }[] = data.futureReservations ?? [];
+      const futureRez: { passId: number; reservationId: number; bookedAt: string }[] = data.futureReservations ?? [];
       setPasses(found);
       setRedeemedToday(redeemed);
       setFutureReservations(futureRez);
@@ -279,6 +282,10 @@ export default function KbfAdminClient({ token }: { token: string }) {
     if (!selectedPass) return;
     const selected = bowlers.filter((b) => b.selected);
     if (selected.length === 0) return;
+    if (!selectedPass.phone && enteredPhone.replace(/\D/g, "").length < 10) {
+      setError("Phone number is required");
+      return;
+    }
 
     // Cancel any previous hold first
     await cancelHold();
@@ -489,6 +496,57 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setHoldQamfId(null);
     setHoldLaneNumber(null);
     searchRef.current?.focus();
+  }
+
+  // ── Cancel existing reservation ───────────────────────────────────
+
+  async function handleCancelExisting(neonId: number) {
+    setCancellingRez(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/bowling/reservations/cancel?token=${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ neonId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Cancel failed");
+        return;
+      }
+      // Remove from local state so the warning clears
+      setFutureReservations((prev) => prev.filter((fr) => fr.reservationId !== neonId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setCancellingRez(false);
+    }
+  }
+
+  async function handleRescheduleExisting(neonId: number) {
+    // Cancel the existing reservation, then enter Book Lane mode
+    setCancellingRez(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/bowling/reservations/cancel?token=${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ neonId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Cancel failed");
+        return;
+      }
+      // Clear the future reservation and go to Book Lane
+      setFutureReservations((prev) => prev.filter((fr) => fr.reservationId !== neonId));
+      setMode("book-lane");
+      setStep(2);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setCancellingRez(false);
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────
@@ -754,7 +812,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </div>
           )}
 
-          {/* Future reservation warning */}
+          {/* Future reservation warning + cancel/reschedule */}
           {passFutureRez && (
             <div style={{
               padding: "10px 14px",
@@ -765,12 +823,49 @@ export default function KbfAdminClient({ token }: { token: string }) {
               fontSize: 13,
               color: "#92400e",
             }}>
-              Already has a reservation for{" "}
-              {new Date(passFutureRez.bookedAt).toLocaleString("en-US", {
-                timeZone: "America/New_York",
-                month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-              })}
-              {" "}— Book Lane disabled
+              <div style={{ marginBottom: 8 }}>
+                Existing reservation for{" "}
+                <strong>
+                  {new Date(passFutureRez.bookedAt).toLocaleString("en-US", {
+                    timeZone: "America/New_York",
+                    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                  })}
+                </strong>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => handleCancelExisting(passFutureRez.reservationId)}
+                  disabled={cancellingRez}
+                  style={{
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    backgroundColor: "#fff",
+                    color: "#dc2626",
+                    border: "1px solid #fca5a5",
+                    borderRadius: 6,
+                    cursor: cancellingRez ? "wait" : "pointer",
+                  }}
+                >
+                  {cancellingRez ? "Cancelling..." : "Cancel Reservation"}
+                </button>
+                <button
+                  onClick={() => handleRescheduleExisting(passFutureRez.reservationId)}
+                  disabled={cancellingRez}
+                  style={{
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    backgroundColor: "#fff",
+                    color: BLUE,
+                    border: `1px solid ${BLUE}`,
+                    borderRadius: 6,
+                    cursor: cancellingRez ? "wait" : "pointer",
+                  }}
+                >
+                  Reschedule
+                </button>
+              </div>
             </div>
           )}
 
