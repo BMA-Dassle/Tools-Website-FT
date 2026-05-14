@@ -15,12 +15,14 @@ import { getBookingLocation, getBookingClientKey } from "@/lib/booking-location"
 // MiniCart is rendered globally in root layout
 
 /**
- * Unified multi-item checkout page for attraction carts (v2).
+ * Unified multi-item checkout page (v2).
  *
- * Reads orderId + cart items from sessionStorage. Shows contact form
- * with loyalty, then a review + payment step that calls /api/checkout/v2.
+ * Reads from sessionStorage:
+ *   - attractionOrderId + attractionCart → BMI items (attractions, racing)
+ *   - bowlingHold → QAMF bowling reservation
  *
- * Does NOT affect racing — racing has its own OrderSummary flow.
+ * At least one must be present. Both can coexist for mixed carts.
+ * All items → one Square deposit order → one checkout.
  */
 
 interface CartItem {
@@ -32,6 +34,35 @@ interface CartItem {
   quantity: number;
   billLineId: string | null;
   color: string;
+}
+
+/** Shape of the bowlingHold sessionStorage blob (saved by BowlingWizard). */
+interface BowlingHoldData {
+  qamfReservationId: string;
+  centerId: number;
+  locationKey: string;
+  squareCenterCode: string;
+  webOfferId: string;
+  optionId?: string;
+  optionType?: string;
+  bookedAt: string;
+  service: string;
+  players: Array<{ name?: string; shoeSize?: string | null }>;
+  guest: { name: string; email: string; phone: string };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  lineItems: any[];
+  totalCents: number;
+  depositCents: number;
+  notes?: string;
+  kind: string;
+  experienceName: string;
+  timeLabel: string;
+  expiresAt: string;
+  squareCustomerId?: string;
+  loyaltyAccountId?: string;
+  loyaltyAction?: "signup" | "existing";
+  rewardTierId?: string;
+  rewardDiscountCents?: number;
 }
 
 interface BmiLine {
@@ -46,6 +77,7 @@ type PageStep = "loading" | "contact" | "review" | "card-form" | "submitting" | 
 export default function CheckoutPage() {
   const [orderId, setOrderId] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [bowlingHold, setBowlingHold] = useState<BowlingHoldData | null>(null);
   const [contact, setContact] = useState<ContactInfo | null>(null);
   const [step, setStep] = useState<PageStep>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -68,16 +100,36 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     const stored = sessionStorage.getItem("attractionOrderId");
-    if (!stored) {
+    let bowlingRaw: BowlingHoldData | null = null;
+    try {
+      const bh = sessionStorage.getItem("bowlingHold");
+      bowlingRaw = bh ? JSON.parse(bh) : null;
+    } catch { /* bad JSON */ }
+
+    if (!stored && !bowlingRaw) {
       setStep("error");
       setErrorMsg("No booking found. Start by picking an activity.");
       return;
     }
-    setOrderId(stored);
+    if (stored) setOrderId(stored);
+    if (bowlingRaw) setBowlingHold(bowlingRaw);
     try {
       const items = JSON.parse(sessionStorage.getItem("attractionCart") || "[]");
       setCartItems(items);
     } catch { /* empty cart */ }
+
+    // Pre-fill contact from bowling hold guest data
+    if (bowlingRaw?.guest) {
+      const g = bowlingRaw.guest;
+      const nameParts = g.name.trim().split(/\s+/);
+      setContact({
+        firstName: nameParts[0] || "",
+        lastName: nameParts.slice(1).join(" ") || "",
+        email: g.email || "",
+        phone: g.phone || "",
+        smsOptIn: true,
+      });
+    }
     setStep("contact");
   }, []);
 
@@ -93,82 +145,92 @@ export default function CheckoutPage() {
   }
 
   async function loadReview(c: ContactInfo) {
-    if (!orderId) return;
+    if (!orderId && !bowlingHold) return;
     setReviewLoading(true);
     try {
       const ck = getBookingClientKey();
+      let bmiCashTotalAmount = 0;
+      let freshBmiLines: BmiLine[] = [];
 
-      // 1. Register contact person on the BMI bill
-      const regQs = new URLSearchParams({
-        endpoint: "person/registerContactPerson",
-        ...(ck ? { clientKey: ck } : {}),
-      });
-      const regBody = JSON.stringify({
-        firstName: c.firstName,
-        lastName: c.lastName,
-        email: c.email,
-        phone: c.phone.replace(/\D/g, ""),
-      });
-      const rawRegJson = `{"orderId":${orderId},` + regBody.slice(1);
-      await fetch(`/api/bmi?${regQs.toString()}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: rawRegJson,
-      });
+      // ── BMI pricing (if attractions / racing on the bill) ──────
+      if (orderId) {
+        // 1. Register contact person on the BMI bill
+        const regQs = new URLSearchParams({
+          endpoint: "person/registerContactPerson",
+          ...(ck ? { clientKey: ck } : {}),
+        });
+        const regBody = JSON.stringify({
+          firstName: c.firstName,
+          lastName: c.lastName,
+          email: c.email,
+          phone: c.phone.replace(/\D/g, ""),
+        });
+        const rawRegJson = `{"orderId":${orderId},` + regBody.slice(1);
+        await fetch(`/api/bmi?${regQs.toString()}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: rawRegJson,
+        });
 
-      // 2. Get BMI bill overview for line items + pricing
-      const smsQs = ck
-        ? `endpoint=bill%2Foverview&billId=${orderId}&clientKey=${ck}`
-        : `endpoint=bill%2Foverview&billId=${orderId}`;
-      const overviewRes = await fetch(`/api/sms?${smsQs}`);
-      const overview = await overviewRes.json();
+        // 2. Get BMI bill overview for line items + pricing
+        const smsQs = ck
+          ? `endpoint=bill%2Foverview&billId=${orderId}&clientKey=${ck}`
+          : `endpoint=bill%2Foverview&billId=${orderId}`;
+        const overviewRes = await fetch(`/api/sms?${smsQs}`);
+        const overview = await overviewRes.json();
 
-      const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-      const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
-      const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const cashTotal = overview.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const cashSub = overview.subTotal?.find((t: { depositKind: number }) => t.depositKind === 0);
+        const cashTax = overview.totalTax?.find((t: { depositKind: number }) => t.depositKind === 0);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lines: BmiLine[] = (overview.lines || []).map((l: any) => {
-        const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
-        const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
-        return {
-          name: l.name,
-          quantity: l.quantity,
-          amount: cashPrice?.amount ?? 0,
-          time: lineTime || null,
-        };
-      });
-
-      setBmiLines(lines);
-      setBmiTotal(cashTotal?.amount ?? 0);
-      setBmiSubtotal(cashSub?.amount ?? 0);
-      setBmiTax(cashTax?.amount ?? 0);
-
-      // 3. Create Square quote order (day-of order with tax) if total > 0
-      if ((cashTotal?.amount ?? 0) > 0) {
-        const quoteLineItems = lines
-          .filter((l) => l.amount > 0)
-          .map((l) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        freshBmiLines = (overview.lines || []).map((l: any) => {
+          const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
+          const lineTime = l.scheduledTime?.start || l.schedules?.[0]?.start;
+          return {
             name: l.name,
-            quantity: String(l.quantity),
-            basePriceMoney: {
-              amount: Math.round((l.amount / l.quantity) * 100),
-              currency: "USD",
-            },
-          }));
+            quantity: l.quantity,
+            amount: cashPrice?.amount ?? 0,
+            time: lineTime || null,
+          };
+        });
 
-        if (quoteLineItems.length > 0) {
-          const quoteRes = await fetch("/api/attractions/v2/reserve/quote", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ locationKey, lineItems: quoteLineItems, depositPct: 100 }),
-          });
-          if (quoteRes.ok) {
-            const q = await quoteRes.json();
-            setQuoteOrderId(q.dayofOrderId);
-            setQuoteTotalCents(q.dayofTotalCents);
-            setQuoteDepositCents(q.depositCents);
-          }
+        setBmiLines(freshBmiLines);
+        bmiCashTotalAmount = cashTotal?.amount ?? 0;
+        setBmiTotal(bmiCashTotalAmount);
+        setBmiSubtotal(cashSub?.amount ?? 0);
+        setBmiTax(cashTax?.amount ?? 0);
+      }
+
+      // ── Build merged line items for Square quote ───────────────
+      // Bowling items come pre-priced from bowlingHold.lineItems.
+      // BMI items use the just-fetched freshBmiLines (NOT stale React state).
+      const bowlingQuoteItems = bowlingHold?.lineItems ?? [];
+      const bmiQuoteItems = freshBmiLines
+        .filter((l) => l.amount > 0)
+        .map((l) => ({
+          name: l.name,
+          quantity: String(l.quantity),
+          basePriceMoney: {
+            amount: Math.round((l.amount / l.quantity) * 100),
+            currency: "USD",
+          },
+        }));
+      const mergedQuoteItems = [...bowlingQuoteItems, ...bmiQuoteItems];
+
+      // ── Create Square quote order (day-of order with tax) ──────
+      const mergedPreTaxCents = (bowlingHold?.totalCents ?? 0) + Math.round(bmiCashTotalAmount * 100);
+      if (mergedPreTaxCents > 0 && mergedQuoteItems.length > 0) {
+        const quoteRes = await fetch("/api/attractions/v2/reserve/quote", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ locationKey, lineItems: mergedQuoteItems, depositPct: 100 }),
+        });
+        if (quoteRes.ok) {
+          const q = await quoteRes.json();
+          setQuoteOrderId(q.dayofOrderId);
+          setQuoteTotalCents(q.dayofTotalCents);
+          setQuoteDepositCents(q.depositCents);
         }
       }
     } catch (err) {
@@ -188,7 +250,7 @@ export default function CheckoutPage() {
   }
 
   async function handlePay() {
-    if (!orderId || !contact) return;
+    if ((!orderId && !bowlingHold) || !contact) return;
 
     // Log clickwrap
     void fetch("/api/clickwrap/record", {
@@ -196,17 +258,17 @@ export default function CheckoutPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ts: new Date().toISOString(),
-        billId: orderId,
+        billId: orderId || bowlingHold?.qamfReservationId || "",
         email: contact.email,
         phone: contact.phone,
         firstName: contact.firstName,
-        amountCents: quoteTotalCents || Math.round(bmiTotal * 100),
-        bookingType: "attractions-cart",
+        amountCents: quoteTotalCents || computedTotalCents,
+        bookingType: bowlingHold ? (orderId ? "unified-cart" : "bowling") : "attractions-cart",
         policyVersion: CURRENT_POLICY_VERSION,
       }),
     }).catch(() => {});
 
-    const totalCentsToCharge = quoteTotalCents || Math.round(bmiTotal * 100);
+    const totalCentsToCharge = quoteTotalCents || computedTotalCents;
     const rewardDiscount = loyalty.selectedRewardTier?.discountCents ?? 0;
     const effectiveTotal = Math.max(0, totalCentsToCharge - rewardDiscount);
 
@@ -218,7 +280,8 @@ export default function CheckoutPage() {
         if (!res.ok) throw new Error((await res.json()).error || "Checkout failed");
         const data = await res.json();
         cleanupCart();
-        window.location.href = data.confirmationPath || `/book/${cartItems[0]?.attraction || "laser-tag"}/confirmation?neonId=${data.neonId}`;
+        const freeSlug = cartItems[0]?.attraction || (hasBowling ? "bowling" : "laser-tag");
+        window.location.href = data.confirmationPath || `/book/${freeSlug}/confirmation?neonId=${data.neonId}`;
       } catch (err) {
         setStep("error");
         setErrorMsg(err instanceof Error ? err.message : "Checkout failed");
@@ -230,21 +293,38 @@ export default function CheckoutPage() {
   }
 
   async function callCheckoutV2(squareToken?: string): Promise<Response> {
-    if (!orderId || !contact) throw new Error("Missing orderId or contact");
+    if (!orderId && !bowlingHold) throw new Error("Missing orderId and bowlingHold");
+    if (!contact) throw new Error("Missing contact");
 
     const ck = getBookingClientKey();
     const rewardDiscount = loyalty.selectedRewardTier?.discountCents ?? 0;
 
+    // BMI line items (attractions + racing)
+    const bmiLineItems = bmiLines
+      .filter((l) => l.amount > 0)
+      .map((l) => ({
+        name: l.name,
+        quantity: String(l.quantity),
+        basePriceMoney: {
+          amount: Math.round((l.amount / l.quantity) * 100),
+          currency: "USD",
+        },
+      }));
+
     const requestBody = {
-      bmiBillId: orderId,
+      // BMI fields — optional for bowling-only
+      ...(orderId ? {
+        bmiBillId: orderId,
+        items: cartItems.map((item) => ({
+          attractionSlug: item.attraction,
+          name: item.attractionName || item.product.name,
+          quantity: item.quantity,
+          bookedAt: item.time?.block?.start || item.date,
+          billLineId: item.billLineId || undefined,
+        })),
+        lineItems: bmiLineItems,
+      } : {}),
       locationKey,
-      items: cartItems.map((item) => ({
-        attractionSlug: item.attraction,
-        name: item.attractionName || item.product.name,
-        quantity: item.quantity,
-        bookedAt: item.time?.block?.start || item.date,
-        billLineId: item.billLineId || undefined,
-      })),
       guest: {
         name: `${contact.firstName} ${contact.lastName}`,
         email: contact.email,
@@ -252,21 +332,13 @@ export default function CheckoutPage() {
       },
       squareToken,
       squareCustomerId: loyalty.account?.customerId || undefined,
-      totalCents: quoteTotalCents || Math.round(bmiTotal * 100),
-      lineItems: bmiLines
-        .filter((l) => l.amount > 0)
-        .map((l) => ({
-          name: l.name,
-          quantity: String(l.quantity),
-          basePriceMoney: {
-            amount: Math.round((l.amount / l.quantity) * 100),
-            currency: "USD",
-          },
-        })),
+      totalCents: quoteTotalCents || computedTotalCents,
       existingDayofOrderId: quoteOrderId || undefined,
       existingDayofTotalCents: quoteTotalCents || undefined,
       existingDepositCents: quoteDepositCents || undefined,
       clientKey: ck || undefined,
+      // Bowling hold — optional for attractions-only
+      ...(bowlingHold ? { bowlingHold } : {}),
       // Loyalty
       ...(loyalty.selectedRewardTier && loyalty.account
         ? {
@@ -290,6 +362,7 @@ export default function CheckoutPage() {
   function cleanupCart() {
     sessionStorage.removeItem("attractionCart");
     sessionStorage.removeItem("attractionOrderId");
+    sessionStorage.removeItem("bowlingHold");
     sessionStorage.removeItem("checkoutReturnPath");
     try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
   }
@@ -307,11 +380,17 @@ export default function CheckoutPage() {
   }
 
   // ── Computed values ──────────────────────────────────────────────
-  const displayTotalCents = quoteTotalCents || Math.round(bmiTotal * 100);
+  const bowlingTotalCents = bowlingHold?.totalCents ?? 0;
+  const bmiTotalCents = Math.round(bmiTotal * 100);
+  const computedTotalCents = bowlingTotalCents + bmiTotalCents;
+  const displayTotalCents = quoteTotalCents || computedTotalCents;
   const rewardDiscount = loyalty.selectedRewardTier?.discountCents ?? 0;
   const effectiveTotalCents = Math.max(0, displayTotalCents - rewardDiscount);
   const displayTotal = (effectiveTotalCents / 100).toFixed(2);
   const primaryColor = cartItems[0]?.color || "#00E2E5";
+  const hasBowling = !!bowlingHold;
+  const hasBmi = !!orderId;
+  const totalItemCount = cartItems.length + (hasBowling ? 1 : 0);
 
   return (
     <div className="min-h-screen bg-[#000418]">
@@ -347,7 +426,7 @@ export default function CheckoutPage() {
               <div className="text-center">
                 <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-2">Checkout</h1>
                 <p className="text-white/40 text-sm">
-                  {cartItems.length} item{cartItems.length !== 1 ? "s" : ""} in your cart
+                  {totalItemCount} item{totalItemCount !== 1 ? "s" : ""} in your cart
                 </p>
               </div>
             </div>
@@ -372,6 +451,10 @@ export default function CheckoutPage() {
                 firstName: loyalty.customer.firstName || undefined,
                 lastName: loyalty.customer.lastName || undefined,
                 email: loyalty.customer.email || undefined,
+              } : contact ? {
+                firstName: contact.firstName || undefined,
+                lastName: contact.lastName || undefined,
+                email: contact.email || undefined,
               } : undefined}
             />
           </div>
@@ -393,24 +476,56 @@ export default function CheckoutPage() {
               <>
                 {/* Line items */}
                 <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4 space-y-3">
-                  {bmiLines.map((line, i) => (
-                    <div key={i} className="flex justify-between text-sm">
-                      <div>
-                        <span className="text-white/80">{line.name}</span>
-                        {line.quantity > 1 && <span className="text-white/30 ml-1">x{line.quantity}</span>}
-                        {line.time && (
-                          <span className="text-white/25 text-xs block">
-                            {new Date(line.time.replace(/Z$/, "")).toLocaleTimeString("en-US", {
-                              hour: "numeric",
-                              minute: "2-digit",
-                              hour12: true,
-                            })}
+                  {/* ── Bowling section ───────────────────────── */}
+                  {hasBowling && (
+                    <>
+                      {(hasBmi) && (
+                        <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider">
+                          🎳 Bowling
+                        </p>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <div>
+                          <span className="text-white/80">{bowlingHold!.experienceName}</span>
+                          <span className="text-white/25 text-xs block">{bowlingHold!.timeLabel}</span>
+                          <span className="text-white/30 text-xs">
+                            {bowlingHold!.players?.length || 1} player{(bowlingHold!.players?.length || 1) !== 1 ? "s" : ""}
                           </span>
-                        )}
+                        </div>
+                        <span className="text-white/60">${(bowlingTotalCents / 100).toFixed(2)}</span>
                       </div>
-                      <span className="text-white/60">${line.amount.toFixed(2)}</span>
-                    </div>
-                  ))}
+                      {hasBmi && <div className="border-t border-white/8 my-1" />}
+                    </>
+                  )}
+
+                  {/* ── BMI attractions / racing section ──────── */}
+                  {hasBmi && bmiLines.length > 0 && (
+                    <>
+                      {hasBowling && (
+                        <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider">
+                          🎯 Attractions
+                        </p>
+                      )}
+                      {bmiLines.map((line, i) => (
+                        <div key={i} className="flex justify-between text-sm">
+                          <div>
+                            <span className="text-white/80">{line.name}</span>
+                            {line.quantity > 1 && <span className="text-white/30 ml-1">x{line.quantity}</span>}
+                            {line.time && (
+                              <span className="text-white/25 text-xs block">
+                                {new Date(line.time.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                })}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-white/60">${line.amount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
 
                   <div className="border-t border-white/8 pt-2 space-y-1">
                     {bmiTax > 0 && (
@@ -462,8 +577,11 @@ export default function CheckoutPage() {
         {step === "card-form" && contact && (
           <PaymentForm
             amount={effectiveTotalCents / 100}
-            itemName={cartItems.map((i) => i.attractionName || i.product.name).join(" + ")}
-            billId={orderId || ""}
+            itemName={[
+              ...(hasBowling ? [bowlingHold!.experienceName] : []),
+              ...cartItems.map((i) => i.attractionName || i.product.name),
+            ].join(" + ")}
+            billId={orderId || bowlingHold?.qamfReservationId || ""}
             contact={{
               firstName: contact.firstName,
               lastName: contact.lastName,
@@ -478,7 +596,8 @@ export default function CheckoutPage() {
               const res = await callCheckoutV2(isSavedCard ? undefined : token);
               const data = await res.json();
               if (!res.ok || data.error) throw new Error(data.error || "Checkout failed");
-              v2ConfirmPathRef.current = data.confirmationPath || `/book/${cartItems[0]?.attraction || "laser-tag"}/confirmation?neonId=${data.neonId}`;
+              const fallbackSlug = cartItems[0]?.attraction || (hasBowling ? "bowling" : "laser-tag");
+              v2ConfirmPathRef.current = data.confirmationPath || `/book/${fallbackSlug}/confirmation?neonId=${data.neonId}`;
               return {
                 paymentId: data.squareDepositPaymentId || "",
                 orderId: data.squareDayofOrderId || orderId || "",

@@ -11,19 +11,22 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { shortenUrl } from "@/lib/short-url";
+import {
+  setReservationCustomer,
+  patchReservation,
+  setReservationStatus,
+} from "@/lib/qamf-bowling";
 
 /**
  * POST /api/checkout/v2
  *
- * Unified multi-item checkout for attraction carts.
+ * Unified multi-item checkout — handles ANY combination of:
+ *   - Bowling (QAMF hold) — pricing from bowlingHold.lineItems
+ *   - Attractions + Racing (BMI bill) — pricing from BMI bill/overview
  *
- * All cart items live on ONE BMI bill, so:
- *   - ONE Square day-of order (all line items)
- *   - ONE deposit payment + gift card
- *   - ONE BMI payment/confirm
- *   - ONE Neon row (with attractionBookings[] for per-item detail)
- *
- * Does NOT touch racing — racing uses its own OrderSummary + /book/race flow.
+ * ONE Square deposit order with all merged line items.
+ * Confirms both QAMF (bowling) and BMI (attractions/racing) in one call.
+ * Creates linked Neon rows via checkout_group_id for mixed carts.
  */
 
 // ── BMI config ──────────────────────────────────────────────────────────────
@@ -109,13 +112,40 @@ interface CartItemInput {
   billLineId?: string;
 }
 
+/** Bowling hold data passed from the checkout page (read from sessionStorage). */
+interface BowlingHoldInput {
+  qamfReservationId: string;
+  centerId: number;
+  locationKey: string;
+  squareCenterCode: string;
+  webOfferId: string;
+  optionId?: string;
+  optionType?: string;
+  bookedAt: string;
+  service: string;
+  players: Array<{ name?: string; shoeSize?: string | null }>;
+  guest: { name: string; email: string; phone: string };
+  lineItems: LineItemInput[];
+  totalCents: number;
+  depositCents: number;
+  notes?: string;
+  kind: string; // "open" | "kbf"
+  experienceName: string;
+  timeLabel: string;
+  squareCustomerId?: string;
+  loyaltyAccountId?: string;
+  loyaltyAction?: "signup" | "existing";
+  rewardTierId?: string;
+  rewardDiscountCents?: number;
+}
+
 interface CheckoutBody {
-  /** Single BMI bill ID for all items — ALWAYS string. */
-  bmiBillId: string;
+  /** Single BMI bill ID — ALWAYS string. Optional for bowling-only. */
+  bmiBillId?: string;
   /** Location key (fasttrax, headpinz, naples). */
   locationKey: string;
-  /** Cart items — one per booked attraction on this bill. */
-  items: CartItemInput[];
+  /** Cart items — one per booked attraction. Optional for bowling-only. */
+  items?: CartItemInput[];
 
   /** Guest contact info. */
   guest: {
@@ -131,11 +161,11 @@ interface CheckoutBody {
   /** Line items for the Square day-of order. */
   lineItems?: LineItemInput[];
 
-  /** Total amount in cents (tax-inclusive). */
+  /** Total amount in cents (tax-inclusive, merged bowling + BMI). */
   totalCents: number;
   depositPct?: number;
 
-  /** Pre-created day-of order from /api/checkout/v2/quote. */
+  /** Pre-created day-of order from quote (may include bowling + BMI lines). */
   existingDayofOrderId?: string;
   existingDayofTotalCents?: number;
   existingDepositCents?: number;
@@ -148,6 +178,10 @@ interface CheckoutBody {
   loyaltyAccountId?: string;
   rewardDiscountCents?: number;
   loyaltyAction?: "signup" | "existing";
+
+  // ── Bowling (QAMF) ──────────────────────────────────────────────
+  /** When present, checkout also confirms a QAMF bowling hold. */
+  bowlingHold?: BowlingHoldInput;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -156,17 +190,23 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as CheckoutBody;
 
-    const { bmiBillId, locationKey, items, guest, totalCents } = body;
+    const { bmiBillId, locationKey, items, guest, totalCents, bowlingHold } = body;
 
     // ── Validate ────────────────────────────────────────────────────
-    if (!bmiBillId || typeof bmiBillId !== "string") {
-      return NextResponse.json({ error: "bmiBillId required (as string)" }, { status: 400 });
+    const hasBmi = !!bmiBillId && typeof bmiBillId === "string";
+    const hasBowling = !!bowlingHold?.qamfReservationId;
+
+    if (!hasBmi && !hasBowling) {
+      return NextResponse.json(
+        { error: "At least one of bmiBillId or bowlingHold required" },
+        { status: 400 },
+      );
     }
     if (!locationKey || !LOCATION_TO_SQUARE[locationKey]) {
       return NextResponse.json({ error: `Invalid location: ${locationKey}` }, { status: 400 });
     }
-    if (!items?.length) {
-      return NextResponse.json({ error: "At least one cart item required" }, { status: 400 });
+    if (hasBmi && (!items || !items.length)) {
+      return NextResponse.json({ error: "items required when bmiBillId is present" }, { status: 400 });
     }
     if (!guest?.name || !guest?.email) {
       return NextResponse.json({ error: "guest.name and guest.email required" }, { status: 400 });
@@ -174,14 +214,24 @@ export async function POST(req: NextRequest) {
 
     const squareLocationId = LOCATION_TO_SQUARE[locationKey];
     const bmiClientKey = body.clientKey || LOCATION_TO_BMI_CLIENT[locationKey] || "headpinzftmyers";
-    if (!ALLOWED_CLIENTS.has(bmiClientKey)) {
+    if (hasBmi && !ALLOWED_CLIENTS.has(bmiClientKey)) {
       return NextResponse.json({ error: "Invalid BMI client" }, { status: 400 });
     }
 
     const depositPct = body.depositPct ?? 100;
-    const totalParticipants = items.reduce((s, i) => s + i.quantity, 0);
-    const primarySlug = items[0].attractionSlug;
-    const productNames = items.map((i) => i.name).join(" + ");
+    const bmiItems = items ?? [];
+    const totalParticipants = bmiItems.reduce((s, i) => s + i.quantity, 0)
+      + (hasBowling ? (bowlingHold!.players?.length || 1) : 0);
+
+    // Build display names
+    const bmiNames = bmiItems.map((i) => i.name);
+    const bowlingName = hasBowling ? bowlingHold!.experienceName : "";
+    const allNames = [...(bowlingName ? [bowlingName] : []), ...bmiNames];
+    const productNames = allNames.join(" + ");
+    const primarySlug = hasBmi ? bmiItems[0].attractionSlug : "bowling";
+
+    // Use checkout_group_id when BOTH bowling and BMI are present
+    const checkoutGroupId = (hasBmi && hasBowling) ? randomUUID() : undefined;
 
     // ── Loyalty reward (same pattern as attractions/v2/reserve) ─────
     const rewardDiscountCents = body.rewardDiscountCents ?? 0;
@@ -257,32 +307,45 @@ export async function POST(req: NextRequest) {
       body.squareToken;
 
     if (needsPayment) {
-      const lineItems = body.lineItems?.length
+      // Merge line items: bowling first, then BMI
+      const bowlingLineItems = hasBowling ? bowlingHold!.lineItems : [];
+      const bmiLineItems = body.lineItems?.length
         ? body.lineItems
-        : items.map((item) => ({
+        : bmiItems.map((item) => ({
             name: item.name,
             quantity: String(item.quantity),
             basePriceMoney: {
-              amount: Math.round(totalCents / totalParticipants),
+              amount: Math.round(totalCents / Math.max(totalParticipants, 1)),
               currency: "USD" as const,
             },
           }));
+      const mergedLineItems = [...bowlingLineItems, ...(hasBmi ? bmiLineItems : [])];
 
+      // GAN suffix: prefer BMI bill ID (long), fall back to QAMF ID
       const ganPrefix = LOCATION_GAN_PREFIX[locationKey] || "HP";
-      const ganSuffix = bmiBillId.slice(-8).replace(/[^A-Za-z0-9]/g, "");
+      const ganSource = bmiBillId || bowlingHold?.qamfReservationId || randomUUID();
+      const ganSuffix = ganSource.slice(-8).replace(/[^A-Za-z0-9]/g, "");
+
+      // Note for Square order — human-readable summary
+      const noteRef = bmiBillId ? `Bill ${bmiBillId.slice(-6)}` : `QAMF ${bowlingHold!.qamfReservationId}`;
+      const depositLineName = hasBowling && !hasBmi
+        ? "Bowling Reservation Deposit"
+        : hasBmi && !hasBowling
+          ? "Attraction Reservation Deposit"
+          : "Unified Cart Deposit";
 
       const result = await createDepositOrder({
         sourceId: body.squareToken!,
         locationId: squareLocationId,
         depositPct,
-        lineItems,
+        lineItems: mergedLineItems,
         squareCustomerId: body.squareCustomerId,
-        note: `${productNames} – Bill ${bmiBillId.slice(-6)}`,
+        note: `${productNames} – ${noteRef}`,
         giftCardGan: `${ganPrefix}${ganSuffix}`,
         existingDayofOrderId: body.existingDayofOrderId,
         existingDayofTotalCents: authoritativeTotalCents,
         existingDepositCents: adjustedDepositCents ?? body.existingDepositCents,
-        depositLineName: "Attraction Reservation Deposit",
+        depositLineName,
       });
 
       squareDepositOrderId = result.depositOrderId ?? undefined;
@@ -310,97 +373,181 @@ export async function POST(req: NextRequest) {
       loyaltyRewardId = undefined;
     }
 
-    // ── BMI payment/confirm (ONE call for the whole bill) ───────────
+    // ── BMI payment/confirm (if attractions / racing on the bill) ───
     let bmiReservationNumber: string | undefined;
 
-    try {
-      const bmiToken = await getBmiToken(bmiClientKey);
-      const confirmUrl = `${BMI_API_URL}/public-booking/${bmiClientKey}/payment/confirm`;
-      const confirmId = randomUUID();
-      const confirmTime = new Date().toISOString();
+    if (hasBmi) {
+      try {
+        const bmiToken = await getBmiToken(bmiClientKey);
+        const confirmUrl = `${BMI_API_URL}/public-booking/${bmiClientKey}/payment/confirm`;
+        const confirmId = randomUUID();
+        const confirmTime = new Date().toISOString();
 
-      // Raw JSON — orderId injected as raw string for 18-digit precision
-      const confirmBody = `{"id":"${confirmId}","paymentTime":"${confirmTime}","amount":0,"orderId":${bmiBillId},"depositKind":0}`;
+        // Raw JSON — orderId injected as raw string for 18-digit precision
+        const confirmBody = `{"id":"${confirmId}","paymentTime":"${confirmTime}","amount":0,"orderId":${bmiBillId},"depositKind":0}`;
 
-      console.log(`[checkout/v2] BMI payment/confirm: ${confirmBody.substring(0, 200)}`);
+        console.log(`[checkout/v2] BMI payment/confirm: ${confirmBody.substring(0, 200)}`);
 
-      const confirmRes = await fetch(confirmUrl, {
-        method: "POST",
-        headers: bmiHeaders(bmiToken),
-        body: confirmBody,
-        cache: "no-store",
-      });
+        const confirmRes = await fetch(confirmUrl, {
+          method: "POST",
+          headers: bmiHeaders(bmiToken),
+          body: confirmBody,
+          cache: "no-store",
+        });
 
-      const confirmRaw = await confirmRes.text();
-      if (confirmRes.ok) {
-        const rnMatch = confirmRaw.match(/"reservationNumber"\s*:\s*"([^"]+)"/);
-        if (rnMatch) bmiReservationNumber = rnMatch[1];
-      } else {
-        console.error(`[checkout/v2] BMI confirm failed: ${confirmRes.status} ${confirmRaw.substring(0, 300)}`);
+        const confirmRaw = await confirmRes.text();
+        if (confirmRes.ok) {
+          const rnMatch = confirmRaw.match(/"reservationNumber"\s*:\s*"([^"]+)"/);
+          if (rnMatch) bmiReservationNumber = rnMatch[1];
+        } else {
+          console.error(`[checkout/v2] BMI confirm failed: ${confirmRes.status} ${confirmRaw.substring(0, 300)}`);
+        }
+      } catch (err) {
+        console.error("[checkout/v2] BMI confirm error:", err);
       }
-    } catch (err) {
-      console.error("[checkout/v2] BMI confirm error:", err);
     }
 
-    const bmiConfirmed = !!bmiReservationNumber;
+    const bmiConfirmed = hasBmi ? !!bmiReservationNumber : true;
 
-    // ── Persist ONE Neon row for the whole checkout ────────────────
-    // One checkout = one row on the admin board.
-    // Per-item detail (slugs, times, quantities) stored in attractionBookings JSONB.
+    // ── QAMF confirm (if bowling in cart) ───────────────────────────
+    let qamfConfirmed = false;
+
+    if (hasBowling) {
+      const bh = bowlingHold!;
+      try {
+        // 1. Attach customer — MUST be done before setReservationStatus
+        await setReservationCustomer(bh.centerId, bh.qamfReservationId, {
+          Guest: {
+            Name: guest.name,
+            PhoneNumber: guest.phone.replace(/\D/g, ""),
+            Email: guest.email,
+          },
+        });
+
+        // 2. Patch title + notes
+        await patchReservation(bh.centerId, bh.qamfReservationId, {
+          Title: `${guest.name} (${bh.players?.length || 1}p)`,
+          Notes: bh.notes || `Unified checkout – ${productNames}`,
+        });
+
+        // 3. Transition Temporary → Confirmed
+        qamfConfirmed = await setReservationStatus(
+          bh.centerId,
+          bh.qamfReservationId,
+          "Confirmed",
+        );
+        console.log(`[checkout/v2] QAMF confirm: ${bh.qamfReservationId} → ${qamfConfirmed}`);
+      } catch (err) {
+        console.error("[checkout/v2] QAMF confirm error:", err);
+      }
+    }
+
+    // ── Persist Neon rows ───────────────────────────────────────────
+    // Mixed carts get two rows linked by checkout_group_id.
+    // Single-type carts get one row (no group ID needed).
     let neonId = 0;
-    try {
-      const neonStatus: BowlingReservation["status"] =
-        !bmiConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
+    const neonIds: number[] = [];
 
-      const attractionBookings = items.map((item) => ({
-        slug: item.attractionSlug,
-        name: item.name,
-        bmiOrderId: bmiBillId,
-        bmiBillLineId: item.billLineId ?? null,
-        squareCatalogObjectId: null,
-        quantity: item.quantity,
-        totalPriceDollars: 0,
-        timeSlot: item.bookedAt,
-        timeLabel: "",
-      }));
+    // Shared Square IDs — both rows reference the same deposit order
+    const sharedSquareFields = {
+      squareDepositOrderId,
+      squareDepositPaymentId,
+      squareDayofOrderId,
+      squareGiftCardId,
+      squareGiftCardGan,
+      squareCustomerId: body.squareCustomerId,
+      squareLoyaltyRewardId: loyaltyRewardId,
+      rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : 0,
+      loyaltyAction: body.loyaltyAction,
+      bookingSource: "web" as const,
+    };
 
-      const row = await insertBowlingReservation(
-        {
-          centerCode: squareLocationId,
-          productKind: primarySlug as BowlingReservation["productKind"],
-          bmiBillId,
-          bmiReservationNumber,
-          depositCents,
-          totalCents: finalTotalCents,
-          status: neonStatus,
-          bookedAt: items[0].bookedAt,
-          playerCount: totalParticipants,
-          guestName: guest.name,
-          guestEmail: guest.email,
-          guestPhone: guest.phone,
-          notes: body.notes || `Cart: ${productNames}`,
-          squareDepositOrderId,
-          squareDepositPaymentId,
-          squareDayofOrderId,
-          squareGiftCardId,
-          squareGiftCardGan,
-          squareCustomerId: body.squareCustomerId,
-          squareLoyaltyRewardId: loyaltyRewardId,
-          rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : 0,
-          loyaltyAction: body.loyaltyAction,
-          bookingSource: "web",
-          attractionSlug: primarySlug as BowlingReservation["attractionSlug"],
-          attractionBookings,
-        },
-        [],
-      );
-      neonId = row.id;
-    } catch (err) {
-      console.error("[checkout/v2] Neon insert failed:", err);
+    // ── Bowling Neon row ──────────────────────────────────────────
+    if (hasBowling) {
+      try {
+        const bh = bowlingHold!;
+        const bowlingStatus: BowlingReservation["status"] =
+          !qamfConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
+
+        const row = await insertBowlingReservation(
+          {
+            centerCode: squareLocationId,
+            productKind: (bh.kind === "kbf" ? "kbf" : "open") as BowlingReservation["productKind"],
+            qamfReservationId: bh.qamfReservationId,
+            depositCents: hasBmi ? bh.depositCents : depositCents,
+            totalCents: bh.totalCents,
+            status: bowlingStatus,
+            bookedAt: bh.bookedAt,
+            playerCount: bh.players?.length || 1,
+            guestName: guest.name,
+            guestEmail: guest.email,
+            guestPhone: guest.phone,
+            notes: bh.notes || `Bowling: ${bh.experienceName}`,
+            ...sharedSquareFields,
+            checkoutGroupId: checkoutGroupId,
+          },
+          [],
+        );
+        neonIds.push(row.id);
+        if (!neonId) neonId = row.id;
+        console.log(`[checkout/v2] Bowling Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})`);
+      } catch (err) {
+        console.error("[checkout/v2] Bowling Neon insert failed:", err);
+      }
+    }
+
+    // ── BMI attraction Neon row ────────────────────────────────────
+    if (hasBmi) {
+      try {
+        const bmiStatus: BowlingReservation["status"] =
+          !bmiConfirmed && depositCents > 0 ? "confirm_pending" : "confirmed";
+
+        const attractionBookings = bmiItems.map((item) => ({
+          slug: item.attractionSlug,
+          name: item.name,
+          bmiOrderId: bmiBillId!,
+          bmiBillLineId: item.billLineId ?? null,
+          squareCatalogObjectId: null,
+          quantity: item.quantity,
+          totalPriceDollars: 0,
+          timeSlot: item.bookedAt,
+          timeLabel: "",
+        }));
+
+        const row = await insertBowlingReservation(
+          {
+            centerCode: squareLocationId,
+            productKind: bmiItems[0].attractionSlug as BowlingReservation["productKind"],
+            bmiBillId: bmiBillId!,
+            bmiReservationNumber,
+            depositCents: hasBowling ? Math.max(0, depositCents - bowlingHold!.depositCents) : depositCents,
+            totalCents: hasBowling ? Math.max(0, finalTotalCents - bowlingHold!.totalCents) : finalTotalCents,
+            status: bmiStatus,
+            bookedAt: bmiItems[0].bookedAt,
+            playerCount: bmiItems.reduce((s, i) => s + i.quantity, 0),
+            guestName: guest.name,
+            guestEmail: guest.email,
+            guestPhone: guest.phone,
+            notes: body.notes || `Cart: ${bmiNames.join(" + ")}`,
+            ...sharedSquareFields,
+            attractionSlug: bmiItems[0].attractionSlug as BowlingReservation["attractionSlug"],
+            attractionBookings,
+            checkoutGroupId: checkoutGroupId,
+          },
+          [],
+        );
+        neonIds.push(row.id);
+        if (!neonId) neonId = row.id;
+        console.log(`[checkout/v2] BMI Neon row: ${row.id} (group=${checkoutGroupId ?? "none"})`);
+      } catch (err) {
+        console.error("[checkout/v2] BMI Neon insert failed:", err);
+      }
     }
 
     // ── Short code ──────────────────────────────────────────────────
-    const confirmBase = `/book/${primarySlug}/confirmation`;
+    const confirmBase = hasBmi
+      ? `/book/${bmiItems[0].attractionSlug}/confirmation`
+      : "/book/bowling/confirmation";
     let shortCode: string | undefined;
     try {
       shortCode = await shortenUrl(`${confirmBase}?code=_TMP_`);
@@ -416,9 +563,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       neonId,
-      bmiBillId,
+      neonIds,
+      checkoutGroupId: checkoutGroupId ?? null,
+      bmiBillId: bmiBillId ?? null,
       bmiReservationNumber: bmiReservationNumber ?? null,
       bmiConfirmed,
+      qamfReservationId: bowlingHold?.qamfReservationId ?? null,
+      qamfConfirmed,
       squareDayofOrderId: squareDayofOrderId ?? null,
       squareDepositOrderId: squareDepositOrderId ?? null,
       squareDepositPaymentId: squareDepositPaymentId ?? null,
@@ -430,7 +581,9 @@ export async function POST(req: NextRequest) {
         ? `${confirmBase}?code=${shortCode}`
         : neonId
           ? `${confirmBase}?neonId=${neonId}`
-          : `${confirmBase}?billId=${bmiBillId}`,
+          : hasBmi
+            ? `${confirmBase}?billId=${bmiBillId}`
+            : `${confirmBase}?qamfId=${bowlingHold?.qamfReservationId}`,
     });
   } catch (err) {
     if (err instanceof DepositOrderError) {
