@@ -226,6 +226,7 @@ function buildRacingPreResolved(
 
 function RacingSection({ data }: { data: ConfirmationData }) {
   const billId = data.bmiBillId || "";
+  const resNumber = data.bmiReservationNumber || "";
   const preResolved = useMemo(() => buildRacingPreResolved(data), [data]);
 
   const rc = useRacingConfirmation({
@@ -244,7 +245,10 @@ function RacingSection({ data }: { data: ConfirmationData }) {
     );
   }
 
-  if (rc.raceGroups.length === 0 && rc.confirmations.length === 0) return null;
+  // Even when the hook has no race groups yet (post-confirm still running),
+  // show the reservation number + basic info from checkout data so the
+  // customer doesn't see a blank page. The hook will enrich once ready.
+  const hasHookData = rc.raceGroups.length > 0 || rc.confirmations.length > 0;
 
   return (
     <>
@@ -256,26 +260,69 @@ function RacingSection({ data }: { data: ConfirmationData }) {
       {/* Express Lane banner — returning racers */}
       {rc.expressLane && <RacingExpressLaneBanner />}
 
-      {/* Heat cards */}
-      <div className="space-y-4">
-        {rc.raceGroups.map((group, i) => (
-          <RacingHeatCard
-            key={`${group.heatStart}-${i}`}
-            group={group}
-            expressLane={rc.expressLane}
-            qr={rc.racerQrCodes[rc.confirmations[0]?.billId] ?? null}
-            checkInLocation={rc.checkInLocation}
-            isMyHeat={false}
-            onQrClick={(src, resNum) => rc.setFullscreenQr({ src, resNumber: resNum })}
-          />
-        ))}
-      </div>
+      {hasHookData ? (
+        <>
+          {/* Heat cards */}
+          <div className="space-y-4">
+            {rc.raceGroups.map((group, i) => (
+              <RacingHeatCard
+                key={`${group.heatStart}-${i}`}
+                group={group}
+                expressLane={rc.expressLane}
+                qr={rc.racerQrCodes[rc.confirmations[0]?.billId] ?? null}
+                checkInLocation={rc.checkInLocation}
+                isMyHeat={false}
+                onQrClick={(src, resNum) => rc.setFullscreenQr({ src, resNumber: resNum })}
+              />
+            ))}
+          </div>
 
-      {/* POV codes */}
-      <RacingPovCodes codes={rc.povCodes} />
+          {/* POV codes */}
+          <RacingPovCodes codes={rc.povCodes} />
 
-      {/* Rookie pack */}
-      {rc.rookiePack && <RacingRookiePackCard />}
+          {/* Rookie pack */}
+          {rc.rookiePack && <RacingRookiePackCard />}
+        </>
+      ) : (
+        /* Fallback: post-confirm pipeline hasn't written the booking record yet.
+           Show reservation number + attraction cart items so customer sees something. */
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7 space-y-4">
+          <div>
+            <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest mb-1">
+              Your Racing Reservation
+            </p>
+            {resNumber && (
+              <p className="text-white/30 text-xs">
+                Reservation <span className="font-mono text-[#00E2E5]/70">{resNumber}</span>
+              </p>
+            )}
+          </div>
+          {data.attractions && data.attractions.filter(a => /race|kart/i.test(a.name)).map((item, i) => (
+            <div key={i} className="flex justify-between items-start px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div>
+                <p className="text-white text-sm font-semibold">{item.name}</p>
+                {item.date && (
+                  <p className="text-white/40 text-xs">
+                    {formatDate(item.date)}
+                    {item.time ? ` · ${formatTime(item.time)}` : ""}
+                  </p>
+                )}
+              </div>
+              {item.quantity > 1 && <span className="text-white/30 text-xs shrink-0 ml-3">x{item.quantity}</span>}
+            </div>
+          ))}
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+            <p className="text-amber-300 text-sm font-semibold mb-1">Waivers Required</p>
+            <p className="text-white/60 text-xs leading-relaxed">
+              Each participant must complete a waiver before their activity.
+              Check your confirmation email for your waiver link, or complete one at Guest Services when you arrive.
+            </p>
+          </div>
+          <p className="text-white/30 text-xs text-center">
+            Full racing details (QR codes, Express Lane status) will appear in your confirmation email.
+          </p>
+        </div>
+      )}
 
       {/* Journey guide / track status */}
       {rc.expressLane ? (
@@ -786,7 +833,10 @@ function ConfirmationContent() {
     data?.bookingType === "mixed" ||
     !!data?.bowling ||
     !!data?.bowlingNeonId;
-  const hasRacing = !!data?.isRacingCart && !!data?.bmiBillId;
+  const hasRacing =
+    data?.bookingType === "racing" ||
+    data?.bookingType === "mixed" ||
+    (!!data?.isRacingCart && !!data?.bmiBillId);
   const hasAttractions = !!data?.attractions?.length;
   const isMultiType = [hasBowling, hasRacing, hasAttractions].filter(Boolean).length > 1;
   const bowlingKind: BowlingConfirmationKind = (data?.bowlingKind as BowlingConfirmationKind) || "open";
