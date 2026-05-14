@@ -44,6 +44,12 @@ export interface UseRacingConfirmationInput {
     rookiePack: boolean;
     checkInLocation: "fasttrax" | "headpinz";
   };
+  /**
+   * Purchased dates from THIS checkout — used to filter out stale heats
+   * from prior bookings on the same BMI bill (returning racer scenario).
+   * Format: Set of date strings like "2026-05-15" (YYYY-MM-DD).
+   */
+  purchasedDates?: Set<string>;
 }
 
 const BOOKING_API_KEY = "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4";
@@ -62,7 +68,7 @@ const BOOKING_API_KEY = "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4";
  * post-checkout display case only.
  */
 export function useRacingConfirmation(input: UseRacingConfirmationInput) {
-  const { billId, preResolved } = input;
+  const { billId, preResolved, purchasedDates } = input;
 
   const [loading, setLoading] = useState(!preResolved);
   const [confirmations, setConfirmations] = useState<RacerConfirmation[]>(preResolved?.confirmations ?? []);
@@ -137,9 +143,24 @@ export function useRacingConfirmation(input: UseRacingConfirmationInput) {
 
         // Build race groups from racer assignments
         if (bookingRecord.racers && Array.isArray(bookingRecord.racers)) {
-          const recRacers = bookingRecord.racers as { racerName?: string; product?: string; track?: string | null; heatStart?: string; heatName?: string }[];
+          // Filter racers to only those from THIS checkout when purchasedDates
+          // is available. The booking record contains ALL racers on the bill
+          // (including prior bookings for returning racers).
+          const recRacers = (bookingRecord.racers as { racerName?: string; product?: string; track?: string | null; heatStart?: string; heatName?: string }[]);
+          const filteredRacers = purchasedDates && purchasedDates.size > 0
+            ? recRacers.filter((r) => {
+                // BMI heatStart uses fake Z (actually ET local).
+                // Strip Z and extract date: "2026-05-15T15:00:00Z" → "2026-05-15"
+                const d = r.heatStart?.replace(/Z$/, "").split("T")[0] || "";
+                return purchasedDates.has(d);
+              })
+            : recRacers;
+          // Safety net: if filtering emptied everything (format mismatch),
+          // fall back to full set so we don't show a blank page.
+          const safRacers = filteredRacers.length > 0 ? filteredRacers : recRacers;
+
           const groupMap = new Map<string, { product: string; track: string | null; heatStart: string; heatName: string; racers: string[] }>();
-          for (const r of recRacers) {
+          for (const r of safRacers) {
             const key = `${r.product || "Race"}|${r.heatStart || ""}`;
             if (!groupMap.has(key)) {
               groupMap.set(key, {

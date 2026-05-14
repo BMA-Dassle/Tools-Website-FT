@@ -164,6 +164,32 @@ function formatTime(iso: string) {
 }
 
 /**
+ * Extract racing-purchase dates from the checkout confirmation data.
+ * Uses purchasedItems (strongest signal, from checkout API) or falls
+ * back to attractions (from cart items). Returns a Set of "YYYY-MM-DD"
+ * date strings for racing items only.
+ */
+function buildPurchasedDates(data: ConfirmationData): Set<string> {
+  // Try purchasedItems first (authoritative per-checkout source)
+  const items = data.purchasedItems?.filter(
+    (p) => /racing|race|kart/i.test(p.kind) || /racing|race|kart/i.test(p.name),
+  );
+  if (items && items.length > 0) {
+    return new Set(items.map((p) => p.date).filter(Boolean));
+  }
+
+  // Fallback: attractions array (from cart items or Neon attractionBookings)
+  const racingAttractions = (data.attractions || []).filter(
+    (a) => /racing|race|kart/i.test(a.name),
+  );
+  if (racingAttractions.length > 0) {
+    return new Set(racingAttractions.map((a) => a.date).filter(Boolean));
+  }
+
+  return new Set();
+}
+
+/**
  * Build preResolved racing data from the checkout confirmation blob.
  * This gives the racing hook immediate data (QR codes, heat cards) without
  * waiting for the booking-record to be created by post-confirm.
@@ -186,31 +212,26 @@ function buildRacingPreResolved(
   const resCode = resNumber || `r${billId}`;
   const rawAssignments = data.racerAssignments;
 
-  // ── Filter assignments against purchasedItems (authoritative source) ──
+  // ── Filter assignments against purchased dates (authoritative source) ──
   // racerAssignments can contain stale entries from prior bookings on the
-  // same BMI person (returning racer). purchasedItems comes from the checkout
-  // API / Square metadata and ONLY contains what was in THIS checkout.
+  // same BMI person (returning racer). purchasedItems/attractions come from
+  // the checkout API and ONLY contain what was in THIS checkout.
+  //
+  // Compare by DATE only (YYYY-MM-DD) — BMI times use a fake Z suffix
+  // (actually ET local), so exact time comparison across sources is fragile.
   let assignments = rawAssignments;
-  if (assignments && assignments.length > 0 && data.purchasedItems && data.purchasedItems.length > 0) {
-    // Build a Set of purchased time slots for fast lookup.
-    // Normalize to compare just the ISO datetime prefix (YYYY-MM-DDTHH:MM).
-    const purchasedTimes = new Set(
-      data.purchasedItems
-        .filter((p) => /racing|race|kart/i.test(p.kind) || /racing|race|kart/i.test(p.name))
-        .map((p) => p.time?.replace(/:\d{2}(\.\d+)?Z?$/, "") || p.date)
-        .filter(Boolean),
-    );
+  const purchasedDates = buildPurchasedDates(data);
 
-    if (purchasedTimes.size > 0) {
-      const filtered = assignments.filter((ra) => {
-        const raTime = ra.heatStart?.replace(/:\d{2}(\.\d+)?Z?$/, "") || "";
-        return purchasedTimes.has(raTime);
-      });
-      // Only use filtered list if it's non-empty (safety: don't lose everything
-      // due to a time format mismatch — better to show stale than nothing)
-      if (filtered.length > 0) {
-        assignments = filtered;
-      }
+  if (assignments && assignments.length > 0 && purchasedDates.size > 0) {
+    const filtered = assignments.filter((ra) => {
+      // BMI heatStart: "2026-05-15T15:00:00Z" → strip Z, take date → "2026-05-15"
+      const raDate = ra.heatStart?.replace(/Z$/, "").split("T")[0] || "";
+      return purchasedDates.has(raDate);
+    });
+    // Safety net: if filtering emptied everything (format mismatch),
+    // fall back to full set so we don't show a blank page.
+    if (filtered.length > 0) {
+      assignments = filtered;
     }
   }
 
@@ -311,11 +332,15 @@ function RacingSection({ data }: { data: ConfirmationData }) {
   const billId = data.bmiBillId || "";
   const resNumber = data.bmiReservationNumber || "";
   const preResolved = useMemo(() => buildRacingPreResolved(data), [data]);
+  // Purchased dates for THIS checkout — filters stale heats from prior
+  // bookings on the same BMI bill (returning racer scenario).
+  const purchasedDates = useMemo(() => buildPurchasedDates(data), [data]);
 
   const rc = useRacingConfirmation({
     billId,
     skipBmiConfirm: true, // checkout/v2 already confirmed
     preResolved: preResolved ?? undefined,
+    purchasedDates: purchasedDates.size > 0 ? purchasedDates : undefined,
   });
 
   const liveStatus = useTrackStatus();
