@@ -878,7 +878,11 @@ function ConfirmationContent() {
     data?.bookingType === "racing" ||
     data?.bookingType === "mixed" ||
     (!!data?.isRacingCart && !!data?.bmiBillId);
-  const hasAttractions = !!data?.attractions?.length;
+  // Only count non-racing items for hasAttractions — racing items in
+  // the attractions array are for buildRacingPreResolved, not AttractionsSection
+  const hasAttractions = !!data?.attractions?.some(
+    (a) => !/racing|race|kart/i.test(a.name),
+  );
   const isMultiType = [hasBowling, hasRacing, hasAttractions].filter(Boolean).length > 1;
   const bowlingKind: BowlingConfirmationKind = (data?.bowlingKind as BowlingConfirmationKind) || "open";
 

@@ -80,13 +80,18 @@ export async function GET(req: NextRequest) {
     const bowlingRecord = bowlingRecords[0] ?? null;
     const racingRecord = racingRecords[0] ?? null;
 
-    // Build attraction summaries from attraction_bookings JSON
+    // Build attraction summaries from attraction_bookings JSON.
+    // Includes BOTH non-racing attractions AND racing items so the
+    // confirmation page can show heat cards on refresh (when
+    // sessionStorage with racerAssignments is gone).
     const attractions: Array<{
       name: string;
       quantity: number;
       date: string;
       time: string | null;
     }> = [];
+
+    // Non-racing attractions
     for (const rec of attractionRecords) {
       if (rec.attractionBookings && rec.attractionBookings.length > 0) {
         for (const ab of rec.attractionBookings) {
@@ -110,9 +115,32 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Racing items — included in attractions so the confirmation page's
+    // buildRacingPreResolved() can reconstruct heat cards on refresh
+    for (const rec of racingRecords) {
+      if (rec.attractionBookings && rec.attractionBookings.length > 0) {
+        for (const ab of rec.attractionBookings) {
+          attractions.push({
+            name: ab.name || "Racing",
+            quantity: ab.quantity || 1,
+            date: rec.bookedAt?.split("T")[0] ?? "",
+            time: ab.timeSlot || null,
+          });
+        }
+      } else {
+        attractions.push({
+          name: "Racing",
+          quantity: rec.playerCount ?? 1,
+          date: rec.bookedAt?.split("T")[0] ?? "",
+          time: null,
+        });
+      }
+    }
+
     const hasBowling = bowlingRecords.length > 0;
     const hasRacing = racingRecords.length > 0;
-    const hasAttractions = attractions.length > 0;
+    // hasAttractions for bookingType: only count non-racing attractions
+    const hasAttractions = attractionRecords.length > 0;
 
     const response = {
       // Core
@@ -137,8 +165,8 @@ export async function GET(req: NextRequest) {
         null,
       isRacingCart: hasRacing,
 
-      // Attractions
-      attractions: hasAttractions ? attractions : [],
+      // Attractions (includes racing items for confirmation page heat cards)
+      attractions: attractions.length > 0 ? attractions : [],
 
       // Guest info (from primary record)
       guestName: primary.guestName ?? null,

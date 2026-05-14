@@ -311,9 +311,12 @@ export default function CheckoutPage() {
         const data = await res.json();
         saveConfirmationData(data);
         cleanupCart();
-        window.location.href = data.shortCode
-          ? `/book/checkout/confirmation?code=${data.shortCode}`
-          : "/book/checkout/confirmation";
+        // Include both code + neonId so the confirmation page survives
+        // refresh even if the shortCode wasn't stored in Neon yet
+        const cp = new URLSearchParams();
+        if (data.shortCode) cp.set("code", data.shortCode);
+        if (data.neonId) cp.set("neonId", String(data.neonId));
+        window.location.href = `/book/checkout/confirmation${cp.toString() ? `?${cp}` : ""}`;
       } catch (err) {
         setStep("error");
         setErrorMsg(err instanceof Error ? err.message : "Checkout failed");
@@ -697,9 +700,11 @@ export default function CheckoutPage() {
               const data = await res.json();
               if (!res.ok || data.error) throw new Error(data.error || "Checkout failed");
               saveConfirmationData(data);
-              v2ConfirmPathRef.current = data.shortCode
-                ? `/book/checkout/confirmation?code=${data.shortCode}`
-                : "/book/checkout/confirmation";
+              // Include both code + neonId for refresh resilience
+              const cp2 = new URLSearchParams();
+              if (data.shortCode) cp2.set("code", data.shortCode);
+              if (data.neonId) cp2.set("neonId", String(data.neonId));
+              v2ConfirmPathRef.current = `/book/checkout/confirmation${cp2.toString() ? `?${cp2}` : ""}`;
               return {
                 paymentId: data.squareDepositPaymentId || "",
                 orderId: data.squareDayofOrderId || orderId || "",

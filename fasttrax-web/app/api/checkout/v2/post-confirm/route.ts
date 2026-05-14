@@ -386,6 +386,38 @@ export async function POST(req: NextRequest) {
         const isHpLoc = locationKey === "headpinz" || locationKey === "naples";
         const firstName = guest.name.split(/\s+/)[0] || guest.name;
 
+        // Extract product names + schedule from BMI overview (step 6)
+        // so the notification endpoint has complete data for email/SMS
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const overviewLines: any[] = overview?.lines || [];
+        const productNames = overviewLines
+          .filter((l: { productName?: string }) => l.productName)
+          .map((l: { productName: string }) => l.productName);
+        const scheduledItems = overviewLines
+          .filter((l: { start?: string; productName?: string }) => l.start && l.productName)
+          .map((l: { productName: string; start: string; quantity?: number; persons?: number }) => ({
+            name: l.productName,
+            start: l.start,
+            quantity: l.quantity || 1,
+            persons: l.persons || l.quantity || 1,
+          }));
+
+        // Build date/time for SMS from first scheduled item
+        const firstStart = scheduledItems[0]?.start || "";
+        let reservationDate = "";
+        let reservationTime = "";
+        if (firstStart) {
+          try {
+            const dt = new Date(firstStart);
+            reservationDate = dt.toLocaleDateString("en-US", {
+              weekday: "long", month: "long", day: "numeric", year: "numeric",
+            });
+            reservationTime = dt.toLocaleTimeString("en-US", {
+              hour: "numeric", minute: "2-digit", hour12: true,
+            });
+          } catch { /* non-fatal */ }
+        }
+
         const notifBody: Record<string, unknown> = {
           email: guest.email,
           phone: guest.phone,
@@ -393,7 +425,12 @@ export async function POST(req: NextRequest) {
           smsOptIn,
           reservationNumber: bmiReservationNumber,
           reservationName: guest.name,
+          reservationCode: bmiReservationNumber, // QR code content
+          reservationDate,
+          reservationTime,
           billId: bmiBillId,
+          productNames,
+          scheduledItems,
           brand: isHpLoc ? "headpinz" : "fasttrax",
           location: locationKey,
           // Racing-specific enrichment
