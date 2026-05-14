@@ -172,23 +172,25 @@ export async function POST(req: NextRequest) {
     const fullRez = await getReservation(centerId, qamfId);
     const bookedLanes = fullRez?.Lanes ?? [];
 
+    // Set player names BEFORE changing lane status
     for (const lane of bookedLanes) {
-      // Set player names in QAMF so they show in Conqueror
       try {
-        await setLanePlayers(
-          centerId,
-          qamfId,
-          lane.Id,
-          bowlers.map((b) => ({
-            Name: b.name,
-            ShoeSize: b.shoeSize || undefined,
-            ActivateBumpers: b.bumpers ?? false,
-          })),
-        );
-      } catch {
-        /* best-effort — lane still opens without names */
+        const qamfPlayers = bowlers.map((b) => {
+            const p: { Name: string; ShoeSize?: string; ActivateBumpers: boolean } = {
+              Name: b.name,
+              ActivateBumpers: b.bumpers ?? false,
+            };
+            if (b.shoeSize) p.ShoeSize = b.shoeSize;
+            return p;
+          });
+        console.log(`[admin/kbf/bowl-now] setLanePlayers lane=${lane.Id}`, JSON.stringify(qamfPlayers));
+        await setLanePlayers(centerId, qamfId, lane.Id, qamfPlayers);
+      } catch (e) {
+        console.error(`[admin/kbf/bowl-now] setLanePlayers failed:`, e instanceof Error ? e.message : e);
       }
+    }
 
+    for (const lane of bookedLanes) {
       try {
         await setLaneStatus(centerId, qamfId, lane.Id, "Ready");
       } catch {
