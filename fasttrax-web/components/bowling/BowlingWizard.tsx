@@ -2182,6 +2182,98 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     return "";
   }
 
+  // ── Add to Cart (skips details step — contact collected at checkout) ──
+  function handleAddToCart() {
+    const cartPlayers =
+      kind === "kbf"
+        ? kbfBowlers.map((b) => ({
+            name: b.displayName,
+            kbfPassId: b.kbfPassId ?? null,
+            kbfMemberSlot: b.kbfMemberSlot ?? null,
+            kbfRelation: b.kbfRelation ?? null,
+            isPaidAdult: b.isPaid === true,
+          }))
+        : Array.from({ length: playerCount }, (_, i) => ({ name: `Bowler ${i + 1}` }));
+
+    const kbfPaidCount = kind === "kbf" ? kbfBowlers.filter((b) => b.isPaid).length : 0;
+    const holdNotes =
+      kind === "kbf"
+        ? `${pass?.fpass ? "Families Bowl Free" : "Kids Bowl Free"} - ${kbfBowlers.map((b) => b.displayName).join(" - ")}${kbfPaidCount > 0 ? `. ${kbfPaidCount} paid adult(s)` : ""}. Coupons verified online.`
+        : undefined;
+
+    // Square-format line items for checkout (name + string qty + catalogObjectId).
+    const sqLineItems = [
+      ...baseItems.map((item) => {
+        const useOverride = item.sortOrder === 0 && selectedDurationOpt?.overrideCatalogObjectId != null;
+        return {
+          name: useOverride
+            ? (selectedDurationOpt!.overrideCatalogObjectId ? item.label.replace(/1\.5\s*Hr/i, "1 Hr") : item.label)
+            : item.label,
+          quantity: String(
+            item.sortOrder === 0
+              ? item.quantity * qtyMultiplier * durationMultiplier
+              : item.quantity * laneCount,
+          ),
+          catalogObjectId: useOverride
+            ? selectedDurationOpt!.overrideCatalogObjectId!
+            : item.squareCatalogObjectId,
+        };
+      }),
+      ...shoeProducts
+        .filter((p) => (shoeQty[p.id] ?? 0) > 0)
+        .map((p) => ({
+          name: p.label,
+          quantity: String(shoeQty[p.id]),
+          catalogObjectId: p.squareCatalogObjectId,
+        })),
+      ...(hasBookingFee
+        ? [{ name: "Booking Fee", quantity: "1", catalogObjectId: BOOKING_FEE_CATALOG_ID }]
+        : []),
+    ];
+
+    const bowlingHoldData = {
+      qamfReservationId: holdRef.current?.qamfId ?? "",
+      centerId: center.qamfId,
+      locationKey: center.locationKey,
+      squareCenterCode: center.squareCenterCode,
+      webOfferId: selectedSlot!.webOfferId,
+      optionId: selectedSlot!.optionId,
+      optionType: selectedSlot!.optionType,
+      bookedAt: selectedSlot!.bookedAt,
+      service: "BookForLater" as const,
+      players: cartPlayers,
+      // guest info collected at unified checkout — not in the wizard
+      lineItems,
+      squareLineItems: sqLineItems,
+      totalCents: effectiveDisplayTotal,
+      depositCents: effectiveDepositCents,
+      notes: holdNotes,
+      kind,
+      experienceName: selectedSlot!.webOfferTitle || selectedExperience?.label || "Bowling",
+      timeLabel: `${formatDate(selectedDate)} · ${formatTime(selectedSlot!.bookedAt)}`,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      ...(hasBookingFee ? { bookingFee: true } : {}),
+      ...(pizzaBowlRawItems.length > 0 ? { rawItems: pizzaBowlRawItems } : {}),
+      ...(extraToppingsCents > 0 ? { extraToppingsCents } : {}),
+      ...(quoteDayofOrderId ? {
+        dayofOrderId: quoteDayofOrderId,
+        dayofTotalCents: quoteTotalCents,
+        quoteDepositCents,
+      } : {}),
+    };
+
+    sessionStorage.setItem("bowlingHold", JSON.stringify(bowlingHoldData));
+
+    // Stop the wizard's hold extension timer — MiniCart takes over
+    if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
+
+    // Notify cart listeners
+    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
+
+    // Navigate to unified checkout
+    router.push("/book/checkout");
+  }
+
   // ── Calendar helpers ─────────────────────────────────────────────
 
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -4292,12 +4384,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("details")}
+                  onClick={handleAddToCart}
                   disabled={quoteLoading}
-                  className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white disabled:opacity-50 whitespace-nowrap"
-                  style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                  className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider disabled:opacity-50 whitespace-nowrap"
+                  style={{ backgroundColor: GOLD, color: BG, boxShadow: `0 0 18px ${GOLD}40` }}
                 >
-                  {quoteLoading ? "Calculating…" : "Continue"}
+                  {quoteLoading ? "Calculating…" : "Add to Cart 🛒"}
                 </button>
               </div>
             </div>

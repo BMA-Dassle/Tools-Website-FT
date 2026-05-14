@@ -125,7 +125,8 @@ interface BowlingHoldInput {
   bookedAt: string;
   service: string;
   players: Array<{ name?: string; shoeSize?: string | null }>;
-  guest: { name: string; email: string; phone: string };
+  /** Guest contact — optional; checkout body.guest is the authoritative source. */
+  guest?: { name: string; email: string; phone: string };
   lineItems: LineItemInput[];
   /** Square-format line items (catalog-backed) for the deposit order. */
   squareLineItems?: LineItemInput[];
@@ -586,16 +587,21 @@ export async function POST(req: NextRequest) {
       return n.includes("race") || n.includes("kart") || /(blue|red|mega).*track/i.test(n);
     });
 
-    // Bowling confirmation email + SMS
+    // Bowling confirmation email + SMS (awaited with 8s timeout to avoid Vercel
+    // preview auth issues and ensure the notification actually fires).
     if (hasBowling && neonIds.length > 0) {
       const bowlingNeonId = neonIds[0]; // Bowling row is inserted first
-      fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ neonId: bowlingNeonId, smsOptIn }),
-      }).catch((err) => {
-        console.error("[checkout/v2] bowling notification fire-and-forget failed:", err);
-      });
+      try {
+        const notifRes = await fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ neonId: bowlingNeonId, smsOptIn }),
+          signal: AbortSignal.timeout(8000),
+        });
+        console.log(`[checkout/v2] bowling notification: ${notifRes.status}`);
+      } catch (err) {
+        console.error("[checkout/v2] bowling notification failed:", err);
+      }
     }
 
     // Attraction / racing confirmation email + SMS
@@ -604,29 +610,33 @@ export async function POST(req: NextRequest) {
     // The dedup key (notif:{billId}) means only one fires per bill.
     if (hasBmi && bmiReservationNumber && !isRacingCart) {
       const firstName = guest.name.split(/\s+/)[0] || guest.name;
-      fetch(`${notifOrigin}/api/notifications/booking-confirmation`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email: guest.email,
-          phone: guest.phone,
-          firstName,
-          smsOptIn,
-          reservationNumber: bmiReservationNumber,
-          reservationName: guest.name,
-          billId: bmiBillId,
-          productNames: bmiNames,
-          scheduledItems: bmiItems.map((item) => ({
-            name: item.name,
-            start: item.bookedAt,
-            quantity: item.quantity,
-          })),
-          brand: locationKey === "fasttrax" ? "fasttrax" : "headpinz",
-          location: locationKey,
-        }),
-      }).catch((err) => {
-        console.error("[checkout/v2] booking notification fire-and-forget failed:", err);
-      });
+      try {
+        const bookNotifRes = await fetch(`${notifOrigin}/api/notifications/booking-confirmation`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: guest.email,
+            phone: guest.phone,
+            firstName,
+            smsOptIn,
+            reservationNumber: bmiReservationNumber,
+            reservationName: guest.name,
+            billId: bmiBillId,
+            productNames: bmiNames,
+            scheduledItems: bmiItems.map((item) => ({
+              name: item.name,
+              start: item.bookedAt,
+              quantity: item.quantity,
+            })),
+            brand: locationKey === "fasttrax" ? "fasttrax" : "headpinz",
+            location: locationKey,
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+        console.log(`[checkout/v2] booking notification: ${bookNotifRes.status}`);
+      } catch (err) {
+        console.error("[checkout/v2] booking notification failed:", err);
+      }
     }
 
     // ── Write metadata to Square day-of order (backbone for post-confirm) ──
@@ -698,26 +708,30 @@ export async function POST(req: NextRequest) {
     // Square metadata (fallback). Credit-only returning racers are exactly
     // the ones who need Express Lane detection + Pandora linking.
     if (isRacingCart) {
-      fetch(`${notifOrigin}/api/checkout/v2/post-confirm`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          squareDayofOrderId: squareDayofOrderId || null,
-          bmiBillId: bmiBillId || null,
-          bmiReservationNumber: bmiReservationNumber || null,
-          locationKey,
-          clientKey: bmiClientKey,
-          guest: { name: guest.name, email: guest.email, phone: guest.phone },
-          smsOptIn,
-          racerData: body.racerData || null,
-          primaryPersonId: body.primaryPersonId || null,
-          packageId: body.packageId || null,
-          neonIds,
-          checkoutGroupId: checkoutGroupId || null,
-        }),
-      }).catch((err) => {
-        console.error("[checkout/v2] post-confirm fire-and-forget failed:", err);
-      });
+      try {
+        const pcRes = await fetch(`${notifOrigin}/api/checkout/v2/post-confirm`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            squareDayofOrderId: squareDayofOrderId || null,
+            bmiBillId: bmiBillId || null,
+            bmiReservationNumber: bmiReservationNumber || null,
+            locationKey,
+            clientKey: bmiClientKey,
+            guest: { name: guest.name, email: guest.email, phone: guest.phone },
+            smsOptIn,
+            racerData: body.racerData || null,
+            primaryPersonId: body.primaryPersonId || null,
+            packageId: body.packageId || null,
+            neonIds,
+            checkoutGroupId: checkoutGroupId || null,
+          }),
+          signal: AbortSignal.timeout(12000),
+        });
+        console.log(`[checkout/v2] post-confirm: ${pcRes.status}`);
+      } catch (err) {
+        console.error("[checkout/v2] post-confirm failed:", err);
+      }
     }
 
     // ── Short code (for admin links / email) ───────────────────────

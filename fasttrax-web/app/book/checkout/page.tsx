@@ -62,7 +62,8 @@ interface BowlingHoldData {
   bookedAt: string;
   service: string;
   players: Array<{ name?: string; shoeSize?: string | null }>;
-  guest: { name: string; email: string; phone: string };
+  /** Guest contact — optional; contact is collected at unified checkout. */
+  guest?: { name: string; email: string; phone: string };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   lineItems: any[];
   /** Square-format line items (name + string qty + catalogObjectId) for checkout. */
@@ -116,8 +117,6 @@ export default function CheckoutPage() {
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const v2ConfirmPathRef = useRef("");
-  /** Set in the initial useEffect when bowlingHold.guest is complete → second useEffect auto-submits. */
-  const autoAdvanceContactRef = useRef(false);
 
   const locationKey = getBookingLocation() || "fasttrax";
   const loyalty = useLoyalty({ locationKey: locationKey as string });
@@ -151,40 +150,8 @@ export default function CheckoutPage() {
       if (pid) setPrimaryPersonId(pid);
     } catch { /* ignore */ }
 
-    // Pre-fill contact from bowling hold guest data
-    if (bowlingRaw?.guest) {
-      const g = bowlingRaw.guest;
-      const nameParts = g.name.trim().split(/\s+/);
-      const first = nameParts[0] || "";
-      const last = nameParts.slice(1).join(" ") || "";
-      setContact({
-        firstName: first,
-        lastName: last,
-        email: g.email || "",
-        phone: g.phone || "",
-        smsOptIn: true,
-      });
-
-      // If bowling wizard already collected complete contact info, auto-advance
-      // past the contact form (no need to ask again).
-      const hasName = first.trim().length > 0 && last.trim().length > 0;
-      const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email || "");
-      const hasPhone = (g.phone || "").replace(/\D/g, "").length >= 10;
-      if (hasName && hasEmail && hasPhone) {
-        autoAdvanceContactRef.current = true;
-      }
-    }
     setStep("contact");
   }, []);
-
-  // Auto-advance past contact step when bowling wizard already collected info
-  useEffect(() => {
-    if (autoAdvanceContactRef.current && step === "contact" && contact) {
-      autoAdvanceContactRef.current = false;
-      handleContactSubmit(contact);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, contact]);
 
   async function handleContactSubmit(c: ContactInfo) {
     // Enroll in rewards if checkbox was checked
