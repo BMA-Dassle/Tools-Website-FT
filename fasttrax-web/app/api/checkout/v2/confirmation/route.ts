@@ -124,9 +124,9 @@ export async function GET(req: NextRequest) {
             ? "racing"
             : "attractions",
 
-      // Bowling section data
+      // Bowling section data (only populated when there's a bowling record)
       bowlingNeonId: bowlingRecord?.id ?? null,
-      bowlingShortCode: bowlingRecord?.shortCode ?? primary.shortCode ?? null,
+      bowlingShortCode: bowlingRecord?.shortCode ?? null,
       bowlingKind: bowlingRecord?.productKind ?? null,
 
       // Racing section data

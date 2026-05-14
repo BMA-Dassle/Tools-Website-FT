@@ -778,15 +778,21 @@ function ConfirmationContent() {
     );
   }
 
-  // Determine what booking types are present
-  const hasBowling = !!data?.bowling || !!data?.bowlingShortCode || !!data?.bowlingNeonId;
+  // Determine what booking types are present.
+  // Use bookingType from API/sessionStorage as primary signal, with field
+  // presence as fallback. Don't use shortCode — that's universal, not bowling-specific.
+  const hasBowling =
+    data?.bookingType === "bowling" ||
+    data?.bookingType === "mixed" ||
+    !!data?.bowling ||
+    !!data?.bowlingNeonId;
   const hasRacing = !!data?.isRacingCart && !!data?.bmiBillId;
   const hasAttractions = !!data?.attractions?.length;
   const isMultiType = [hasBowling, hasRacing, hasAttractions].filter(Boolean).length > 1;
   const bowlingKind: BowlingConfirmationKind = (data?.bowlingKind as BowlingConfirmationKind) || "open";
 
-  // Bowling can use shortCode from URL (refresh-proof) or from saved data
-  const bowlingShortCode = codeParam || data?.bowlingShortCode || undefined;
+  // Bowling shortCode: use URL param only when we know bowling is present
+  const bowlingShortCode = hasBowling ? (data?.bowlingShortCode || codeParam || undefined) : undefined;
   const bowlingNeonId = data?.bowlingNeonId || undefined;
 
   // Racing-only bookings get the hero banner with track photo

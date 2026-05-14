@@ -456,7 +456,7 @@ export default function CheckoutPage() {
         // ── Phase 3 additions for dynamic confirmation page ──
         // Bowling: first Neon ID + short code for useBowlingConfirmation hook
         bowlingNeonId: hasBowling && safeResponse.neonIds?.[0] ? safeResponse.neonIds[0] : null,
-        bowlingShortCode: safeResponse.shortCode ?? null,
+        bowlingShortCode: hasBowling ? (safeResponse.shortCode ?? null) : null,
         bowlingKind: hasBowling ? bowlingHold!.kind : null,
         // Racing: bill ID + racer assignments for useRacingConfirmation hook
         bmiBillId: orderId ?? null,
