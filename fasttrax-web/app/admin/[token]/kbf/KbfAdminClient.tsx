@@ -524,7 +524,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
   }
 
   async function handleRescheduleExisting(neonId: number) {
-    // Cancel the existing reservation, then enter Book Lane mode
+    // Cancel the existing reservation, stay on step 1 so user selects
+    // bowlers and clicks Book Lane normally (button is now enabled).
     setCancellingRez(true);
     setError(null);
     try {
@@ -538,10 +539,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
         setError(data.error || "Cancel failed");
         return;
       }
-      // Clear the future reservation and go to Book Lane
+      // Clear the future reservation — Book Lane button becomes enabled
       setFutureReservations((prev) => prev.filter((fr) => fr.reservationId !== neonId));
-      setMode("book-lane");
-      setStep(2);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cancel failed");
     } finally {
