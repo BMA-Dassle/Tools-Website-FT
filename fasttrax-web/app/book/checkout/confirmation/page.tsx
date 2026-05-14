@@ -117,6 +117,16 @@ interface ConfirmationData {
   guestName?: string | null;
   guestEmail?: string | null;
 
+  // Authoritative purchased items from THIS checkout (from Square metadata / Neon).
+  // Immune to stale BMI bill accumulation from prior bookings.
+  purchasedItems?: {
+    name: string;
+    quantity: number;
+    kind: string;
+    date: string;
+    time: string | null;
+  }[] | null;
+
   // Phase 3 additions for dynamic sections
   bowlingNeonId?: number | null;
   bowlingShortCode?: string | null;
@@ -174,7 +184,35 @@ function buildRacingPreResolved(
   if (!billId && !resNumber) return null;
 
   const resCode = resNumber || `r${billId}`;
-  const assignments = data.racerAssignments;
+  const rawAssignments = data.racerAssignments;
+
+  // ── Filter assignments against purchasedItems (authoritative source) ──
+  // racerAssignments can contain stale entries from prior bookings on the
+  // same BMI person (returning racer). purchasedItems comes from the checkout
+  // API / Square metadata and ONLY contains what was in THIS checkout.
+  let assignments = rawAssignments;
+  if (assignments && assignments.length > 0 && data.purchasedItems && data.purchasedItems.length > 0) {
+    // Build a Set of purchased time slots for fast lookup.
+    // Normalize to compare just the ISO datetime prefix (YYYY-MM-DDTHH:MM).
+    const purchasedTimes = new Set(
+      data.purchasedItems
+        .filter((p) => /racing|race|kart/i.test(p.kind) || /racing|race|kart/i.test(p.name))
+        .map((p) => p.time?.replace(/:\d{2}(\.\d+)?Z?$/, "") || p.date)
+        .filter(Boolean),
+    );
+
+    if (purchasedTimes.size > 0) {
+      const filtered = assignments.filter((ra) => {
+        const raTime = ra.heatStart?.replace(/:\d{2}(\.\d+)?Z?$/, "") || "";
+        return purchasedTimes.has(raTime);
+      });
+      // Only use filtered list if it's non-empty (safety: don't lose everything
+      // due to a time format mismatch — better to show stale than nothing)
+      if (filtered.length > 0) {
+        assignments = filtered;
+      }
+    }
+  }
 
   // Build confirmations — from assignments if available, otherwise one primary
   let confirmations: RacerConfirmation[];
@@ -218,12 +256,17 @@ function buildRacingPreResolved(
       .map((g) => ({ ...g, resNumber, resCode, billId }))
       .sort((a, b) => a.heatStart.localeCompare(b.heatStart));
   } else {
-    // Fallback: build groups from the attractions cart items.
+    // Fallback: build groups from the purchased items or attractions cart.
+    // purchasedItems is authoritative; attractions is the legacy fallback.
+    const racingSource = data.purchasedItems?.filter(
+      (p) => /racing|race|kart/i.test(p.kind) || /racing|race|kart/i.test(p.name),
+    );
+    const racingItems = racingSource && racingSource.length > 0
+      ? racingSource.map((p) => ({ name: p.name, quantity: p.quantity, date: p.date, time: p.time }))
+      : (data.attractions || []).filter((a) => /racing|race|kart/i.test(a.name));
+
     // Multiple cart items can share the same heat (one per racer),
     // so group by time to avoid duplicates.
-    const racingItems = (data.attractions || []).filter(
-      (a) => /racing|race|kart/i.test(a.name),
-    );
     const groupByTime = new Map<string, { product: string; qty: number }>();
     for (const item of racingItems) {
       const key = item.time || item.date || "";

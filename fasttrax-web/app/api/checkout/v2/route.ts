@@ -819,6 +819,18 @@ export async function POST(req: NextRequest) {
       const povQty = bmiItems.filter((item) => /pov/i.test(item.name)).reduce((s, i) => s + i.quantity, 0);
       if (povQty > 0) metadata.pov_qty = String(povQty);
 
+      // Purchased items — authoritative per-checkout source.
+      // Compact JSON: [{n:"name",q:2,k:"racing",t:"2026-05-14T15:00"}]
+      // Square metadata values max 500 chars — ~80 chars/item → fits ~6 items.
+      const purchasedCompact = [
+        ...(hasBowling ? [{ n: bowlingName, q: bowlingHold!.players?.length || 1, k: "bowling" }] : []),
+        ...bmiItems.map((i) => ({ n: i.name, q: i.quantity, k: i.attractionSlug, t: i.bookedAt })),
+      ];
+      const purchasedJson = JSON.stringify(purchasedCompact);
+      metadata.purchased_items = purchasedJson.length <= 500
+        ? purchasedJson
+        : purchasedJson.slice(0, 497) + "...]";
+
       // Fire-and-forget — metadata is best-effort, booking is already confirmed
       const _sqMetadata = t("square_metadata");
       updateOrderMetadata(squareDayofOrderId, metadata).then((ok) => {
@@ -890,6 +902,26 @@ export async function POST(req: NextRequest) {
       console.error("[checkout/v2] shortenUrl failed:", err);
     }
 
+    // Purchased items — authoritative per-checkout item list.
+    // This is what the customer ACTUALLY bought in THIS checkout, immune to
+    // stale BMI bill accumulation from prior bookings on the same person.
+    const purchasedItems = [
+      ...(hasBowling ? [{
+        name: bowlingName,
+        quantity: bowlingHold!.players?.length || 1,
+        kind: "bowling" as const,
+        date: bowlingHold!.bookedAt?.split("T")[0] ?? "",
+        time: bowlingHold!.bookedAt ?? null,
+      }] : []),
+      ...bmiItems.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        kind: i.attractionSlug as string,
+        date: i.bookedAt?.split("T")[0] ?? "",
+        time: i.bookedAt ?? null,
+      })),
+    ];
+
     return NextResponse.json({
       neonId,
       neonIds,
@@ -907,11 +939,12 @@ export async function POST(req: NextRequest) {
       depositPaidCents: depositCents,
       totalCents: finalTotalCents,
       shortCode: shortCode ?? null,
+      purchasedItems,
+      // NEVER expose neonId in URLs — sequential IDs are guessable (security).
+      // shortCode is a random 6-char token, safe for customer-facing URLs.
       confirmationPath: shortCode
         ? `${confirmBase}?code=${shortCode}`
-        : neonId
-          ? `${confirmBase}?neonId=${neonId}`
-          : null,
+        : confirmBase,
       bookingType: hasBowling && hasBmi ? "mixed" : hasBowling ? "bowling" : isRacingCart ? "racing" : "attractions",
       ...(isPreview ? { _debug: debugSteps } : {}),
     });

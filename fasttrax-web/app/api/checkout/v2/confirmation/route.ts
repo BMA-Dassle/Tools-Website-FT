@@ -137,6 +137,40 @@ export async function GET(req: NextRequest) {
     // hasAttractions for bookingType: only count non-racing attractions
     const hasAttractions = attractionRecords.length > 0;
 
+    // Purchased items — authoritative per-checkout source from Neon rows.
+    // Each Neon row was inserted by checkout/v2 with ONLY this checkout's items.
+    // This prevents stale BMI bill accumulation from leaking old bookings.
+    const purchasedItems: Array<{
+      name: string;
+      quantity: number;
+      kind: string;
+      date: string;
+      time: string | null;
+    }> = [];
+
+    for (const rec of allRecords) {
+      if (rec.attractionBookings && rec.attractionBookings.length > 0) {
+        for (const ab of rec.attractionBookings) {
+          purchasedItems.push({
+            name: ab.name || rec.attractionSlug || rec.productKind || "Item",
+            quantity: ab.quantity || 1,
+            kind: ab.slug || rec.productKind || "unknown",
+            date: rec.bookedAt?.split("T")[0] ?? "",
+            time: ab.timeSlot || null,
+          });
+        }
+      } else if (rec.productKind === "open" || rec.productKind === "kbf") {
+        // Bowling record without attractionBookings JSON
+        purchasedItems.push({
+          name: rec.productKind === "kbf" ? "Kids Bowl Free" : "Bowling",
+          quantity: rec.playerCount ?? 1,
+          kind: "bowling",
+          date: rec.bookedAt?.split("T")[0] ?? "",
+          time: rec.bookedAt || null,
+        });
+      }
+    }
+
     const response = {
       // Core
       bookingType: hasBowling && (hasRacing || hasAttractions)
@@ -162,6 +196,9 @@ export async function GET(req: NextRequest) {
 
       // Attractions (includes racing items for confirmation page heat cards)
       attractions: attractions.length > 0 ? attractions : [],
+
+      // Authoritative purchased items from this checkout (from Neon rows)
+      purchasedItems: purchasedItems.length > 0 ? purchasedItems : [],
 
       // Guest info (from primary record)
       guestName: primary.guestName ?? null,

@@ -445,12 +445,24 @@ export default function CheckoutPage() {
             quantity: li.quantity,
           })),
         } : null,
-        attractions: cartItems.map((item) => ({
-          name: item.attractionName || item.product.name,
-          quantity: item.quantity,
-          date: item.date,
-          time: item.time?.block?.start || null,
-        })),
+        // Authoritative purchased items from the API (per-checkout, not stale bill).
+        // Falls back to cart data only if the API didn't return purchasedItems.
+        attractions: safeResponse.purchasedItems?.length
+          ? safeResponse.purchasedItems.map((item: { name: string; quantity: number; kind: string; date: string; time: string | null }) => ({
+              name: item.name,
+              quantity: item.quantity,
+              date: item.date,
+              time: item.time,
+            }))
+          : cartItems.map((item) => ({
+              name: item.attractionName || item.product.name,
+              quantity: item.quantity,
+              date: item.date,
+              time: item.time?.block?.start || null,
+            })),
+        // purchasedItems from the API — authoritative source for what was in THIS checkout.
+        // Used by buildRacingPreResolved to filter out stale racerAssignments.
+        purchasedItems: safeResponse.purchasedItems ?? null,
         guestName: contact?.firstName ? `${contact.firstName} ${contact.lastName}` : null,
         guestEmail: contact?.email || null,
         // ── Phase 3 additions for dynamic confirmation page ──

@@ -208,50 +208,54 @@ export function RacingHeatCard({
           </div>
         )}
 
-        {/* Racer names */}
-        <div>
-          {group.racers.map((name, ri) => (
-            <p key={ri} className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(36px, 10vw, 60px)" }}>{name}</p>
-          ))}
-        </div>
-
-        {/* Time */}
-        {group.heatStart && (
-          <div className="mt-3">
-            {expressLane ? (
-              <>
-                <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
-                <p className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(48px, 14vw, 72px)" }}>{formatTime(group.heatStart)}</p>
-                <p className="text-emerald-400/60 text-xs mt-1">Arrive 5 min before — go straight to Karting, 1st Floor</p>
-              </>
-            ) : (
-              <>
-                <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
-                <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">{checkinTime(group.heatStart)}</p>
-                <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "FastTrax — Guest Services, 2nd Floor" : "HeadPinz — Guest Services"}</p>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Date, address, reservation number */}
-        {group.heatStart && <p className="text-white/40 text-xs mt-2">{formatDate(group.heatStart)}</p>}
-        <p className="text-white/20 text-xs">14501 Global Parkway, Fort Myers</p>
-        <p className={`font-bold text-xs mt-2 ${expressLane ? "text-emerald-400/50" : "text-[#00E2E5]/50"}`}>{group.resNumber}</p>
-      </div>
-
-      {/* QR (non-express only) */}
-      {qr && !expressLane && (
-        <div className="border-t border-white/[0.06] px-5 py-4 flex justify-center">
-          <button className="cursor-pointer" onClick={() => onQrClick(qr, group.resNumber)}>
-            <div className="rounded-lg bg-white p-1.5 hover:shadow-lg hover:shadow-[#00E2E5]/20 transition-shadow">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qr} alt={`QR ${group.resNumber}`} width={100} height={100} className="w-[80px] h-[80px]" />
+        {/* Two-column: racer info left, QR right */}
+        <div className="flex items-start justify-between gap-4">
+          {/* Left: racer names + time + details */}
+          <div className="flex-1 min-w-0">
+            {/* Racer names */}
+            <div>
+              {group.racers.map((name, ri) => (
+                <p key={ri} className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(36px, 10vw, 60px)" }}>{name}</p>
+              ))}
             </div>
-            <p className="text-white/20 text-xs text-center mt-1">Tap to enlarge</p>
-          </button>
+
+            {/* Time */}
+            {group.heatStart && (
+              <div className="mt-3">
+                {expressLane ? (
+                  <>
+                    <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Race Time</p>
+                    <p className="text-white font-display uppercase tracking-wider leading-none" style={{ fontSize: "clamp(48px, 14vw, 72px)" }}>{formatTime(group.heatStart)}</p>
+                    <p className="text-emerald-400/60 text-xs mt-1">Arrive 5 min before — go straight to Karting, 1st Floor</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Check In By</p>
+                    <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">{checkinTime(group.heatStart)}</p>
+                    <p className="text-white/30 text-xs">{checkInLocation === "fasttrax" ? "FastTrax — Guest Services, 2nd Floor" : "HeadPinz — Guest Services"}</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Date, address, reservation number */}
+            {group.heatStart && <p className="text-white/40 text-xs mt-2">{formatDate(group.heatStart)}</p>}
+            <p className="text-white/20 text-xs">14501 Global Parkway, Fort Myers</p>
+            <p className={`font-bold text-xs mt-2 ${expressLane ? "text-emerald-400/50" : "text-[#00E2E5]/50"}`}>{group.resNumber}</p>
+          </div>
+
+          {/* Right: QR code inline (non-express only) */}
+          {qr && !expressLane && (
+            <button className="shrink-0 cursor-pointer" onClick={() => onQrClick(qr, group.resNumber)}>
+              <div className="rounded-lg bg-white p-1.5 hover:shadow-lg hover:shadow-[#00E2E5]/20 transition-shadow">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={qr} alt={`QR ${group.resNumber}`} width={120} height={120} className="w-[100px] h-[100px] sm:w-[120px] sm:h-[120px]" />
+              </div>
+              <p className="text-white/20 text-[10px] text-center mt-1">Tap to enlarge</p>
+            </button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
