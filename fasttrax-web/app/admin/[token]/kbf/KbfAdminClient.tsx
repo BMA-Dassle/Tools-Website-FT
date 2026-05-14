@@ -523,30 +523,6 @@ export default function KbfAdminClient({ token }: { token: string }) {
     }
   }
 
-  async function handleRescheduleExisting(neonId: number) {
-    // Cancel the existing reservation, stay on step 1 so user selects
-    // bowlers and clicks Book Lane normally (button is now enabled).
-    setCancellingRez(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/admin/bowling/reservations/cancel?token=${token}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ neonId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Cancel failed");
-        return;
-      }
-      // Clear the future reservation — Book Lane button becomes enabled
-      setFutureReservations((prev) => prev.filter((fr) => fr.reservationId !== neonId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancel failed");
-    } finally {
-      setCancellingRez(false);
-    }
-  }
 
   // ── Render ─────────────────────────────────────────────────────────
 
@@ -846,23 +822,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
                     cursor: cancellingRez ? "wait" : "pointer",
                   }}
                 >
-                  {cancellingRez ? "Cancelling..." : "Cancel Reservation"}
-                </button>
-                <button
-                  onClick={() => handleRescheduleExisting(passFutureRez.reservationId)}
-                  disabled={cancellingRez}
-                  style={{
-                    padding: "6px 14px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    backgroundColor: "#fff",
-                    color: BLUE,
-                    border: `1px solid ${BLUE}`,
-                    borderRadius: 6,
-                    cursor: cancellingRez ? "wait" : "pointer",
-                  }}
-                >
-                  Reschedule
+                  {cancellingRez ? "Cancelling..." : "Cancel"}
                 </button>
               </div>
             </div>
