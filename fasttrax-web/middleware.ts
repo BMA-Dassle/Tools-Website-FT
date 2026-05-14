@@ -9,11 +9,7 @@ import type { NextRequest } from "next/server";
  */
 export async function middleware(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
-  // Match headpinz.com AND Vercel preview branches that include "-headpinz"
-  // in the auto-generated subdomain (e.g. tools-website-abc123-headpinz.vercel.app).
-  const isHeadPinz =
-    hostname.includes("headpinz.com") ||
-    (hostname.endsWith(".vercel.app") && hostname.includes("-headpinz"));
+  const isHeadPinz = hostname.includes("headpinz.com");
   const pathname = request.nextUrl.pathname;
 
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
@@ -486,11 +482,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://headpinz.com${hpPath}`);
   }
 
-  // Set brand header for /hp/ routes (dev access on localhost)
+  // Set brand header for /hp/ routes (dev access on localhost / Vercel preview).
+  // Also set a dev-brand cookie so BrandNav on shared /book/* routes knows
+  // this session started from HeadPinz (the cookie persists across navigations).
   if (pathname.startsWith("/hp")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    if (!isHeadPinz) {
+      response.cookies.set("dev-brand", "headpinz", { path: "/", maxAge: 60 * 60 * 24 });
+    }
+    return response;
   }
 
   // Suppress the mobile "Book Now" bar on focused customer-action
