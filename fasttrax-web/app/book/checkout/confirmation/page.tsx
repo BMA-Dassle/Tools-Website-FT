@@ -169,51 +169,79 @@ function buildRacingPreResolved(
   rookiePack: boolean;
   checkInLocation: "fasttrax" | "headpinz";
 } | null {
-  const assignments = data.racerAssignments;
-  if (!assignments || assignments.length === 0) return null;
-
   const billId = data.bmiBillId || "";
   const resNumber = data.bmiReservationNumber || "";
+  if (!billId && !resNumber) return null;
+
   const resCode = resNumber || `r${billId}`;
+  const assignments = data.racerAssignments;
 
-  // Build confirmations — one per racer
-  const confirmations: RacerConfirmation[] = assignments.map((ra) => ({
-    billId,
-    racerName: ra.racerName,
-    resNumber,
-    resCode,
-  }));
-
-  // Build race groups — group by product + heatStart
-  const groupMap = new Map<string, {
-    product: string;
-    track: string | null;
-    heatStart: string;
-    heatName: string;
-    racers: string[];
-  }>();
-  for (const ra of assignments) {
-    const key = `${ra.product}|${ra.heatStart}`;
-    if (!groupMap.has(key)) {
-      groupMap.set(key, {
-        product: ra.product,
-        track: ra.track || null,
-        heatStart: ra.heatStart,
-        heatName: ra.heatName,
-        racers: [],
-      });
-    }
-    groupMap.get(key)!.racers.push(ra.racerName);
+  // Build confirmations — from assignments if available, otherwise one primary
+  let confirmations: RacerConfirmation[];
+  if (assignments && assignments.length > 0) {
+    confirmations = assignments.map((ra) => ({
+      billId,
+      racerName: ra.racerName,
+      resNumber,
+      resCode,
+    }));
+  } else {
+    // No racer assignments (e.g. new racer, names not entered yet).
+    // One confirmation entry so QR code still generates.
+    confirmations = [{ billId, racerName: data.guestName || "", resNumber, resCode }];
   }
-  const raceGroups: RaceGroup[] = [...groupMap.values()]
-    .map((g) => ({ ...g, resNumber, resCode, billId }))
-    .sort((a, b) => a.heatStart.localeCompare(b.heatStart));
+
+  // Build race groups — from assignments (rich) or attractions cart (basic)
+  let raceGroups: RaceGroup[];
+  if (assignments && assignments.length > 0) {
+    const groupMap = new Map<string, {
+      product: string;
+      track: string | null;
+      heatStart: string;
+      heatName: string;
+      racers: string[];
+    }>();
+    for (const ra of assignments) {
+      const key = `${ra.product}|${ra.heatStart}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          product: ra.product,
+          track: ra.track || null,
+          heatStart: ra.heatStart,
+          heatName: ra.heatName,
+          racers: [],
+        });
+      }
+      groupMap.get(key)!.racers.push(ra.racerName);
+    }
+    raceGroups = [...groupMap.values()]
+      .map((g) => ({ ...g, resNumber, resCode, billId }))
+      .sort((a, b) => a.heatStart.localeCompare(b.heatStart));
+  } else {
+    // Fallback: build groups from the attractions cart items
+    const racingItems = (data.attractions || []).filter(
+      (a) => /racing|race|kart/i.test(a.name),
+    );
+    raceGroups = racingItems.map((item) => ({
+      product: item.name,
+      track: null, // not available from cart data
+      heatStart: item.time || "",
+      heatName: item.name,
+      racers: Array.from({ length: item.quantity }, (_, i) =>
+        i === 0 && data.guestName ? data.guestName : `Racer ${i + 1}`,
+      ),
+      resNumber,
+      resCode,
+      billId,
+    }));
+  }
 
   return {
     confirmations,
     raceGroups,
-    // Enrichment data isn't available yet (set by post-confirm async).
-    // Defaults are safe — the notification email/SMS includes these links.
+    // Enrichment data (Express Lane, POV, waiver) arrives via the
+    // hook's enrichment fetch ~3s later once post-confirm writes
+    // the booking record.
     expressLane: false,
     povCodes: [],
     waiverUrl: null,
