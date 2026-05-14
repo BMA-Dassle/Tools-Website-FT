@@ -9,7 +9,11 @@ import type { NextRequest } from "next/server";
  */
 export async function middleware(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
-  const isHeadPinz = hostname.includes("headpinz.com");
+  // Match headpinz.com AND Vercel preview branches that include "-headpinz"
+  // in the auto-generated subdomain (e.g. tools-website-abc123-headpinz.vercel.app).
+  const isHeadPinz =
+    hostname.includes("headpinz.com") ||
+    (hostname.endsWith(".vercel.app") && hostname.includes("-headpinz"));
   const pathname = request.nextUrl.pathname;
 
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
