@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
@@ -12,6 +12,20 @@ interface StoredCartItem {
   time: { block: { start: string } };
   quantity: number;
   color: string;
+}
+
+/** Shape of the bowlingHold sessionStorage blob saved by BowlingWizard */
+interface BowlingHoldData {
+  qamfReservationId: string;
+  centerId: number;
+  locationKey: string;
+  experienceName: string;
+  timeLabel: string;
+  totalCents: number;
+  depositCents: number;
+  expiresAt: string;
+  // Additional fields exist (players, lineItems, etc.) but MiniCart
+  // only needs display + hold-management fields listed above.
 }
 
 function formatTime(iso: string) {
@@ -31,26 +45,31 @@ function formatDate(iso: string) {
 /**
  * Unified floating cart — reads from sessionStorage, matches racing FloatingCart style.
  * Shows on /book landing page and /book/[attraction] flows.
+ *
+ * Supports three item sources:
+ *   1. attractionCart — BMI attractions + racing (shared bill)
+ *   2. bowlingHold — QAMF bowling reservation (separate pricing authority)
+ *
+ * All items route to /book/checkout for unified payment.
  */
 export default function MiniCart({ onStartOver }: { onStartOver?: () => void } = {}) {
   const pathname = usePathname();
   const [items, setItems] = useState<StoredCartItem[]>([]);
   const [open, setOpen] = useState(false);
   const [hasActiveBill, setHasActiveBill] = useState(false);
-  // Race booking has its own checkout flow — hide the generic checkout button
-  const isRaceFlow = pathname?.startsWith("/book/race");
+  const [bowlingHold, setBowlingHold] = useState<BowlingHoldData | null>(null);
+  const [holdExpiringSoon, setHoldExpiringSoon] = useState(false);
+  const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const expiryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Read sessionStorage for cart items.
+  // Read sessionStorage for cart items + bowling hold.
   // Three triggers, in order of preference:
   //   1. `cart:changed` event — fired by writers (race page, attraction
-  //      pages) the moment they update sessionStorage. Updates are
-  //      effectively instant.
+  //      pages, bowling wizard) the moment they update sessionStorage.
   //   2. Native `storage` event — fires when sessionStorage is changed
-  //      from a *different* tab/window. Cheap to listen for; covers
-  //      multi-tab.
+  //      from a *different* tab/window.
   //   3. Poll fallback every 800ms — defends against any writer that
-  //      forgot the event dispatch. The previous 1500ms poll is what
-  //      made cart updates feel laggy.
+  //      forgot the event dispatch.
   useEffect(() => {
     function loadCart() {
       try {
@@ -59,6 +78,12 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
         setItems(parsed);
         setHasActiveBill(!!sessionStorage.getItem("attractionOrderId"));
       } catch { setItems([]); }
+
+      // Bowling hold
+      try {
+        const bowlingRaw = sessionStorage.getItem("bowlingHold");
+        setBowlingHold(bowlingRaw ? JSON.parse(bowlingRaw) : null);
+      } catch { setBowlingHold(null); }
     }
     loadCart();
     const interval = setInterval(loadCart, 800);
@@ -71,6 +96,56 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
     };
   }, []);
 
+  // ── QAMF hold extension timer ──────────────────────────────────────
+  // Extends the 10-min QAMF hold every 8 minutes while bowling is in cart.
+  // Also checks for expiry approaching (< 2 min left) to show warning.
+  useEffect(() => {
+    // Clean up previous timers
+    if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
+    if (expiryTimerRef.current) { clearInterval(expiryTimerRef.current); expiryTimerRef.current = null; }
+    setHoldExpiringSoon(false);
+
+    if (!bowlingHold) return;
+
+    // Extend hold every 8 minutes
+    holdTimerRef.current = setInterval(() => {
+      fetch(`/api/bowling/v2/reserve/hold/${bowlingHold.qamfReservationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ centerId: bowlingHold.centerId }),
+      }).then((res) => {
+        if (res.ok) {
+          // Update expiresAt in sessionStorage (hold was extended +10 min)
+          try {
+            const raw = sessionStorage.getItem("bowlingHold");
+            if (raw) {
+              const h = JSON.parse(raw);
+              h.expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+              sessionStorage.setItem("bowlingHold", JSON.stringify(h));
+            }
+          } catch { /* non-fatal */ }
+        }
+      }).catch(() => { /* non-fatal */ });
+    }, 8 * 60 * 1000);
+
+    // Check expiry every 30s
+    expiryTimerRef.current = setInterval(() => {
+      try {
+        const raw = sessionStorage.getItem("bowlingHold");
+        if (!raw) { setHoldExpiringSoon(false); return; }
+        const h = JSON.parse(raw);
+        const msLeft = new Date(h.expiresAt).getTime() - Date.now();
+        setHoldExpiringSoon(msLeft > 0 && msLeft < 2 * 60 * 1000);
+      } catch { /* non-fatal */ }
+    }, 30_000);
+
+    return () => {
+      if (holdTimerRef.current) clearInterval(holdTimerRef.current);
+      if (expiryTimerRef.current) clearInterval(expiryTimerRef.current);
+    };
+  }, [bowlingHold?.qamfReservationId, bowlingHold?.centerId]);
+
+  // ── Remove BMI attraction item ─────────────────────────────────────
   function handleRemove(index: number) {
     const item = items[index];
     // Remove bill line from BMI if we have the billLineId
@@ -95,9 +170,57 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
     try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
   }
 
-  if (items.length === 0 && !hasActiveBill) return null;
+  // ── Remove bowling hold ────────────────────────────────────────────
+  const handleRemoveBowling = useCallback(() => {
+    if (!bowlingHold) return;
+    // Release the QAMF hold
+    fetch(`/api/bowling/v2/reserve/hold/${bowlingHold.qamfReservationId}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ centerId: bowlingHold.centerId }),
+    }).catch(() => { /* non-fatal — hold expires naturally */ });
+    sessionStorage.removeItem("bowlingHold");
+    setBowlingHold(null);
+    setHoldExpiringSoon(false);
+    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
+  }, [bowlingHold]);
 
-  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+  // ── Cancel entire cart ─────────────────────────────────────────────
+  const handleCancelAll = useCallback(() => {
+    // Cancel BMI bill
+    const orderId = sessionStorage.getItem("attractionOrderId");
+    const ck = getBookingClientKey();
+    if (orderId) {
+      const cancelQs = ck ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}` : `endpoint=bill/${orderId}/cancel`;
+      fetch(`/api/bmi?${cancelQs}`, { method: "DELETE" }).catch(() => {});
+    }
+
+    // Release bowling QAMF hold
+    if (bowlingHold) {
+      fetch(`/api/bowling/v2/reserve/hold/${bowlingHold.qamfReservationId}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ centerId: bowlingHold.centerId }),
+      }).catch(() => {});
+    }
+
+    // Clear all cart state
+    sessionStorage.removeItem("attractionOrderId");
+    sessionStorage.removeItem("attractionCart");
+    sessionStorage.removeItem("bowlingHold");
+    clearBookingLocation();
+    setItems([]);
+    setHasActiveBill(false);
+    setBowlingHold(null);
+    setOpen(false);
+    window.location.href = "/book";
+  }, [bowlingHold]);
+
+  const hasBowling = !!bowlingHold;
+  const hasAttractions = items.length > 0 || hasActiveBill;
+  if (!hasAttractions && !hasBowling) return null;
+
+  const totalQty = items.reduce((s, i) => s + i.quantity, 0) + (hasBowling ? 1 : 0);
 
   return (
     <div className="fixed bottom-20 right-4 z-40 md:bottom-8 md:right-24">
@@ -106,10 +229,43 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
         <div className="absolute bottom-16 right-0 w-72 rounded-xl border border-white/15 bg-[#0a0e1a]/95 backdrop-blur-lg shadow-2xl shadow-black/50 overflow-hidden mb-2">
           <div className="p-3 border-b border-white/10">
             <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-wider">
-              Your Cart ({items.length})
+              Your Cart ({totalQty})
             </p>
           </div>
           <div className="max-h-48 overflow-y-auto">
+            {/* ── Bowling item ────────────────────────────────────── */}
+            {bowlingHold && (
+              <div className="p-3 border-b border-white/5">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-white text-sm font-semibold">
+                      🎳 {bowlingHold.experienceName}
+                    </p>
+                    <p className="text-white/40 text-xs">{bowlingHold.timeLabel}</p>
+                    <span className="text-[#00E2E5] text-xs">
+                      ${(bowlingHold.totalCents / 100).toFixed(2)}
+                    </span>
+                    {holdExpiringSoon && (
+                      <span className="ml-2 text-amber-400 text-xs animate-pulse">
+                        Hold expiring soon
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Remove bowling"
+                    onClick={(e) => { e.stopPropagation(); handleRemoveBowling(); }}
+                    className="text-red-400/50 hover:text-red-400 transition-colors p-1 shrink-0"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── BMI attraction / racing items ───────────────────── */}
             {items.map((item, i) => (
               <div key={i} className="p-3 border-b border-white/5 last:border-0">
                 <div className="flex justify-between items-start">
@@ -152,36 +308,15 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
             ))}
           </div>
           <div className="p-3 border-t border-white/10 space-y-2">
-            {items.length > 0 && (() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const hasRacing = items.some((i: any) => i.attraction === "racing");
-              if (hasRacing) {
-                const onRacePage = pathname?.startsWith("/book/race");
-                return onRacePage ? (
-                  <button
-                    onClick={() => { window.dispatchEvent(new CustomEvent("miniCartCheckout")); setOpen(false); }}
-                    className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-                  >
-                    Checkout →
-                  </button>
-                ) : (
-                  <Link
-                    href="/book/race?step=contact"
-                    className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-                  >
-                    Checkout →
-                  </Link>
-                );
-              }
-              return (
-                <Link
-                  href="/book/checkout"
-                  className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-                >
-                  Checkout →
-                </Link>
-              );
-            })()}
+            {/* Unified checkout — always route to /book/checkout */}
+            {(totalQty > 0) && (
+              <Link
+                href="/book/checkout"
+                className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
+              >
+                Checkout →
+              </Link>
+            )}
             {onStartOver && (
               <button
                 onClick={() => { onStartOver(); setOpen(false); }}
@@ -190,35 +325,9 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                 Cancel &amp; Start Over
               </button>
             )}
-            {!onStartOver && hasActiveBill && (
+            {!onStartOver && (hasActiveBill || hasBowling) && (
               <button
-                onClick={() => {
-                  const orderId = sessionStorage.getItem("attractionOrderId");
-                  const ck = getBookingClientKey();
-                  if (orderId) {
-                    const cancelQs = ck ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}` : `endpoint=bill/${orderId}/cancel`;
-                    fetch(`/api/bmi?${cancelQs}`, { method: "DELETE" }).catch(() => {});
-                  }
-                  // Determine where to go based on cart contents.
-                  // `attraction` is a sibling field added to stored items outside
-                  // the StoredCartItem type — widen just this read.
-                  const withAttraction = items as unknown as Array<{ attraction?: string }>;
-                  const hasRacing = withAttraction.some(i => i.attraction === "racing");
-                  const attractionSlug = !hasRacing && withAttraction.length > 0 ? withAttraction[0].attraction ?? null : null;
-                  sessionStorage.removeItem("attractionOrderId");
-                  sessionStorage.removeItem("attractionCart");
-                  clearBookingLocation();
-                  setItems([]);
-                  setHasActiveBill(false);
-                  setOpen(false);
-                  if (hasRacing) {
-                    window.location.href = "/book/race";
-                  } else if (attractionSlug) {
-                    window.location.href = `/book/${attractionSlug}`;
-                  } else {
-                    window.location.href = "/book";
-                  }
-                }}
+                onClick={handleCancelAll}
                 className="block w-full py-2 rounded-lg font-semibold text-xs text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-colors text-center"
               >
                 Cancel &amp; Start Over
@@ -236,7 +345,7 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
         <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
         </svg>
-        <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+        <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full text-white text-xs font-bold flex items-center justify-center ${holdExpiringSoon ? "bg-amber-500 animate-pulse" : "bg-red-500"}`}>
           {totalQty}
         </span>
       </button>

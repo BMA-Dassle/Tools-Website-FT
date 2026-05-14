@@ -5,8 +5,8 @@ import { modalBackdropProps } from "@/lib/a11y";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import BowlingPaymentStep from "@/components/bowling/BowlingPaymentStep";
-import BowlingAttractionsStep from "@/components/bowling/BowlingAttractionsStep";
-import type { AttractionAddon } from "@/components/bowling/BowlingAttractionsStep";
+// BowlingAttractionsStep removed — all cross-selling through unified cart
+type AttractionAddon = { slug: string; name: string; bmiOrderId: string; bmiBillLineId: string; squareCatalogObjectId: string; quantity: number; totalPrice: number; block: { start: string }; timeLabel: string; color: string };
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import { bookableDateRange, isKbfBookableDate } from "@/lib/kbf-schedule";
@@ -1366,7 +1366,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // ── Clear stale quote when user backs up to shoes step ────────────
 
   useEffect(() => {
-    if (step === "shoes" || step === "attractions") {
+    if (step === "shoes") {
       setQuoteDayofOrderId(null);
       setQuoteTotalCents(0);
       setQuoteDepositCents(0);
@@ -1756,9 +1756,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
       void createHold(slot);
       if (isPerLaneExp) {
-        setStep("attractions");
+        setStep(isPizzaBowl ? "food" : "review");
       } else {
-        setStep(incShoes ? "attractions" : "shoes");
+        setStep(incShoes ? (isPizzaBowl ? "food" : "review") : "shoes");
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1766,18 +1766,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   );
 
   // ── Hold: cleanup on unmount ─────────────────────────────────────
+  // Stop the extension timer but do NOT release the hold — MiniCart
+  // takes over hold-extension once bowlingHold is in sessionStorage.
+  // If the user never added to cart (left mid-wizard), the hold
+  // expires naturally after 10 min.
 
   useEffect(() => {
     return () => {
       if (holdTimerRef.current) clearInterval(holdTimerRef.current);
-      if (holdRef.current) {
-        const { qamfId, centerId: hCenterId } = holdRef.current;
-        void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ centerId: hCenterId }),
-        }).catch(() => {});
-      }
+      // Hold is intentionally NOT released — MiniCart manages it.
     };
   }, []);
 
@@ -2168,7 +2165,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     if (step === "tier")       return "Choose Your Experience";
     if (step === "offer")      return "Choose a Package";
     if (step === "shoes")      return "Add Shoe Rentals";
-    if (step === "attractions")return "Level Up Your Visit";
     if (step === "food")       return "Add Food & Drinks";
     if (step === "review")     return "Review Your Booking";
     if (step === "details")    return "Your Details";
@@ -3731,11 +3727,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         return;
                       }
                       // Hold was already created when user tapped the time chip.
-                      // Just advance to the next step.
-                      if (selectedIsPerLane) {
-                        setStep("attractions");
-                      } else if (selectedIncludesShoes) {
-                        setStep("attractions");
+                      // Just advance to the next step (attractions step removed — skip to review or shoes).
+                      if (selectedIsPerLane || selectedIncludesShoes) {
+                        setStep(isPizzaBowl ? "food" : "review");
                       } else {
                         setStep("shoes");
                       }
@@ -3913,7 +3907,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button type="button" onClick={() => { if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); } }} className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15">Back</button>
                 <button
                   type="button"
-                  onClick={() => { setError(null); setStep("attractions"); }}
+                  onClick={() => { setError(null); setStep(isPizzaBowl ? "food" : "review"); }}
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
                   style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
                 >
@@ -3921,31 +3915,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 </button>
               </div>
             </div>
-          )}
-
-          {/* ═══════════════════════════════════════════════════════
-              STEP: Attractions (laser tag / gel blaster add-ons)
-          ═══════════════════════════════════════════════════════ */}
-          {step === "attractions" && (
-            <BowlingAttractionsStep
-              locationKey={center.locationKey}
-              bmiClientKey={bmiClientKey}
-              date={selectedDate}
-              playerCount={activePlayerCount}
-              addons={attractionAddons}
-              onAddonsChange={setAttractionAddons}
-              onContinue={() => setStep(isPizzaBowl ? "food" : "review")}
-              onBack={() => {
-                if (selectedIncludesShoes) {
-                  // Shoes were skipped — go back to offer (with hold-release guard)
-                  if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); }
-                } else {
-                  setStep("shoes");
-                }
-              }}
-              bowlingStartIso={selectedSlot?.bookedAt}
-              bowlingDurationMinutes={bowlingDurationMinutes}
-            />
           )}
 
           {/* ═══════════════════════════════════════════════════════
@@ -4074,7 +4043,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setStep("attractions")}
+                  onClick={() => {
+                    if (selectedIncludesShoes || selectedIsPerLane) {
+                      if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); }
+                    } else {
+                      setStep("shoes");
+                    }
+                  }}
                   className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
                   Back
@@ -4291,7 +4266,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    setStep(isPizzaBowl ? "food" : "attractions");
+                    if (isPizzaBowl) {
+                      setStep("food");
+                    } else if (selectedIncludesShoes || selectedIsPerLane) {
+                      if (holdActive) { setPendingRelease("offer"); } else { setStep("offer"); }
+                    } else {
+                      setStep("shoes");
+                    }
                   }}
                   className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
                 >
@@ -4574,6 +4555,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     // PATCH /status at submit time takes effect immediately,
                     // eliminating the timing race that caused Temporary holds
                     // not to confirm.
+                    // Update hold title with guest name
                     if (holdRef.current) {
                       void fetch(`/api/bowling/v2/reserve/hold/${holdRef.current.qamfId}`, {
                         method: "PATCH",
@@ -4585,43 +4567,98 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         }),
                       }).catch(() => {});
                     }
-                    if (effectiveDepositCents > 0) setStep("payment");
-                    else void handleSubmit();
+
+                    // ── Save bowling hold to sessionStorage for unified cart ──
+                    const players =
+                      kind === "kbf"
+                        ? kbfBowlers.map((b) => ({
+                            name: b.displayName,
+                            kbfPassId: b.kbfPassId ?? null,
+                            kbfMemberSlot: b.kbfMemberSlot ?? null,
+                            kbfRelation: b.kbfRelation ?? null,
+                            isPaidAdult: b.isPaid === true,
+                          }))
+                        : Array.from({ length: playerCount }, (_, i) => ({ name: `Bowler ${i + 1}` }));
+
+                    const kbfPaidCount = kind === "kbf" ? kbfBowlers.filter((b) => b.isPaid).length : 0;
+                    const holdNotes =
+                      kind === "kbf"
+                        ? `${pass?.fpass ? "Families Bowl Free" : "Kids Bowl Free"} - ${kbfBowlers.map((b) => b.displayName).join(" - ")}${kbfPaidCount > 0 ? `. ${kbfPaidCount} paid adult(s)` : ""}. Coupons verified online.`
+                        : undefined;
+
+                    const bowlingHoldData = {
+                      qamfReservationId: holdRef.current?.qamfId ?? "",
+                      centerId: center.qamfId,
+                      locationKey: center.locationKey,
+                      squareCenterCode: center.squareCenterCode,
+                      webOfferId: selectedSlot!.webOfferId,
+                      optionId: selectedSlot!.optionId,
+                      optionType: selectedSlot!.optionType,
+                      bookedAt: selectedSlot!.bookedAt,
+                      service: "BookForLater" as const,
+                      players,
+                      guest: { name: guestName, email: guestEmail, phone: guestPhone },
+                      lineItems,
+                      totalCents: effectiveDisplayTotal,
+                      depositCents: effectiveDepositCents,
+                      notes: holdNotes,
+                      kind,
+                      experienceName: selectedSlot!.webOfferTitle || selectedExperience?.label || "Bowling",
+                      timeLabel: `${formatDate(selectedDate)} · ${formatTime(selectedSlot!.bookedAt)}`,
+                      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+                      // Booking fee
+                      ...(hasBookingFee ? { bookingFee: true } : {}),
+                      // Pizza bowl extras
+                      ...(pizzaBowlRawItems.length > 0 ? { rawItems: pizzaBowlRawItems } : {}),
+                      ...(extraToppingsCents > 0 ? { extraToppingsCents } : {}),
+                      // Day-of order from quote
+                      ...(quoteDayofOrderId ? {
+                        dayofOrderId: quoteDayofOrderId,
+                        dayofTotalCents: quoteTotalCents,
+                        quoteDepositCents: Math.max(0, (quoteDepositCents ?? 0) - rewardDiscountCents),
+                      } : {}),
+                      // Loyalty
+                      ...(loyaltyCustomer?.id ? { squareCustomerId: loyaltyCustomer.id } : {}),
+                      ...(loyaltyAccount?.id ? { loyaltyAccountId: loyaltyAccount.id } : {}),
+                      ...(loyaltyCustomer?.id ? { loyaltyAction: loyaltyIsNewSignup ? "signup" : "existing" } : {}),
+                      ...(selectedRewardTier ? {
+                        rewardTierId: selectedRewardTier.id,
+                        rewardDiscountCents: selectedRewardTier.discountCents,
+                      } : {}),
+                      // SMS opt-in
+                      smsOptIn,
+                    };
+
+                    sessionStorage.setItem("bowlingHold", JSON.stringify(bowlingHoldData));
+
+                    // Stop the wizard's hold extension timer — MiniCart takes over
+                    if (holdTimerRef.current) { clearInterval(holdTimerRef.current); holdTimerRef.current = null; }
+
+                    // Notify cart listeners
+                    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
+
+                    // Navigate — go to checkout (or /book to browse more)
+                    router.push("/book/checkout");
                   }}
                   disabled={busy || enrolling || !clickwrapAccepted || !guestName || !guestEmail || !guestPhone}
                   className="flex-1 rounded-full px-4 sm:px-6 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider disabled:opacity-50 whitespace-nowrap"
                   style={{ backgroundColor: GOLD, color: BG }}
                 >
-                  {enrolling ? "Enrolling…" : effectiveDepositCents > 0 ? "Continue to payment" : "Confirm"}
+                  {enrolling ? "Enrolling…" : "Add to Cart"}
                 </button>
               </div>
             </div>
           )}
 
-          {/* ═══════════════════════════════════════════════════════
-              STEP: Payment
-          ═══════════════════════════════════════════════════════ */}
-          {step === "payment" && (
-            <BowlingPaymentStep
-              depositCents={effectiveDepositCents}
-              totalCents={effectiveDisplayTotal}
-              locationId={center.locationKey}
-              paymentError={paymentError}
-              busy={busy}
-              originalDepositCents={rewardDiscountCents > 0 ? depositCents : undefined}
-              rewardDiscountCents={rewardDiscountCents}
-              onBack={() => setStep("details")}
-              onPay={(token) => void handleSubmit(token)}
-            />
-          )}
+          {/* Payment step removed — checkout handles payment */}
 
           {/* ═══════════════════════════════════════════════════════
-              STEP: Submitting
+              STEP: Submitting (retained for KBF reschedule flow)
           ═══════════════════════════════════════════════════════ */}
           {step === "submitting" && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
               <div className="w-10 h-10 border-2 border-white/15 border-t-[#fd5b56] rounded-full animate-spin mx-auto mb-4" />
-              <p className="font-body text-white/60 text-sm">Reserving your lane…</p>
+              <p className="font-body text-white/60 text-sm">Processing…</p>
             </div>
           )}
 

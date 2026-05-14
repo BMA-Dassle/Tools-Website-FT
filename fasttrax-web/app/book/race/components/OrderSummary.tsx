@@ -4,13 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock, PackSchedule } from "../data";
 import { getAcknowledgements, calculateTax, calculateTotal, bmiGet, bmiPost } from "../data";
 import { getBookingClientKey, getBookingLocation } from "@/lib/booking-location";
-import { trackBookingReview, trackBookingPayment } from "@/lib/analytics";
+import { trackBookingReview } from "@/lib/analytics";
 import type { PackageDefinition } from "@/lib/packages";
 import { packagePerRacerPrice, LICENSE_PRICE, POV_PRICE, getPackageIgnoreFlag } from "@/lib/packages";
 import type { ContactInfo } from "./ContactForm";
-import PaymentForm from "@/components/square/PaymentForm";
-import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
-import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
+// PaymentForm + ClickwrapCheckbox removed — checkout handles payment via unified /book/checkout
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,37 +112,10 @@ interface OrderSummaryProps {
   confirmationPath?: string;
 }
 
-/** Add a memo to each bill listing all related reservations in the group */
-async function addGroupMemo(
-  bills: RacerBill[],
-  resNumbers: { billId: string; racer: string; resNum: string }[],
-) {
-  const memoQs = new URLSearchParams({ endpoint: "booking/memo" });
-  for (const bill of bills) {
-    try {
-      const others = resNumbers
-        .filter(r => r.billId !== bill.billId && r.resNum)
-        .map(r => `${r.resNum} (${r.racer})`)
-        .join(", ");
-      if (!others) continue;
-      const memo = `Group booking — related reservations: ${others}`;
-      const memoBody = `{"orderId":${bill.billId},"memo":"${memo.replace(/"/g, '\\"')}"}`;
-      await fetch(`/api/bmi?${memoQs.toString()}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: memoBody,
-      });
-      console.log("[memo]", bill.billId, memo);
-    } catch { /* non-fatal */ }
-  }
-}
-
 type BookingState =
   | { status: "idle" }
   | { status: "booking" }
   | { status: "booked"; orderId: string; isCreditOrder: boolean; cashOwed: number; creditApplied: number; bmiTotal: number; bmiSubtotal: number; bmiTax: number; bmiLines: { name: string; quantity: number; amount: number; racers?: string[]; time?: string; lineId?: string; productGroup?: string }[] }
-  | { status: "paying"; cashOwed: number; raceName: string; orderId: string; allBillIds: string[]; squareCustomerId?: string; savedCards?: import("@/components/square/SavedCardSelector").SavedCard[] }
-  | { status: "confirmed" }
   | { status: "error"; message: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -190,11 +161,9 @@ export default function OrderSummary({
   onCancelRookiePack,
   selectedPackage,
   onRemovePackage,
-  confirmationPath = "/book/race/confirmation",
 }: OrderSummaryProps) {
   const [removingPack, setRemovingPack] = useState(false);
   const [state, setState] = useState<BookingState>({ status: "idle" });
-  const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const effectRan = useRef(false);
 
   // Computed pricing — prefer real block price from availability over catalog price
@@ -330,316 +299,12 @@ export default function OrderSummary({
     }
   }
 
-  /** Fire-and-forget clickwrap log to Neon via the API route.
-   *  Server captures IP + user-agent; we supply booking context. */
-  async function recordClickwrap(orderId: string, cashOwed: number, cardLast4?: string, cardBrand?: string) {
-    try {
-      await fetch("/api/clickwrap/record", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ts: new Date().toISOString(),
-          billId: orderId,
-          email: contact.email,
-          phone: contact.phone,
-          firstName: contact.firstName,
-          amountCents: Math.round(cashOwed * 100),
-          cardLast4,
-          cardBrand,
-          bookingType: isPack ? "racing-pack" : "racing",
-          policyVersion: CURRENT_POLICY_VERSION,
-        }),
-      });
-    } catch { /* non-fatal */ }
-  }
-
-  async function handleConfirm() {
+  /** Navigate to unified checkout page — payment happens there */
+  function handleContinueToCheckout() {
     if (state.status !== "booked") return;
-    const { orderId, isCreditOrder, cashOwed } = state;
-
-    // Log clickwrap acceptance immediately on confirm click (non-fatal).
-    // Card details are only available after Square tokenizes, so they're
-    // filled in the onSuccess callback for Square payments.
-    void recordClickwrap(orderId, cashOwed);
-
-    setState({ status: "booking" }); // Show loading while preparing payment
-    trackBookingPayment(isCreditOrder ? "credit" : "square", cashOwed);
-    try {
-      // Register each verified racer as a project person (participant) on the bill
-      // With single-bill flow, all racers go on the same bill
-      const primaryBillId = bills[0]?.billId || billId;
-      const racersToRegister = verifiedRacers.length > 0
-        ? verifiedRacers
-        : bills.filter(b => b.personId).map(b => ({ personId: b.personId!, fullName: b.racerName }));
-      for (const racer of racersToRegister) {
-        if (racer.personId) {
-          try {
-            const nameParts = racer.fullName.split(" ");
-            // Use raw JSON to avoid Number() precision loss on large personId/orderId
-            const regBody = JSON.stringify({
-              firstName: nameParts[0] || "",
-              lastName: nameParts.slice(1).join(" ") || "",
-            });
-            const rawJson = `{"personId":${racer.personId},"orderId":${primaryBillId},` + regBody.slice(1);
-            const ppCk = getBookingClientKey();
-            const regQs = new URLSearchParams({ endpoint: "person/registerProjectPerson", ...(ppCk ? { clientKey: ppCk } : {}) });
-            await fetch(`/api/bmi?${regQs.toString()}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: rawJson,
-            });
-            console.log("[registerProjectPerson]", racer.fullName, racer.personId, "on bill", primaryBillId);
-          } catch { /* non-fatal */ }
-        }
-      }
-
-      // Build descriptive name for Square receipt
-      const raceItems = state.bmiLines
-        .filter(l => l.name && !l.name.toLowerCase().includes("license"))
-        .map(l => `${l.name}${l.quantity > 1 ? ` x${l.quantity}` : ""}${l.time ? ` @ ${formatTime(l.time)}` : ""}`)
-        .join(", ");
-      const raceName = raceItems || "FastTrax Race Booking";
-      const heatStart = bookings[0]?.block.start || "";
-      const allBillIds = bills.map(b => b.billId);
-
-      // Collect bill overviews for each bill before payment
-      const billOverviews: Record<string, unknown>[] = [];
-      for (const bill of bills) {
-        try {
-          const ovCk = getBookingClientKey();
-          const ovRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bill.billId}${ovCk ? `&clientKey=${ovCk}` : ""}`);
-          const ov = await ovRes.json();
-          billOverviews.push({ ...ov, _racerName: bill.racerName, _personId: bill.personId, _billId: bill.billId });
-        } catch { /* skip */ }
-      }
-
-      // Build per-racer heat assignment data for check-in system
-      // Try from bookings prop first, then fall back to sessionStorage (checkout page flow)
-      console.log("[booking record] bookings:", bookings.length, "racerNames:", bookings.map(b => b.racerNames), "verifiedRacers:", verifiedRacers.length, verifiedRacers.map(r => r.fullName));
-      let racerAssignments = bookings.flatMap(b =>
-        (b.racerNames || []).map((name) => {
-          const racer = verifiedRacers.find(r => r.fullName === name);
-          return {
-            racerName: name,
-            personId: racer?.personId || null,
-            product: b.product.name,
-            productId: String(b.product.productId),
-            tier: b.product.tier,
-            track: b.product.track,
-            category: b.product.category,
-            heatName: b.block.name,
-            heatStart: b.block.start,
-            heatStop: b.block.stop || null,
-          };
-        })
-      );
-      // Fallback: read from sessionStorage (stored by race page for checkout flow)
-      if (racerAssignments.length === 0) {
-        try {
-          const stored = sessionStorage.getItem("racerAssignments");
-          if (stored) {
-            racerAssignments = JSON.parse(stored);
-            console.log("[booking record] loaded racerAssignments from sessionStorage:", racerAssignments.length);
-          } else {
-            console.log("[booking record] no racerAssignments in sessionStorage");
-          }
-        } catch { /* skip */ }
-      }
-      console.log("[booking record] racerAssignments:", racerAssignments.length, "primaryPersonId:", personId || sessionStorage.getItem("primaryPersonId") || "none");
-
-      // Store booking details + overviews in Redis + localStorage
-      const bookingDetails = {
-        billId: orderId,
-        billIds: allBillIds.join(","),
-        amount: (isCreditOrder ? 0 : cashOwed).toFixed(2),
-        race: raceName,
-        name: `${contact.firstName} ${contact.lastName}`,
-        email: contact.email,
-        phone: contact.phone,
-        qty: String(bookings.reduce((s, b) => s + b.quantity, 0)),
-        heat: heatStart,
-        isCreditOrder: isCreditOrder ? "true" : "false",
-        smsOptIn: contact.smsOptIn ? "true" : "false",
-        overviews: JSON.stringify(billOverviews),
-      };
-      await fetch("/api/booking-store", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(bookingDetails),
-      });
-      localStorage.setItem(`booking_${orderId}`, JSON.stringify(bookingDetails));
-
-      // Save comprehensive booking record (90-day TTL) for check-in system
-      const bookingRecord = {
-        billId: orderId,
-        billIds: allBillIds,
-        contact: {
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          phone: contact.phone,
-        },
-        primaryPersonId: personId || sessionStorage.getItem("primaryPersonId") || null,
-        racers: racerAssignments,
-        isCreditOrder: state.isCreditOrder,
-        cashOwed: state.cashOwed,
-        creditApplied: state.creditApplied,
-        totalAmount: state.bmiTotal,
-        date: bookings[0]?.block.start?.split("T")[0] || null,
-        overviews: billOverviews,
-        createdAt: new Date().toISOString(),
-        status: "pending_payment",
-        // Rookie Pack flag — tells the confirmation page whether to
-        // render the appetizer code card. Only set when the customer
-        // chose the pack in PovUpsell. Staged behind
-        // NEXT_PUBLIC_ROOKIE_PACK_ENABLED in the upsell component;
-        // older bookings simply lack the field.
-        // Stays for back-compat — confirmation page still falls back
-        // to this when the new `package` field is missing.
-        rookiePack: pov?.rookiePack === true || selectedPackage?.id === "rookie-pack",
-        // Centralized package metadata (lib/packages.ts). Lets the
-        // confirmation page render the right appetizer / hero, and
-        // gives the future "did they qualify?" cron the heat
-        // sessionIds / start-stop times it needs to detect a
-        // non-qualifier and offer a refund/swap.
-        //
-        // Multi-package booking records:
-        //   - `package`     — first booked packageId (back-compat
-        //                     for confirmation pages that read a
-        //                     scalar)
-        //   - `packages`    — array of every booked packageId so
-        //                     mixed adult+junior flows preserve
-        //                     both rounds
-        //   - `packageHeats` — every package-tagged booking,
-        //                     including its own packageId so a
-        //                     downstream cron can group by package
-        ...(() => {
-          const packageBookingIds = bookings
-            .map((b) => b.packageId)
-            .filter((id): id is string => !!id);
-          const uniquePackageIds = Array.from(new Set(packageBookingIds));
-          // selectedPackage covers the in-flight first-round case
-          // (heats not yet booked but the package is committed).
-          const packagesArr = uniquePackageIds.length > 0
-            ? uniquePackageIds
-            : selectedPackage
-              ? [selectedPackage.id]
-              : [];
-          return {
-            package: packagesArr[0] ?? null,
-            packages: packagesArr,
-          };
-        })(),
-        packageHeats: bookings.some((b) => b.packageId)
-          ? bookings
-              .filter((b) => !!b.packageId)
-              .map((b) => {
-                const pkgDef = b.packageId ? getPackageIgnoreFlag(b.packageId) : null;
-                // Walk THIS booking's package's per-track productIds
-                // to find which component slot it fills.
-                const ref = pkgDef?.races.find(
-                  (r) => r.tracks.some((t) => t.productId === String(b.product.productId)),
-                )?.ref ?? null;
-                return {
-                  packageId: b.packageId ?? null,
-                  ref,
-                  productId: String(b.product.productId),
-                  sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
-                  start: b.block.start,
-                  stop: b.block.stop,
-                };
-              })
-          : selectedPackage && selectedPackage.races.length > 0
-            ? bookings.map((b) => ({
-                packageId: selectedPackage.id,
-                ref: selectedPackage.races.find(
-                  (r) => r.tracks.some((t) => t.productId === String(b.product.productId)),
-                )?.ref ?? null,
-                productId: String(b.product.productId),
-                sessionId: b.proposal?.blocks?.[0]?.block ? (b.proposal.blocks[0].block as { sessionId?: string | number }).sessionId ?? null : null,
-                start: b.block.start,
-                stop: b.block.stop,
-              }))
-            : null,
-      };
-      try {
-        await fetch("/api/booking-record", {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-api-key": "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4" },
-          body: JSON.stringify(bookingRecord),
-        });
-      } catch { /* non-fatal */ }
-
-      // Credit order — skip Square, confirm each bill directly with BMI
-      if (isCreditOrder) {
-        const resNumbers: { billId: string; racer: string; resNum: string }[] = [];
-        for (const bill of bills) {
-          try {
-            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${bill.billId},"depositKind":2}`;
-            const pcCk = getBookingClientKey();
-            const qs = new URLSearchParams({ endpoint: "payment/confirm", ...(pcCk ? { clientKey: pcCk } : {}) });
-            const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: confirmBody,
-            });
-            const confirmResult = await confirmRes.json();
-            resNumbers.push({ billId: bill.billId, racer: bill.racerName, resNum: confirmResult.reservationNumber || "" });
-            console.log("[payment/confirm credit]", bill.billId, bill.racerName, confirmResult.reservationNumber);
-          } catch { /* non-fatal */ }
-        }
-
-        // Add memo to each bill listing all related reservations in the group
-        if (bills.length > 1) {
-          await addGroupMemo(bills, resNumbers);
-        }
-
-        window.location.href = `${confirmationPath}?billId=${orderId}&billIds=${allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
-        return;
-      }
-
-      // Cash order — resolve Square customer + show inline payment form
-      // Saved cards ONLY for OTP-verified returning racers
-      let sqCustomerId: string | undefined;
-      let sqSavedCards: import("@/components/square/SavedCardSelector").SavedCard[] = [];
-      const isVerifiedReturningRacer = !!(personId || bills.some(b => b.personId));
-
-      if (isVerifiedReturningRacer) {
-        // Only look up Square customer + cards when identity is OTP-verified
-        try {
-          const custRes = await fetch("/api/square/customer", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              phone: contact.phone,
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              email: contact.email,
-            }),
-          });
-          if (custRes.ok) {
-            const custData = await custRes.json();
-            sqCustomerId = custData.customerId;
-            sqSavedCards = custData.cards || [];
-          }
-        } catch { /* non-fatal — proceed without saved cards */ }
-      }
-
-      setState({
-        status: "paying",
-        cashOwed,
-        raceName,
-        orderId,
-        allBillIds,
-        squareCustomerId: sqCustomerId,
-        savedCards: sqSavedCards,
-      });
-    } catch (err) {
-      setState({
-        status: "error",
-        message: err instanceof Error ? err.message : "Payment failed to start",
-      });
-    }
+    // Racing items are already in sessionStorage (attractionOrderId + attractionCart)
+    // Checkout page reads them automatically.
+    window.location.href = "/book/checkout";
   }
 
   // ── Loading state ──────────────────────────────────────────────────────────
@@ -673,60 +338,22 @@ export default function OrderSummary({
     );
   }
 
-  // ── Paying state ──────────────────────────────────────────────────────────
-
-  if (state.status === "paying") {
-    const confirmUrl = `${confirmationPath}?billId=${state.orderId}&billIds=${state.allBillIds.join(",")}&racerNames=${bills.map(b => encodeURIComponent(b.racerName)).join(",")}&personIds=${bills.filter(b => b.personId).map(b => b.personId).join(",")}`;
-
-    return (
-      <PaymentForm
-        amount={state.cashOwed}
-        // Fixed "Deposit" label on the Square receipt + Apple/Google Pay
-        // sheet — was the race-time-formatted string (e.g. "Mega Pro Race
-        // x2 @ 6:24 PM"). Keeping state.raceName intact for the booking-
-        // store / confirmation page render, just not surfacing race times
-        // on the Square side.
-        itemName="Deposit"
-        billId={state.orderId}
-        contact={contact}
-        squareCustomerId={state.squareCustomerId}
-        savedCards={state.savedCards}
-        allowSaveCard={!!(personId || bills.some(b => b.personId))}
-        onSuccess={(result) => {
-          // Store payment details for confirmation page
-          sessionStorage.setItem(`payment_${state.orderId}`, JSON.stringify({
-            cardBrand: result.cardBrand,
-            cardLast4: result.cardLast4,
-            amount: result.amount,
-            paymentId: result.paymentId,
-          }));
-          // Supplement the clickwrap record with card details now that
-          // Square has tokenized. Fire-and-forget — don't block redirect.
-          void recordClickwrap(state.orderId, state.cashOwed, result.cardLast4 ?? undefined, result.cardBrand ?? undefined);
-          window.location.href = confirmUrl;
-        }}
-        onError={(msg) => setState({ status: "error", message: msg })}
-        onCancel={() => setState({ status: "booked", orderId: state.orderId, isCreditOrder: false, cashOwed: state.cashOwed, creditApplied: 0, bmiTotal: state.cashOwed, bmiSubtotal: state.cashOwed, bmiTax: 0, bmiLines: [] })}
-      />
-    );
-  }
+  // Payment form removed — handled by unified /book/checkout
 
   // ── Main UI ────────────────────────────────────────────────────────────────
 
   const isBooked = state.status === "booked";
-  const isPaying = false; // handled above
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
       {/* Header */}
       <div className="text-center">
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
-          {isBooked ? (state.status === "booked" && state.isCreditOrder ? "Review & Confirm" : "Review & Pay") : "Preparing Order..."}
+          {isBooked ? "Review Your Order" : "Preparing Order..."}
         </h2>
         {isBooked && (
           <p className="text-white/50 text-sm">
-            Your heat{bookings.length > 1 ? "s are" : " is"} reserved. Complete
-            your booking below.
+            Your heat{bookings.length > 1 ? "s are" : " is"} reserved. Continue to checkout or add more items.
           </p>
         )}
       </div>
@@ -1237,35 +864,19 @@ export default function OrderSummary({
             )}
           </div>
 
-          {/* Clickwrap agreement — must be checked before Pay/Confirm */}
-          <ClickwrapCheckbox
-            checked={clickwrapAccepted}
-            onChange={setClickwrapAccepted}
-          />
-
           {/* Actions */}
           <div className="flex items-center justify-between gap-4">
             <button
               onClick={onBack}
-              disabled={isPaying}
-              className="text-sm text-white/40 hover:text-white/70 disabled:opacity-30 transition-colors"
+              className="text-sm text-white/40 hover:text-white/70 transition-colors"
             >
               Back
             </button>
             <button
-              onClick={handleConfirm}
-              disabled={isPaying || !clickwrapAccepted}
-              title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-base bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleContinueToCheckout}
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-base bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
             >
-              {isPaying ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
-                  Confirming...
-                </>
-              ) : (
-                <>{state.status === "booked" && state.isCreditOrder ? "Confirm Booking (Credit)" : `Pay $${(state.status === "booked" ? state.cashOwed : total).toFixed(2)} →`}</>
-              )}
+              Continue to Checkout →
             </button>
           </div>
           <div className="text-center">
