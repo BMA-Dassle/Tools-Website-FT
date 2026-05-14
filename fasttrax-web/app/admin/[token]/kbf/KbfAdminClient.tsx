@@ -38,7 +38,7 @@ interface RedeemedPair {
 }
 
 type Mode = "bowl-now" | "book-lane";
-type Phase = "idle" | "searching" | "ready" | "submitting" | "done" | "error";
+type Phase = "idle" | "searching" | "ready" | "hold" | "submitting" | "done" | "error";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -105,6 +105,11 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // State: mode
   const [mode, setMode] = useState<Mode>("bowl-now");
 
+  // State: hold (temp QAMF reservation)
+  const [holdQamfId, setHoldQamfId] = useState<string | null>(null);
+  const [holdLaneNumber, setHoldLaneNumber] = useState<number | null>(null);
+  const [holdLoading, setHoldLoading] = useState(false);
+
   // State: book-lane calendar
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
@@ -132,6 +137,24 @@ export default function KbfAdminClient({ token }: { token: string }) {
     "x-admin-token": token,
   };
 
+  // ── Cancel any active hold ────────────────────────────────────────
+
+  async function cancelHold() {
+    if (!holdQamfId) return;
+    const qid = holdQamfId;
+    setHoldQamfId(null);
+    setHoldLaneNumber(null);
+    try {
+      await fetch("/api/admin/kbf/hold", {
+        method: "DELETE",
+        headers,
+        body: JSON.stringify({ centerCode, qamfId: qid }),
+      });
+    } catch {
+      // Best-effort — temp reservations auto-expire
+    }
+  }
+
   // ── Search ─────────────────────────────────────────────────────────
 
   const doSearch = useCallback(async () => {
@@ -142,6 +165,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setSelectedPass(null);
     setBowlers([]);
     setResult(null);
+    setHoldQamfId(null);
+    setHoldLaneNumber(null);
 
     try {
       const res = await fetch("/api/admin/kbf/search", {
@@ -186,8 +211,6 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setCenterCode(passCenter);
 
     // Build bowler selections from members
-    // KBF-only: show kids only. Family Pass: show kids + family members.
-    // No parent entry or guest adults — staff adds paying adults directly to the lane.
     const selections: AdminBowlerSelection[] = [];
 
     for (const m of pass.members) {
@@ -201,7 +224,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
         key: `${m.relation}:${m.passId}:${m.slot}`,
         name: `${m.firstName} ${m.lastName}`.trim() || "Unnamed",
         relation: m.relation === "kid" ? "kid" : "family",
-        selected: m.relation === "kid" ? !isRedeemed : false, // Auto-select kids, family off by default
+        selected: m.relation === "kid" ? !isRedeemed : false,
         shoeSize: m.prefs?.shoeSize ?? null,
         wantBumpers: m.prefs?.wantBumpers ?? false,
         kbfPassId: m.passId,
@@ -229,7 +252,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
         `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${date}&kind=kbf`,
       );
       const data = await res.json();
-      if (fetchDateRef.current !== date) return; // stale response — user picked another date
+      if (fetchDateRef.current !== date) return;
       const slots: { hour: number; minute: number }[] = [];
       for (const a of (data.Availabilities ?? []) as { BookedAt: string }[]) {
         const d = new Date(a.BookedAt);
@@ -250,29 +273,27 @@ export default function KbfAdminClient({ token }: { token: string }) {
     }
   }
 
-  // ── Submit: Bowl Now ───────────────────────────────────────────────
+  // ── Hold: create temp QAMF reservation ────────────────────────────
 
-  async function handleBowlNow() {
+  async function createHold(holdMode: "bowl-now" | "book-lane", bookedAt?: string) {
     if (!selectedPass) return;
     const selected = bowlers.filter((b) => b.selected);
     if (selected.length === 0) return;
-    if (!selected.some((b) => b.relation === "kid")) {
-      setError("At least one kid must be selected");
-      return;
-    }
 
-    setMode("bowl-now");
-    setPhase("submitting");
+    // Cancel any previous hold first
+    await cancelHold();
+
+    setHoldLoading(true);
     setError(null);
-    setProgress(["Creating reservation (QAMF picks lane)..."]);
-    setResult(null);
 
     try {
-      const res = await fetch("/api/admin/kbf/bowl-now", {
+      const res = await fetch("/api/admin/kbf/hold", {
         method: "POST",
         headers,
         body: JSON.stringify({
           centerCode,
+          mode: holdMode,
+          ...(bookedAt ? { bookedAt } : {}),
           bowlers: selected.map((b) => ({
             name: b.name,
             kbfPassId: b.kbfPassId,
@@ -284,15 +305,82 @@ export default function KbfAdminClient({ token }: { token: string }) {
           guestName: `${selectedPass.firstName} ${selectedPass.lastName}`.trim(),
           guestEmail: selectedPass.email,
           guestPhone: selectedPass.phone || enteredPhone || undefined,
-          // Link phone to KBF account if collected at desk
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setError(data.error || "Failed to hold slot");
+        setHoldLoading(false);
+        return null;
+      }
+
+      setHoldQamfId(data.qamfId);
+      setHoldLaneNumber(data.laneNumber ?? null);
+      setHoldLoading(false);
+      setPhase("hold");
+      return data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to hold slot");
+      setHoldLoading(false);
+      return null;
+    }
+  }
+
+  // ── Bowl Now: hold → show lane → confirm ──────────────────────────
+
+  async function handleBowlNowHold() {
+    if (!selectedPass) return;
+    const selected = bowlers.filter((b) => b.selected);
+    if (selected.length === 0) return;
+    if (!selected.some((b) => b.relation === "kid")) {
+      setError("At least one kid must be selected");
+      return;
+    }
+
+    setMode("bowl-now");
+    const hold = await createHold("bowl-now");
+    if (!hold) return;
+    // Phase is now "hold" — UI shows assigned lane + confirm button
+  }
+
+  async function handleBowlNowConfirm() {
+    if (!selectedPass || !holdQamfId || !holdLaneNumber) return;
+    const selected = bowlers.filter((b) => b.selected);
+
+    setPhase("submitting");
+    setError(null);
+    setProgress(["Confirming reservation..."]);
+    setResult(null);
+
+    try {
+      const res = await fetch("/api/admin/kbf/bowl-now", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          centerCode,
+          qamfId: holdQamfId,
+          laneNumber: holdLaneNumber,
+          bowlers: selected.map((b) => ({
+            name: b.name,
+            kbfPassId: b.kbfPassId,
+            kbfMemberSlot: b.kbfMemberSlot,
+            kbfRelation: b.relation === "kid" ? "kid" : b.relation === "family" ? "family" : undefined,
+            shoeSize: b.shoeSize,
+            bumpers: b.wantBumpers,
+          })),
+          guestName: `${selectedPass.firstName} ${selectedPass.lastName}`.trim(),
+          guestEmail: selectedPass.email,
+          guestPhone: selectedPass.phone || enteredPhone || undefined,
           ...(enteredPhone && !selectedPass.phone ? { linkPhone: enteredPhone } : {}),
         }),
       });
 
       const data = await res.json();
       if (data.ok) {
-        setProgress((prev) => [...prev, `Assigned ${data.laneLabel}`, "Lane opened!", "Shoes sent to KDS!", `${data.laneLabel} is live!`]);
+        setProgress((prev) => [...prev, `Lane ${holdLaneNumber} confirmed`, "Lane opened!", "Shoes sent to KDS!", `Lane ${holdLaneNumber} is live!`]);
         setResult({ ok: true, laneLabel: data.laneLabel, neonId: data.neonId });
+        setHoldQamfId(null); // Hold is consumed
         setPhase("done");
       } else {
         setProgress((prev) => [...prev, `Failed: ${data.error}`]);
@@ -307,25 +395,32 @@ export default function KbfAdminClient({ token }: { token: string }) {
     }
   }
 
-  // ── Submit: Book Lane ──────────────────────────────────────────────
+  // ── Book Lane: minute selected → hold, then confirm ───────────────
 
-  async function handleBookLane() {
-    if (!selectedPass || !selectedDate || selectedHour === null || selectedMinute === null) return;
+  async function handleMinuteSelected(minute: number) {
+    setSelectedMinute(minute);
+
+    if (selectedHour === null || !selectedDate) return;
+    const hh = String(selectedHour).padStart(2, "0");
+    const mm = String(minute).padStart(2, "0");
+    const bookedAt = new Date(`${selectedDate}T${hh}:${mm}:00`).toISOString();
+
+    setMode("book-lane");
+    await createHold("book-lane", bookedAt);
+  }
+
+  async function handleBookLaneConfirm() {
+    if (!selectedPass || !holdQamfId || !selectedDate || selectedHour === null || selectedMinute === null) return;
     const selected = bowlers.filter((b) => b.selected);
     if (selected.length === 0) return;
-    if (!selected.some((b) => b.relation === "kid")) {
-      setError("At least one kid must be selected");
-      return;
-    }
 
-    // Build ISO datetime from selected date + hour + minute in ET
     const hh = String(selectedHour).padStart(2, "0");
     const mm = String(selectedMinute).padStart(2, "0");
     const bookedAt = new Date(`${selectedDate}T${hh}:${mm}:00`).toISOString();
 
     setPhase("submitting");
     setError(null);
-    setProgress(["Creating reservation..."]);
+    setProgress(["Confirming reservation..."]);
     setResult(null);
 
     try {
@@ -334,6 +429,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
         headers,
         body: JSON.stringify({
           centerCode,
+          qamfId: holdQamfId,
           bookedAt,
           bowlers: selected.map((b) => ({
             name: b.name,
@@ -354,6 +450,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
       if (data.ok) {
         setProgress((prev) => [...prev, `Booked for ${selectedDate} at ${formatHourMinute(selectedHour!, selectedMinute!)}!`]);
         setResult({ ok: true, neonId: data.neonId });
+        setHoldQamfId(null); // Hold is consumed
         setPhase("done");
       } else {
         setProgress((prev) => [...prev, `Failed: ${data.error}`]);
@@ -371,8 +468,10 @@ export default function KbfAdminClient({ token }: { token: string }) {
   // ── Reset ──────────────────────────────────────────────────────────
 
   function handleReset() {
+    cancelHold();
     setPhase("idle");
     setStep(1);
+    setMode("bowl-now");
     setQuery("");
     setPasses([]);
     setSelectedPass(null);
@@ -387,6 +486,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
     setProgress([]);
     setResult(null);
     setError(null);
+    setHoldQamfId(null);
+    setHoldLaneNumber(null);
     searchRef.current?.focus();
   }
 
@@ -401,71 +502,80 @@ export default function KbfAdminClient({ token }: { token: string }) {
     ? futureReservations.find((fr) => fr.passId === selectedPass.id)
     : undefined;
 
-  // Calendar data (only needed in step 2 book-lane, but cheap to compute)
+  // Calendar data
   const calCells = buildCalCells(calYear, calMonth);
   const calToday = todayYmd();
   const availableHours = [...new Set(availableSlots.map((s) => s.hour))].sort((a, b) => a - b);
   const availableMinutes = selectedHour !== null
     ? [...new Set(availableSlots.filter((s) => s.hour === selectedHour).map((s) => s.minute))].sort((a, b) => a - b)
     : [];
-  const canSubmitBookLane =
-    selectedCount > 0 &&
-    hasKid &&
-    selectedDate !== "" && selectedHour !== null && selectedMinute !== null;
+
+  const isHolding = phase === "hold" && mode === "book-lane" && holdQamfId;
+  const canConfirmBookLane = isHolding && selectedDate && selectedHour !== null && selectedMinute !== null;
+  const bookLaneBusy = phase === "submitting" && mode === "book-lane";
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: "20px 16px", fontFamily: "Arial, sans-serif" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#fff" }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 20px", fontFamily: "Arial, sans-serif" }}>
+      {/* ── Header row: title + search + center picker ──────────── */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        marginBottom: 16,
+        flexWrap: "wrap",
+      }}>
+        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", flexShrink: 0 }}>
           KBF Admin
         </h1>
-        <CenterPicker value={centerCode} onChange={setCenterCode} />
-      </div>
-
-      {/* Search */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <input
-          ref={searchRef}
-          type="text"
-          placeholder="Name, email, or phone..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && doSearch()}
-          disabled={phase === "searching" || phase === "submitting"}
-          style={{
-            flex: 1,
-            padding: "10px 14px",
-            fontSize: 14,
-            border: "1px solid #d1d5db",
-            borderRadius: 8,
-            outline: "none",
-          }}
-        />
-        <button
-          onClick={doSearch}
-          disabled={phase === "searching" || phase === "submitting" || !query.trim()}
-          style={{
-            padding: "10px 20px",
-            fontSize: 14,
-            fontWeight: 600,
-            backgroundColor: "#004AAD",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            cursor: phase === "searching" ? "wait" : "pointer",
-            opacity: !query.trim() ? 0.5 : 1,
-          }}
-        >
-          {phase === "searching" ? "..." : "Search"}
-        </button>
+        <div style={{ display: "flex", flex: 1, gap: 8, minWidth: 200 }}>
+          <input
+            ref={searchRef}
+            type="text"
+            placeholder="Name, email, or phone..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && doSearch()}
+            disabled={phase === "searching" || phase === "submitting"}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+              outline: "none",
+              minWidth: 0,
+            }}
+          />
+          <button
+            onClick={doSearch}
+            disabled={phase === "searching" || phase === "submitting" || !query.trim()}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: 600,
+              backgroundColor: BLUE,
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              cursor: phase === "searching" ? "wait" : "pointer",
+              opacity: !query.trim() ? 0.5 : 1,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            {phase === "searching" ? "..." : "Search"}
+          </button>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <CenterPicker value={centerCode} onChange={setCenterCode} />
+        </div>
       </div>
 
       {/* Error */}
       {error && (
         <div style={{
           padding: "10px 14px",
-          marginBottom: 16,
+          marginBottom: 12,
           backgroundColor: "#fef2f2",
           border: "1px solid #fecaca",
           borderRadius: 8,
@@ -478,7 +588,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
 
       {/* Search results list — pick an account */}
       {passes.length > 0 && !selectedPass && (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 12 }}>
           <div style={{ marginBottom: 6, fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>
             {passes.length} result{passes.length !== 1 ? "s" : ""}
           </div>
@@ -538,8 +648,8 @@ export default function KbfAdminClient({ token }: { token: string }) {
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "10px 14px",
-          marginBottom: 16,
+          padding: "8px 14px",
+          marginBottom: 12,
           backgroundColor: "#f9fafb",
           border: "1px solid #e5e7eb",
           borderRadius: 8,
@@ -566,7 +676,14 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </div>
           </div>
           <button
-            onClick={() => { setSelectedPass(null); setBowlers([]); setPhase("idle"); }}
+            onClick={() => {
+              cancelHold();
+              setSelectedPass(null);
+              setBowlers([]);
+              setPhase("idle");
+              setStep(1);
+              setMode("bowl-now");
+            }}
             style={{
               padding: "4px 10px",
               fontSize: 12,
@@ -585,13 +702,13 @@ export default function KbfAdminClient({ token }: { token: string }) {
       )}
 
       {/* ── STEP 1: Bowlers + action buttons ──────────────────────── */}
-      {step === 1 && selectedPass && bowlers.length > 0 && (phase === "ready" || phase === "error" || phase === "submitting") && (
+      {step === 1 && selectedPass && bowlers.length > 0 && (phase === "ready" || phase === "error" || phase === "hold" || phase === "submitting") && (
         <>
           {/* Phone collection */}
           {!selectedPass.phone && (
             <div style={{
-              padding: "10px 14px",
-              marginBottom: 16,
+              padding: "8px 14px",
+              marginBottom: 12,
               backgroundColor: "#fffbeb",
               border: "1px solid #fde68a",
               borderRadius: 8,
@@ -634,7 +751,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
           {passFutureRez && (
             <div style={{
               padding: "10px 14px",
-              marginTop: 12,
+              marginTop: 10,
               backgroundColor: "#fef3c7",
               border: "1px solid #fde68a",
               borderRadius: 8,
@@ -650,56 +767,117 @@ export default function KbfAdminClient({ token }: { token: string }) {
             </div>
           )}
 
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <button
-              onClick={handleBowlNow}
-              disabled={!canAdvance || phase === "submitting"}
-              style={{
-                flex: 1,
-                padding: "14px 0",
-                fontSize: 14,
-                fontWeight: 700,
-                backgroundColor: canAdvance ? "#22c55e" : "#d1d5db",
-                color: canAdvance ? "#fff" : "#9ca3af",
-                border: "none",
-                borderRadius: 10,
-                cursor: canAdvance ? "pointer" : "not-allowed",
-              }}
-            >
-              {phase === "submitting" && mode === "bowl-now" ? "Opening lane..." : "🎳 Bowl Now"}
-            </button>
-            <button
-              onClick={() => {
-                setMode("book-lane");
-                setStep(2);
-              }}
-              disabled={!canAdvance || !!passFutureRez}
-              style={{
-                flex: 1,
-                padding: "14px 0",
-                fontSize: 14,
-                fontWeight: 700,
-                backgroundColor: canAdvance && !passFutureRez ? BLUE : "#d1d5db",
-                color: canAdvance && !passFutureRez ? "#fff" : "#9ca3af",
-                border: "none",
-                borderRadius: 10,
-                cursor: canAdvance && !passFutureRez ? "pointer" : "not-allowed",
-              }}
-            >
-              Book Lane →
-            </button>
-          </div>
+          {/* Bowl Now hold state — show assigned lane + confirm */}
+          {phase === "hold" && mode === "bowl-now" && holdQamfId && holdLaneNumber && (
+            <div style={{
+              marginTop: 12,
+              padding: "16px 20px",
+              backgroundColor: "#f0fdf4",
+              border: "2px solid #22c55e",
+              borderRadius: 10,
+              textAlign: "center",
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#166534", marginBottom: 4 }}>
+                Lane {holdLaneNumber} assigned
+              </div>
+              <div style={{ fontSize: 13, color: "#15803d", marginBottom: 12 }}>
+                Temp hold active — confirm to open the lane
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                <button
+                  onClick={() => { cancelHold(); setPhase("ready"); }}
+                  style={{
+                    padding: "10px 24px",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    backgroundColor: "#fff",
+                    color: "#6b7280",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBowlNowConfirm}
+                  style={{
+                    padding: "10px 32px",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    backgroundColor: "#22c55e",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                  }}
+                >
+                  Open Lane {holdLaneNumber}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons (only when no hold active) */}
+          {(phase === "ready" || phase === "error") && (
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button
+                onClick={handleBowlNowHold}
+                disabled={!canAdvance || holdLoading}
+                style={{
+                  flex: 1,
+                  padding: "14px 0",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  backgroundColor: canAdvance ? "#22c55e" : "#d1d5db",
+                  color: canAdvance ? "#fff" : "#9ca3af",
+                  border: "none",
+                  borderRadius: 10,
+                  cursor: canAdvance && !holdLoading ? "pointer" : "not-allowed",
+                }}
+              >
+                {holdLoading && mode === "bowl-now" ? "Getting lane..." : "🎳 Bowl Now"}
+              </button>
+              <button
+                onClick={() => {
+                  setMode("book-lane");
+                  setStep(2);
+                }}
+                disabled={!canAdvance || !!passFutureRez}
+                style={{
+                  flex: 1,
+                  padding: "14px 0",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  backgroundColor: canAdvance && !passFutureRez ? BLUE : "#d1d5db",
+                  color: canAdvance && !passFutureRez ? "#fff" : "#9ca3af",
+                  border: "none",
+                  borderRadius: 10,
+                  cursor: canAdvance && !passFutureRez ? "pointer" : "not-allowed",
+                }}
+              >
+                Book Lane →
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {/* ── STEP 2: Book Lane calendar ────────────────────────────── */}
-      {step === 2 && mode === "book-lane" && (phase === "ready" || phase === "error" || phase === "submitting") && (
+      {step === 2 && mode === "book-lane" && (phase === "ready" || phase === "error" || phase === "hold" || phase === "submitting") && (
         <>
           {/* Back + summary bar */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
             <button
-              onClick={() => setStep(1)}
+              onClick={() => {
+                cancelHold();
+                setStep(1);
+                setPhase("ready");
+                setMode("bowl-now");
+                setSelectedDate("");
+                setSelectedHour(null);
+                setSelectedMinute(null);
+              }}
               disabled={phase === "submitting"}
               style={{
                 padding: "6px 12px",
@@ -724,7 +902,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
           </div>
 
           {/* Book Lane: two-column layout — calendar left, times right */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 12 }}>
             {/* Left column: calendar */}
             <div>
               {/* Month navigation */}
@@ -784,9 +962,12 @@ export default function KbfAdminClient({ token }: { token: string }) {
                       key={i}
                       onClick={() => {
                         if (!bookable || isPast) return;
+                        // Cancel hold when changing date
+                        cancelHold();
                         setSelectedDate(ymd);
                         setSelectedHour(null);
                         setSelectedMinute(null);
+                        setPhase("ready");
                         fetchAvailability(ymd);
                       }}
                       disabled={!bookable || isPast}
@@ -816,14 +997,12 @@ export default function KbfAdminClient({ token }: { token: string }) {
                 </div>
               )}
 
-              {/* Loading availability */}
               {selectedDate && slotsLoading && (
                 <div style={{ fontSize: 13, color: "#9ca3af", paddingTop: 8 }}>
                   Loading available times…
                 </div>
               )}
 
-              {/* No available times */}
               {selectedDate && !slotsLoading && availableHours.length === 0 && (
                 <div style={{ fontSize: 13, color: "#f87171", paddingTop: 8 }}>
                   No available start times for this date.
@@ -840,7 +1019,13 @@ export default function KbfAdminClient({ token }: { token: string }) {
                     {availableHours.map((h) => (
                       <button
                         key={h}
-                        onClick={() => { setSelectedHour(h); setSelectedMinute(null); }}
+                        onClick={() => {
+                          // Cancel hold when changing hour
+                          cancelHold();
+                          setSelectedHour(h);
+                          setSelectedMinute(null);
+                          setPhase("ready");
+                        }}
                         style={{
                           minWidth: 60, padding: "8px 12px", fontSize: 13,
                           fontWeight: selectedHour === h ? 700 : 400,
@@ -864,53 +1049,79 @@ export default function KbfAdminClient({ token }: { token: string }) {
                     Minutes
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {availableMinutes.map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setSelectedMinute(m)}
-                        style={{
-                          minWidth: 52, padding: "8px 12px", fontSize: 13,
-                          fontWeight: selectedMinute === m ? 700 : 400,
-                          backgroundColor: selectedMinute === m ? BLUE : "#fff",
-                          color: selectedMinute === m ? "#fff" : "#374151",
-                          border: `1px solid ${selectedMinute === m ? BLUE : "#d1d5db"}`,
-                          borderRadius: 8, cursor: "pointer",
-                        }}
-                      >
-                        :{String(m).padStart(2, "0")}
-                      </button>
-                    ))}
+                    {availableMinutes.map((m) => {
+                      const isHeld = selectedMinute === m && holdQamfId;
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => handleMinuteSelected(m)}
+                          disabled={holdLoading}
+                          style={{
+                            minWidth: 52, padding: "8px 12px", fontSize: 13,
+                            fontWeight: selectedMinute === m ? 700 : 400,
+                            backgroundColor: isHeld ? "#22c55e" : selectedMinute === m ? BLUE : "#fff",
+                            color: selectedMinute === m ? "#fff" : "#374151",
+                            border: `1px solid ${isHeld ? "#22c55e" : selectedMinute === m ? BLUE : "#d1d5db"}`,
+                            borderRadius: 8, cursor: holdLoading ? "wait" : "pointer",
+                          }}
+                        >
+                          :{String(m).padStart(2, "0")}
+                        </button>
+                      );
+                    })}
                   </div>
+                </div>
+              )}
+
+              {/* Hold loading indicator */}
+              {holdLoading && mode === "book-lane" && (
+                <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af" }}>
+                  Holding time slot…
+                </div>
+              )}
+
+              {/* Hold active indicator */}
+              {isHolding && (
+                <div style={{
+                  marginTop: 12,
+                  padding: "8px 12px",
+                  backgroundColor: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: "#166534",
+                  fontWeight: 600,
+                }}>
+                  ✓ Time slot held — 10 min expiry
                 </div>
               )}
             </div>
           </div>
 
+          {/* Confirm / submit button */}
           {(
-            <>
-              <button
-                onClick={handleBookLane}
-                disabled={!canSubmitBookLane || phase === "submitting"}
-                style={{
-                  width: "100%",
-                  padding: "14px 0",
-                  fontSize: 15,
-                  fontWeight: 700,
-                  backgroundColor: canSubmitBookLane ? BLUE : "#d1d5db",
-                  color: canSubmitBookLane ? "#fff" : "#9ca3af",
-                  border: "none",
-                  borderRadius: 10,
-                  cursor: canSubmitBookLane ? "pointer" : "not-allowed",
-                  letterSpacing: 0.5,
-                }}
-              >
-                {phase === "submitting"
-                  ? "Booking..."
-                  : selectedDate && selectedHour !== null && selectedMinute !== null
-                    ? `Book for ${selectedDate} at ${formatHourMinute(selectedHour, selectedMinute)}`
-                    : "Select date & time"}
-              </button>
-            </>
+            <button
+              onClick={handleBookLaneConfirm}
+              disabled={!canConfirmBookLane && !bookLaneBusy}
+              style={{
+                width: "100%",
+                padding: "14px 0",
+                fontSize: 15,
+                fontWeight: 700,
+                backgroundColor: canConfirmBookLane ? BLUE : "#d1d5db",
+                color: canConfirmBookLane ? "#fff" : "#9ca3af",
+                border: "none",
+                borderRadius: 10,
+                cursor: canConfirmBookLane ? "pointer" : "not-allowed",
+                letterSpacing: 0.5,
+              }}
+            >
+              {bookLaneBusy
+                ? "Booking..."
+                : canConfirmBookLane && selectedHour !== null && selectedMinute !== null
+                  ? `Confirm: ${selectedDate} at ${formatHourMinute(selectedHour, selectedMinute)}`
+                  : "Select date & time"}
+            </button>
           )}
         </>
       )}
@@ -918,7 +1129,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
       {/* Progress / result */}
       {(phase === "submitting" || phase === "done" || (phase === "error" && progress.length > 0)) && (
         <div style={{
-          marginTop: 16,
+          marginTop: 12,
           padding: "14px 16px",
           backgroundColor: phase === "done" ? "#f0fdf4" : phase === "error" ? "#fef2f2" : "#f9fafb",
           border: `1px solid ${phase === "done" ? "#bbf7d0" : phase === "error" ? "#fecaca" : "#e5e7eb"}`,
@@ -942,7 +1153,7 @@ export default function KbfAdminClient({ token }: { token: string }) {
       {phase === "done" && mode === "bowl-now" && (
         <div
           style={{
-            marginTop: 16,
+            marginTop: 12,
             padding: "16px 20px",
             backgroundColor: "#dc2626",
             border: "3px solid #fca5a5",
@@ -967,14 +1178,14 @@ export default function KbfAdminClient({ token }: { token: string }) {
         <button
           onClick={handleReset}
           style={{
-            marginTop: 12,
+            marginTop: 10,
             width: "100%",
             padding: "12px 0",
             fontSize: 14,
             fontWeight: 600,
             backgroundColor: "#fff",
-            color: "#004AAD",
-            border: "1px solid #004AAD",
+            color: BLUE,
+            border: `1px solid ${BLUE}`,
             borderRadius: 8,
             cursor: "pointer",
           }}
