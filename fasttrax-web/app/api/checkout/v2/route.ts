@@ -875,15 +875,16 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Short code (for admin links / email) ───────────────────────
+    // MUST be awaited — the confirmation page relies on looking up
+    // the Neon row by shortCode on refresh. Fire-and-forget caused a
+    // race where the row didn't have the code yet on reload.
     const confirmBase = "/book/checkout/confirmation";
     let shortCode: string | undefined;
     try {
       shortCode = await shortenUrl(`${confirmBase}?code=_TMP_`);
       await shortenUrl(`${confirmBase}?code=${shortCode}`, shortCode);
       if (neonId) {
-        updateBowlingReservationShortCode(neonId, shortCode).catch((err) =>
-          console.error("[checkout/v2] short_code update failed:", err),
-        );
+        await updateBowlingReservationShortCode(neonId, shortCode);
       }
     } catch (err) {
       console.error("[checkout/v2] shortenUrl failed:", err);

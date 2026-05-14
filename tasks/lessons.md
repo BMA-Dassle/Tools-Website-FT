@@ -1,5 +1,22 @@
 # Lessons Learned
 
+## NEVER expose sequential IDs in customer-facing URLs (2026-05-14)
+
+Sequential integer IDs (Neon row IDs, BMI order IDs) are trivially guessable —
+incrementing by 1 gives you another customer's reservation. **Only use random
+tokens (shortCodes) in URLs that return customer data.**
+
+- Confirmation pages: `?code={shortCode}` only. Never `?neonId=123`.
+- The shortCode DB write MUST be `await`ed (not fire-and-forget) so the
+  row is queryable by the time the customer reloads the page.
+- API endpoints that return reservation data must validate by shortCode,
+  never accept sequential IDs from unauthenticated requests.
+- Same applies to email/SMS links: signed URLs or shortCodes, never raw IDs.
+
+**Rule:** Any URL param that exposes a guessable identifier to unauthenticated
+users is a security vulnerability. Use random tokens for all customer-facing
+lookups.
+
 ## Neon sql template tag consumes `::type` as parameter type hints (2026-05-09)
 
 The `@neondatabase/serverless` `sql` tagged template treats `${value}::type`

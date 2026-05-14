@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getBowlingReservation,
   getBowlingReservationByShortCode,
   getReservationsByCheckoutGroup,
   type BowlingReservation,
@@ -8,14 +7,17 @@ import {
 
 /**
  * GET /api/checkout/v2/confirmation?code={shortCode}
- * GET /api/checkout/v2/confirmation?neonId={id}
  *
  * Refresh-proof confirmation endpoint. When the unified confirmation page
  * loses sessionStorage (page refresh, navigation), this reconstructs the
  * minimal data needed to bootstrap the confirmation hooks.
  *
+ * Only accepts shortCodes (random 6-char tokens) — NEVER sequential IDs.
+ * Sequential IDs are trivially guessable and would expose other customers'
+ * reservations.
+ *
  * Flow:
- *   1. Resolve the primary reservation from Neon (by shortCode or neonId)
+ *   1. Resolve the primary reservation from Neon (by shortCode)
  *   2. If it has a checkoutGroupId, fetch all sibling rows (mixed cart)
  *   3. Categorize into bowling / racing / attractions
  *   4. Return the data shape the confirmation page needs
@@ -27,12 +29,10 @@ import {
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
-  const neonIdParam = url.searchParams.get("neonId");
-  const neonId = neonIdParam ? parseInt(neonIdParam, 10) : 0;
 
-  if (!code && !neonId) {
+  if (!code) {
     return NextResponse.json(
-      { error: "code or neonId required" },
+      { error: "code required" },
       { status: 400 },
     );
   }
@@ -41,13 +41,8 @@ export async function GET(req: NextRequest) {
     // ── Step 1: Resolve primary reservation ─────────────────────────
     let primary: BowlingReservation | null = null;
 
-    if (code) {
-      const result = await getBowlingReservationByShortCode(code);
-      if (result) primary = result;
-    } else if (neonId > 0) {
-      const result = await getBowlingReservation(neonId);
-      if (result) primary = result;
-    }
+    const result = await getBowlingReservationByShortCode(code);
+    if (result) primary = result;
 
     if (!primary) {
       return NextResponse.json({ error: "not found" }, { status: 404 });

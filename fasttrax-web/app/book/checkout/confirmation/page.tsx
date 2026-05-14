@@ -805,7 +805,6 @@ function DebugPanel({ steps }: { steps: DebugStep[] }) {
 function ConfirmationContent() {
   const sp = useSearchParams();
   const codeParam = sp.get("code") ?? "";
-  const neonIdParam = sp.get("neonId") ?? "";
 
   const [data, setData] = useState<ConfirmationData | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -831,11 +830,10 @@ function ConfirmationContent() {
       } catch { /* continue to API fallback */ }
 
       // 2. Fallback: fetch from confirmation API (page refresh case)
-      const lookupKey = codeParam || neonIdParam;
-      if (lookupKey) {
+      // Only shortCodes — never sequential IDs (guessable → security risk)
+      if (codeParam) {
         try {
-          const param = codeParam ? `code=${codeParam}` : `neonId=${neonIdParam}`;
-          const res = await fetch(`/api/checkout/v2/confirmation?${param}`);
+          const res = await fetch(`/api/checkout/v2/confirmation?code=${codeParam}`);
           if (res.ok && !cancelled) {
             const apiData = await res.json();
             setData(apiData);
@@ -853,7 +851,7 @@ function ConfirmationContent() {
     })();
 
     return () => { cancelled = true; };
-  }, [codeParam, neonIdParam]);
+  }, [codeParam]);
 
   if (!loaded) {
     return (
