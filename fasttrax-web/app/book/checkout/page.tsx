@@ -373,17 +373,32 @@ export default function CheckoutPage() {
       smsOptIn: contact.smsOptIn,
       // Bowling hold — optional for attractions-only
       ...(bowlingHold ? { bowlingHold } : {}),
-      // Racing data — racer assignments + primary person ID for post-confirm pipeline
+      // Racing data — racer assignments + primary person ID for post-confirm pipeline.
+      // Filter against cart dates to prevent stale heats from prior bookings
+      // (returning racers on the same BMI person can accumulate assignments).
       ...(racerAssignments.length > 0
-        ? {
-            racerData: racerAssignments.map((r) => ({
-              name: r.racerName,
-              personId: r.personId || undefined,
-              product: r.product,
-              track: r.track || undefined,
-              heatStart: r.heatStart || undefined,
-            })),
-          }
+        ? (() => {
+            const cartDates = new Set(
+              cartItems.map((item) => item.date).filter(Boolean),
+            );
+            const filtered = cartDates.size > 0
+              ? racerAssignments.filter((r) => {
+                  const d = r.heatStart?.replace(/Z$/, "").split("T")[0] || "";
+                  return cartDates.has(d);
+                })
+              : racerAssignments;
+            // Safety: if filter produced empty (date format mismatch), use all
+            const safe = filtered.length > 0 ? filtered : racerAssignments;
+            return {
+              racerData: safe.map((r) => ({
+                name: r.racerName,
+                personId: r.personId || undefined,
+                product: r.product,
+                track: r.track || undefined,
+                heatStart: r.heatStart || undefined,
+              })),
+            };
+          })()
         : {}),
       ...(primaryPersonId ? { primaryPersonId } : {}),
       // Loyalty
@@ -470,9 +485,18 @@ export default function CheckoutPage() {
         bowlingNeonId: hasBowling && safeResponse.neonIds?.[0] ? safeResponse.neonIds[0] : null,
         bowlingShortCode: hasBowling ? (safeResponse.shortCode ?? null) : null,
         bowlingKind: hasBowling ? bowlingHold!.kind : null,
-        // Racing: bill ID + racer assignments for useRacingConfirmation hook
+        // Racing: bill ID + racer assignments for useRacingConfirmation hook.
+        // Filter stale heats: only include assignments for dates in THIS cart.
         bmiBillId: orderId ?? null,
-        racerAssignments: isRacingCart ? racerAssignments : null,
+        racerAssignments: isRacingCart ? (() => {
+          const cartDates = new Set(cartItems.map((item) => item.date).filter(Boolean));
+          if (cartDates.size === 0) return racerAssignments;
+          const filtered = racerAssignments.filter((r) => {
+            const d = r.heatStart?.replace(/Z$/, "").split("T")[0] || "";
+            return cartDates.has(d);
+          });
+          return filtered.length > 0 ? filtered : racerAssignments;
+        })() : null,
         primaryPersonId: primaryPersonId ?? null,
         isRacingCart,
       }));

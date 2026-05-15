@@ -222,12 +222,22 @@ function buildRacingPreResolved(
   let assignments = rawAssignments;
   const purchasedDates = buildPurchasedDates(data);
 
+  // Debug: trace filter inputs (visible in browser console)
+  console.log("[buildRacingPreResolved] rawAssignments:", rawAssignments?.length,
+    "purchasedDates:", [...purchasedDates],
+    "purchasedItems:", data.purchasedItems?.length,
+    "attractions:", data.attractions?.length,
+  );
+
   if (assignments && assignments.length > 0 && purchasedDates.size > 0) {
     const filtered = assignments.filter((ra) => {
       // BMI heatStart: "2026-05-15T15:00:00Z" → strip Z, take date → "2026-05-15"
       const raDate = ra.heatStart?.replace(/Z$/, "").split("T")[0] || "";
       return purchasedDates.has(raDate);
     });
+    console.log("[buildRacingPreResolved] filter:", assignments.length, "→", filtered.length,
+      "dates:", assignments.map((ra) => ra.heatStart?.replace(/Z$/, "").split("T")[0]),
+    );
     // Safety net: if filtering emptied everything (format mismatch),
     // fall back to full set so we don't show a blank page.
     if (filtered.length > 0) {
