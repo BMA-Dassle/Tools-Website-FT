@@ -9,8 +9,18 @@ import type { NextRequest } from "next/server";
  */
 export async function middleware(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
-  const isHeadPinz = hostname.includes("headpinz.com");
   const pathname = request.nextUrl.pathname;
+
+  // ── Local dev brand override ────────────────────────────────────────────
+  // PRODUCTION SAFETY: dead code when NODE_ENV === "production". In dev,
+  // visitors switch brands via ?brand=headpinz|fasttrax which sets a 7-day
+  // cookie; subsequent requests are treated as if they came from that
+  // brand's host. Without this, localhost has no way to reach the HeadPinz
+  // surface cleanly — middleware reads the Host header, which is just
+  // "localhost:3000" with no brand signal.
+  const isDev = process.env.NODE_ENV !== "production";
+  const devBrand = isDev ? request.cookies.get("dev-brand")?.value : undefined;
+  const isHeadPinz = hostname.includes("headpinz.com") || devBrand === "headpinz";
 
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
   if (pathname === "/.well-known/apple-developer-merchantid-domain-association") {
@@ -236,23 +246,28 @@ export async function middleware(request: NextRequest) {
     return resp;
   }
 
-  // Dev: ?brand=headpinz sets a cookie to simulate headpinz.com on localhost
-  const brandParam = request.nextUrl.searchParams.get("brand");
-  if (brandParam === "headpinz") {
-    const url = request.nextUrl.clone();
-    url.searchParams.delete("brand");
-    url.pathname = `/hp${pathname === "/" ? "" : pathname}`;
-    const response = NextResponse.redirect(url);
-    response.cookies.set("dev-brand", "headpinz", { path: "/", maxAge: 60 * 60 * 24 });
-    return response;
-  }
-  if (brandParam === "fasttrax") {
-    const url = request.nextUrl.clone();
-    url.searchParams.delete("brand");
-    url.pathname = "/";
-    const response = NextResponse.redirect(url);
-    response.cookies.delete("dev-brand");
-    return response;
+  // Dev only: ?brand=headpinz|fasttrax sets/clears the dev-brand cookie and
+  // redirects to the same path without the query param. The cookie is read
+  // at the top of this function to flip isHeadPinz, so the rest of the
+  // middleware routes naturally as if the visitor arrived on that brand's
+  // host. Gated by NODE_ENV — prod ignores ?brand= entirely.
+  if (isDev) {
+    const brandParam = request.nextUrl.searchParams.get("brand");
+    if (brandParam === "headpinz" || brandParam === "fasttrax") {
+      const url = request.nextUrl.clone();
+      url.searchParams.delete("brand");
+      const response = NextResponse.redirect(url);
+      if (brandParam === "headpinz") {
+        response.cookies.set("dev-brand", "headpinz", {
+          path: "/",
+          maxAge: 60 * 60 * 24 * 7,
+          sameSite: "lax",
+        });
+      } else {
+        response.cookies.set("dev-brand", "", { path: "/", maxAge: 0 });
+      }
+      return response;
+    }
   }
 
   // HeadPinz legacy WordPress URL redirects (301 permanent)

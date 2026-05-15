@@ -1,8 +1,8 @@
 # Restructure Status
 
-**Last updated:** 2026-05-14 by Alex
+**Last updated:** 2026-05-15 by Alex
 **Current phase:** Phase 0 — Foundation
-**Next up:** PR2.5 (Local dev runbook: middleware brand override + README setup)
+**Next up:** PR3 (Move `fasttrax-web/` → `apps/web/` — coordinated Vercel root-dir change)
 
 > Read [tasks/restructure-plan.md](restructure-plan.md) for the full plan, conventions, and migration backlog.
 
@@ -20,7 +20,14 @@
   - Root `.env.example` enumerates every env var observed in the codebase (Square, BMI, Conq/QAMF, Pandora, KBF, VT3, Twilio/Vox, SendGrid, Teams bot, admin auth, Vercel KV, blob, SEO verification, feature flags).
   - `docs/adr/` with README, 0000-template, 0001-npm-turbo (captures the 2026-05-06 pnpm → npm switch decision).
   - Workspaces added `typecheck` script (tsc --noEmit); turbo gained `typecheck` and `test` tasks.
-- [ ] **PR2.5** — Local dev runbook (added during planning of booking rewrite — see [tasks/restructure-plan.md](restructure-plan.md) "Local development must work"). Adds middleware `?brand=` override gated by `NODE_ENV !== 'production'` + README setup section.
+- [x] **PR2.5** — Local dev runbook — landed 2026-05-15.
+  - Tightened the existing dev `?brand=` override in [middleware.ts](../fasttrax-web/middleware.ts) to:
+    - Gate the entire branch on `NODE_ENV !== 'production'` (was always-on — minor footgun on prod where the param could rewrite paths).
+    - Compute `isHeadPinz` from the `dev-brand` cookie when in dev, so brand state PERSISTS across navigation (previously the cookie was set but never read — only the per-request `?brand=` param worked).
+    - Set-cookie + redirect to the SAME path (no path mangling) so developers see clean URLs like `/fort-myers`, not `/hp/fort-myers`.
+  - Root [README.md](../README.md) rewritten: workspace layout, prerequisites, first-time setup, brand switching (`?brand=headpinz` / `?brand=fasttrax`), common commands, troubleshooting (stale Next typegen, husky core.hooksPath corruption, missing cookie).
+  - Smoke tested locally: `npm run dev -w fasttrax-web` ready in 688ms; `/` serves FastTrax; `?brand=headpinz` 307s + sets `dev-brand=headpinz; SameSite=lax; Max-Age=604800`; subsequent `/` with cookie serves HeadPinz (title verified). `?brand=fasttrax` clears the cookie.
+  - Known Next 16 noise: warns `"middleware" file convention is deprecated. Please use "proxy" instead.` Migrating `middleware.ts` → `proxy.ts` is its own PR — out of PR2.5 scope.
 - [ ] **PR3** — Move `fasttrax-web/` → `apps/web/` (coordinated Vercel root-dir change)
 
 ## Phase 1 — v2 Runway
@@ -65,7 +72,8 @@ Each migration that ships gets a one-line entry below.
 ## Lessons learned during restructure
 
 - **PR2 (2026-05-14):** Next.js 16 generates `.next/dev/types/validator.ts` referencing route layouts that may no longer exist on disk. `tsc --noEmit` fails on stale typegen until `.next/` is cleaned (or a fresh `next build` regenerates it). CI is unaffected because it starts cold; local typecheck after refactoring routes needs `rm -rf fasttrax-web/.next` first.
-- **PR2 (2026-05-14):** Surfacing lint via CI exposed ~105 pre-existing errors (mostly new React 19 `react-hooks/set-state-in-effect`, `react-hooks/refs`, `react-hooks/exhaustive-deps`) and ~148 warnings. The CI lint step is `continue-on-error` until a dedicated cleanup PR lands. Don't ship new code that triggers these rules.
+- **PR2 (2026-05-14):** Surfacing lint via CI exposed ~105 pre-existing errors (mostly new React 19 `react-hooks/set-state-in-effect`, `react-hooks/refs`, `react-hooks/exhaustive-deps`) and ~148 warnings. Both CI lint and the pre-commit lint-staged hook are prettier-only / `continue-on-error` until a dedicated cleanup PR lands. Don't ship new code that triggers these rules.
+- **PR2 (2026-05-15):** Husky's `prepare` script on Windows occasionally corrupts `core.hooksPath` to `--version/_` (looks like a `git config --version` output got substituted into the set command). Symptom: every git op prints `env: unknown option -- version/_/<hook-name>` and the hook silently no-ops. Fix: `git config core.hooksPath .husky/_`.
 
 ## Update protocol
 
