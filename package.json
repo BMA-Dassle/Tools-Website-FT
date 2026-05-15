@@ -7,7 +7,6 @@
     "node": ">=22.0.0"
   },
   "workspaces": [
-    "fasttrax-web",
     "kart-timing-bridge",
     "vt3-bridge",
     "packages/*",

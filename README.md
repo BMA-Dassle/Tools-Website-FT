@@ -8,11 +8,11 @@ relay live timing / video event streams to the web app's webhooks.
 
 ```
 Tools-Website-FT/
-├── fasttrax-web/          # Next 16 + React 19 site (moves to apps/web/ in PR3)
+├── apps/
+│   └── web/               # Next 16 + React 19 site (npm workspace name: fasttrax-web)
 ├── kart-timing-bridge/    # Node service: kart timing WebSocket → web webhook
 ├── vt3-bridge/            # Node service: VT3 video SSE → web webhook
 ├── packages/              # (empty; @ft/* workspace packages land PR4+)
-├── apps/                  # (empty; reserved for the apps/web/ move in PR3)
 ├── docs/                  # API docs + architecture decision records
 └── tasks/                 # Active plan / status / lessons / open work
 ```
@@ -31,8 +31,8 @@ Tools-Website-FT/
 npm install
 
 # 2. Copy the env template and fill in values.
-cp .env.example fasttrax-web/.env.local
-# Open fasttrax-web/.env.local; minimum to boot:
+cp .env.example apps/web/.env.local
+# Open apps/web/.env.local; minimum to boot:
 #   DATABASE_URL         (Neon — from 1Password)
 #   REDIS_URL            (Upstash — from 1Password)
 #   NEXT_PUBLIC_SITE_URL=http://localhost:3000
@@ -48,7 +48,7 @@ The site is now on `http://localhost:3000`. By default this is the
 
 Production uses the request `Host` header to pick brand
 (`headpinz.com` → HeadPinz, otherwise FastTrax). Localhost has no
-brand-bearing host, so [middleware.ts](fasttrax-web/middleware.ts)
+brand-bearing host, so [middleware.ts](apps/web/middleware.ts)
 exposes a dev-only override:
 
 | URL                                     | Effect                                                                                                                       |
@@ -88,7 +88,7 @@ files. Never bypass with `--no-verify`.
 Stale Next.js typegen. Delete the cache and try again:
 
 ```bash
-rm -rf fasttrax-web/.next
+rm -rf apps/web/.next
 npm run typecheck
 ```
 
@@ -131,8 +131,9 @@ Confirm Node version: `node --version` should be 24+. If npm reports
 
 ## Deployment
 
-- **Web (fasttrax-web)** → Vercel. Project root is currently `fasttrax-web/`
-  (changes to `apps/web/` when PR3 lands).
+- **Web (fasttrax-web)** → Vercel. Project root is `apps/web/` (moved
+  from `fasttrax-web/` in PR3; Vercel root-dir flip is the cutover
+  step — see [tasks/restructure-status.md](tasks/restructure-status.md)).
 - **Bridges** → Railway. One Railway service per bridge.
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs

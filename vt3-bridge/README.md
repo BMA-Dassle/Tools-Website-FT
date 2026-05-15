@@ -74,7 +74,7 @@ webhook. Leave it running for ~30 minutes during a busy race window
   which session-id to ACK against).
 
 Once you have the schema, design the Vercel webhook handler at
-`fasttrax-web/app/api/webhooks/vt3-video-event/route.ts` to dispatch
+`apps/web/app/api/webhooks/vt3-video-event/route.ts` to dispatch
 on `eventType` and call into the existing `lib/video-match.ts`
 matching logic.
 
@@ -120,7 +120,7 @@ project as `VT3_BRIDGE_SECRET` so the webhook handler can validate
 incoming requests:
 
 ```bash
-# From fasttrax-web/, with vercel CLI logged in:
+# From apps/web/, with vercel CLI logged in:
 vercel env add VT3_BRIDGE_SECRET production
 # paste the same hex string used in fly/railway secrets
 ```
@@ -142,7 +142,7 @@ cron will catch up within 15 min instead of the bridge's "instant or
 never" failure mode.
 
 After 2-3 weeks of bridge uptime with no missed videos, drop the
-cron entry from `fasttrax-web/vercel.json`.
+cron entry from `apps/web/vercel.json`.
 
 ## Confirmed event schema (PROBE-mode logs, 2026-05-03)
 

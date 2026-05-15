@@ -2,7 +2,7 @@
  * Upload the updated HeadPinz Group Events PDF (v3, Apr 29 2026) to
  * Vercel Blob, overwriting the previous Sales Booklet at the same path.
  *
- * Run from fasttrax-web/:  node scripts/upload-headpinz-pdf-v3.mjs
+ * Run from apps/web/:  node scripts/upload-headpinz-pdf-v3.mjs
  */
 import { put } from "@vercel/blob";
 import { readFile } from "node:fs/promises";

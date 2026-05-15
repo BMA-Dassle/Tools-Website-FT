@@ -17,13 +17,13 @@ so it's covered transitively. Google does **not** participate (use
 
 ## Already configured
 
-| What     | Where                                                                                                                                                                                 |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Key      | `INDEXNOW_KEY` in `.env.local`                                                                                                                                                        |
-| Key file | `fasttrax-web/public/52e6d30db6e55d7d60784ed3b779cf45ddf8dc71.txt` — served at `https://fasttraxent.com/52e6d30db6e55d7d60784ed3b779cf45ddf8dc71.txt` AND `https://headpinz.com/…txt` |
-| Helper   | `fasttrax-web/lib/indexnow.ts` — `submitIndexNow`, `submitSitemapUrls`                                                                                                                |
-| Endpoint | `POST /api/seo/indexnow` — submits both domains' full sitemap URLs                                                                                                                    |
-| Combined | `POST /api/seo/ping-all` — fires IndexNow + Google in parallel                                                                                                                        |
+| What     | Where                                                                                                                                                                             |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Key      | `INDEXNOW_KEY` in `.env.local`                                                                                                                                                    |
+| Key file | `apps/web/public/52e6d30db6e55d7d60784ed3b779cf45ddf8dc71.txt` — served at `https://fasttraxent.com/52e6d30db6e55d7d60784ed3b779cf45ddf8dc71.txt` AND `https://headpinz.com/…txt` |
+| Helper   | `apps/web/lib/indexnow.ts` — `submitIndexNow`, `submitSitemapUrls`                                                                                                                |
+| Endpoint | `POST /api/seo/indexnow` — submits both domains' full sitemap URLs                                                                                                                |
+| Combined | `POST /api/seo/ping-all` — fires IndexNow + Google in parallel                                                                                                                    |
 
 ## Usage
 
@@ -81,12 +81,12 @@ key is public by design (it's at a discoverable URL).
 
 1. Generate a new 40-hex string (e.g. `openssl rand -hex 20` or
    `uuidgen | tr -d '-'`).
-2. Create a new file in `fasttrax-web/public/{new-key}.txt` with just the
+2. Create a new file in `apps/web/public/{new-key}.txt` with just the
    new key as content.
 3. Update `INDEXNOW_KEY` in `.env.local` AND Vercel env.
 4. Deploy.
 5. After deploy confirms both key files serve correctly, delete the OLD
-   key file from `fasttrax-web/public/`.
+   key file from `apps/web/public/`.
 6. Deploy again.
 
 The order matters: new key needs to be live BEFORE you switch the env
@@ -105,7 +105,7 @@ IndexNow is the main integration for Bing. If you also want:
 
 - **Option 1 — CNAME:** add a DNS CNAME record. Works for both domains.
 - **Option 2 — XML file:** download `BingSiteAuth.xml`, drop in
-  `fasttrax-web/public/`. Middleware allows root-level .xml through.
+  `apps/web/public/`. Middleware allows root-level .xml through.
 - **Option 3 — Import from GSC:** easiest if GSC already verified
   (Bing auto-imports the property).
 
@@ -116,9 +116,9 @@ Already-indexed content shows up within 24–48 h of verification.
 ### Key file returns 404
 
 - Middleware's root-metadata bypass isn't catching it. Check
-  `fasttrax-web/middleware.ts` → `isRootMetadataPath` regex includes
+  `apps/web/middleware.ts` → `isRootMetadataPath` regex includes
   `/^\/[a-zA-Z0-9_-]+\.txt$/` (it does as of commit `ae0f7d1`).
-- Double-check file exists in `fasttrax-web/public/` and filename
+- Double-check file exists in `apps/web/public/` and filename
   exactly matches the `INDEXNOW_KEY` env var.
 
 ### IndexNow returns `403 Forbidden`

@@ -3,7 +3,7 @@
  * Mirrors the existing path conventions (images/headpinz/* + documents/*)
  * and prints the resulting public URLs so they can be pasted into page.tsx.
  *
- * Run from fasttrax-web/:  node scripts/upload-headpinz-assets.mjs
+ * Run from apps/web/:  node scripts/upload-headpinz-assets.mjs
  *
  * Reads BLOB_READ_WRITE_TOKEN from .env.local (no extra setup needed).
  */

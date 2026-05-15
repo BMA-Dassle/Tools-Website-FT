@@ -12,7 +12,7 @@
  * outside Vercel just to bridge the always-on stream into our
  * normal webhook-driven request/response model.
  *
- * Auth flow mirrors `fasttrax-web/lib/vt3.ts` — POST /auth/local
+ * Auth flow mirrors `apps/web/lib/vt3.ts` — POST /auth/local
  * with username + password, get JWT good for 7 days, cache in
  * memory for 6 days, re-login on 401.
  *

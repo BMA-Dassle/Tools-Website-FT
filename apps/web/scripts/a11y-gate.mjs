@@ -79,6 +79,6 @@ for (const v of violations) {
 }
 console.error(`\n[a11y-gate] Fix the above before merging.`);
 console.error(
-  `[a11y-gate] See fasttrax-web/lib/a11y.ts for modalBackdropProps + clickableDivProps helpers.`,
+  `[a11y-gate] See apps/web/lib/a11y.ts for modalBackdropProps + clickableDivProps helpers.`,
 );
 process.exit(1);

@@ -10,16 +10,16 @@ or starting new feature work:
 - [tasks/lessons.md](tasks/lessons.md) — accumulated lessons & guardrails (BMI ID precision, idempotency, etc.)
 - [tasks/todo.md](tasks/todo.md) — open in-flight feature work (separate from restructure)
 
-## Workspace shape (post-PR1)
+## Workspace shape (post-PR3)
 
 - **npm workspaces + Turborepo** at root. `packageManager: npm@11.6.4`. Node 22+.
-- **One Next app** at `fasttrax-web/` (moves to `apps/web/` in PR3 with coordinated Vercel root-dir change).
+- **One Next app** at `apps/web/` (moved here in PR3 from `fasttrax-web/`; npm workspace name is still `fasttrax-web` — directory move did not rename the package).
 - **Two Node bridges** at `kart-timing-bridge/` and `vt3-bridge/` (Railway-deployed; move to `apps/` in Phase 3).
 - **`packages/*` and `apps/*` globs** reserved for future `@ft/*` packages (added PR4+).
 - Run everything via npm + turbo:
   - `npm install` — at root (generates/updates the single workspace `package-lock.json`)
   - `npx turbo run build` — workspace-wide build
-  - `npm run dev -w fasttrax-web` — dev server (the `-w` flag scopes to a workspace)
+  - `npm run dev -w fasttrax-web` — dev server (the `-w` flag scopes to a workspace by package name)
 - **One lockfile only** — the root `package-lock.json`. Workspace packages do NOT have their own lockfiles.
 - **Why npm not pnpm:** see `tasks/lessons.md` "pnpm + Vercel = quagmire (2026-05-06)". Short version: pnpm 9/10's URLSearchParams bug + Vercel's bundled-pnpm version override fought us through three PRs and never converged. npm + Turborepo gives us 95% of the value without the fight.
 

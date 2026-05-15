@@ -19,7 +19,7 @@ We built a sales-leads flow in `fasttrax-web` that posts Teams Adaptive Cards wi
 ## What this PR does
 
 1. Adds a `SALES_LEAD_VERBS` set covering the two verbs fasttrax emits
-2. Adds a `forwardSalesLeadAction` function that POSTs the full invoke activity envelope to `fasttrax-web/api/teams/bot-action` with a shared-secret header
+2. Adds a `forwardSalesLeadAction` function that POSTs the full invoke activity envelope to `apps/web/api/teams/bot-action` with a shared-secret header
 3. In the main `invoke` dispatch block (just after the verb is extracted, before the `ACTION_HANDLERS` lookup that would otherwise return "Unknown action"), intercepts sales-lead verbs and forwards them
 4. Adds two env vars: `FASTTRAX_BOT_ACTION_URL` and `PORTAL_FORWARD_SECRET`
 
@@ -158,12 +158,12 @@ Add in Vercel (production + preview) AND in local `.env.local`:
 
 ```
 FASTTRAX_BOT_ACTION_URL=https://headpinz.com/api/teams/bot-action
-PORTAL_FORWARD_SECRET=<same value as in fasttrax-web/.env.local>
+PORTAL_FORWARD_SECRET=<same value as in apps/web/.env.local>
 ```
 
 The same `PORTAL_FORWARD_SECRET` value lives in both repos' envs — that's how fasttrax-web authenticates the incoming invoke as coming from the portal (header: `x-portal-forward-secret`). When rotating, update both at the same time.
 
-Current value already chosen and in `fasttrax-web/.env.local`:
+Current value already chosen and in `apps/web/.env.local`:
 
 ```
 PORTAL_FORWARD_SECRET=c7f3b21e9d4a58b6e0f17c9d3a42b85e6f981c0b2d4e7a5c8f9b0d1e2f3a4b5c

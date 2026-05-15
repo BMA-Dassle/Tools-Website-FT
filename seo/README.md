@@ -66,17 +66,17 @@ curl -X POST https://fasttraxent.com/api/seo/ping-all \
 
 **Env vars** (set in fasttrax-web Vercel project, Production + Preview):
 
-- `GOOGLE_SERVICE_ACCOUNT_KEY` — full JSON blob (see `fasttrax-web/docs/seo-gsc-setup.md`)
-- `INDEXNOW_KEY` — 40-hex key; also hosted at `fasttrax-web/public/{key}.txt`
+- `GOOGLE_SERVICE_ACCOUNT_KEY` — full JSON blob (see `apps/web/docs/seo-gsc-setup.md`)
+- `INDEXNOW_KEY` — 40-hex key; also hosted at `apps/web/public/{key}.txt`
 - `PORTAL_FORWARD_SECRET` — shared secret used as the `x-dev-secret` auth
 
 **Source:**
 
-- `fasttrax-web/app/api/seo/submit-sitemaps/route.ts`
-- `fasttrax-web/app/api/seo/indexnow/route.ts`
-- `fasttrax-web/app/api/seo/ping-all/route.ts`
-- `fasttrax-web/lib/google-auth.ts` (service-account JWT → token)
-- `fasttrax-web/lib/indexnow.ts` (IndexNow POST + sitemap parse)
+- `apps/web/app/api/seo/submit-sitemaps/route.ts`
+- `apps/web/app/api/seo/indexnow/route.ts`
+- `apps/web/app/api/seo/ping-all/route.ts`
+- `apps/web/lib/google-auth.ts` (service-account JWT → token)
+- `apps/web/lib/indexnow.ts` (IndexNow POST + sitemap parse)
 
 ### B. Python scripts (operator-friendly for reports)
 
@@ -112,7 +112,7 @@ blob). The Python scripts use the key file at `C:\Work\…json` (not in git).
 
 IndexNow is zero-auth — engines verify ownership by fetching the
 key file you host at `https://{domain}/{key}.txt` (done — lives in
-`fasttrax-web/public/`).
+`apps/web/public/`).
 
 ---
 
@@ -189,11 +189,11 @@ bucket:
    `googlesearch@headpinz.iam.gserviceaccount.com` with **Owner** permission.
 3. Add the site URL to any script that iterates (or let it auto-pick up
    via `sites().list()`).
-4. Add sitemap entry to `fasttrax-web/app/sitemap.ts` under the new brand.
+4. Add sitemap entry to `apps/web/app/sitemap.ts` under the new brand.
 5. Add the host to `DOMAINS` in
-   `fasttrax-web/app/api/seo/ping-all/route.ts`, `submit-sitemaps`,
+   `apps/web/app/api/seo/ping-all/route.ts`, `submit-sitemaps`,
    `indexnow`.
-6. Drop the IndexNow key file at `fasttrax-web/public/{key}.txt` (same key
+6. Drop the IndexNow key file at `apps/web/public/{key}.txt` (same key
    works cross-domain).
 
 ---
@@ -218,8 +218,8 @@ bucket:
 
 ## Related docs
 
-- `fasttrax-web/docs/seo-gsc-setup.md` — step-by-step GCP / GSC setup
+- `apps/web/docs/seo-gsc-setup.md` — step-by-step GCP / GSC setup
   for the Next.js endpoints
-- `fasttrax-web/docs/indexnow-setup.md` — IndexNow setup + key rotation
+- `apps/web/docs/indexnow-setup.md` — IndexNow setup + key rotation
 - [`scripts/_common.py`](scripts/_common.py) — shared auth + site list
   for Python scripts
