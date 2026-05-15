@@ -17,6 +17,7 @@ import {
   syncLocationFromUrl,
 } from "@/lib/booking-location";
 import { bookAttractionSlot, type BmiProposal } from "@/lib/attractions-data";
+import { toLaneInsertName } from "@/lib/qamf-name";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
@@ -1620,7 +1621,7 @@ export default function KidsBowlFreePage() {
             bowlerInputs: selectedBowlers.map((b) => {
               const sel = bowlerSelections[b.key];
               return {
-                name: b.displayName || "",
+                name: toLaneInsertName(b.displayName || ""),
                 wantBumpers: sel?.wantBumpers === true,
                 shoeSize: sel?.wantShoes && sel?.shoeSizeLabel ? sel.shoeSizeLabel : null,
                 shoeSizeId: sel?.wantShoes ? (sel?.shoeSizeId ?? null) : null,

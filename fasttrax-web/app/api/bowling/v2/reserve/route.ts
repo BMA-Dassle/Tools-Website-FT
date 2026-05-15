@@ -18,6 +18,7 @@ import {
   type ReservationLine,
 } from "@/lib/bowling-db";
 import { setLanePlayers } from "@/lib/qamf-bowling";
+import { toLaneInsertName } from "@/lib/qamf-name";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
 
@@ -650,7 +651,9 @@ export async function POST(req: NextRequest) {
     const laneId = lane.Id ?? String(lane.LaneNumber);
     setLanePlayers(centerId, qamfReservationId, laneId,
       players.map((p) => ({
-        Name: p.name || "Bowler",
+        Name: productKind === "kbf"
+          ? (toLaneInsertName(p.name || "") || "Bowler")
+          : (p.name || "Bowler"),
         ActivateBumpers: p.bumpers ?? false,
       })),
     ).catch((err) =>

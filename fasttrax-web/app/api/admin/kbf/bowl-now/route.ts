@@ -6,6 +6,7 @@ import {
   setLaneStatus,
   setLanePlayers,
 } from "@/lib/qamf-bowling";
+import { toLaneInsertName } from "@/lib/qamf-name";
 import {
   insertBowlingReservation,
   insertReservationPlayers,
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
       try {
         const qamfPlayers = bowlers.map((b) => {
           const p: { Name: string; ShoeSize?: string; ActivateBumpers: boolean } = {
-            Name: b.name,
+            Name: toLaneInsertName(b.name),
             ActivateBumpers: b.bumpers ?? false,
           };
           if (b.shoeSize) p.ShoeSize = b.shoeSize;
